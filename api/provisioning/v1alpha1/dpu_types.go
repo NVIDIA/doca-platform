@@ -112,6 +112,7 @@ const (
 	DPUCondFwBundleUpdated        DPUConditionType = "FwBundleUpdated"
 	DPUCondFwBundleActivated      DPUConditionType = "FwBundleActivated"
 	DPUCondFwBundleArmShutdown    DPUConditionType = "FwBundleArmShutdown"
+	DPUCondFwBundleVerified       DPUConditionType = "FwBundleVerified"
 	DPUCondBFBTransferred         DPUConditionType = "BFBTransferred"
 	DPUCondIsoTransferred         DPUConditionType = "IsoTransferred"
 	DPUCondConfigTransferred      DPUConditionType = "ConfigTransferred"

@@ -35,6 +35,8 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/go-resty/resty/v2"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -65,6 +67,16 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), nil, "CannotDeleteWhileInstalling", "Cannot delete DPU during OS installation. Wait for completion or timeout."))
 	}
 
+	device := &provisioningv1.DPUDevice{}
+	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, device); err != nil {
+		logger.Error(err, "Failed to get DPUDevice")
+		return *state, err
+	}
+
+	if err := verifyFirmwareAfterReboot(ctx, dpu, ctrlCtx, device, state); err != nil {
+		return *state, err
+	}
+
 	// Check for installation timeout
 	if err := dutil.CheckInstallationTimeout(state, ctrlCtx.Options.OSInstallTimeout); err != nil {
 		logger.Info("OS installation timeout exceeded", "timeout", ctrlCtx.Options.OSInstallTimeout, "error", err)
@@ -82,12 +94,6 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 		clearInstallState(dpu.UID)
 		state.Phase = provisioningv1.DPUError
 		return *state, nil
-	}
-
-	device := &provisioningv1.DPUDevice{}
-	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, device); err != nil {
-		logger.Error(err, "Failed to get DPUDevice")
-		return *state, err
 	}
 
 	if device.Labels[provisioningv1.DPUDeviceLabelSkipHWProvisioning] == "true" {
@@ -146,6 +152,78 @@ func Installing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 	cond.Status = metav1.ConditionFalse
 	cutil.SetDPUCondition(state, cond)
 	return *state, nil
+}
+
+// verifyFirmwareAfterReboot verifies the installed BF4 firmware after an OS-install reboot.
+// It retries when the inventory cannot be read and moves the DPU to the error phase on a version mismatch.
+func verifyFirmwareAfterReboot(
+	ctx context.Context,
+	dpu *provisioningv1.DPU,
+	ctrlCtx *dutil.ControllerContext,
+	device *provisioningv1.DPUDevice,
+	state *provisioningv1.DPUStatus,
+) error {
+	_, cond := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondFwBundleVerified))
+	if dpu.Status.DPUType != provisioningv1.DPUTypeBlueField4 ||
+		(cond != nil && cond.Status == metav1.ConditionTrue) ||
+		dpu.Status.PreviousPhase != provisioningv1.DPURebooting {
+		return nil
+	}
+
+	// Activation already triggered this reboot. Drop it so a later install pass does not reboot again.
+	// installOsBf4 copies dpu.Status, so clear both the returned status and the object it reads.
+	meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondFwBundleActivated.String())
+	meta.RemoveStatusCondition(&dpu.Status.Conditions, provisioningv1.DPUCondFwBundleActivated.String())
+	meta.RemoveStatusCondition(&dpu.Status.Conditions, provisioningv1.DPUCondBFBPrepared.String())
+	meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondBFBPrepared.String())
+
+	blueFieldSoftware := &provisioningv1.BlueFieldSoftware{}
+	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: ptr.Deref(dpu.Spec.BlueFieldSoftware, "")}, blueFieldSoftware); err != nil {
+		if apierrors.IsNotFound(err) {
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleVerified.String(), err, "BlueFieldSoftwareNotFound", err.Error()))
+			return err
+		}
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), err, "FailedToGetBlueFieldSoftware", err.Error()))
+		return err
+	}
+
+	psid := ptr.Deref(device.Status.PSID, "")
+	if psid == "" {
+		err := fmt.Errorf("PSID is not set")
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleVerified.String(), err, "PSIDNotSet", err.Error()))
+		return err
+	}
+
+	// Verify only when a PLDM bundle applies to this PSID.
+	if _, ok := lookupByPSID(blueFieldSoftware.Spec.PldmFwBundle, psid); !ok {
+		err := fmt.Errorf("PSID %s is not found in the PLDM bundle", psid)
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleVerified.String(), err, "PSIDNotFoundInPLDMBundle", err.Error()))
+		return err
+	}
+
+	readCtx, cancelRead := rc.ReadContext(ctx)
+	defer cancelRead()
+
+	client, err := rc.NewTLSClient(ctx, device.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	if err != nil {
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleVerified.String(), err, "FailedToCreateClient", err.Error()))
+		return err
+	}
+
+	switch err := CheckFirmwareVersions(readCtx, client, blueFieldSoftware, psid); {
+	case errors.Is(err, errVersionMismatch):
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleVerified.String(), err, "FirmwareVersionsMismatch", err.Error()))
+		state.Phase = provisioningv1.DPUError
+		return err
+	case err != nil:
+		log.FromContext(ctx).Info("post-reboot firmware verification failed, retrying", "reason", err.Error())
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleVerified.String(), err, "FirmwareVerificationFailed", err.Error()))
+		return err
+	default:
+		log.FromContext(ctx).Info("firmware update completed successfully")
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleVerified.String(), nil, "FirmwareVerified", "Firmware verified successfully"))
+		return nil
+	}
 }
 
 // lastReportedWaitMessage returns the OSInstalled message previously recorded while waiting, or ""
@@ -447,15 +525,6 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		return *state, newRestartOSInstallError(err)
 	}
 
-	_, err = client.ChassisReset()
-	if err != nil {
-		err = fmt.Errorf("failed to reset chassis: %w", err)
-		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChassisReset), err, "FailToResetChassis", "Failed to reset chassis"))
-		return *state, newRestartOSInstallError(err)
-	}
-
-	logger.Info("Chassis reset, waiting for the DPU agent to start")
-
 	state.RedfishTaskID = nil
 
 	vmCond := cutil.NewCondition(string(provisioningv1.DPUCondVirtualMediaInserted), nil, "", "Virtual media inserted")
@@ -465,6 +534,25 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 	bootCond := cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), nil, "", "Boot target changed to USB, chassis reset.")
 	bootCond.Status = metav1.ConditionTrue
 	cutil.SetDPUCondition(state, bootCond)
+
+	_, activatedCond := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondFwBundleActivated))
+	if activatedCond != nil && activatedCond.Status == metav1.ConditionTrue {
+		logger.Info("FW bundle activated, moving to Rebooting phase")
+		state.Phase = provisioningv1.DPURebooting
+		if err := dutil.InitializeDPURebootStatus(ctx, dpu, state, ctrlCtx, provisioningv1.DPUOSInstalling); err != nil {
+			return *state, err
+		}
+	} else {
+		logger.Info("No pending FW update, resetting chassis")
+		_, err = client.ChassisReset()
+		if err != nil {
+			err = fmt.Errorf("failed to reset chassis: %w", err)
+			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChassisReset), err, "FailToResetChassis", "Failed to reset chassis"))
+			return *state, newRestartOSInstallError(err)
+		}
+
+		logger.Info("Chassis reset, waiting for the DPU agent to start")
+	}
 
 	return *state, nil
 }

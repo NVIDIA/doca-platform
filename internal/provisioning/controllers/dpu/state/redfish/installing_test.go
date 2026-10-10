@@ -955,12 +955,18 @@ var _ = Describe("Installing", func() {
 			Expect(k8sClient.Create(ctx, clientSecret)).To(Succeed())
 		}
 
-		createReadyBlueFieldSoftware := func() {
+		// psid, when set, is the device PSID whose bundle the post-reboot check compares.
+		// The mock's ARM install handler reports 24.10-17 for every inventory member.
+		createReadyBlueFieldSoftware := func(psid string) {
+			spec := provisioningv1.BlueFieldSpec{
+				OsIso: "https://test.com/" + testOsIso,
+			}
+			if psid != "" {
+				spec.PldmFwBundle = map[string]string{psid: "https://test.com/fw.fwpkg"}
+			}
 			bfs := &provisioningv1.BlueFieldSoftware{
 				ObjectMeta: metav1.ObjectMeta{Name: bf4SoftwareName, Namespace: testNS.Name},
-				Spec: provisioningv1.BlueFieldSpec{
-					OsIso: "https://test.com/" + testOsIso,
-				},
+				Spec:       spec,
 			}
 			createObject(bfs)
 			patch := client.MergeFrom(bfs.DeepCopy())
@@ -968,15 +974,34 @@ var _ = Describe("Installing", func() {
 			bfs.Status.DownloadedComponents = provisioningv1.DownloadedComponents{
 				OsIso: testOsIso,
 			}
+			if psid != "" {
+				const mockFW = "24.10-17"
+				bfs.Status.Versions = &provisioningv1.BluefieldSoftwareVersions{
+					BluefieldSoftwareVersions: map[string]provisioningv1.BluefieldDeviceVersions{
+						psid: {
+							BMCVersion:     mockFW,
+							BMCErotVersion: mockFW,
+							SBIOSVersion:   mockFW,
+							BFNicFwVersion: mockFW,
+						},
+					},
+				}
+			}
 			Expect(k8sClient.Status().Patch(ctx, bfs, patch)).To(Succeed())
 		}
 
-		It("should transfer ISO and config, insert virtual media, and set VirtualMediaInserted", func() {
+		// installOsBf4 enters Rebooting only when FwBundleActivated is true (firmware was
+		// activated during FwUpdate). Otherwise it resets the chassis and stays in OS Installing.
+		runBF4VirtualMediaInstall := func(fwActivated bool) {
 			mockServer := createBF4InstallingMockServer()
 			defer mockServer.Stop()
 
 			createBF4InstallingSecrets(mockServer)
-			createReadyBlueFieldSoftware()
+			psid := ""
+			if fwActivated {
+				psid = redfishmock.DpuPSID74
+			}
+			createReadyBlueFieldSoftware(psid)
 
 			dpuDevice := dpuDeviceObj(bf4DPUDeviceName)
 			dpuDevice.Spec.BMCIP = ptr.To(mockServer.GetIPAddress())
@@ -986,6 +1011,9 @@ var _ = Describe("Installing", func() {
 			dpuDevice.Status.BMCIP = dpuDevice.Spec.BMCIP
 			dpuDevice.Status.BMCPort = dpuDevice.Spec.BMCPort
 			dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField4
+			if psid != "" {
+				dpuDevice.Status.PSID = ptr.To(psid)
+			}
 			Expect(k8sClient.Status().Patch(ctx, dpuDevice, patch)).To(Succeed())
 
 			dpu := dpuObj(bf4DPUName)
@@ -1044,12 +1072,21 @@ var _ = Describe("Installing", func() {
 				Expect(cfgCond.Status).NotTo(Equal(metav1.ConditionTrue))
 			}
 
-			By("Step 3: complete config transfer, insert virtual media, and set VirtualMediaInserted")
 			dpu.Status = status
+			if fwActivated {
+				By("Step 3: firmware was activated at FwUpdate, so mount virtual media and request a reboot")
+				cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondFwBundleActivated, "Activated", "Activated Pending Bundle"))
+			} else {
+				By("Step 3: firmware was not activated, so mount virtual media and reset the chassis in place")
+			}
 			status, err = Installing(ctx, dpu, ctrlCtx)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
 			Expect(status.RedfishTaskID).To(BeNil())
+			if fwActivated {
+				Expect(status.Phase).To(Equal(provisioningv1.DPURebooting))
+			} else {
+				Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
+			}
 
 			_, cfgCond = cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondConfigTransferred))
 			Expect(cfgCond).NotTo(BeNil())
@@ -1059,9 +1096,25 @@ var _ = Describe("Installing", func() {
 			Expect(vmCond).NotTo(BeNil())
 			Expect(vmCond.Status).To(Equal(metav1.ConditionTrue))
 			Expect(vmCond.Message).To(ContainSubstring("Virtual media inserted"))
+			if fwActivated {
+				Expect(status.RebootStatus).NotTo(BeNil())
+				Expect(status.RebootStatus.Phase).To(Equal(provisioningv1.RebootStatusPending))
+				Expect(status.RebootStatus.Method).NotTo(BeNil())
+				Expect(*status.RebootStatus.Method).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+			} else {
+				Expect(status.RebootStatus).To(BeNil())
+			}
 
-			By("Step 4: next reconcile waits for OSRunning instead of re-entering installOsBf4")
-			dpu.Status = status
+			if fwActivated {
+				By("Step 4: after the firmware reboot, OSInstalling waits for the DPU OS instead of remounting media")
+				dpu.Status = status
+				dpu.Status.Phase = provisioningv1.DPUOSInstalling
+				dpu.Status.PreviousPhase = provisioningv1.DPURebooting
+				cutil.SetDPUCondition(&dpu.Status, cutil.DPUCondition(provisioningv1.DPUCondBFBPrepared, "", ""))
+			} else {
+				By("Step 4: after the chassis reset, OSInstalling waits for the DPU OS instead of remounting media")
+				dpu.Status = status
+			}
 			status, err = Installing(ctx, dpu, ctrlCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
@@ -1070,7 +1123,61 @@ var _ = Describe("Installing", func() {
 			Expect(osCond.Status).To(Equal(metav1.ConditionFalse))
 			Expect(osCond.Reason).To(Equal("OSNotRunning"))
 			Expect(osCond.Message).To(ContainSubstring("Waiting for DPU OS to finish booting"))
+			if fwActivated {
+				_, activated := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondFwBundleActivated))
+				Expect(activated).To(BeNil())
+				_, activated = cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondFwBundleActivated))
+				Expect(activated).To(BeNil())
+				_, prepared := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondBFBPrepared))
+				Expect(prepared).To(BeNil())
+			}
+		}
+
+		It("should mount virtual media and reset the chassis when firmware was not activated at FwUpdate", func() {
+			runBF4VirtualMediaInstall(false)
 		})
+
+		It("should move to Rebooting after virtual media when firmware was activated at FwUpdate", func() {
+			runBF4VirtualMediaInstall(true)
+		})
+
+		// Post-reboot firmware verification must run before the timeout and skip-hw-provisioning
+		// shortcuts, otherwise a stale BFBPrepared anchor or the label would bypass it.
+		DescribeTable("verifies firmware after reboot before other checks",
+			func(name string, prepare func(dpu *provisioningv1.DPU, device *provisioningv1.DPUDevice, ctrlCtx *dutil.ControllerContext)) {
+				device := dpuDeviceObj(name + "-device")
+				dpu := dpuObj(name)
+				dpu.Spec.DPUDeviceName = device.Name
+				dpu.Spec.BlueFieldSoftware = ptr.To("missing-bfs")
+				dpu.Status.Phase = provisioningv1.DPUOSInstalling
+				dpu.Status.PreviousPhase = provisioningv1.DPURebooting
+				dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+				ctrlCtx := &dutil.ControllerContext{Client: k8sClient, DPUInProvisioningMap: dutil.NewDPUInProvisioningMap(10)}
+				prepare(dpu, device, ctrlCtx)
+				createObject(device)
+
+				status, err := Installing(ctx, dpu, ctrlCtx)
+				Expect(err).To(HaveOccurred())
+				Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
+				_, verified := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondFwBundleVerified))
+				Expect(verified).NotTo(BeNil())
+				Expect(verified.Reason).To(Equal("BlueFieldSoftwareNotFound"))
+			},
+			Entry("before the installation timeout", "dpu-bf4-verify-before-timeout",
+				func(dpu *provisioningv1.DPU, _ *provisioningv1.DPUDevice, ctrlCtx *dutil.ControllerContext) {
+					dpu.Status.Conditions = []metav1.Condition{{
+						Type:               string(provisioningv1.DPUCondBFBPrepared),
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Time{Time: time.Now().Add(-50 * time.Minute)},
+						Reason:             "Prepared",
+					}}
+					ctrlCtx.Options.OSInstallTimeout = 45 * time.Minute
+				}),
+			Entry("before the skip-hw-provisioning shortcut", "dpu-bf4-verify-before-skip-hw",
+				func(_ *provisioningv1.DPU, device *provisioningv1.DPUDevice, _ *dutil.ControllerContext) {
+					device.Labels = map[string]string{provisioningv1.DPUDeviceLabelSkipHWProvisioning: "true"}
+				}),
+		)
 	})
 
 	Context("OSInstalled condition semantics", func() {

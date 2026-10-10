@@ -118,14 +118,6 @@ func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 	}
 	defer client.CloseIdleConnections()
 
-	// Stale DPU cache between reconcile loops: a later loop can see FwBundleUpdated
-	// (reason Updated) from the prior loop while phase is still UpdateFirmware and
-	// fall through to PrepareBFB before the required power cycle.
-	if firmwareUpdateAwaitingReboot(dpu) {
-		logger.Info("firmware update awaiting reboot, moving to Rebooting phase")
-		return transitionToFirmwareUpdateReboot(ctx, dpu, state, ctrlCtx)
-	}
-
 	cond := cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "Updating", "Updating PLDM Firmware")
 	_, existingCond := cutil.GetDPUCondition(&dpu.Status, cond.Type)
 	forceUpdate := forceFwUpdateRequested(dpu)
@@ -133,7 +125,7 @@ func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 		if forceUpdate {
 			return updatePldmFwBundle(ctx, dpu, ctrlCtx, pldmFwBundlePath, forceUpdate)
 		}
-		switch err := checkFirmwareVersions(readCtx, client, blueFieldSoftware, *psid); {
+		switch err := CheckFirmwareVersions(readCtx, client, blueFieldSoftware, *psid); {
 		case errors.Is(err, errVersionMismatch):
 			logger.Info("firmware version mismatch with PLDM bundle - updating firmware", "reason", err.Error())
 			return updatePldmFwBundle(ctx, dpu, ctrlCtx, pldmFwBundlePath, false)
@@ -144,18 +136,6 @@ func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 		default:
 			logger.Info("firmware versions match with PLDM bundle - skipping firmware update")
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "FirmwareVersionsMatch", "Firmware versions match - skipping firmware update"))
-		}
-	} else if dpu.Status.PreviousPhase == provisioningv1.DPURebooting {
-		switch err := checkFirmwareVersions(readCtx, client, blueFieldSoftware, *psid); {
-		case errors.Is(err, errVersionMismatch):
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), err, "FirmwareVersionsMismatch", err.Error()))
-			return *state, err
-		case err != nil:
-			logger.Info("post-reboot firmware verification inconclusive, retrying", "reason", err.Error())
-			return *state, err
-		default:
-			logger.Info("firmware update completed successfully")
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "FirmwareUpdated", "Firmware updated successfully"))
 		}
 	}
 
@@ -231,49 +211,6 @@ func bundleVersions(blueFieldSoftware *provisioningv1.BlueFieldSoftware, psid st
 	return versions, nil
 }
 
-func checkFirmwareVersions(ctx context.Context, client *rc.Client, blueFieldSoftware *provisioningv1.BlueFieldSoftware, psid string) error {
-	ctx, cancel := rc.ReadContext(ctx)
-	defer cancel()
-	versions, err := bundleVersions(blueFieldSoftware, psid)
-	if err != nil {
-		return err
-	}
-
-	installed, err := componentVersion(client.CheckBMCFirmware(ctx))
-	if err != nil {
-		return fmt.Errorf("failed to check BMC firmware: %w", err)
-	}
-	if installed != versions.BMCVersion {
-		return fmt.Errorf("BMC firmware version %s is not equal to %s: %w", installed, versions.BMCVersion, errVersionMismatch)
-	}
-
-	installed, err = componentVersion(client.CheckBMCEROTFW(ctx))
-	if err != nil {
-		return fmt.Errorf("failed to check BMC ERoT firmware: %w", err)
-	}
-	if installed != versions.BMCErotVersion {
-		return fmt.Errorf("BMC ERoT firmware version %s is not equal to %s: %w", installed, versions.BMCErotVersion, errVersionMismatch)
-	}
-
-	installed, err = componentVersion(client.CheckDPUUEFI(ctx))
-	if err != nil {
-		return fmt.Errorf("failed to check DPU UEFI firmware: %w", err)
-	}
-	if installed != versions.SBIOSVersion {
-		return fmt.Errorf("DPU SBIOS firmware version %s is not equal to %s: %w", installed, versions.SBIOSVersion, errVersionMismatch)
-	}
-
-	installed, err = componentVersion(client.CheckDPUNIC(ctx))
-	if err != nil {
-		return fmt.Errorf("failed to check CX9 NIC firmware: %w", err)
-	}
-	if installed != versions.BFNicFwVersion {
-		return fmt.Errorf("BF NIC firmware version %s is not equal to %s: %w", installed, versions.BFNicFwVersion, errVersionMismatch)
-	}
-
-	return nil
-}
-
 // componentVersion validates one Redfish firmware-inventory read and returns the Version.
 func componentVersion(resp *resty.Response, info *rc.VersionInfo, err error) (string, error) {
 	if err != nil {
@@ -339,6 +276,53 @@ func monitorTask(ctx context.Context, client *rc.Client, taskID string) (bool, e
 	}
 
 	return true, nil
+}
+
+// CheckFirmwareVersions compares the installed firmware inventory with the versions
+// BlueFieldSoftware unpacked from the bundle. A mismatch means the update still has to run;
+// an unreadable inventory is returned as-is so callers retry instead of flashing.
+func CheckFirmwareVersions(ctx context.Context, client *rc.Client, blueFieldSoftware *provisioningv1.BlueFieldSoftware, psid string) error {
+	ctx, cancel := rc.ReadContext(ctx)
+	defer cancel()
+	defer client.CloseIdleConnections()
+	versions, err := bundleVersions(blueFieldSoftware, psid)
+	if err != nil {
+		return err
+	}
+
+	installed, err := componentVersion(client.CheckBMCFirmware(ctx))
+	if err != nil {
+		return fmt.Errorf("failed to check BMC firmware: %w", err)
+	}
+	if installed != versions.BMCVersion {
+		return fmt.Errorf("BMC firmware version %s is not equal to %s: %w", installed, versions.BMCVersion, errVersionMismatch)
+	}
+
+	installed, err = componentVersion(client.CheckBMCEROTFW(ctx))
+	if err != nil {
+		return fmt.Errorf("failed to check BMC ERoT firmware: %w", err)
+	}
+	if installed != versions.BMCErotVersion {
+		return fmt.Errorf("BMC ERoT firmware version %s is not equal to %s: %w", installed, versions.BMCErotVersion, errVersionMismatch)
+	}
+
+	installed, err = componentVersion(client.CheckDPUUEFI(ctx))
+	if err != nil {
+		return fmt.Errorf("failed to check DPU UEFI firmware: %w", err)
+	}
+	if installed != versions.SBIOSVersion {
+		return fmt.Errorf("DPU SBIOS firmware version %s is not equal to %s: %w", installed, versions.SBIOSVersion, errVersionMismatch)
+	}
+
+	installed, err = componentVersion(client.CheckDPUNIC(ctx))
+	if err != nil {
+		return fmt.Errorf("failed to check CX9 NIC firmware: %w", err)
+	}
+	if installed != versions.BFNicFwVersion {
+		return fmt.Errorf("BF NIC firmware version %s is not equal to %s: %w", installed, versions.BFNicFwVersion, errVersionMismatch)
+	}
+
+	return nil
 }
 
 // checkStagedFirmwareVersions is the fallback for a firmware update whose Redfish task is gone:
@@ -486,11 +470,14 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		return submitPldmFirmwareUpdate(ctx, state, client, pldmFwBundle, force, cond)
 	}
 
+	activatedCondition := cutil.NewCondition(provisioningv1.DPUCondFwBundleActivated.String(), nil, "Activated", "Activated Pending Bundle")
 	if state.RedfishTaskID == nil {
-		if firmwareUpdateAwaitingReboot(dpu) {
-			logger.Info("firmware update awaiting reboot, moving to Rebooting phase")
-			return transitionToFirmwareUpdateReboot(ctx, dpu, state, ctrlCtx)
+		_, existingCond := cutil.GetDPUCondition(&dpu.Status, activatedCondition.Type)
+		// Another reconcile already activated the pending bundle, so we can transition to the next phase.
+		if existingCond != nil && existingCond.Status == metav1.ConditionTrue {
+			return transitionToPrepareBfbPhase(state)
 		}
+
 		return *state, nil
 	}
 
@@ -546,8 +533,7 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 			return *state, nil
 		}
 
-		continueCondition := cutil.NewCondition(provisioningv1.DPUCondFwBundleActivated.String(), nil, "Activated", "Activated Pending Bundle")
-		_, existingCond := cutil.GetDPUCondition(&dpu.Status, continueCondition.Type)
+		_, existingCond := cutil.GetDPUCondition(&dpu.Status, activatedCondition.Type)
 		if existingCond == nil || existingCond.Status != metav1.ConditionTrue {
 			resp, err := client.ActivatePendingBundle()
 			if err != nil {
@@ -560,42 +546,28 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 				return *state, activateErr
 			}
 
-			logger.Info("successfully activated pending bundle. Moving to Rebooting phase")
-			cutil.SetDPUCondition(state, continueCondition)
+			logger.Info("successfully activated pending bundle. Moving to Prepare BFB phase")
+			cutil.SetDPUCondition(state, activatedCondition)
 		} else {
 			logger.Info("Pending bundle already activated")
 		}
 
-		return transitionToFirmwareUpdateReboot(ctx, dpu, state, ctrlCtx)
+		return transitionToPrepareBfbPhase(state)
 	} else {
 		return *state, nil
 	}
 }
 
-// firmwareUpdateAwaitingReboot reports whether ActivatePendingBundle completed on a
-// prior reconcile loop but the post-update power cycle has not started yet.
-func firmwareUpdateAwaitingReboot(dpu *provisioningv1.DPU) bool {
-	if dpu.Status.Phase == provisioningv1.DPURebooting || dpu.Status.PreviousPhase == provisioningv1.DPURebooting {
-		return false
-	}
-	_, updatedCond := cutil.GetDPUCondition(&dpu.Status, provisioningv1.DPUCondFwBundleUpdated.String())
-	return updatedCond != nil && updatedCond.Status == metav1.ConditionTrue && updatedCond.Reason == "Updated"
-}
-
-func transitionToFirmwareUpdateReboot(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
+func transitionToPrepareBfbPhase(state *provisioningv1.DPUStatus) (provisioningv1.DPUStatus, error) {
 	for _, cond := range []provisioningv1.DPUConditionType{
 		provisioningv1.DPUCondFwBundleSubmitted,
 		provisioningv1.DPUCondFwBundleArmShutdown,
-		provisioningv1.DPUCondFwBundleActivated,
 	} {
 		meta.RemoveStatusCondition(&state.Conditions, cond.String())
 	}
 	cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "Updated", "PLDM Firmware Updated"))
 	state.RedfishTaskID = nil
-	state.Phase = provisioningv1.DPURebooting
-	if err := dutil.InitializeDPURebootStatus(ctx, dpu, state, ctrlCtx, provisioningv1.DPUUpdateFirmware); err != nil {
-		return *state, err
-	}
+	state.Phase = provisioningv1.DPUPrepareBFB
 	return *state, nil
 }
 

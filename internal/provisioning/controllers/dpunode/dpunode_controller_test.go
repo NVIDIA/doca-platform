@@ -4199,5 +4199,161 @@ spec:
 			})
 		})
 
+		// A BlueField OS install enters DPURebooting with SystemLevelReset
+		// (InitializeDPURebootStatus source phase DPUOSInstalling). The node
+		// reboot must wait while a sibling is still in OS Installing, and
+		// must drive External/Script once every DPU has left that phase.
+		Context("HandleRebootSync rebooting from OS Installing", func() {
+			osInstallRebootingDPU := func(dpuNodeName, deviceName string) *provisioningv1.DPU {
+				d := makeDPUWithRebootStatus(dpuNodeName, deviceName, rebootMethodPtr(provisioningv1.RebootMethodSystemLevelReset))
+				d.Status.PreviousPhase = provisioningv1.DPUOSInstalling
+				d.Status.RebootStatus.Phase = provisioningv1.RebootStatusPending
+				d.Status.RebootStatus.Reason = "FirmwareUpdateRequiresSystemLevelReset"
+				d.Status.RebootStatus.Message = "firmware update requires system level reset to activate"
+				return d
+			}
+
+			osInstallingDPU := func(dpuNodeName, deviceName string) *provisioningv1.DPU {
+				return &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      cutil.GenerateDPUName(dpuNodeName, deviceName),
+						Namespace: "test-namespace",
+						Labels: map[string]string{
+							provisioningv1.DPUNodeNameLabel: dpuNodeName,
+						},
+					},
+					Status: provisioningv1.DPUStatus{
+						Phase: provisioningv1.DPUOSInstalling,
+					},
+				}
+			}
+
+			scriptConfigMap := func(name string) *corev1.ConfigMap {
+				podTemplate := corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{
+							Name:  "reboot-script",
+							Image: "busybox:latest",
+						}},
+						RestartPolicy: corev1.RestartPolicyNever,
+					},
+				}
+				podTemplateJSON, err := json.Marshal(podTemplate)
+				Expect(err).NotTo(HaveOccurred())
+				return &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      name,
+						Namespace: "test-namespace",
+					},
+					Data: map[string]string{
+						PodTemplateConfigMapKey: string(podTemplateJSON),
+					},
+				}
+			}
+
+			It("requeues without starting the host reboot while a sibling DPU is still in OS Installing", func() {
+				dpuNode := dpuNodeWith("dpu-node", "a", "b")
+				dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{External: &provisioningv1.External{}}
+				rebooting := osInstallRebootingDPU("dpu-node", "a")
+				installing := osInstallingDPU("dpu-node", "b")
+				rec, _ := newReconcilerWith(dpuNode, rebooting, installing)
+
+				phases := map[string]struct{}{
+					string(provisioningv1.DPURebooting):    {},
+					string(provisioningv1.DPUOSInstalling): {},
+				}
+				result, err := rec.HandleRebootSync(ctx, dpuNode, phases)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.RequeueAfter).To(Equal(cutil.RebootSyncInterval))
+				Expect(dpuNode.Status.RebootMethod).NotTo(BeNil())
+				Expect(*dpuNode.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+				Expect(dpuNode.Annotations).NotTo(HaveKey(provisioningv1.DPUNodeExternalRebootRequiredAnnotation))
+				Expect(meta.FindStatusCondition(dpuNode.Status.Conditions,
+					provisioningv1.DPUNodeConditionRebootInProgress.String())).To(BeNil())
+			})
+
+			It("starts the External reboot once the OS Installing DPU is the one in DPURebooting", func() {
+				dpuNode := dpuNodeWith("dpu-node", "a", "b")
+				dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{External: &provisioningv1.External{}}
+				rebooting := osInstallRebootingDPU("dpu-node", "a")
+				ready := makeDPUWithRebootStatus("dpu-node", "b", nil)
+				ready.Status.Phase = provisioningv1.DPUReady
+				ready.Status.RebootStatus = nil
+				rec, _ := newReconcilerWith(dpuNode, rebooting, ready)
+
+				phases := map[string]struct{}{
+					string(provisioningv1.DPURebooting): {},
+					string(provisioningv1.DPUReady):     {},
+				}
+				result, err := rec.HandleRebootSync(ctx, dpuNode, phases)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.RequeueAfter).To(BeZero())
+				Expect(dpuNode.Status.RebootMethod).NotTo(BeNil())
+				Expect(*dpuNode.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+				Expect(dpuNode.Annotations).To(HaveKeyWithValue(
+					provisioningv1.DPUNodeExternalRebootRequiredAnnotation, "true"))
+				cond := meta.FindStatusCondition(dpuNode.Status.Conditions,
+					provisioningv1.DPUNodeConditionRebootInProgress.String())
+				Expect(cond).NotTo(BeNil())
+				Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+				Expect(cond.Reason).To(Equal("WaitForExternalReboot"))
+				Expect(cond.Message).To(Equal("required reboot method: SystemLevelReset (driven by DPU dpu-node-a)"))
+			})
+
+			It("creates the script Job with SystemLevelReset when the OS Installing reboot is ready", func() {
+				cm := scriptConfigMap("os-install-reboot-cm")
+				dpuNode := dpuNodeWith("dpu-node", "a")
+				dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{
+					Script: &provisioningv1.Script{Name: cm.Name},
+				}
+				rebooting := osInstallRebootingDPU("dpu-node", "a")
+				rec, cl := newReconcilerWith(cm, dpuNode, rebooting)
+
+				phases := map[string]struct{}{string(provisioningv1.DPURebooting): {}}
+				result, err := rec.HandleRebootSync(ctx, dpuNode, phases)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.RequeueAfter).To(Equal(cutil.RequeueInterval))
+				Expect(dpuNode.Status.RebootMethod).NotTo(BeNil())
+				Expect(*dpuNode.Status.RebootMethod).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+
+				job := &batchv1.Job{}
+				Expect(cl.Get(ctx, types.NamespacedName{
+					Name:      rec.generateJobName(dpuNode),
+					Namespace: dpuNode.Namespace,
+				}, job)).To(Succeed())
+				Expect(job.Spec.Template.Spec.Containers).NotTo(BeEmpty())
+				Expect(job.Spec.Template.Spec.Containers[0].Env).To(ContainElement(corev1.EnvVar{
+					Name:  DPUNodeRebootMethodEnvVar,
+					Value: string(provisioningv1.RebootMethodSystemLevelReset),
+				}))
+
+				updated := &provisioningv1.DPU{}
+				Expect(cl.Get(ctx, types.NamespacedName{Name: rebooting.Name, Namespace: rebooting.Namespace}, updated)).To(Succeed())
+				Expect(updated.Status.RebootStatus).NotTo(BeNil())
+				Expect(updated.Status.RebootStatus.Phase).To(Equal(provisioningv1.RebootStatusPending))
+				Expect(updated.Status.RebootStatus.Reason).To(Equal(cutil.ReasonRebootScriptWaiting))
+				cond := meta.FindStatusCondition(dpuNode.Status.Conditions,
+					provisioningv1.DPUNodeConditionRebootInProgress.String())
+				Expect(cond).NotTo(BeNil())
+				Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			})
+
+			It("requeues without triggering the host reboot while an OS-install System Level Reset is still in WaitForShutdown", func() {
+				dpuNode := dpuNodeWith("dpu-node", "a")
+				dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{External: &provisioningv1.External{}}
+				rebooting := osInstallRebootingDPU("dpu-node", "a")
+				rebooting.Status.RebootStatus.Phase = provisioningv1.RebootStatusWaitForShutdown
+				rec, _ := newReconcilerWith(dpuNode, rebooting)
+
+				phases := map[string]struct{}{string(provisioningv1.DPURebooting): {}}
+				result, err := rec.HandleRebootSync(ctx, dpuNode, phases)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.RequeueAfter).To(Equal(cutil.RebootSyncInterval))
+				Expect(dpuNode.Annotations).NotTo(HaveKey(provisioningv1.DPUNodeExternalRebootRequiredAnnotation))
+				Expect(meta.FindStatusCondition(dpuNode.Status.Conditions,
+					provisioningv1.DPUNodeConditionRebootInProgress.String())).To(BeNil())
+			})
+		})
+
 	})
 })

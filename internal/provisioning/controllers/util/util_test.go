@@ -194,7 +194,6 @@ var _ = Describe("Util", func() {
 
 		It("should return false for provisioning phases", func() {
 			provisioningPhases := []provisioningv1.DPUPhase{
-				provisioningv1.DPUOSInstalling,
 				provisioningv1.DPUNodeEffect,
 				provisioningv1.DPUPrepareBFB,
 			}

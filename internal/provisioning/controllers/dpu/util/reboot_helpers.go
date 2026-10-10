@@ -126,8 +126,8 @@ func CompleteRebooting(ctx context.Context, dpu *provisioningv1.DPU, state *prov
 		meta.RemoveStatusCondition(&state.Conditions, provisioningv1.DPUCondInterfaceInitialized.String())
 		state.RequiredReset = nil
 		state.Phase = provisioningv1.DPUInitializeInterface
-	case dpu.Status.PreviousPhase == provisioningv1.DPUUpdateFirmware:
-		state.Phase = provisioningv1.DPUUpdateFirmware
+	case dpu.Status.PreviousPhase == provisioningv1.DPUOSInstalling:
+		state.Phase = provisioningv1.DPUOSInstalling
 	case dpu.Status.PreviousPhase == provisioningv1.DPUConfig &&
 		discoveryCond != nil && discoveryCond.Status == metav1.ConditionTrue:
 		state.Phase = provisioningv1.DPUConfig
@@ -158,7 +158,7 @@ func InitializeDPURebootStatus(ctx context.Context, dpu *provisioningv1.DPU, sta
 	var method *provisioningv1.RebootMethodType
 
 	switch {
-	case sourcePhase == provisioningv1.DPUUpdateFirmware:
+	case sourcePhase == provisioningv1.DPUOSInstalling:
 		slr := provisioningv1.RebootMethodSystemLevelReset
 		method = &slr
 		reason = "FirmwareUpdateRequiresSystemLevelReset"

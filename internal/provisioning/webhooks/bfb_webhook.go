@@ -67,7 +67,7 @@ func (r *BFB) ValidateCreate(ctx context.Context, obj runtime.Object) (admission
 
 	// Check uniqueness of spec.fileName
 	if bfb.Spec.FileName != nil {
-		if conflict, conflictName, err := isFileNameConflict(bfbMgr.GetClient(), *bfb.Spec.FileName, "", ""); err != nil {
+		if conflict, conflictName, err := isFileNameConflict(bfbMgr.GetAPIReader(), *bfb.Spec.FileName, "", ""); err != nil {
 			return admission.Warnings{}, apierrors.NewInternalError(fmt.Errorf("failed to check fileName uniqueness: %v", err))
 		} else if conflict {
 			return admission.Warnings{}, apierrors.NewBadRequest(fmt.Sprintf("spec.fileName '%s' is already used by BFB '%s'", *bfb.Spec.FileName, conflictName))
@@ -88,7 +88,7 @@ func (r *BFB) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object)
 
 	// Check uniqueness of spec.fileName (skip self)
 	if newBFB.Spec.FileName != nil {
-		if conflict, conflictName, err := isFileNameConflict(bfbMgr.GetClient(), *newBFB.Spec.FileName, newBFB.Namespace, newBFB.Name); err != nil {
+		if conflict, conflictName, err := isFileNameConflict(bfbMgr.GetAPIReader(), *newBFB.Spec.FileName, newBFB.Namespace, newBFB.Name); err != nil {
 			return admission.Warnings{}, apierrors.NewInternalError(fmt.Errorf("failed to check fileName uniqueness: %v", err))
 		} else if conflict {
 			return admission.Warnings{}, apierrors.NewBadRequest(fmt.Sprintf("spec.fileName '%s' is already used by BFB '%s'", *newBFB.Spec.FileName, conflictName))
@@ -105,9 +105,10 @@ func (r *BFB) ValidateDelete(ctx context.Context, obj runtime.Object) (admission
 }
 
 // isFileNameConflict returns true and the conflicting BFB's namespaced name if any BFB (except skipNamespace/skipName) uses fileName.
-func isFileNameConflict(client client.Client, fileName, skipNamespace, skipName string) (conflict bool, conflictName string, err error) {
+// reader must be the API reader: the cached client can miss a BFB admitted moments earlier and let a duplicate fileName through.
+func isFileNameConflict(reader client.Reader, fileName, skipNamespace, skipName string) (conflict bool, conflictName string, err error) {
 	var bfbList provisioningv1.BFBList
-	if err := client.List(context.TODO(), &bfbList); err != nil {
+	if err := reader.List(context.TODO(), &bfbList); err != nil {
 		return false, "", fmt.Errorf("listing BFBs: %w", err)
 	}
 	for _, b := range bfbList.Items {
