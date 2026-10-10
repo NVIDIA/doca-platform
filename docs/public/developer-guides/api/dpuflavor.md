@@ -31,7 +31,7 @@ DPUFlavor is a Kubernetes Custom Resource Definition (CRD) that defines configur
 | `grub` | [DPUFlavorGrub](#dpuflavorgrub) | All the parameters will be set in `GRUB_CMDLINE_LINUX` grub configuration |
 | `sysctl` | [DPUFlavorSysctl](#dpuflavorsysctl) | Kernel sysctl parameters which will be stored in `/etc/sysctl.d/99-dpf.conf` |
 | `nvconfig` | [][NVConfig](#nvconfig) | The device configuration which will be applied by `mlxconfig` |
-| `scalableFunctions` | [][ScalableFunction](#scalablefunction) | List of SF groups to create on the DPU, or on the host when `hostDevice` is set. Count is per selected device. Over-subscribe can fail at create time. When both this list and `virtualFunctions` are empty, SF counts are still derived from `PF_TOTAL_SF` (removed in a future release). Up to 16 entries |
+| `scalableFunctions` | [][ScalableFunction](#scalablefunction) | List of SF groups to create on the DPU, or on the host when `hostDevice` is set. Count is per selected device. Over-subscribe can fail at create time. This field is immutable. When both this list and `virtualFunctions` are empty, SF counts are still derived from `PF_TOTAL_SF` (removed in a future release). Up to 16 entries |
 | `virtualFunctions` | [][VirtualFunction](#virtualfunction) | List of VF groups to create. Count is per selected device. Groups ending up on the same device sum to a single `sriov_numvfs` and then list order assigns contiguous index ranges. Over-subscribe can fail at create time. Up to 16 entries |
 | `dma` | [DPUFlavorDMA](#dpuflavordma) | SNAP DMA SF configuration. The agent picks the ECPF; sfnum is 8000 and MAC is derived. Ignored on non-BlueField-4 DPUs |
 | `ovs` | [DPUFlavorOVS](#dpuflavorovs) | Open vSwitch configuration applied by the DPU agent once per boot |

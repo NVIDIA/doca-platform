@@ -42,7 +42,7 @@ spec:
               DPUFlavorSpec defines the content of DPUFlavor.
               Config-only fields (grub, sysctl, nvconfig, ovs, packages, systemdServices,
               containerdConfig, agent-applied configFiles, serviceReadiness, ewNicConfigurations,
-              dma, scalableFunctions, virtualFunctions) may be updated in place.
+              dma, virtualFunctions) may be updated in place.
               Immutable fields require a new DPUFlavor.
             properties:
               bfcfgParameters:
@@ -512,7 +512,7 @@ spec:
                 description: |-
                   ScalableFunctions is the list of SF groups to create on the DPU, or on the host when
                   hostDevice is set. Count is per selected device. Over-subscribe can trigger failures at
-                  create time. Editing this field reprovisions the DPU. For backward compatibility, when
+                  create time. This field is immutable. Changing it requires a new DPUFlavor. For backward compatibility, when
                   both this SF list and VF list are empty, SF counts are still derived from PF_TOTAL_SF
                   (removed in a future release).
                 items:
@@ -730,6 +730,9 @@ spec:
                 || f.type == ''cloud-init'') : []) == (has(oldSelf.configFiles) ?
                 oldSelf.configFiles.filter(f, !has(f.type) || f.type == ''cloud-init'')
                 : [])'
+            - message: scalableFunctions is immutable
+              rule: '(has(self.scalableFunctions) ? self.scalableFunctions : []) ==
+                (has(oldSelf.scalableFunctions) ? oldSelf.scalableFunctions : [])'
         type: object
     served: true
     storage: true
