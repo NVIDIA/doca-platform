@@ -23,6 +23,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statusmanager"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	"k8s.io/client-go/kubernetes"
@@ -77,9 +78,9 @@ type Context struct {
 	// Operations use it to read spec/status and to decide behavior.
 	LatestDPU *provisioningv1.DPU
 
-	// Status is the in-memory DPU internal status. Operations read and update it;
-	// the agent pushes it to the API via the runner's updateStatus method.
-	Status provisioningv1.AgentStatus
+	// Status holds the in-memory AgentStatus. Operations change it with UpdateLocal, read it
+	// with GetLocal, and push it to the DPU CR with UpdateRemote. It is safe for concurrent use.
+	Status *statusmanager.Manager
 
 	// CondMessage is cleared before each operation attempt. On success, dpuagent
 	// truncates and writes it to the operation condition message.
@@ -114,18 +115,6 @@ type Context struct {
 	// and runs update-grub. HandleReboot uses this to force a reboot even when the reboot
 	// method is NoAction, so that the new kernel parameters take effect.
 	GrubConfigChanged bool
-
-	// UpdateStatusUntilSuccess, when set, pushes Status to the API until success (e.g. agent's updateStatusUntilSuccess).
-	// Used by operations that must ensure status is persisted before continuing (e.g. before shutdown).
-	//
-	// It may be invoked twice for the same execution: once from inside Execute
-	// and once from Run() when ShouldUpdateStatusBeforeContinue is true. Calling it twice is safe: the same
-	// status is pushed again, so the result is idempotent; at most it causes one redundant API call.
-	// Returns an error when status update must abort (e.g. reprovision detection).
-	UpdateStatusUntilSuccess func(context.Context) error
-
-	// ClearHostOSInit requests a null merge patch of agentStatus.hostOSInit on the next status update.
-	ClearHostOSInit bool
 
 	// SRIOVState holds sriovconfig plans for the shared device-plugin config.
 	// Untyped to avoid an import cycle; only sriovconfig.sharedState should read it.

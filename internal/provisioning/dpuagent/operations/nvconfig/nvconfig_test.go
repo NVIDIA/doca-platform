@@ -24,6 +24,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	opts "github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statusmanager"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -482,12 +483,12 @@ var _ = Describe("NVConfig Operation", func() {
 
 		It("PreInstall should execute when AgentStatus is missing but in-memory reported exists", func() {
 			reportedAt := metav1.Now()
+			status := statusmanager.New(nil, "", "", "")
+			status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+				s.PreInstall = &provisioningv1.AgentPreInstallStatus{AgentReported: &reportedAt}
+			})
 			operationCtx := &operations.Context{
-				Status: provisioningv1.AgentStatus{
-					PreInstall: &provisioningv1.AgentPreInstallStatus{
-						AgentReported: &reportedAt,
-					},
-				},
+				Status: status,
 				LatestDPU: &provisioningv1.DPU{
 					Status: provisioningv1.DPUStatus{
 						Phase: provisioningv1.DPUConfigFWParameters,

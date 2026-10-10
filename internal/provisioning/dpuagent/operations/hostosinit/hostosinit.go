@@ -68,19 +68,19 @@ func (r *ReleaseHostOSInit) Execute(execCtx context.Context, optCtx *operations.
 	if r.runBash == nil {
 		r.runBash = bash.Run
 	}
-	optCtx.ClearHostOSInit = true
-	optCtx.Status.HostOSInit = nil
-	if err := r.persistStatus(execCtx, optCtx); err != nil {
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		s.HostOSInit = nil
+	})
+	if err := optCtx.Status.UpdateRemote(true); err != nil {
 		return err
 	}
-	optCtx.ClearHostOSInit = false
 
 	resolved, err := nvconfig.EnsureResolved(optCtx)
 	if err != nil {
 		return err
 	}
 	if !resolved.HostOSInitRequired {
-		return r.patchSkipped(execCtx, optCtx, "ReleaseNotRequired", "DELAY_HOST_OS_INIT is not set to ENABLE_USER (0x3) in flavor nvconfig")
+		return r.patchSkipped(optCtx, "ReleaseNotRequired", "DELAY_HOST_OS_INIT is not set to ENABLE_USER (0x3) in flavor nvconfig")
 	}
 
 	if mismatch := pendingHostOSInitMismatch(optCtx, resolved.HostOSInitPCIs); mismatch != "" {
@@ -98,7 +98,7 @@ func (r *ReleaseHostOSInit) Execute(execCtx context.Context, optCtx *operations.
 		allReleased = allReleased && state == hostOSInitReleased
 	}
 	if allReleased {
-		return r.patchSucceeded(execCtx, optCtx, optCtx.DPUFlavor.ReleaseGate())
+		return r.patchSucceeded(optCtx, optCtx.DPUFlavor.ReleaseGate())
 	}
 
 	gate := optCtx.DPUFlavor.ReleaseGate()
@@ -120,7 +120,7 @@ func (r *ReleaseHostOSInit) Execute(execCtx context.Context, optCtx *operations.
 			return fmt.Errorf("host OS init remains held on PCI %s after mlxreg release", pci)
 		}
 	}
-	return r.patchSucceeded(execCtx, optCtx, gate)
+	return r.patchSucceeded(optCtx, gate)
 }
 
 type hostOSInitRegisterState uint8
@@ -157,7 +157,7 @@ func (r *ReleaseHostOSInit) readHoldRegister(pci string) (hostOSInitRegisterStat
 }
 
 func pendingHostOSInitMismatch(optCtx *operations.Context, pcis []string) string {
-	pending := optCtx.Status.LastObservedPendingNVConfig
+	pending := optCtx.Status.GetLocal().LastObservedPendingNVConfig
 	if pending == nil || pending.BootID == "" || pending.BootID != optCtx.CurrentBootID {
 		return ""
 	}
@@ -277,25 +277,22 @@ func (r *ReleaseHostOSInit) setHoldRegister(pci string) error {
 	return fmt.Errorf("failed to release host OS init: mlxreg command failed: %w (stderr: %s)", err, strings.TrimSpace(stderr.String()))
 }
 
-func (r *ReleaseHostOSInit) persistStatus(ctx context.Context, optCtx *operations.Context) error {
-	if optCtx.UpdateStatusUntilSuccess == nil {
-		return nil
-	}
-	return optCtx.UpdateStatusUntilSuccess(ctx)
+func (r *ReleaseHostOSInit) patchSkipped(optCtx *operations.Context, reason, message string) error {
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		s.HostOSInit = &provisioningv1.HostOSInitStatus{
+			Skipped: &provisioningv1.HostOSInitSkipped{Reason: &reason, Message: &message},
+		}
+		hostutil.NewCondition(condReleaseHostOSInit).Success(message).Set(&s.Conditions)
+	})
+	return optCtx.Status.UpdateRemote(true)
 }
 
-func (r *ReleaseHostOSInit) patchSkipped(ctx context.Context, optCtx *operations.Context, reason, message string) error {
-	optCtx.Status.HostOSInit = &provisioningv1.HostOSInitStatus{
-		Skipped: &provisioningv1.HostOSInitSkipped{Reason: &reason, Message: &message},
-	}
-	hostutil.NewCondition(condReleaseHostOSInit).Success(message).Set(&optCtx.Status.Conditions)
-	return r.persistStatus(ctx, optCtx)
-}
-
-func (r *ReleaseHostOSInit) patchSucceeded(ctx context.Context, optCtx *operations.Context, gate provisioningv1.ServiceReadinessGate) error {
-	optCtx.Status.HostOSInit = &provisioningv1.HostOSInitStatus{
-		Succeeded: &provisioningv1.HostOSInitSucceeded{Gate: gate},
-	}
-	hostutil.NewCondition(condReleaseHostOSInit).Success("").Set(&optCtx.Status.Conditions)
-	return r.persistStatus(ctx, optCtx)
+func (r *ReleaseHostOSInit) patchSucceeded(optCtx *operations.Context, gate provisioningv1.ServiceReadinessGate) error {
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		s.HostOSInit = &provisioningv1.HostOSInitStatus{
+			Succeeded: &provisioningv1.HostOSInitSucceeded{Gate: gate},
+		}
+		hostutil.NewCondition(condReleaseHostOSInit).Success("").Set(&s.Conditions)
+	})
+	return optCtx.Status.UpdateRemote(true)
 }

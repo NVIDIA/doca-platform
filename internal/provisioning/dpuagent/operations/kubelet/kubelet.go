@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
 
@@ -241,7 +242,9 @@ func (c *ConfigureKubelet) Execute(execCtx context.Context, optCtx *operations.C
 	if err != nil {
 		return fmt.Errorf("failed to get kubelet version: %w", err)
 	}
-	optCtx.Status.KubeletVersion = kubeletVersion
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		s.KubeletVersion = kubeletVersion
+	})
 	return nil
 }
 

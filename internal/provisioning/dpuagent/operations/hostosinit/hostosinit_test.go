@@ -26,6 +26,7 @@ import (
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/nvconfig"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statusmanager"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -46,7 +47,17 @@ func releaseRequiredFlavor() provisioningv1.DPUFlavor {
 	}
 }
 
+// newOptCtx pushes status to a fake client of its own, so specs can still replace
+// optCtx.Client to stub the DPU that the release gate reads.
 func newOptCtx(flavor provisioningv1.DPUFlavor) *operations.Context {
+	scheme := runtime.NewScheme()
+	Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+	statusDPU := &provisioningv1.DPU{ObjectMeta: metav1.ObjectMeta{Name: "dpu-1", Namespace: "ns", UID: "uid-1"}}
+	statusClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(statusDPU).WithStatusSubresource(statusDPU).Build()
+	status := statusmanager.New(statusClient, "ns", "dpu-1", "")
+	statusCtx, cancel := context.WithCancel(context.Background())
+	DeferCleanup(cancel)
+	status.Start(statusCtx)
 	return &operations.Context{
 		DPUFlavor: flavor,
 		LatestDPU: &provisioningv1.DPU{
@@ -64,7 +75,7 @@ func newOptCtx(flavor provisioningv1.DPUFlavor) *operations.Context {
 		DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 			return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCI}}, nil
 		},
-		UpdateStatusUntilSuccess: func(context.Context) error { return nil },
+		Status: status,
 	}
 }
 
@@ -93,8 +104,8 @@ var _ = Describe("ReleaseHostOSInit", func() {
 		optCtx := newOptCtx(provisioningv1.DPUFlavor{})
 		op := &ReleaseHostOSInit{}
 		Expect(op.Execute(context.Background(), optCtx)).To(Succeed())
-		Expect(optCtx.Status.HostOSInit).NotTo(BeNil())
-		Expect(optCtx.Status.HostOSInit.Skipped).NotTo(BeNil())
+		Expect(optCtx.Status.GetLocal().HostOSInit).NotTo(BeNil())
+		Expect(optCtx.Status.GetLocal().HostOSInit.Skipped).NotTo(BeNil())
 	})
 
 	// The nvconfig guard rejects DELAY_HOST_OS_INIT outside zero-trust, but it must never reach
@@ -114,7 +125,7 @@ var _ = Describe("ReleaseHostOSInit", func() {
 		optCtx.Options.ZeroTrustMode = false
 		op := &ReleaseHostOSInit{runBash: runBash}
 		Expect(op.Execute(context.Background(), optCtx)).To(Succeed())
-		Expect(optCtx.Status.HostOSInit.Succeeded).NotTo(BeNil())
+		Expect(optCtx.Status.GetLocal().HostOSInit.Succeeded).NotTo(BeNil())
 	})
 
 	It("returns nil with succeeded when hold register already cleared", func() {
@@ -129,7 +140,7 @@ var _ = Describe("ReleaseHostOSInit", func() {
 		optCtx := newOptCtx(releaseRequiredFlavor())
 		op := &ReleaseHostOSInit{runBash: runBash}
 		Expect(op.Execute(context.Background(), optCtx)).To(Succeed())
-		Expect(optCtx.Status.HostOSInit.Succeeded).NotTo(BeNil())
+		Expect(optCtx.Status.GetLocal().HostOSInit.Succeeded).NotTo(BeNil())
 	})
 
 	It("returns nil with succeeded after gate ready and mlxreg set", func() {
@@ -165,8 +176,8 @@ var _ = Describe("ReleaseHostOSInit", func() {
 		optCtx.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(dpu).WithStatusSubresource(dpu).Build()
 		op := &ReleaseHostOSInit{runBash: runBash}
 		Expect(op.Execute(context.Background(), optCtx)).To(Succeed())
-		Expect(optCtx.Status.HostOSInit.Succeeded).NotTo(BeNil())
-		Expect(optCtx.Status.HostOSInit.Succeeded.Gate).To(Equal(provisioningv1.GateDPUServiceCriticalPodsReady))
+		Expect(optCtx.Status.GetLocal().HostOSInit.Succeeded).NotTo(BeNil())
+		Expect(optCtx.Status.GetLocal().HostOSInit.Succeeded.Gate).To(Equal(provisioningv1.GateDPUServiceCriticalPodsReady))
 	})
 
 	It("preflights and releases every wildcard target", func() {
@@ -276,15 +287,17 @@ var _ = Describe("ReleaseHostOSInit", func() {
 		calls := 0
 		optCtx := newOptCtx(releaseRequiredFlavor())
 		optCtx.CurrentBootID = "boot-id"
-		optCtx.Status.LastObservedPendingNVConfig = &provisioningv1.PendingNVConfigState{
-			BootID: "boot-id",
-			Devices: []provisioningv1.PendingNVConfigDevice{{
-				Device: testPCI,
-				Entries: []provisioningv1.PendingNVConfigEntry{{
-					Name: "delay_host_os_init", Current: "DEVICE_DEFAULT(0)", NextBoot: "ENABLE_USER(3)",
+		optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+			s.LastObservedPendingNVConfig = &provisioningv1.PendingNVConfigState{
+				BootID: "boot-id",
+				Devices: []provisioningv1.PendingNVConfigDevice{{
+					Device: testPCI,
+					Entries: []provisioningv1.PendingNVConfigEntry{{
+						Name: "delay_host_os_init", Current: "DEVICE_DEFAULT(0)", NextBoot: "ENABLE_USER(3)",
+					}},
 				}},
-			}},
-		}
+			}
+		})
 		op := &ReleaseHostOSInit{runBash: func(string) (bytes.Buffer, bytes.Buffer, error) {
 			calls++
 			return bytes.Buffer{}, bytes.Buffer{}, nil
@@ -295,7 +308,7 @@ var _ = Describe("ReleaseHostOSInit", func() {
 		Expect(err.Error()).To(ContainSubstring("DELAY_HOST_OS_INIT"))
 		Expect(err.Error()).To(ContainSubstring(testPCI))
 		Expect(calls).To(Equal(0))
-		Expect(optCtx.Status.HostOSInit).To(BeNil())
+		Expect(optCtx.Status.GetLocal().HostOSInit).To(BeNil())
 	})
 
 	It("returns error when gate is not ready without terminal hostOSInit", func() {
@@ -324,7 +337,7 @@ var _ = Describe("ReleaseHostOSInit", func() {
 		err := op.Execute(context.Background(), optCtx)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("waiting for"))
-		Expect(optCtx.Status.HostOSInit).To(BeNil())
+		Expect(optCtx.Status.GetLocal().HostOSInit).To(BeNil())
 	})
 
 	It("returns error on mlxreg set without terminal hostOSInit", func() {
@@ -356,7 +369,7 @@ var _ = Describe("ReleaseHostOSInit", func() {
 		err := op.Execute(context.Background(), optCtx)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("mlxreg command failed"))
-		Expect(optCtx.Status.HostOSInit).To(BeNil())
+		Expect(optCtx.Status.GetLocal().HostOSInit).To(BeNil())
 	})
 
 	It("returns error on mlxreg get without terminal hostOSInit", func() {
@@ -371,7 +384,7 @@ var _ = Describe("ReleaseHostOSInit", func() {
 		err := op.Execute(context.Background(), optCtx)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("unknown register"))
-		Expect(optCtx.Status.HostOSInit).To(BeNil())
+		Expect(optCtx.Status.GetLocal().HostOSInit).To(BeNil())
 	})
 
 	It("maps wildcard nvconfig device to all discovered ports", func() {
