@@ -90,9 +90,11 @@ func (d *DPUAgent) reconcileCATrustBundle(ctx context.Context) {
 	}
 
 	now := metav1.Now()
-	d.optCtx.Status.TrustBundleHash = &bundleHash
-	d.optCtx.Status.TrustBundleLastUpdateTime = &now
-	if err := d.updateStatusUntilSuccess(ctx); err != nil {
+	d.optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		s.TrustBundleHash = &bundleHash
+		s.TrustBundleLastUpdateTime = &now
+	})
+	if err := d.optCtx.Status.UpdateRemote(true); err != nil {
 		klog.Errorf("CA trust bundle watcher: failed to update applied hash %s to DPU status: %v", bundleHash, err)
 		return
 	}
@@ -100,8 +102,8 @@ func (d *DPUAgent) reconcileCATrustBundle(ctx context.Context) {
 }
 
 func (d *DPUAgent) currentTrustBundleHash(ctx context.Context) string {
-	if d.optCtx.Status.TrustBundleHash != nil {
-		return *d.optCtx.Status.TrustBundleHash
+	if hash := d.optCtx.Status.GetLocal().TrustBundleHash; hash != nil {
+		return *hash
 	}
 
 	latestDPU := &provisioningv1.DPU{}
@@ -111,7 +113,9 @@ func (d *DPUAgent) currentTrustBundleHash(ctx context.Context) string {
 		return ""
 	}
 	if latestDPU.Status.AgentStatus != nil && latestDPU.Status.AgentStatus.TrustBundleHash != nil {
-		d.optCtx.Status.TrustBundleHash = latestDPU.Status.AgentStatus.TrustBundleHash
+		d.optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+			s.TrustBundleHash = latestDPU.Status.AgentStatus.TrustBundleHash
+		})
 		return *latestDPU.Status.AgentStatus.TrustBundleHash
 	}
 	return ""

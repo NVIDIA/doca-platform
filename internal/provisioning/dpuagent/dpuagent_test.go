@@ -25,6 +25,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statusmanager"
 	dpuutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
@@ -75,6 +76,7 @@ func newTestOptCtx(fakeClient client.Client) *operations.Context {
 			DPUNamespace: "test-ns",
 			DPUUID:       "test-uid",
 		},
+		Status: statusmanager.New(fakeClient, "test-ns", "test-dpu", "test-uid"),
 		DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 			return []pciutil.NICPort{
 				{Netdev: "p0", PCIAddress: "0000:03:00.0"},
@@ -106,36 +108,35 @@ var _ = Describe("DPUAgent", func() {
 					},
 				},
 			}
-			optCtx := &operations.Context{
-				Options: opts.Options{DPUUID: "old-uid"},
-				Status: provisioningv1.AgentStatus{
-					RebootMethod:                &existingRebootMethod,
-					LastObservedPendingNVConfig: existingPending,
-					Conditions:                  []metav1.Condition{existingCond},
-					PreInstall: &provisioningv1.AgentPreInstallStatus{
-						AgentReported: ptr.To(metav1.NewTime(time.Unix(98, 0))),
-						Conditions: []metav1.Condition{
-							{
-								Type:               provisioningv1.DPUAgentConditionNVConfigApplied,
-								Status:             metav1.ConditionTrue,
-								Reason:             "Old",
-								Message:            "must be cleared",
-								LastTransitionTime: metav1.NewTime(time.Unix(98, 0)),
-							},
+			existingStatus := provisioningv1.AgentStatus{
+				RebootMethod:                &existingRebootMethod,
+				LastObservedPendingNVConfig: existingPending,
+				Conditions:                  []metav1.Condition{existingCond},
+				PreInstall: &provisioningv1.AgentPreInstallStatus{
+					AgentReported: ptr.To(metav1.NewTime(time.Unix(98, 0))),
+					Conditions: []metav1.Condition{
+						{
+							Type:               provisioningv1.DPUAgentConditionNVConfigApplied,
+							Status:             metav1.ConditionTrue,
+							Reason:             "Old",
+							Message:            "must be cleared",
+							LastTransitionTime: metav1.NewTime(time.Unix(98, 0)),
 						},
 					},
 				},
 			}
+			optCtx := &operations.Context{
+				Options: opts.Options{DPUUID: "old-uid"},
+				Status:  statusmanager.New(nil, "", "", ""),
+			}
+			optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) { *s = *existingStatus.DeepCopy() })
 			dpu := &provisioningv1.DPU{ObjectMeta: metav1.ObjectMeta{UID: "new-uid"}}
 
 			changed := dpuUIDChanged(optCtx, dpu)
 
 			Expect(changed).To(BeTrue())
 			Expect(optCtx.Options.DPUUID).To(Equal("old-uid"))
-			Expect(optCtx.Status.RebootMethod).To(Equal(&existingRebootMethod))
-			Expect(optCtx.Status.LastObservedPendingNVConfig).To(BeIdenticalTo(existingPending))
-			Expect(optCtx.Status.Conditions).To(Equal([]metav1.Condition{existingCond}))
-			Expect(optCtx.Status.PreInstall).NotTo(BeNil())
+			Expect(optCtx.Status.GetLocal()).To(Equal(existingStatus))
 		})
 
 		It("does not clear LastObservedPendingNVConfig when UID does not change", func() {
@@ -147,22 +148,22 @@ var _ = Describe("DPUAgent", func() {
 			}
 			optCtx := &operations.Context{
 				Options: opts.Options{DPUUID: "same-uid"},
-				Status: provisioningv1.AgentStatus{
-					LastObservedPendingNVConfig: existing,
-				},
+				Status:  statusmanager.New(nil, "", "", ""),
 			}
+			optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) { s.LastObservedPendingNVConfig = existing.DeepCopy() })
 			dpu := &provisioningv1.DPU{ObjectMeta: metav1.ObjectMeta{UID: "same-uid"}}
 
 			changed := dpuUIDChanged(optCtx, dpu)
 
 			Expect(changed).To(BeFalse())
-			Expect(optCtx.Status.LastObservedPendingNVConfig).To(BeIdenticalTo(existing))
+			Expect(optCtx.Status.GetLocal().LastObservedPendingNVConfig).To(Equal(existing))
 		})
 	})
 
-	Describe("updatePreInstallStatus", func() {
-		It("patches only agentStatus.preInstall fields", func() {
+	Describe("reconcileOwnedDPU", func() {
+		It("reports pre-install status to a recreated DPU without the old OS status", func() {
 			dpu := newTestDPU()
+			dpu.UID = "new-uid"
 			existingStartup := metav1.NewTime(time.Unix(100, 0))
 			existingRebootMethod := provisioningv1.RebootMethodNoAction
 			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
@@ -181,40 +182,69 @@ var _ = Describe("DPUAgent", func() {
 			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
 
 			agent := &DPUAgent{optCtx: newTestOptCtx(fakeClient)}
+			preInstallStatus := statusmanager.New(fakeClient, "test-ns", "test-dpu", "")
+			statusCtx, cancelStatus := context.WithCancel(ctx)
+			defer cancelStatus()
+			preInstallStatus.Start(statusCtx)
+			// Status of the old OS, which must not reach the recreated DPU.
 			newStartup := metav1.NewTime(time.Unix(200, 0))
-			preInstallReported := metav1.NewTime(time.Unix(201, 0))
-			agent.optCtx.Status = provisioningv1.AgentStatus{
-				LastStartupTime: &newStartup, // should not be propagated by pre-install-only patch.
-				PreInstall: &provisioningv1.AgentPreInstallStatus{
-					AgentReported: &preInstallReported,
-					Conditions: []metav1.Condition{
-						{
-							Type:               provisioningv1.DPUAgentConditionNVConfigApplied,
-							Status:             metav1.ConditionTrue,
-							Reason:             "Configured",
-							Message:            "pre-install NVConfig done",
-							LastTransitionTime: metav1.NewTime(time.Unix(202, 0)),
-						},
-					},
-				},
-			}
+			agent.optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+				s.LastStartupTime = &newStartup
+				s.RebootMethod = ptr.To(provisioningv1.RebootMethodPowerCycle)
+				meta.SetStatusCondition(&s.Conditions, metav1.Condition{Type: "OldOSCondition", Status: metav1.ConditionTrue, Reason: "Old"})
+			})
 
-			Expect(agent.updatePreInstallStatus(ctx, agent.optCtx)).To(Succeed())
+			Expect(agent.reconcileOwnedDPU(ctx, preInstallStatus)).To(Succeed())
 
 			latestDPU := &provisioningv1.DPU{}
 			Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "test-dpu"}, latestDPU)).To(Succeed())
 			Expect(latestDPU.Status.AgentStatus).NotTo(BeNil())
 			Expect(latestDPU.Status.AgentStatus.LastStartupTime).NotTo(BeNil())
 			Expect(latestDPU.Status.AgentStatus.LastStartupTime.Unix()).To(Equal(existingStartup.Unix()))
-			Expect(latestDPU.Status.AgentStatus.RebootMethod).NotTo(BeNil())
-			Expect(*latestDPU.Status.AgentStatus.RebootMethod).To(Equal(existingRebootMethod))
-
+			Expect(latestDPU.Status.AgentStatus.RebootMethod).To(Equal(&existingRebootMethod))
+			Expect(latestDPU.Status.AgentStatus.Conditions).To(HaveLen(1))
 			Expect(latestDPU.Status.AgentStatus.PreInstall).NotTo(BeNil())
 			Expect(latestDPU.Status.AgentStatus.PreInstall.AgentReported).NotTo(BeNil())
-			Expect(latestDPU.Status.AgentStatus.PreInstall.AgentReported.Unix()).To(Equal(preInstallReported.Unix()))
-			cond := meta.FindStatusCondition(latestDPU.Status.AgentStatus.PreInstall.Conditions, provisioningv1.DPUAgentConditionNVConfigApplied)
+			reported := preInstallStatus.GetLocal().PreInstall.AgentReported
+			Expect(latestDPU.Status.AgentStatus.PreInstall.AgentReported.Unix()).To(Equal(reported.Unix()))
+		})
+
+		It("reports a pre-install operation result to preInstall conditions", func() {
+			dpu := newTestDPU()
+			dpu.UID = "new-uid"
+			reportedAt := metav1.NewTime(time.Unix(201, 0))
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				PreInstall: &provisioningv1.AgentPreInstallStatus{AgentReported: &reportedAt},
+			}
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+
+			agent := &DPUAgent{optCtx: newTestOptCtx(fakeClient)}
+			preInstallStatus := statusmanager.New(fakeClient, "test-ns", "test-dpu", "")
+			statusCtx, cancelStatus := context.WithCancel(ctx)
+			defer cancelStatus()
+			preInstallStatus.Start(statusCtx)
+			localCtx := agent.snapshotPreInstallCtx(dpu, preInstallStatus)
+
+			op := &mockOperation{
+				name:                             "pre-install-op",
+				conditionType:                    provisioningv1.DPUAgentConditionNVConfigApplied,
+				shouldUpdateStatusBeforeContinue: true,
+				executeFunc: func(_ context.Context, optCtx *operations.Context) error {
+					optCtx.CondMessage = "pre-install NVConfig done"
+					return nil
+				},
+			}
+			Expect(agent.runPreInstallOperationOnce(ctx, op, &localCtx)).To(Succeed())
+
+			latestDPU := &provisioningv1.DPU{}
+			Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "test-dpu"}, latestDPU)).To(Succeed())
+			preInstall := latestDPU.Status.AgentStatus.PreInstall
+			Expect(preInstall.AgentReported.Unix()).To(Equal(reportedAt.Unix()))
+			cond := meta.FindStatusCondition(preInstall.Conditions, provisioningv1.DPUAgentConditionNVConfigApplied)
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(cond.Message).To(Equal("pre-install NVConfig done"))
+			Expect(latestDPU.Status.AgentStatus.Conditions).To(BeEmpty())
 		})
 	})
 
@@ -234,6 +264,33 @@ var _ = Describe("DPUAgent", func() {
 			}
 			Expect(agent.Run(ctx)).To(Succeed())
 			Expect(markerCalled).To(BeTrue())
+		})
+
+		It("aborts bootstrap when a status push finds the DPU recreated", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+
+			agent := &DPUAgent{
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: func(_ string) error { return nil },
+				optCtx:              newTestOptCtx(fakeClient),
+				operations: []operations.Operation{
+					&mockOperation{name: "recreate-op", conditionType: "RecreateOpCondition", shouldUpdateStatusBeforeContinue: true,
+						executeFunc: func(execCtx context.Context, _ *operations.Context) error {
+							Expect(fakeClient.Delete(execCtx, newTestDPU())).To(Succeed())
+							recreated := newTestDPU()
+							recreated.UID = "new-uid"
+							Expect(fakeClient.Create(execCtx, recreated)).To(Succeed())
+							return nil
+						}},
+				},
+			}
+			err := agent.Run(ctx)
+			Expect(IsBootstrapAbortErr(err)).To(BeTrue(), "got %v", err)
+
+			latestDPU := &provisioningv1.DPU{}
+			Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "test-dpu"}, latestDPU)).To(Succeed())
+			Expect(latestDPU.Status.AgentStatus).To(BeNil(), "no status may reach the recreated DPU")
 		})
 
 		It("should not write the done marker when the run is aborted", func() {
@@ -380,7 +437,7 @@ var _ = Describe("DPUAgent", func() {
 				optCtx:              newTestOptCtx(fakeClient),
 				operations: []operations.Operation{
 					&mockOperation{name: "op1", conditionType: "Op1Condition", executeFunc: func(_ context.Context, optCtx *operations.Context) error {
-						captured = optCtx.Status.RebootMethod
+						captured = optCtx.Status.GetLocal().RebootMethod
 						return nil
 					}},
 				},
@@ -549,7 +606,7 @@ var _ = Describe("DPUAgent", func() {
 				},
 			}
 			Expect(agent.Run(ctx)).To(Succeed())
-			cond := meta.FindStatusCondition(agent.optCtx.Status.Conditions, condType)
+			cond := meta.FindStatusCondition(agent.optCtx.Status.GetLocal().Conditions, condType)
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Message).To(Equal("custom success message"))
 		})
@@ -572,7 +629,7 @@ var _ = Describe("DPUAgent", func() {
 				},
 			}
 			Expect(agent.Run(ctx)).To(Succeed())
-			cond := meta.FindStatusCondition(agent.optCtx.Status.Conditions, condType)
+			cond := meta.FindStatusCondition(agent.optCtx.Status.GetLocal().Conditions, condType)
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Message).To(Equal(dpuutil.TruncateConditionMessage(longMessage)))
 		})
@@ -603,7 +660,7 @@ var _ = Describe("DPUAgent", func() {
 			}
 			Expect(agent.Run(ctx)).To(Succeed())
 			Expect(seen).To(Equal([]string{"", ""}))
-			cond := meta.FindStatusCondition(agent.optCtx.Status.Conditions, condType)
+			cond := meta.FindStatusCondition(agent.optCtx.Status.GetLocal().Conditions, condType)
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Message).To(Equal("fresh message"))
 		})
@@ -629,10 +686,10 @@ var _ = Describe("DPUAgent", func() {
 			}
 			Expect(agent.Run(ctx)).To(Succeed())
 			Expect(secondSeen).To(BeEmpty())
-			first := meta.FindStatusCondition(agent.optCtx.Status.Conditions, firstCond)
+			first := meta.FindStatusCondition(agent.optCtx.Status.GetLocal().Conditions, firstCond)
 			Expect(first).NotTo(BeNil())
 			Expect(first.Message).To(Equal("first message"))
-			second := meta.FindStatusCondition(agent.optCtx.Status.Conditions, secondCond)
+			second := meta.FindStatusCondition(agent.optCtx.Status.GetLocal().Conditions, secondCond)
 			Expect(second).NotTo(BeNil())
 			Expect(second.Message).To(BeEmpty())
 		})

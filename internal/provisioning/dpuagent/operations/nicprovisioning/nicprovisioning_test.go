@@ -33,6 +33,7 @@ import (
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statusmanager"
 
 	nicconfigurationv1alpha1 "github.com/Mellanox/nic-configuration-operator/api/v1alpha1"
 	nicdms "github.com/Mellanox/nic-configuration-operator/pkg/dms"
@@ -45,7 +46,34 @@ import (
 	"k8s.io/utils/ptr"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
+
+// newTestStatus returns a started status manager holding initial, if given. It pushes to a fake
+// client of its own and, when pushes is not nil, counts the pushes there.
+func newTestStatus(t *testing.T, pushes *atomic.Int32, initial ...provisioningv1.AgentStatus) *statusmanager.Manager {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	utilruntime.Must(provisioningv1.AddToScheme(scheme))
+	dpu := &provisioningv1.DPU{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "dpu-1"}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dpu).WithStatusSubresource(dpu).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourcePatch: func(ctx context.Context, c crclient.Client, subResource string, obj crclient.Object, patch crclient.Patch, opts ...crclient.SubResourcePatchOption) error {
+				if pushes != nil {
+					pushes.Add(1)
+				}
+				return c.SubResource(subResource).Patch(ctx, obj, patch, opts...)
+			},
+		}).Build()
+	m := statusmanager.New(c, "default", "dpu-1", "")
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	m.Start(ctx)
+	for _, status := range initial {
+		m.UpdateLocal(func(s *provisioningv1.AgentStatus) { *s = *status.DeepCopy() })
+	}
+	return m
+}
 
 func TestNICProvisioning_ShouldSkip(t *testing.T) {
 	op := &NICProvisioning{}
@@ -151,6 +179,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 
 	newOptCtx := func(client crclient.Client, bfbRegistryURL string) *operations.Context {
 		return &operations.Context{
+			Status: newTestStatus(t, nil),
 			Options: opts.Options{
 				DPUName:        "dpu-1",
 				DPUNamespace:   "default",
@@ -177,7 +206,9 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(bfs).Build()
 		ctx := newOptCtx(fakeClient, "https://registry.example.com")
 		// Result left over from a previous boot must not survive Execute.
-		ctx.Status.EWNICRuntimeConfig = &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(8)), ConfiguredDevices: ptr.To(int32(8))}
+		ctx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+			s.EWNICRuntimeConfig = &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(8)), ConfiguredDevices: ptr.To(int32(8))}
+		})
 		runner := &fakeBashRunner{}
 		op.runBash = runner.run
 
@@ -186,7 +217,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "already here", string(content))
 		assert.Equal(t, []string{"flint -i '" + existingFile + "' q"}, runner.commands)
-		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(0))}, ctx.Status.EWNICRuntimeConfig)
+		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(0))}, ctx.Status.GetLocal().EWNICRuntimeConfig)
 	})
 
 	t.Run("reports discovered device count for runtime config", func(t *testing.T) {
@@ -211,7 +242,7 @@ func TestNICProvisioning_Execute(t *testing.T) {
 		ctx := newOptCtx(fakeClient, "https://registry.example.com")
 
 		require.NoError(t, opWithDevices.Execute(context.Background(), ctx))
-		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(2))}, ctx.Status.EWNICRuntimeConfig)
+		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(2))}, ctx.Status.GetLocal().EWNICRuntimeConfig)
 	})
 
 	t.Run("download firmware to local nic-firmware directory", func(t *testing.T) {
@@ -327,16 +358,15 @@ func TestNICProvisioning_updateRuntimeConfigStatus(t *testing.T) {
 				return nil
 			},
 		}
-		updates := 0
+		var updates atomic.Int32
 		ctx := &operations.Context{
-			Status:                   provisioningv1.AgentStatus{EWNICRuntimeConfig: &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(2))}},
-			UpdateStatusUntilSuccess: func(context.Context) error { updates++; return nil },
+			Status: newTestStatus(t, &updates, provisioningv1.AgentStatus{EWNICRuntimeConfig: &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(2))}}),
 		}
 
 		op.applyRuntimeConfigAndRecordFailures(context.Background(), ctx, devices)
-		require.NoError(t, op.updateRuntimeConfigStatus(context.Background(), ctx))
-		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(2)), ConfiguredDevices: ptr.To(int32(2))}, ctx.Status.EWNICRuntimeConfig)
-		assert.Equal(t, 1, updates)
+		require.NoError(t, op.updateRuntimeConfigStatus(ctx))
+		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(2)), ConfiguredDevices: ptr.To(int32(2))}, ctx.Status.GetLocal().EWNICRuntimeConfig)
+		assert.Equal(t, int32(1), updates.Load())
 	})
 
 	t.Run("reports failed devices sorted by PCI address", func(t *testing.T) {
@@ -354,10 +384,10 @@ func TestNICProvisioning_updateRuntimeConfigStatus(t *testing.T) {
 				}
 			},
 		}
-		ctx := &operations.Context{}
+		ctx := &operations.Context{Status: newTestStatus(t, nil)}
 
 		op.applyRuntimeConfigAndRecordFailures(context.Background(), ctx, devices)
-		require.NoError(t, op.updateRuntimeConfigStatus(context.Background(), ctx))
+		require.NoError(t, op.updateRuntimeConfigStatus(ctx))
 		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{
 			DiscoveredDevices: ptr.To(int32(3)),
 			ConfiguredDevices: ptr.To(int32(1)),
@@ -365,7 +395,7 @@ func TestNICProvisioning_updateRuntimeConfigStatus(t *testing.T) {
 				{PCIAddress: ptr.To("0000:04:00"), Reason: ptr.To("NoCarrier"), Message: ptr.To("network interface eth2 for device port 0000:04:00.0 has NO-CARRIER")},
 				{PCIAddress: ptr.To("0000:05:00"), Reason: ptr.To("ApplyFailed"), Message: ptr.To("spectrumx runtime config failed to apply")},
 			},
-		}, ctx.Status.EWNICRuntimeConfig)
+		}, ctx.Status.GetLocal().EWNICRuntimeConfig)
 	})
 
 	t.Run("patches status only when it changes", func(t *testing.T) {
@@ -380,28 +410,26 @@ func TestNICProvisioning_updateRuntimeConfigStatus(t *testing.T) {
 				return failures
 			},
 		}
-		updates := 0
-		ctx := &operations.Context{
-			UpdateStatusUntilSuccess: func(context.Context) error { updates++; return nil },
-		}
+		var updates atomic.Int32
+		ctx := &operations.Context{Status: newTestStatus(t, &updates)}
 
 		// First apply: SN2 fails. The status is new, so it is patched.
 		failures = []runtimeConfigDeviceResult{{device: devices[1], reason: runtimeConfigReasonNoCarrier, err: errors.New("has NO-CARRIER")}}
 		op.applyRuntimeConfigAndRecordFailures(context.Background(), ctx, devices)
-		require.NoError(t, op.updateRuntimeConfigStatus(context.Background(), ctx))
-		assert.Equal(t, 1, updates)
+		require.NoError(t, op.updateRuntimeConfigStatus(ctx))
+		assert.Equal(t, int32(1), updates.Load())
 
 		// Retry on SN2 only, same failure: nothing changed, no patch.
 		op.applyRuntimeConfigAndRecordFailures(context.Background(), ctx, devices[1:])
-		require.NoError(t, op.updateRuntimeConfigStatus(context.Background(), ctx))
-		assert.Equal(t, 1, updates)
+		require.NoError(t, op.updateRuntimeConfigStatus(ctx))
+		assert.Equal(t, int32(1), updates.Load())
 
 		// SN2 succeeds: the failed list empties and the status is patched again.
 		failures = nil
 		op.applyRuntimeConfigAndRecordFailures(context.Background(), ctx, devices[1:])
-		require.NoError(t, op.updateRuntimeConfigStatus(context.Background(), ctx))
-		assert.Equal(t, 2, updates)
-		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(2)), ConfiguredDevices: ptr.To(int32(2))}, ctx.Status.EWNICRuntimeConfig)
+		require.NoError(t, op.updateRuntimeConfigStatus(ctx))
+		assert.Equal(t, int32(2), updates.Load())
+		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(2)), ConfiguredDevices: ptr.To(int32(2))}, ctx.Status.GetLocal().EWNICRuntimeConfig)
 		assert.Empty(t, op.failedDevices)
 	})
 
@@ -420,11 +448,11 @@ func TestNICProvisioning_updateRuntimeConfigStatus(t *testing.T) {
 				}
 			},
 		}
-		ctx := &operations.Context{}
+		ctx := &operations.Context{Status: newTestStatus(t, nil)}
 
 		op.applyRuntimeConfigAndRecordFailures(context.Background(), ctx, devices)
-		require.NoError(t, op.updateRuntimeConfigStatus(context.Background(), ctx))
-		failed := ctx.Status.EWNICRuntimeConfig.FailedDevices
+		require.NoError(t, op.updateRuntimeConfigStatus(ctx))
+		failed := ctx.Status.GetLocal().EWNICRuntimeConfig.FailedDevices
 		require.Len(t, failed, 2)
 		assert.Equal(t, ptr.To("0000:03:00"), failed[0].PCIAddress)
 		assert.Equal(t, ptr.To("0000:04:00"), failed[1].PCIAddress)
@@ -487,7 +515,7 @@ func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		optCtx := &operations.Context{
-			Status: provisioningv1.AgentStatus{EWNICRuntimeConfig: &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(1))}},
+			Status: newTestStatus(t, nil, provisioningv1.AgentStatus{EWNICRuntimeConfig: &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(1))}}),
 		}
 
 		op.StartRuntimeConfigLoop(ctx, optCtx)
@@ -496,7 +524,7 @@ func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
 		require.Eventually(t, func() bool { return calls.Load() >= 3 }, time.Second, 10*time.Millisecond)
 		cancel()
 		require.NoError(t, op.Shutdown())
-		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(1)), ConfiguredDevices: ptr.To(int32(1))}, optCtx.Status.EWNICRuntimeConfig)
+		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(1)), ConfiguredDevices: ptr.To(int32(1))}, optCtx.Status.GetLocal().EWNICRuntimeConfig)
 	})
 
 	t.Run("applies runtime config then stops on context cancel", func(t *testing.T) {
@@ -519,7 +547,7 @@ func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		optCtx := &operations.Context{
-			Status: provisioningv1.AgentStatus{Conditions: []metav1.Condition{}},
+			Status: newTestStatus(t, nil, provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}),
 		}
 
 		op.StartRuntimeConfigLoop(ctx, optCtx)
@@ -553,7 +581,7 @@ func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		optCtx := &operations.Context{
-			Status: provisioningv1.AgentStatus{Conditions: []metav1.Condition{}},
+			Status: newTestStatus(t, nil, provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}),
 		}
 
 		op.StartRuntimeConfigLoop(ctx, optCtx)
@@ -608,7 +636,7 @@ func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		optCtx := &operations.Context{
-			Status: provisioningv1.AgentStatus{EWNICRuntimeConfig: &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(2))}},
+			Status: newTestStatus(t, nil, provisioningv1.AgentStatus{EWNICRuntimeConfig: &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(2))}}),
 		}
 
 		op.StartRuntimeConfigLoop(ctx, optCtx)
@@ -622,7 +650,7 @@ func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
 		assert.Equal(t, int32(2), retryApplies.Load())
 		assert.False(t, unexpectedRetryTarget.Load())
 		assert.Empty(t, op.failedDevices)
-		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(2)), ConfiguredDevices: ptr.To(int32(2))}, optCtx.Status.EWNICRuntimeConfig)
+		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(2)), ConfiguredDevices: ptr.To(int32(2))}, optCtx.Status.GetLocal().EWNICRuntimeConfig)
 	})
 }
 
@@ -632,14 +660,14 @@ func TestNICProvisioning_applyNVConfigAndUpdateStatus(t *testing.T) {
 			applyNVConfigFn: func(_ context.Context, _ *operations.Context) error { return nil },
 		}
 		ctx := &operations.Context{
-			Status: provisioningv1.AgentStatus{Conditions: []metav1.Condition{}},
+			Status: newTestStatus(t, nil, provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}),
 		}
 
 		require.NoError(t, op.applyNVConfigAndUpdateStatus(context.Background(), ctx))
-		require.Len(t, ctx.Status.Conditions, 1)
-		assert.Equal(t, cutil.AgentCondEWNICNVConfigApplied, ctx.Status.Conditions[0].Type)
-		assert.Equal(t, metav1.ConditionTrue, ctx.Status.Conditions[0].Status)
-		assert.Equal(t, "NICNVConfigApplied", ctx.Status.Conditions[0].Reason)
+		require.Len(t, ctx.Status.GetLocal().Conditions, 1)
+		assert.Equal(t, cutil.AgentCondEWNICNVConfigApplied, ctx.Status.GetLocal().Conditions[0].Type)
+		assert.Equal(t, metav1.ConditionTrue, ctx.Status.GetLocal().Conditions[0].Status)
+		assert.Equal(t, "NICNVConfigApplied", ctx.Status.GetLocal().Conditions[0].Reason)
 	})
 
 	t.Run("sets EWNICNVConfigApplied false on failure", func(t *testing.T) {
@@ -647,15 +675,15 @@ func TestNICProvisioning_applyNVConfigAndUpdateStatus(t *testing.T) {
 			applyNVConfigFn: func(_ context.Context, _ *operations.Context) error { return errors.New("nvconfig apply failed") },
 		}
 		ctx := &operations.Context{
-			Status: provisioningv1.AgentStatus{Conditions: []metav1.Condition{}},
+			Status: newTestStatus(t, nil, provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}),
 		}
 
 		err := op.applyNVConfigAndUpdateStatus(context.Background(), ctx)
 		require.Error(t, err)
-		require.Len(t, ctx.Status.Conditions, 1)
-		assert.Equal(t, cutil.AgentCondEWNICNVConfigApplied, ctx.Status.Conditions[0].Type)
-		assert.Equal(t, metav1.ConditionFalse, ctx.Status.Conditions[0].Status)
-		assert.Equal(t, "NICNVConfigApplyFailed", ctx.Status.Conditions[0].Reason)
+		require.Len(t, ctx.Status.GetLocal().Conditions, 1)
+		assert.Equal(t, cutil.AgentCondEWNICNVConfigApplied, ctx.Status.GetLocal().Conditions[0].Type)
+		assert.Equal(t, metav1.ConditionFalse, ctx.Status.GetLocal().Conditions[0].Status)
+		assert.Equal(t, "NICNVConfigApplyFailed", ctx.Status.GetLocal().Conditions[0].Reason)
 	})
 }
 

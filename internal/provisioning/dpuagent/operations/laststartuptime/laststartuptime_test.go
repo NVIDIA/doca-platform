@@ -17,8 +17,8 @@ limitations under the License.
 package laststartuptime
 
 import (
-	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statusmanager"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -38,10 +38,10 @@ var _ = Describe("ReportLastStartupTime Operation", func() {
 	It("should set LastStartupTime in status", func() {
 		operation := &ReportLastStartupTime{}
 		optCtx := &operations.Context{
-			Status: provisioningv1.AgentStatus{},
+			Status: statusmanager.New(nil, "", "", ""),
 		}
 		err := operation.Execute(ctx, optCtx)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(optCtx.Status.LastStartupTime).NotTo(BeNil())
+		Expect(optCtx.Status.GetLocal().LastStartupTime).NotTo(BeNil())
 	})
 })

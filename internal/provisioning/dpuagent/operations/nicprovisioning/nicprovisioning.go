@@ -138,7 +138,9 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 	// Tell the controller this boot needs E/W NIC runtime config, and drop the result
 	// of a previous boot so DPU Config cannot leave the phase before this run's first
 	// runtime config pass finishes.
-	optCtx.Status.EWNICRuntimeConfig = &provisioningv1.EWNICRuntimeConfigStatus{}
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		s.EWNICRuntimeConfig = &provisioningv1.EWNICRuntimeConfigStatus{}
+	})
 
 	blueFieldSoftware, err := getReferencedBlueFieldSoftware(execCtx, optCtx)
 	if err != nil {
@@ -168,7 +170,9 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 	if err := prepareDMSServer(optCtx); err != nil {
 		return err
 	}
-	optCtx.Status.EWNICRuntimeConfig.DiscoveredDevices = ptr.To(int32(len(n.discoveredNICDevices)))
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		s.EWNICRuntimeConfig.DiscoveredDevices = ptr.To(int32(len(n.discoveredNICDevices)))
+	})
 	// 3. Install NIC firmware (skipped when BlueFieldSoftware has no NIC firmware source)
 	if !skipNICFirmware {
 		if err := n.installNICFirmwareAndUpdateStatus(execCtx, optCtx, localNICFWPath); err != nil {
@@ -196,13 +200,13 @@ func (n *NICProvisioning) installNICFirmwareAndUpdateStatus(execCtx context.Cont
 	}
 	if err := installNICFirmware(execCtx, optCtx, localNICFWPath); err != nil {
 		setAgentCondition(optCtx, cutil.AgentCondEWNicFirmwareInstalled, metav1.ConditionFalse, "InstallFailed", err.Error())
-		if statusErr := updateStatusUntilSuccess(execCtx, optCtx); statusErr != nil {
+		if statusErr := optCtx.Status.UpdateRemote(true); statusErr != nil {
 			return errors.Join(err, statusErr)
 		}
 		return err
 	}
 	setAgentCondition(optCtx, cutil.AgentCondEWNicFirmwareInstalled, metav1.ConditionTrue, "InstallSucceeded", "E/W NIC firmware installation completed")
-	if err := updateStatusUntilSuccess(execCtx, optCtx); err != nil {
+	if err := optCtx.Status.UpdateRemote(true); err != nil {
 		return err
 	}
 	return nil
@@ -223,13 +227,13 @@ func (n *NICProvisioning) applyNVConfigAndUpdateStatus(execCtx context.Context, 
 	}
 	if err := applyNVConfig(execCtx, optCtx); err != nil {
 		setAgentCondition(optCtx, cutil.AgentCondEWNICNVConfigApplied, metav1.ConditionFalse, "NICNVConfigApplyFailed", err.Error())
-		if statusErr := updateStatusUntilSuccess(execCtx, optCtx); statusErr != nil {
+		if statusErr := optCtx.Status.UpdateRemote(true); statusErr != nil {
 			return errors.Join(err, statusErr)
 		}
 		return err
 	}
 	setAgentCondition(optCtx, cutil.AgentCondEWNICNVConfigApplied, metav1.ConditionTrue, "NICNVConfigApplied", "E/W NIC NV config apply completed")
-	if err := updateStatusUntilSuccess(execCtx, optCtx); err != nil {
+	if err := optCtx.Status.UpdateRemote(true); err != nil {
 		return err
 	}
 	return nil
@@ -248,13 +252,20 @@ func (n *NICProvisioning) applyRuntimeConfigAndRecordFailures(execCtx context.Co
 // updateRuntimeConfigStatus reflects n.failedDevices in AgentStatus.EWNICRuntimeConfig.
 // The DPU status is patched only when the reported status actually changed, so a
 // device that keeps failing does not cause a patch on every retry.
-func (n *NICProvisioning) updateRuntimeConfigStatus(execCtx context.Context, optCtx *operations.Context) error {
+func (n *NICProvisioning) updateRuntimeConfigStatus(optCtx *operations.Context) error {
 	status := n.runtimeConfigStatus()
-	if optCtx.Status.EWNICRuntimeConfig != nil && equality.Semantic.DeepEqual(*optCtx.Status.EWNICRuntimeConfig, status) {
+	changed := false
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		if s.EWNICRuntimeConfig != nil && equality.Semantic.DeepEqual(*s.EWNICRuntimeConfig, status) {
+			return
+		}
+		s.EWNICRuntimeConfig = &status
+		changed = true
+	})
+	if !changed {
 		return nil
 	}
-	optCtx.Status.EWNICRuntimeConfig = &status
-	return updateStatusUntilSuccess(execCtx, optCtx)
+	return optCtx.Status.UpdateRemote(true)
 }
 
 // setFailedDevices records the devices whose last apply failed, sorted by PCI device
@@ -307,13 +318,6 @@ func pciDeviceAddress(device nicconfigurationv1alpha1.NicDevice) string {
 
 func isNoCarrierError(err error) bool {
 	return err != nil && strings.Contains(err.Error(), noCarrierErrorMarker)
-}
-
-func updateStatusUntilSuccess(execCtx context.Context, optCtx *operations.Context) error {
-	if optCtx.UpdateStatusUntilSuccess == nil {
-		return nil
-	}
-	return optCtx.UpdateStatusUntilSuccess(execCtx)
 }
 
 func getReferencedBlueFieldSoftware(execCtx context.Context, optCtx *operations.Context) (*provisioningv1.BlueFieldSoftware, error) {
@@ -882,12 +886,14 @@ func (n *NICProvisioning) getOrCreateSpectrumXConfigManager() (nicspectrumx.Spec
 
 // setAgentCondition upserts the condition.
 func setAgentCondition(optCtx *operations.Context, conditionType string, status metav1.ConditionStatus, reason, message string) {
-	meta.SetStatusCondition(&optCtx.Status.Conditions, metav1.Condition{
-		Type:               conditionType,
-		Status:             status,
-		Reason:             reason,
-		Message:            message,
-		LastTransitionTime: metav1.Now(),
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		meta.SetStatusCondition(&s.Conditions, metav1.Condition{
+			Type:               conditionType,
+			Status:             status,
+			Reason:             reason,
+			Message:            message,
+			LastTransitionTime: metav1.Now(),
+		})
 	})
 }
 
@@ -933,7 +939,7 @@ func (n *NICProvisioning) runRuntimeConfigLoop(ctx context.Context, optCtx *oper
 
 	n.applyRuntimeConfigAndRecordFailures(ctx, optCtx, n.discoveredNICDevices)
 	klog.InfoS("NIC runtime config first apply finished", "failedDeviceCount", len(n.failedDevices))
-	if err := n.updateRuntimeConfigStatus(ctx, optCtx); err != nil {
+	if err := n.updateRuntimeConfigStatus(optCtx); err != nil {
 		klog.ErrorS(err, "failed to update NIC runtime config status")
 	}
 
@@ -1005,7 +1011,7 @@ func (n *NICProvisioning) runRuntimeConfigLoop(ctx context.Context, optCtx *oper
 			return
 		// case <-ticker.C:
 		// 	n.applyRuntimeConfigAndRecordFailures(ctx, optCtx, n.discoveredNICDevices)
-		// 	if err := n.updateRuntimeConfigStatus(ctx, optCtx); err != nil {
+		// 	if err := n.updateRuntimeConfigStatus(optCtx); err != nil {
 		// 		klog.ErrorS(err, "failed to update NIC runtime config status")
 		// 	}
 		case <-failedRetryC:
@@ -1015,7 +1021,7 @@ func (n *NICProvisioning) runRuntimeConfigLoop(ctx context.Context, optCtx *oper
 			klog.InfoS("NIC provisioning: retrying runtime config on failed devices",
 				"deviceCount", len(pending))
 			n.applyRuntimeConfigAndRecordFailures(ctx, optCtx, pending)
-			if err := n.updateRuntimeConfigStatus(ctx, optCtx); err != nil {
+			if err := n.updateRuntimeConfigStatus(optCtx); err != nil {
 				klog.ErrorS(err, "failed to update NIC runtime config status")
 			}
 			armFailedRetry()
@@ -1050,7 +1056,7 @@ func (n *NICProvisioning) runRuntimeConfigLoop(ctx context.Context, optCtx *oper
 					"rdmaInterfaces", ifaces)
 			}
 			n.applyRuntimeConfigAndRecordFailures(ctx, optCtx, n.discoveredNICDevices)
-			if err := n.updateRuntimeConfigStatus(ctx, optCtx); err != nil {
+			if err := n.updateRuntimeConfigStatus(optCtx); err != nil {
 				klog.ErrorS(err, "failed to update NIC runtime config status")
 			}
 			armFailedRetry()

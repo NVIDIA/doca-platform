@@ -130,8 +130,10 @@ func (h *HandleReboot) ShouldUpdateStatusBeforeContinue(ctx *operations.Context)
 
 func (h *HandleReboot) Execute(execCtx context.Context, optCtx *operations.Context) error {
 	if optCtx.Options.SkipReboot {
-		optCtx.Status.InitialBootID = nil
-		optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodNoAction)
+		optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+			s.InitialBootID = nil
+			s.RebootMethod = ptr.To(provisioningv1.RebootMethodNoAction)
+		})
 		return nil
 	}
 
@@ -158,50 +160,59 @@ func (h *HandleReboot) Execute(execCtx context.Context, optCtx *operations.Conte
 		return err
 	}
 
-	// Keep track of the current boot ID on Client side.
-	optCtx.Status.InitialBootID = ptr.To(optCtx.CurrentBootID)
-
-	optCtx.Status.RebootMethod = nil
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		// Keep track of the current boot ID on Client side.
+		s.InitialBootID = ptr.To(optCtx.CurrentBootID)
+		s.RebootMethod = nil
+	})
 	switch *m {
 	case provisioningv1.RebootMethodPowerCycle:
-		return h.execPowerCycle(execCtx, optCtx)
+		return h.execPowerCycle(optCtx)
 	case provisioningv1.RebootMethodSystemReboot:
 		return h.execSystemReboot(optCtx)
 	case provisioningv1.RebootMethodSystemLevelReset:
-		return h.execSystemLevelReset(execCtx, optCtx)
+		return h.execSystemLevelReset(optCtx)
 	case provisioningv1.RebootMethodFirmwareReset:
-		return h.execFirmwareReset(execCtx, optCtx)
+		return h.execFirmwareReset(optCtx)
 	case provisioningv1.RebootMethodDPUWarmReboot:
-		return h.execWarmReboot(execCtx, optCtx)
+		return h.execWarmReboot(optCtx)
 	case provisioningv1.RebootMethodNoAction:
 		if err := deferredNVConfigWithoutRebootError(optCtx); err != nil {
 			return err
 		}
-		optCtx.Status.InitialBootID = nil
-		optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodNoAction)
+		optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+			s.InitialBootID = nil
+			s.RebootMethod = ptr.To(provisioningv1.RebootMethodNoAction)
+		})
 		return nil
 	}
 	return fmt.Errorf("unsupported reboot method: %s", *m)
 }
 
-func (h *HandleReboot) execPowerCycle(execCtx context.Context, optCtx *operations.Context) error {
-	optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodPowerCycle)
-	if err := optCtx.UpdateStatusUntilSuccess(execCtx); err != nil {
+func (h *HandleReboot) execPowerCycle(optCtx *operations.Context) error {
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		s.RebootMethod = ptr.To(provisioningv1.RebootMethodPowerCycle)
+	})
+	if err := optCtx.Status.UpdateRemote(true); err != nil {
 		return err
 	}
 	return h.blockUntilReset()
 }
 
 func (h *HandleReboot) execSystemReboot(optCtx *operations.Context) error {
-	optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodSystemReboot)
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		s.RebootMethod = ptr.To(provisioningv1.RebootMethodSystemReboot)
+	})
 	return nil
 }
 
-func (h *HandleReboot) execSystemLevelReset(execCtx context.Context, optCtx *operations.Context) error {
-	optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodSystemLevelReset)
+func (h *HandleReboot) execSystemLevelReset(optCtx *operations.Context) error {
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		s.RebootMethod = ptr.To(provisioningv1.RebootMethodSystemLevelReset)
+	})
 
 	// Update status until success.
-	if err := optCtx.UpdateStatusUntilSuccess(execCtx); err != nil {
+	if err := optCtx.Status.UpdateRemote(true); err != nil {
 		return err
 	}
 
@@ -234,7 +245,7 @@ func (h *HandleReboot) getNICPorts(optCtx *operations.Context, scope pciutil.Por
 	return devices, nil
 }
 
-func (h *HandleReboot) execFirmwareReset(execCtx context.Context, optCtx *operations.Context) error {
+func (h *HandleReboot) execFirmwareReset(optCtx *operations.Context) error {
 	if h.runBash == nil {
 		h.runBash = bash.Run
 	}
@@ -244,8 +255,10 @@ func (h *HandleReboot) execFirmwareReset(execCtx context.Context, optCtx *operat
 		return fmt.Errorf("per-device firmware reset commands are empty; expected device-query discovery to populate them")
 	}
 
-	optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodFirmwareReset)
-	if err := optCtx.UpdateStatusUntilSuccess(execCtx); err != nil {
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		s.RebootMethod = ptr.To(provisioningv1.RebootMethodFirmwareReset)
+	})
+	if err := optCtx.Status.UpdateRemote(true); err != nil {
 		return err
 	}
 
@@ -259,9 +272,11 @@ func (h *HandleReboot) execFirmwareReset(execCtx context.Context, optCtx *operat
 }
 
 // execWarmReboot reboots the DPU OS.
-func (h *HandleReboot) execWarmReboot(execCtx context.Context, optCtx *operations.Context) error {
-	optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodDPUWarmReboot)
-	if err := optCtx.UpdateStatusUntilSuccess(execCtx); err != nil {
+func (h *HandleReboot) execWarmReboot(optCtx *operations.Context) error {
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		s.RebootMethod = ptr.To(provisioningv1.RebootMethodDPUWarmReboot)
+	})
+	if err := optCtx.Status.UpdateRemote(true); err != nil {
 		return err
 	}
 
@@ -303,7 +318,9 @@ func deferredNVConfigWithoutRebootError(optCtx *operations.Context) error {
 		))
 	}
 	err := fmt.Errorf("check DPUFlavor NVConfig: %s", strings.Join(parts, " "))
-	hostutil.NewCondition(nvconfig.CondNVConfigApplied).Failure(err, nvconfig.CondNVConfigApplied).Set(&optCtx.Status.Conditions)
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		hostutil.NewCondition(nvconfig.CondNVConfigApplied).Failure(err, nvconfig.CondNVConfigApplied).Set(&s.Conditions)
+	})
 	return err
 }
 
@@ -454,13 +471,15 @@ func lastPendingState(dpu *provisioningv1.DPU) *provisioningv1.PendingNVConfigSt
 }
 
 func recordPending(optCtx *operations.Context, device string, entries pendingParamList) {
-	if optCtx.Status.LastObservedPendingNVConfig == nil {
-		optCtx.Status.LastObservedPendingNVConfig = &provisioningv1.PendingNVConfigState{}
-	}
-	optCtx.Status.LastObservedPendingNVConfig.BootID = optCtx.CurrentBootID
-	optCtx.Status.LastObservedPendingNVConfig.Devices = append(optCtx.Status.LastObservedPendingNVConfig.Devices, provisioningv1.PendingNVConfigDevice{
-		Device:  device,
-		Entries: []provisioningv1.PendingNVConfigEntry(entries),
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		if s.LastObservedPendingNVConfig == nil {
+			s.LastObservedPendingNVConfig = &provisioningv1.PendingNVConfigState{}
+		}
+		s.LastObservedPendingNVConfig.BootID = optCtx.CurrentBootID
+		s.LastObservedPendingNVConfig.Devices = append(s.LastObservedPendingNVConfig.Devices, provisioningv1.PendingNVConfigDevice{
+			Device:  device,
+			Entries: []provisioningv1.PendingNVConfigEntry(entries),
+		})
 	})
 }
 
@@ -763,7 +782,9 @@ func checkRebootSequenceCount(optCtx *operations.Context, method *provisioningv1
 		prev = *optCtx.LatestDPU.Status.AgentStatus.RebootSequenceCount
 	}
 	if *method == provisioningv1.RebootMethodNoAction {
-		optCtx.Status.RebootSequenceCount = ptr.To(int32(0))
+		optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+			s.RebootSequenceCount = ptr.To(int32(0))
+		})
 		return nil
 	}
 	if prev >= maxRebootSequenceCount {
@@ -773,7 +794,9 @@ func checkRebootSequenceCount(optCtx *operations.Context, method *provisioningv1
 			deferredNVConfigWithoutRebootError(optCtx),
 		)
 	}
-	optCtx.Status.RebootSequenceCount = ptr.To(prev + 1)
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		s.RebootSequenceCount = ptr.To(prev + 1)
+	})
 	return nil
 }
 
@@ -797,12 +820,14 @@ func shouldDowngradeNoResetLevelPowerCycleToNoAction(optCtx *operations.Context,
 // setRebootMethodDiscoveryCondition sets or updates the device-query discovery condition.
 func setRebootMethodDiscoveryCondition(optCtx *operations.Context, method provisioningv1.RebootMethodType, msg string) {
 	msg = dpuutil.TruncateConditionMessage(msg)
-	meta.SetStatusCondition(&optCtx.Status.Conditions, metav1.Condition{
-		Type:               cutil.AgentCondRebootMethodDiscovery,
-		Status:             metav1.ConditionTrue,
-		Reason:             string(method),
-		Message:            msg,
-		LastTransitionTime: metav1.Now(),
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		meta.SetStatusCondition(&s.Conditions, metav1.Condition{
+			Type:               cutil.AgentCondRebootMethodDiscovery,
+			Status:             metav1.ConditionTrue,
+			Reason:             string(method),
+			Message:            msg,
+			LastTransitionTime: metav1.Now(),
+		})
 	})
 }
 

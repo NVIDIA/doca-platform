@@ -24,6 +24,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	spiffeheartbeat "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/spiffe"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statusmanager"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -120,12 +121,10 @@ var _ = Describe("DPUAgent status patches (envtest)", Ordered, func() {
 		agent.optCtx.Options.DPUName = dpu.Name
 		agent.optCtx.Options.DPUNamespace = dpu.Namespace
 		agent.optCtx.Options.DPUUID = string(dpu.UID)
-		agent.optCtx.Status.Conditions = []metav1.Condition{{
-			Type:               "HeartbeatCoexistence",
-			Status:             metav1.ConditionTrue,
-			Reason:             "StatusPatched",
-			LastTransitionTime: metav1.Now(),
-		}}
+		agent.optCtx.Status = statusmanager.New(k8sClient, dpu.Namespace, dpu.Name, string(dpu.UID))
+		statusCtx, cancelStatus := context.WithCancel(envCtx)
+		defer cancelStatus()
+		agent.optCtx.Status.Start(statusCtx)
 		ewnicRuntimeConfig := &provisioningv1.EWNICRuntimeConfigStatus{
 			DiscoveredDevices: ptr.To(int32(2)),
 			ConfiguredDevices: ptr.To(int32(1)),
@@ -135,8 +134,16 @@ var _ = Describe("DPUAgent status patches (envtest)", Ordered, func() {
 				Message:    ptr.To("network interface eth2 for device port 0000:04:00.0 has NO-CARRIER"),
 			}},
 		}
-		agent.optCtx.Status.EWNICRuntimeConfig = ewnicRuntimeConfig
-		Expect(agent.updateStatus(envCtx)).To(Succeed())
+		agent.optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+			s.Conditions = []metav1.Condition{{
+				Type:               "HeartbeatCoexistence",
+				Status:             metav1.ConditionTrue,
+				Reason:             "StatusPatched",
+				LastTransitionTime: metav1.Now(),
+			}}
+			s.EWNICRuntimeConfig = ewnicRuntimeConfig
+		})
+		Expect(agent.optCtx.Status.UpdateRemote(false)).To(Succeed())
 
 		Expect(k8sClient.Get(envCtx, key, got)).To(Succeed())
 		Expect(got.Status.AgentStatus.Spiffe.LastProbeTime).To(Equal(probeTime))

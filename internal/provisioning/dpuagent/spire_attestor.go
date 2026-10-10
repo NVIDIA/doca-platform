@@ -89,10 +89,12 @@ func (r *spireAttestorReporter) reconcile(ctx context.Context) {
 		return
 	}
 
-	// updateStatus patches from this slice, so the condition is set before the call and
-	// left in place: a later status update carries it even if this patch fails.
-	meta.SetStatusCondition(&r.agent.optCtx.Status.Conditions, condition)
-	if err := r.agent.updateStatus(ctx); err != nil {
+	// The push sends the in-memory status, so the condition is set there first and left in
+	// place: a later status update carries it even if this push fails.
+	r.agent.optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		meta.SetStatusCondition(&s.Conditions, condition)
+	})
+	if err := r.agent.optCtx.Status.UpdateRemote(false); err != nil {
 		klog.Warningf("Failed to report the SPIRE workload attestor condition: %v", err)
 		return
 	}

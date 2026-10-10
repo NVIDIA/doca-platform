@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -47,7 +48,9 @@ func (r *ReportLastStartupTime) ShouldUpdateStatusBeforeContinue(ctx *operations
 
 func (r *ReportLastStartupTime) Execute(execCtx context.Context, optCtx *operations.Context) error {
 	now := metav1.Now()
-	optCtx.Status.LastStartupTime = &now
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		s.LastStartupTime = &now
+	})
 	klog.Infof("Reported LastStartupTime: %s", now.Format(time.RFC3339))
 	return nil
 }

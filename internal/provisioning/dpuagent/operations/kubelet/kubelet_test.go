@@ -26,6 +26,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statusmanager"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -223,6 +224,7 @@ var _ = Describe("Kubelet", func() {
 					KubeadmSecretNamespace: "default",
 					KubeadmSecretName:      "kubeadm-join",
 				},
+				Status: statusmanager.New(nil, "", "", ""),
 			})
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to get kubeadm secret"))
@@ -249,6 +251,7 @@ var _ = Describe("Kubelet", func() {
 					KubeadmSecretNamespace: "default",
 					KubeadmSecretName:      "kubeadm-join",
 				},
+				Status: statusmanager.New(nil, "", "", ""),
 			})
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("does not contain key"))
@@ -278,6 +281,7 @@ var _ = Describe("Kubelet", func() {
 					KubeadmSecretNamespace: "default",
 					KubeadmSecretName:      "kubeadm-join",
 				},
+				Status: statusmanager.New(nil, "", "", ""),
 			})
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to run join command"))
@@ -319,6 +323,7 @@ var _ = Describe("Kubelet", func() {
 					KubeadmSecretNamespace: "kube-system",
 					KubeadmSecretName:      "kubeadm-join-secret",
 				},
+				Status: statusmanager.New(nil, "", "", ""),
 			})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -420,6 +425,7 @@ var _ = Describe("Kubelet", func() {
 					KubeadmSecretNamespace: "default",
 					KubeadmSecretName:      "kubeadm-join",
 				},
+				Status: statusmanager.New(nil, "", "", ""),
 			})
 			Expect(err).NotTo(HaveOccurred())
 

@@ -167,15 +167,19 @@ func (in *runInputs) handleReboot(ctx context.Context, optCtx *operations.Contex
 		prev = *optCtx.LatestDPU.Status.AgentStatus.RebootSequenceCount
 	}
 	if method == provisioningv1.RebootMethodNoAction {
-		optCtx.Status.RebootSequenceCount = ptr.To(int32(0))
-		optCtx.Status.InitialBootID = nil
-		optCtx.Status.RebootMethod = ptr.To(provisioningv1.RebootMethodNoAction)
+		optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+			s.RebootSequenceCount = ptr.To(int32(0))
+			s.InitialBootID = nil
+			s.RebootMethod = ptr.To(provisioningv1.RebootMethodNoAction)
+		})
 		return nil
 	}
-	optCtx.Status.RebootSequenceCount = ptr.To(prev + 1)
-	optCtx.Status.InitialBootID = ptr.To(optCtx.CurrentBootID)
-	optCtx.Status.RebootMethod = ptr.To(method)
-	if err := optCtx.UpdateStatusUntilSuccess(ctx); err != nil {
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		s.RebootSequenceCount = ptr.To(prev + 1)
+		s.InitialBootID = ptr.To(optCtx.CurrentBootID)
+		s.RebootMethod = ptr.To(method)
+	})
+	if err := optCtx.Status.UpdateRemote(true); err != nil {
 		return err
 	}
 	if method == provisioningv1.RebootMethodSystemLevelReset && in.powerOff != nil {
@@ -189,12 +193,14 @@ func (in *runInputs) handleReboot(ctx context.Context, optCtx *operations.Contex
 }
 
 func setRebootMethodDiscoveryCondition(optCtx *operations.Context, method provisioningv1.RebootMethodType) {
-	meta.SetStatusCondition(&optCtx.Status.Conditions, metav1.Condition{
-		Type:               cutil.AgentCondRebootMethodDiscovery,
-		Status:             metav1.ConditionTrue,
-		Reason:             string(method),
-		Message:            "mock-dpuagent: reboot method taken from agent.rebootMethod",
-		LastTransitionTime: metav1.Now(),
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		meta.SetStatusCondition(&s.Conditions, metav1.Condition{
+			Type:               cutil.AgentCondRebootMethodDiscovery,
+			Status:             metav1.ConditionTrue,
+			Reason:             string(method),
+			Message:            "mock-dpuagent: reboot method taken from agent.rebootMethod",
+			LastTransitionTime: metav1.Now(),
+		})
 	})
 }
 
@@ -233,7 +239,9 @@ func (in *runInputs) startKubelet(ctx context.Context, optCtx *operations.Contex
 	if err := in.joiner.RegisterNode(ctx, version); err != nil {
 		return err
 	}
-	optCtx.Status.KubeletVersion = &version
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		s.KubeletVersion = &version
+	})
 	go in.joiner.RunHeartbeat(ctx, version)
 	return nil
 }
@@ -242,24 +250,28 @@ func (in *runInputs) startKubelet(ctx context.Context, optCtx *operations.Contex
 // cleared, then a flavor without DELAY_HOST_OS_INIT user mode records Skipped and one with it
 // records Succeeded, which is what Service Readiness waits for.
 func releaseHostOSInit(ctx context.Context, optCtx *operations.Context) error {
-	optCtx.ClearHostOSInit = true
-	optCtx.Status.HostOSInit = nil
-	if err := optCtx.UpdateStatusUntilSuccess(ctx); err != nil {
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		s.HostOSInit = nil
+	})
+	if err := optCtx.Status.UpdateRemote(true); err != nil {
 		return err
 	}
-	optCtx.ClearHostOSInit = false
 	if !nvconfigutil.FlavorRequestsHostOSInitHold(optCtx.DPUFlavor.Spec.NVConfig) {
 		reason, message := "ReleaseNotRequired", "DELAY_HOST_OS_INIT is not set to ENABLE_USER (0x3) in flavor nvconfig"
-		optCtx.Status.HostOSInit = &provisioningv1.HostOSInitStatus{
-			Skipped: &provisioningv1.HostOSInitSkipped{Reason: &reason, Message: &message},
-		}
-		hostutil.NewCondition("ReleaseHostOSInit").Success(message).Set(&optCtx.Status.Conditions)
-		return optCtx.UpdateStatusUntilSuccess(ctx)
+		optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+			s.HostOSInit = &provisioningv1.HostOSInitStatus{
+				Skipped: &provisioningv1.HostOSInitSkipped{Reason: &reason, Message: &message},
+			}
+			hostutil.NewCondition("ReleaseHostOSInit").Success(message).Set(&s.Conditions)
+		})
+		return optCtx.Status.UpdateRemote(true)
 	}
 	gate := optCtx.DPUFlavor.ReleaseGate()
-	optCtx.Status.HostOSInit = &provisioningv1.HostOSInitStatus{
-		Succeeded: &provisioningv1.HostOSInitSucceeded{Gate: gate},
-	}
-	hostutil.NewCondition("ReleaseHostOSInit").Success("").Set(&optCtx.Status.Conditions)
-	return optCtx.UpdateStatusUntilSuccess(ctx)
+	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		s.HostOSInit = &provisioningv1.HostOSInitStatus{
+			Succeeded: &provisioningv1.HostOSInitSucceeded{Gate: gate},
+		}
+		hostutil.NewCondition("ReleaseHostOSInit").Success("").Set(&s.Conditions)
+	})
+	return optCtx.Status.UpdateRemote(true)
 }
