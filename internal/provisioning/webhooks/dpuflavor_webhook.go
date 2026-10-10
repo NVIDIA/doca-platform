@@ -150,6 +150,9 @@ func validateImmutableDPUFlavorFields(oldFlavor, newFlavor *provisioningv1.DPUFl
 	if !equality.Semantic.DeepEqual(cloudInitConfigFiles(oldSpec.ConfigFiles), cloudInitConfigFiles(newSpec.ConfigFiles)) {
 		return errors.New("configFiles with type cloud-init (the default) are immutable")
 	}
+	if !equality.Semantic.DeepEqual(oldSpec.ScalableFunctions, newSpec.ScalableFunctions) {
+		return errors.New("scalableFunctions is immutable")
+	}
 	return nil
 }
 

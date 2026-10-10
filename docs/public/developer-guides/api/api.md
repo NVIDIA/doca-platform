@@ -2848,7 +2848,7 @@ _Appears in:_
 DPUFlavorSpec defines the content of DPUFlavor.
 Config-only fields (grub, sysctl, nvconfig, ovs, packages, systemdServices,
 containerdConfig, agent-applied configFiles, serviceReadiness, ewNicConfigurations,
-dma, scalableFunctions, virtualFunctions) may be updated in place.
+dma, virtualFunctions) may be updated in place.
 Immutable fields require a new DPUFlavor.
 
 
@@ -2861,7 +2861,7 @@ _Appears in:_
 | `grub` _[DPUFlavorGrub](#dpuflavorgrub)_ | Grub contains the grub configuration for the DPUFlavor. |  | Optional: \{\} <br /> |
 | `sysctl` _[DPUFLavorSysctl](#dpuflavorsysctl)_ | Sysctl contains the sysctl configuration for the DPUFlavor. |  | Optional: \{\} <br /> |
 | `nvconfig` _[NVConfig](#nvconfig) array_ | NVConfig contains the device-specific configuration (firmware settings, device parameters).<br />Each entry specifies a device (wildcard '*', or port identifiers 'p0'/'P0'/'p1'/'P1') and its parameters.<br />If device is '*' or unspecified (defaults to '*'), it applies to all devices and must be the only entry.<br />Each device (including unspecified as '*') must be unique across all nvconfig entries (case-insensitive).<br />Validation enforces: device enum values, parameter format (KEY=VALUE), case-insensitive uniqueness, and size limits. |  | MaxItems: 3 <br />Optional: \{\} <br /> |
-| `scalableFunctions` _[ScalableFunction](#scalablefunction) array_ | ScalableFunctions is the list of SF groups to create on the DPU, or on the host when<br />hostDevice is set. Count is per selected device. Over-subscribe can trigger failures at<br />create time. Editing this field reprovisions the DPU. For backward compatibility, when<br />both this SF list and VF list are empty, SF counts are still derived from PF_TOTAL_SF<br />(removed in a future release). |  | MaxItems: 16 <br />Optional: \{\} <br /> |
+| `scalableFunctions` _[ScalableFunction](#scalablefunction) array_ | ScalableFunctions is the list of SF groups to create on the DPU, or on the host when<br />hostDevice is set. Count is per selected device. Over-subscribe can trigger failures at<br />create time. This field is immutable. Changing it requires a new DPUFlavor. For backward compatibility, when<br />both this SF list and VF list are empty, SF counts are still derived from PF_TOTAL_SF<br />(removed in a future release). |  | MaxItems: 16 <br />Optional: \{\} <br /> |
 | `virtualFunctions` _[VirtualFunction](#virtualfunction) array_ | VirtualFunctions is the list of VF groups to create. Count is per selected<br />device. Groups ending up on the same device sum to a single `sriov_numvfs` and then<br />list order assigns contiguous index ranges. Over-subscribe can trigger failures at<br />create time. Editing this field reprovisions the DPU. |  | MaxItems: 16 <br />Optional: \{\} <br /> |
 | `dma` _[DPUFlavorDMA](#dpuflavordma)_ | DMA configures the SNAP DMA SF. The agent picks the ECPF; sfnum is 8000 and MAC is derived.<br />Ignored except on BlueField-4. |  | Optional: \{\} <br /> |
 | `ovs` _[DPUFlavorOVS](#dpuflavorovs)_ | OVS contains the OVS configuration for the DPUFlavor. |  | Optional: \{\} <br /> |

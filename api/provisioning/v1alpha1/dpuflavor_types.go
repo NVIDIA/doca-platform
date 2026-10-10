@@ -33,7 +33,7 @@ var DPUFlavorGroupVersionKind = GroupVersion.WithKind(DPUFlavorKind)
 // DPUFlavorSpec defines the content of DPUFlavor.
 // Config-only fields (grub, sysctl, nvconfig, ovs, packages, systemdServices,
 // containerdConfig, agent-applied configFiles, serviceReadiness, ewNicConfigurations,
-// dma, scalableFunctions, virtualFunctions) may be updated in place.
+// dma, virtualFunctions) may be updated in place.
 // Immutable fields require a new DPUFlavor.
 // +kubebuilder:validation:XValidation:rule="(!has(self.dpuMode) && !has(oldSelf.dpuMode)) || (has(self.dpuMode) && has(oldSelf.dpuMode) && self.dpuMode == oldSelf.dpuMode)",message="dpuMode is immutable"
 // +kubebuilder:validation:XValidation:rule="(!has(self.bfcfgParameters) && !has(oldSelf.bfcfgParameters)) || (has(self.bfcfgParameters) && has(oldSelf.bfcfgParameters) && self.bfcfgParameters == oldSelf.bfcfgParameters)",message="bfcfgParameters is immutable"
@@ -41,6 +41,7 @@ var DPUFlavorGroupVersionKind = GroupVersion.WithKind(DPUFlavorKind)
 // +kubebuilder:validation:XValidation:rule="(!has(self.systemReservedResources) && !has(oldSelf.systemReservedResources)) || (has(self.systemReservedResources) && has(oldSelf.systemReservedResources) && self.systemReservedResources == oldSelf.systemReservedResources)",message="systemReservedResources is immutable"
 // +kubebuilder:validation:XValidation:rule="(!has(self.hostNetworkInterfaceConfigs) && !has(oldSelf.hostNetworkInterfaceConfigs)) || (has(self.hostNetworkInterfaceConfigs) && has(oldSelf.hostNetworkInterfaceConfigs) && self.hostNetworkInterfaceConfigs == oldSelf.hostNetworkInterfaceConfigs)",message="hostNetworkInterfaceConfigs is immutable"
 // +kubebuilder:validation:XValidation:rule="(has(self.configFiles) ? self.configFiles.filter(f, !has(f.type) || f.type == 'cloud-init') : []) == (has(oldSelf.configFiles) ? oldSelf.configFiles.filter(f, !has(f.type) || f.type == 'cloud-init') : [])",message="configFiles with type cloud-init (the default) are immutable"
+// +kubebuilder:validation:XValidation:rule="(has(self.scalableFunctions) ? self.scalableFunctions : []) == (has(oldSelf.scalableFunctions) ? oldSelf.scalableFunctions : [])",message="scalableFunctions is immutable"
 type DPUFlavorSpec struct {
 	// Grub contains the grub configuration for the DPUFlavor.
 	// +optional
@@ -63,7 +64,7 @@ type DPUFlavorSpec struct {
 
 	// ScalableFunctions is the list of SF groups to create on the DPU, or on the host when
 	// hostDevice is set. Count is per selected device. Over-subscribe can trigger failures at
-	// create time. Editing this field reprovisions the DPU. For backward compatibility, when
+	// create time. This field is immutable. Changing it requires a new DPUFlavor. For backward compatibility, when
 	// both this SF list and VF list are empty, SF counts are still derived from PF_TOTAL_SF
 	// (removed in a future release).
 	// +kubebuilder:validation:MaxItems=16

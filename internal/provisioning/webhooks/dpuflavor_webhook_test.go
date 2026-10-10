@@ -466,7 +466,7 @@ var _ = Describe("DPUFlavor", func() {
 			Expect(err.Error()).To(ContainSubstring("hostNetworkInterfaceConfigs is immutable"))
 		})
 
-		It("spec.scalableFunctions is mutable", func() {
+		It("spec.scalableFunctions is immutable", func() {
 			obj := createObj("obj-sf-mut")
 			obj.Spec.ScalableFunctions = []provisioningv1.ScalableFunction{{
 				Count: ptr.To(int32(2)),
@@ -476,12 +476,13 @@ var _ = Describe("DPUFlavor", func() {
 
 			obj.Spec.ScalableFunctions[0].Count = ptr.To(int32(4))
 			err = k8sClient.Update(ctx, obj)
-			Expect(err).NotTo(HaveOccurred())
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("scalableFunctions is immutable"))
 
 			objFetched := &provisioningv1.DPUFlavor{}
 			err = k8sClient.Get(ctx, getObjKey(obj), objFetched)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(*objFetched.Spec.ScalableFunctions[0].Count).To(Equal(int32(4)))
+			Expect(*objFetched.Spec.ScalableFunctions[0].Count).To(Equal(int32(2)))
 		})
 
 		It("spec.virtualFunctions is mutable", func() {
@@ -502,7 +503,7 @@ var _ = Describe("DPUFlavor", func() {
 			Expect(*objFetched.Spec.VirtualFunctions[0].Count).To(Equal(int32(4)))
 		})
 
-		It("rejects updating scalableFunctions to share a pool with virtualFunctions", func() {
+		It("rejects updating virtualFunctions to share a pool with scalableFunctions", func() {
 			obj := createObj("obj-sf-vf-pool-update")
 			obj.Spec.ScalableFunctions = []provisioningv1.ScalableFunction{
 				{Count: ptr.To(int32(2)), PoolName: ptr.To("sf-pool")},
@@ -513,7 +514,7 @@ var _ = Describe("DPUFlavor", func() {
 			err := k8sClient.Create(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
 
-			obj.Spec.ScalableFunctions[0].PoolName = ptr.To("vf-pool")
+			obj.Spec.VirtualFunctions[0].PoolName = ptr.To("sf-pool")
 			err = k8sClient.Update(ctx, obj)
 			Expect(err).To(MatchError(ContainSubstring("holds one device type")))
 		})
@@ -1084,7 +1085,7 @@ spec:
 					},
 				})
 
-				_, err := webhook.ValidateUpdate(ctx, flavorWithSpec(provisioningv1.DPUFlavorSpec{}), obj)
+				_, err := webhook.ValidateUpdate(ctx, obj, obj)
 				Expect(err).To(MatchError(ContainSubstring("holds one device type")))
 			})
 
@@ -1104,7 +1105,7 @@ spec:
 					},
 				})
 
-				_, err := webhook.ValidateUpdate(ctx, flavorWithSpec(provisioningv1.DPUFlavorSpec{}), obj)
+				_, err := webhook.ValidateUpdate(ctx, obj, obj)
 				Expect(err).To(MatchError(ContainSubstring("overlapping the 10-13 pinned by scalableFunctions[0]")))
 			})
 
@@ -1118,7 +1119,7 @@ spec:
 					},
 				})
 
-				warnings, err := webhook.ValidateUpdate(ctx, flavorWithSpec(provisioningv1.DPUFlavorSpec{}), obj)
+				warnings, err := webhook.ValidateUpdate(ctx, obj, obj)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(warnings).To(BeEmpty())
 			})
