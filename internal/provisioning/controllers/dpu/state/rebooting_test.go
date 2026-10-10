@@ -1060,7 +1060,7 @@ var _ = Describe("InitializeDPURebootStatus", func() {
 		Expect(st.RebootStatus.Phase).To(Equal(provisioningv1.RebootStatusPending))
 	})
 
-	It("sets SystemLevelReset method for DPUUpdateFirmware", func() {
+	It("sets SystemLevelReset method for DPUOSInstalling", func() {
 		scheme := runtime.NewScheme()
 		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
 		cl := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -1071,7 +1071,7 @@ var _ = Describe("InitializeDPURebootStatus", func() {
 		}
 		st := &provisioningv1.DPUStatus{}
 
-		err := dutil.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUUpdateFirmware)
+		err := dutil.InitializeDPURebootStatus(ctx, dpu, st, ctrlCtx, provisioningv1.DPUOSInstalling)
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(st.RebootStatus).NotTo(BeNil())

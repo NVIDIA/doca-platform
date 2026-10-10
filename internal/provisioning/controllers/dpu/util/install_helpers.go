@@ -32,11 +32,15 @@ import (
 // keeps the same status. Install-progress logging shares this anchor with CheckInstallationTimeout
 // so a progress line and a timeout error report the same interval.
 func InstallElapsed(status *provisioningv1.DPUStatus) (time.Duration, bool) {
-	_, bfbPreparedCond := cutil.GetDPUCondition(status, string(provisioningv1.DPUCondBFBPrepared))
-	if bfbPreparedCond == nil {
-		return 0, false
+	_, cond := cutil.GetDPUCondition(status, string(provisioningv1.DPUCondBFBPrepared))
+	if cond == nil {
+		// For BF4 OS installing start a timer after Rebooting -> FW verified
+		_, cond = cutil.GetDPUCondition(status, string(provisioningv1.DPUCondFwBundleVerified))
+		if cond == nil {
+			return 0, false
+		}
 	}
-	return time.Since(bfbPreparedCond.LastTransitionTime.Time), true
+	return time.Since(cond.LastTransitionTime.Time), true
 }
 
 // CheckInstallationTimeout reports an error when OS installation has run for longer than timeout.

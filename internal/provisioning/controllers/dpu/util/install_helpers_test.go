@@ -64,4 +64,42 @@ var _ = Describe("CheckInstallationTimeout", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("OS installation timeout exceeded"))
 	})
+
+	It("should fall back to FwBundleVerified when BFBPrepared is not set", func() {
+		state := &provisioningv1.DPUStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:               string(provisioningv1.DPUCondFwBundleVerified),
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.Time{Time: time.Now().Add(-50 * time.Minute)},
+					Reason:             "FirmwareVerified",
+				},
+			},
+		}
+		elapsed, ok := InstallElapsed(state)
+		Expect(ok).To(BeTrue())
+		Expect(elapsed).To(BeNumerically(">=", 50*time.Minute))
+		Expect(CheckInstallationTimeout(state, 45*time.Minute)).To(MatchError(ContainSubstring("OS installation timeout exceeded")))
+		Expect(CheckInstallationTimeout(state, time.Hour)).To(Succeed())
+	})
+
+	It("should prefer BFBPrepared over FwBundleVerified", func() {
+		state := &provisioningv1.DPUStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:               string(provisioningv1.DPUCondBFBPrepared),
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "Prepared",
+				},
+				{
+					Type:               string(provisioningv1.DPUCondFwBundleVerified),
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.Time{Time: time.Now().Add(-50 * time.Minute)},
+					Reason:             "FirmwareVerified",
+				},
+			},
+		}
+		Expect(CheckInstallationTimeout(state, 45*time.Minute)).To(Succeed())
+	})
 })
