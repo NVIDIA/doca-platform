@@ -68,12 +68,11 @@ func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *
 
 	readCtx, cancelRead := rfclient.ReadContext(ctx)
 	defer cancelRead()
-	tlsClient, err := rfclient.NewTLSClient(readCtx, device.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	tlsClient, err := ctrlCtx.RedfishProvider().AcquireForDevice(readCtx, dpu.Namespace, device)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondInterfaceInitialized), err, "FailedToCreateClient", err.Error()))
 		return *state, err
 	}
-	defer tlsClient.CloseIdleConnections()
 
 	descr, err := getProductDescription(readCtx, tlsClient)
 	if err != nil {

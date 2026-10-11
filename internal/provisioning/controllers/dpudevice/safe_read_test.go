@@ -18,11 +18,19 @@ package dpudevice
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -53,13 +61,32 @@ func TestMTLSAcquisitionFailureDoesNotBootstrap(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer basic.CloseIdleConnections()
-			device := &provisioningv1.DPUDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "test"}}
-			r := &DPUDeviceReconciler{Client: fake.NewClientBuilder().Build()}
-			err = r.ensureRedfishMTLS(context.Background(), device, server.URL, basic)
+			device := deviceAt(t, server.URL)
+			fakeClient := fake.NewClientBuilder().WithObjects(caTrustBundle(t, "test")).Build()
+			r := &DPUDeviceReconciler{Client: fakeClient, RedfishClients: rfclient.NewProvider(fakeClient)}
+			err = r.ensureRedfishMTLS(context.Background(), device, basic)
 			if !rfclient.HasHTTPStatus(err, status) || writes.Load() != 0 || len(device.Status.Conditions) != 0 {
 				t.Fatalf("read failure entered bootstrap: err=%v writes=%d conditions=%v", err, writes.Load(), device.Status.Conditions)
 			}
 		})
+	}
+}
+
+// deviceAt returns a DPUDevice in namespace "test" whose recorded BMC address is serverURL.
+func deviceAt(t *testing.T, serverURL string) *provisioningv1.DPUDevice {
+	t.Helper()
+	host, portText, err := net.SplitHostPort(strings.TrimPrefix(serverURL, "https://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.ParseUint(portText, 10, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bmcPort := uint32(port)
+	return &provisioningv1.DPUDevice{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "test"},
+		Status:     provisioningv1.DPUDeviceStatus{BMCIP: &host, BMCPort: &bmcPort},
 	}
 }
 
@@ -82,9 +109,10 @@ func TestMTLSAcquisitionCancellationDoesNotBootstrap(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer basic.CloseIdleConnections()
-	device := &provisioningv1.DPUDevice{}
-	r := &DPUDeviceReconciler{Client: fake.NewClientBuilder().Build()}
-	err = r.ensureRedfishMTLS(ctx, device, server.URL, basic)
+	device := deviceAt(t, server.URL)
+	fakeClient := fake.NewClientBuilder().WithObjects(caTrustBundle(t, "test")).Build()
+	r := &DPUDeviceReconciler{Client: fakeClient, RedfishClients: rfclient.NewProvider(fakeClient)}
+	err = r.ensureRedfishMTLS(ctx, device, basic)
 	if !errors.Is(err, context.Canceled) || reads.Load() == 0 || writes.Load() != 0 || len(device.Status.Conditions) != 0 {
 		t.Fatalf("cancellation entered bootstrap: err=%v reads=%d writes=%d conditions=%v", err, reads.Load(), writes.Load(), device.Status.Conditions)
 	}
@@ -130,10 +158,11 @@ func TestFactoryResetDefaultCredentialUnavailableIsNotRejection(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Namespace: "test"},
 		Status:     provisioningv1.DPUDeviceStatus{BMCIP: &ip, BMCPort: &port},
 	}
-	r := &DPUDeviceReconciler{Client: fake.NewClientBuilder().WithObjects(&corev1.Secret{
+	fakeClient := fake.NewClientBuilder().WithObjects(&corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: rfclient.BMCPasswordSecret, Namespace: "test"},
 		Data:       map[string][]byte{rfclient.BMCSharedPasswordKey: []byte("rejected-secret-password")},
-	}).Build()}
+	}).Build()
+	r := &DPUDeviceReconciler{Client: fakeClient, RedfishClients: rfclient.NewProvider(fakeClient)}
 	c, err := r.privilegedClientForFactoryReset(context.Background(), device)
 	if c != nil {
 		defer c.CloseIdleConnections()
@@ -141,5 +170,35 @@ func TestFactoryResetDefaultCredentialUnavailableIsNotRejection(t *testing.T) {
 	if c != nil || !rfclient.HasHTTPStatus(err, http.StatusServiceUnavailable) ||
 		strings.Contains(err.Error(), "accepts neither") || writes.Load() != 0 {
 		t.Fatalf("transient default-password failure misclassified: client=%v err=%v writes=%d", c, err, writes.Load())
+	}
+}
+
+// caTrustBundle returns the trust bundle ConfigMap the client provider reads before it returns a
+// client. Acquisition establishes credential freshness first and fails closed without it, so a
+// test that wants to reach the BMC has to supply one.
+func caTrustBundle(t *testing.T, namespace string) *corev1.ConfigMap {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "test-ca"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: rfclient.CATrustBundleConfigMap, Namespace: namespace},
+		Data: map[string]string{
+			rfclient.CATrustBundleKey: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
+		},
 	}
 }

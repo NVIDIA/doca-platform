@@ -32,6 +32,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/allocator"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu"
+	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpudevice"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunode"
@@ -149,6 +150,7 @@ func TestMain(m *testing.M) {
 	}
 
 	dpuMap := dutil.NewDPUInProvisioningMap(50)
+	redfishClients := rfclient.NewProvider(testManager.GetClient())
 
 	dpuReconciler := dpu.NewDPUReconciler(
 		testManager,
@@ -156,7 +158,8 @@ func TestMain(m *testing.M) {
 		&mockKubeadmJoinCommandGenerator{},
 		&mockDPUArtifactGenerator{},
 		dutil.DPUOptions{DPUInstallInterface: string(provisioningv1.InstallViaGNOI), MaxDPUParallelInstallations: 50},
-		dpuMap)
+		dpuMap,
+		redfishClients)
 	if err := dpu.SetupIndexers(ctx, testManager); err != nil {
 		panic(fmt.Sprintf("Failed to setup DPU field indexers: %v", err))
 	}
@@ -209,9 +212,10 @@ func TestMain(m *testing.M) {
 	}
 	// Add DPUDevice controller
 	dpuDeviceReconciler := &dpudevice.DPUDeviceReconciler{
-		Client:   testManager.GetClient(),
-		Scheme:   testManager.GetScheme(),
-		Recorder: testManager.GetEventRecorderFor(dpudevice.DPUDeviceControllerName),
+		Client:         testManager.GetClient(),
+		Scheme:         testManager.GetScheme(),
+		Recorder:       testManager.GetEventRecorderFor(dpudevice.DPUDeviceControllerName),
+		RedfishClients: redfishClients,
 	}
 	if err := dpuDeviceReconciler.SetupWithManager(testManager); err != nil {
 		panic(fmt.Sprintf("Failed to setup DPUDevice reconciler: %v", err))

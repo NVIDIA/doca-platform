@@ -253,6 +253,9 @@ func (r *DPUDeviceReconciler) awaitBMCFactoryReset(ctx context.Context, dpuDevic
 	}
 
 	client.CloseIdleConnections()
+	// The reset wiped the BMC's truststore and server certificate, so every cached client built
+	// against the pre-reset BMC is obsolete regardless of which family or device UID it was keyed under.
+	r.RedfishClients.RetireEndpoint(dpuDevice.BMCAddress())
 	// The reset dropped the BMC's pending CSR key pair, so an existing server CertificateRequest is
 	// unusable. setUpMTLS recovers from that on its own, but deleting it here avoids a
 	// guaranteed-failing install round trip.

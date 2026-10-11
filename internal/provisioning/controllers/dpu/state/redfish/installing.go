@@ -204,7 +204,7 @@ func verifyFirmwareAfterReboot(
 	readCtx, cancelRead := rc.ReadContext(ctx)
 	defer cancelRead()
 
-	client, err := rc.NewTLSClient(ctx, device.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	client, err := ctrlCtx.RedfishProvider().AcquireForDevice(readCtx, dpu.Namespace, device)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleVerified.String(), err, "FailedToCreateClient", err.Error()))
 		return err
@@ -268,12 +268,11 @@ func bootProgressState(
 		logger.V(1).Info("boot progress probe: failed to fetch DPUDevice", "err", err)
 		return ""
 	}
-	client, err := rc.NewTLSClient(readCtx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	client, err := ctrlCtx.RedfishProvider().AcquireForDevice(readCtx, dpu.Namespace, dpuDevice)
 	if err != nil {
-		logger.V(1).Info("boot progress probe: failed to construct client", "err", err)
+		logger.V(1).Info("boot progress probe: failed to acquire client", "err", err)
 		return ""
 	}
-	defer client.CloseIdleConnections()
 	_, system, err := client.GetSystem(readCtx)
 	if err != nil || system == nil {
 		logger.V(1).Info("boot progress probe: failed to get Redfish system", "err", err)
@@ -413,12 +412,11 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 
 	readCtx, cancelRead := rc.ReadContext(ctx)
 	defer cancelRead()
-	client, err := rc.NewTLSClient(readCtx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	client, err := ctrlCtx.RedfishProvider().AcquireForDevice(readCtx, dpu.Namespace, dpuDevice)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondOSInstalled), err, "FailedToCreateClient", err.Error()))
 		return *state, err
 	}
-	defer client.CloseIdleConnections()
 
 	if _, err := client.CheckOSImage(readCtx); err != nil {
 		err = fmt.Errorf("failed to check OS image: %w", err)
@@ -641,12 +639,11 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 
 	readCtx, cancelRead := rc.ReadContext(ctx)
 	defer cancelRead()
-	client, err := rc.NewTLSClient(readCtx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	client, err := ctrlCtx.RedfishProvider().AcquireForDevice(readCtx, dpu.Namespace, dpuDevice)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailedToCreateClient", err.Error()))
 		return *state, err
 	}
-	defer client.CloseIdleConnections()
 
 	if dpu.Status.RedfishTaskID == nil {
 		bfbRegistryAddr, err := getBFBRegistryAddress(ctx, ctrlCtx)
@@ -833,8 +830,9 @@ const railHintMaxEntries = 20
 // call, missing fields) are silently swallowed - this is supplemental
 // diagnostic context, never a hard requirement.
 //
-// If existingClient is non-nil, reuse it to avoid another root discovery and
-// credential load. The diagnostic budget includes acquisition when needed.
+// If existingClient is non-nil, reuse the caller's client directly. Otherwise
+// this gets its own from the provider. The diagnostic budget includes
+// acquisition when needed.
 // Callers in branches that already have a validated client (non-200,
 // Exception) should pass it; the timeout branch passes nil.
 func bestEffortRailHint(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, logger logr.Logger, existingClient *rc.Client) string {
@@ -851,12 +849,11 @@ func bestEffortRailHint(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 			return ""
 		}
 		var err error
-		cl, err = rc.NewTLSClient(ctx, device.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+		cl, err = ctrlCtx.RedfishProvider().AcquireForDevice(ctx, dpu.Namespace, device)
 		if err != nil {
-			logger.V(1).Info("rail hint probe: failed to construct client", "err", err)
+			logger.V(1).Info("rail hint probe: failed to acquire client", "err", err)
 			return ""
 		}
-		defer cl.CloseIdleConnections()
 	}
 	return probeRailHint(ctx, cl, logger)
 }

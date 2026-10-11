@@ -34,6 +34,10 @@ import (
 const ReadTimeout = 30 * time.Second
 const readConnectTimeout = 10 * time.Second
 
+// readMaxConnsPerHost caps concurrent reads per BMC. A cached client is shared by the DPU and
+// DPUDevice controllers, so each keeps the one read connection it had with its own client.
+const readMaxConnsPerHost = 2
+
 // ReadContext bounds a logical read, including acquisition and prerequisite GETs.
 // Keep the parent context for mutations and status persistence.
 func ReadContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -107,8 +111,8 @@ func (c *Client) readClient() *resty.Client {
 			transport = transport.Clone()
 			transport.DialContext = (&net.Dialer{Timeout: readConnectTimeout, KeepAlive: 30 * time.Second}).DialContext
 			transport.TLSHandshakeTimeout = readConnectTimeout
-			transport.MaxConnsPerHost = 1
-			transport.MaxIdleConnsPerHost = 1
+			transport.MaxConnsPerHost = readMaxConnsPerHost
+			transport.MaxIdleConnsPerHost = readMaxConnsPerHost
 			hc.Transport = transport
 		}
 		hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
@@ -147,6 +151,17 @@ func read[T any](ctx context.Context, c *Client, path string) (*resty.Response, 
 		return resp, nil, requestError(resp, err)
 	}
 	if resp.StatusCode() != http.StatusOK {
+		if resp.StatusCode() == http.StatusNotFound {
+			// A 404 is affirmative evidence that some Redfish resource does not resolve, unlike a
+			// timeout or a 5xx. This drops both memoized identifiers on any 404, not only on
+			// System- or Manager-scoped paths: the cost is one collection GET on the next scoped read.
+			c.forgetStableIDs()
+		}
+		if resp.StatusCode() == http.StatusUnauthorized {
+			// The BMC decides mTLS identity at handshake, so a connection it rejected stays
+			// rejected even after the trust problem is fixed. Drop it; the next read handshakes anew.
+			c.CloseIdleConnections()
+		}
 		return resp, nil, requestError(resp, nil)
 	}
 	var result *T

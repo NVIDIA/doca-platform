@@ -104,6 +104,9 @@ type DPUDeviceReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
+	// RedfishClients caches the verified mTLS BMC clients this controller uses. It is owned by
+	// provisioning-manager startup.
+	RedfishClients rfclient.ClientProvider
 }
 
 //+kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpudevices,verbs=get;list;watch;create;update;patch;delete
@@ -150,6 +153,9 @@ func (r *DPUDeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 // race a stale identity entry.
 func (r *DPUDeviceReconciler) reconcileDelete(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
+
+	// The device is going away: drop its cached clients so they do not outlive it.
+	r.RedfishClients.RetireEndpoint(dpuDevice.BMCAddress())
 
 	if controllerutil.ContainsFinalizer(dpuDevice, provisioningv1.SPIFFEDeregistrationFinalizer) {
 		// Keep SPIFFE identity and credentials available until the DPU releases the device.
@@ -464,6 +470,11 @@ func (r *DPUDeviceReconciler) invalidateBMCAddress(ctx context.Context, dpuDevic
 		"oldBMCIP", oldBMCIP,
 		"newBMCIP", newBMCIP)
 
+	// Whatever is at the old address is no longer this device.
+	oldDevice := dpuDevice.DeepCopy()
+	oldDevice.Status.BMCIP = &oldBMCIP
+	r.RedfishClients.RetireEndpoint(oldDevice.BMCAddress())
+
 	dpuDevice.Labels[cutil.DPUDeviceBMCIPLabel] = newBMCIP
 	if dpuDevice.Status.BMCServerCertificate == nil {
 		dpuDevice.Status.BMCServerCertificate = &provisioningv1.CertificateStatus{}
@@ -749,7 +760,7 @@ func (r *DPUDeviceReconciler) initializeDPUDevice(ctx context.Context, dpuDevice
 		return err
 	}
 
-	if err := r.ensureRedfishMTLS(ctx, dpuDevice, bmcAddress, basicAuthClient); err != nil {
+	if err := r.ensureRedfishMTLS(ctx, dpuDevice, basicAuthClient); err != nil {
 		return err
 	}
 
@@ -762,15 +773,14 @@ func (r *DPUDeviceReconciler) initializeDPUDevice(ctx context.Context, dpuDevice
 // ensureRedfishMTLS leaves the BMC reachable over mTLS. It is a no-op once a usable client
 // certificate exists, and otherwise either waits for a stale one to be reissued or bootstraps mTLS
 // on the BMC over the basic-auth session.
-func (r *DPUDeviceReconciler) ensureRedfishMTLS(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, bmcAddress string, basicAuthClient *rfclient.Client) error {
+func (r *DPUDeviceReconciler) ensureRedfishMTLS(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, basicAuthClient *rfclient.Client) error {
 	log := log.FromContext(ctx)
 
 	readCtx, cancelRead := rfclient.ReadContext(ctx)
 	defer cancelRead()
 	mtlsRejected := false
-	tlsClient, err := rfclient.NewTLSClient(readCtx, bmcAddress, dpuDevice.Namespace, r.Client)
+	tlsClient, err := r.RedfishClients.AcquireForDevice(readCtx, dpuDevice.Namespace, dpuDevice)
 	if err == nil {
-		defer tlsClient.CloseIdleConnections()
 		resp, _, getErr := tlsClient.GetManagers(readCtx)
 		if getErr == nil && resp != nil && resp.StatusCode() == http.StatusOK {
 			return nil
@@ -876,9 +886,8 @@ func (r *DPUDeviceReconciler) reconcileCATrustBundle(ctx context.Context, dpuDev
 
 	readCtx, cancelRead := rfclient.ReadContext(ctx)
 	defer cancelRead()
-	tlsClient, err := rfclient.NewTLSClient(readCtx, dpuDevice.BMCAddress(), dpuDevice.Namespace, r.Client)
+	tlsClient, err := r.RedfishClients.AcquireForDevice(readCtx, dpuDevice.Namespace, dpuDevice)
 	if err == nil {
-		defer tlsClient.CloseIdleConnections()
 		_, _, err = tlsClient.GetManagers(readCtx)
 	}
 	if err != nil {
@@ -1023,12 +1032,11 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 	bmcAddress := dpuDevice.BMCAddress()
 	readCtx, cancelRead := rfclient.ReadContext(ctx)
 	defer cancelRead()
-	client, err := rfclient.NewTLSClient(readCtx, bmcAddress, dpuDevice.Namespace, r.Client)
+	client, err := r.RedfishClients.AcquireForDevice(readCtx, dpuDevice.Namespace, dpuDevice)
 	if err != nil {
 		log.Error(err, "Failed to create TLS client")
 		return err
 	}
-	defer client.CloseIdleConnections()
 
 	// The mode is needed before the chassis check below, which tolerates an unknown DPU type only in NIC mode.
 	if err := r.refreshDPUMode(readCtx, dpuDevice, client); err != nil {
@@ -1184,13 +1192,12 @@ func (r *DPUDeviceReconciler) reconcileDynamicFields(ctx context.Context, dpuDev
 	bmcAddress := dpuDevice.BMCAddress()
 	readCtx, cancelRead := rfclient.ReadContext(ctx)
 	defer cancelRead()
-	client, err := rfclient.NewTLSClient(readCtx, bmcAddress, dpuDevice.Namespace, r.Client)
+	client, err := r.RedfishClients.AcquireForDevice(readCtx, dpuDevice.Namespace, dpuDevice)
 	if err != nil {
 		log.Error(err, "Failed to create TLS client")
 		return err
 	}
 
-	defer client.CloseIdleConnections()
 	if err := r.refreshDPUMode(readCtx, dpuDevice, client); err != nil {
 		return err
 	}
@@ -1417,7 +1424,7 @@ func (r *DPUDeviceReconciler) createServerCertFromCSR(ctx context.Context, dpude
 // CertificateRequest must be regenerated.
 //
 // x509.Verify also rejects expired certificates. That is intentional here: setUpMTLS only runs when
-// NewTLSClient already failed (wrong CA, expired leaf, or identity mismatch), and
+// the verified mTLS client already failed (wrong CA, expired leaf, or identity mismatch), and
 // reconcileServerCertRotation cannot renew without a working mTLS connection, so bootstrap must
 // reissue in all of those cases.
 func issuedServerCertUsableForBMC(certPEM, caBundlePEM []byte, expectedHost string) error {
@@ -1590,12 +1597,10 @@ func (r *DPUDeviceReconciler) reconcileServerCertRotation(ctx context.Context, d
 	}
 
 	// cold-start backfill and/or rotation.
-	bmcAddress := dpuDevice.BMCAddress()
 	readCtx, cancelRead := rfclient.ReadContext(ctx)
 	defer cancelRead()
-	mtlsClient, err := rfclient.NewTLSClient(readCtx, bmcAddress, dpuDevice.Namespace, r.Client)
+	mtlsClient, err := r.RedfishClients.AcquireForDevice(readCtx, dpuDevice.Namespace, dpuDevice)
 	if err == nil {
-		defer mtlsClient.CloseIdleConnections()
 		_, _, err = mtlsClient.GetManagers(readCtx)
 	}
 	if err != nil {
@@ -1656,7 +1661,7 @@ func (r *DPUDeviceReconciler) reconcileServerCertRotation(ctx context.Context, d
 // recoverRedfishClientCert forces cert-manager to reissue the shared Redfish client certificates
 // when the mounted leaf no longer chains to the current DPF CA (typical after CA replacement).
 // Deleting the target Secrets is the standard cert-manager force-renew path; the Certificate
-// resources recreate them. The controller re-reads the mounted files on the next NewTLSClient call.
+// resources recreate them. The client provider re-reads the mounted files on the next acquisition.
 func (r *DPUDeviceReconciler) recoverRedfishClientCert(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, cause error) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 	log.Info("Redfish client certificate does not chain to current DPF CA; forcing reissue", "err", cause.Error())

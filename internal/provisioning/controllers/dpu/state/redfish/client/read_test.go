@@ -345,7 +345,7 @@ func TestReadDialAndTransportIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if transport == original || transport.TLSHandshakeTimeout != readConnectTimeout || transport.MaxConnsPerHost != 1 || c.Client.GetClient().Timeout != 0 {
+	if transport == original || transport.TLSHandshakeTimeout != readConnectTimeout || transport.MaxConnsPerHost != readMaxConnsPerHost || c.Client.GetClient().Timeout != 0 {
 		t.Fatal("read transport did not preserve mutation isolation / caps")
 	}
 	release := make(chan struct{})

@@ -35,7 +35,7 @@ var ErrBMCServerCertUntrusted = errors.New("BMC server certificate not trusted b
 // detect it with IsRedfishClientCertStale and can force cert-manager to reissue the client cert.
 var ErrRedfishClientCertStale = errors.New("redfish client certificate does not chain to current DPF CA")
 
-// IsBMCServerCertUntrusted reports whether err (from NewTLSClient or verifyBMCServerCert) was caused
+// IsBMCServerCertUntrusted reports whether err (from client construction or verifyBMCServerCert) was caused
 // by the BMC presenting a server certificate that does not chain to the DPF CA or fails identity
 // pinning, i.e. a condition only the basic-auth bootstrap can recover.
 func IsBMCServerCertUntrusted(err error) bool {

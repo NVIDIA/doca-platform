@@ -63,7 +63,7 @@ import (
 const testNamespace = "test-namespace"
 
 // redfishClientCACertPEM is the CA that signed the Redfish client key pair mounted for the suite
-// (see BeforeSuite). NewTLSClient self-checks that the mounted client cert chains to the CA trust
+// (see BeforeSuite). The client provider self-checks that the mounted client cert chains to the CA trust
 // bundle, so every dpf-ca-trust-bundle ConfigMap used with the verified mTLS client must include
 // this CA in addition to the mock BMC server certificate. Use caTrustBundleWithClientCA to build
 // such a bundle.
@@ -71,7 +71,7 @@ var redfishClientCACertPEM []byte
 
 // caTrustBundleWithClientCA returns a PEM trust bundle containing both the mock BMC server
 // certificate (so the BMC server cert verifies) and the Redfish client CA (so the mounted client
-// cert passes the NewTLSClient chain self-check).
+// cert passes the client provider's chain self-check).
 func caTrustBundleWithClientCA(serverCertPEM []byte) string {
 	bundle := append([]byte{}, serverCertPEM...)
 	bundle = append(bundle, '\n')
@@ -85,7 +85,7 @@ func TestDPUDeviceController(t *testing.T) {
 }
 
 // The verified mTLS client reads its key pair from a mounted directory. Provide one for the suite so
-// NewTLSClient can build the client in tests (the mock BMC does not require client auth).
+// the client provider can build the client in tests (the mock BMC does not require client auth).
 var _ = BeforeSuite(func() {
 	clientCACrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts("127.0.0.1")
 	redfishClientCACertPEM = clientCACrt
@@ -233,7 +233,8 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				Build()
 
 			reconciler = &DPUDeviceReconciler{
-				Client: fakeClient,
+				Client:         fakeClient,
+				RedfishClients: rfclient.NewProvider(fakeClient),
 			}
 
 			testCSR = "-----BEGIN CERTIFICATE REQUEST-----\nMIIBVjCB...\n-----END CERTIFICATE REQUEST-----"
@@ -299,7 +300,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				WithScheme(scheme).
 				WithObjects(dpuDevice).
 				Build()
-			reconciler := &DPUDeviceReconciler{Client: fakeClient}
+			reconciler := &DPUDeviceReconciler{Client: fakeClient, RedfishClients: rfclient.NewProvider(fakeClient)}
 
 			shouldContinue, result, err := reconciler.checkDPUNodeAttachment(ctx, dpuDevice)
 
@@ -342,7 +343,8 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				Build()
 
 			reconciler = &DPUDeviceReconciler{
-				Client: fakeClient,
+				Client:         fakeClient,
+				RedfishClients: rfclient.NewProvider(fakeClient),
 			}
 		})
 
@@ -545,7 +547,8 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				Build()
 
 			reconciler := &DPUDeviceReconciler{
-				Client: fakeClient,
+				Client:         fakeClient,
+				RedfishClients: rfclient.NewProvider(fakeClient),
 			}
 
 			bmcIP := "192.168.1.100"
@@ -600,7 +603,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 
 			// CA trust bundle must include the mock BMC server certificate so the verified mTLS
 			// client can validate the httptest self-signed server cert, and the Redfish client CA
-			// so the mounted client cert passes the NewTLSClient chain self-check.
+			// so the mounted client cert passes the client provider's chain self-check.
 			caSecret := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "dpf-ca-trust-bundle",
@@ -630,7 +633,8 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				Build()
 
 			reconciler := &DPUDeviceReconciler{
-				Client: fakeClient,
+				Client:         fakeClient,
+				RedfishClients: rfclient.NewProvider(fakeClient),
 			}
 
 			// Call discoverDPUDevice
@@ -832,7 +836,8 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				Build()
 
 			reconciler := &DPUDeviceReconciler{
-				Client: fakeClient,
+				Client:         fakeClient,
+				RedfishClients: rfclient.NewProvider(fakeClient),
 			}
 
 			// Call discoverDPUDevice - should fail with unknown DPU type error
@@ -914,7 +919,8 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				Build()
 
 			reconciler := &DPUDeviceReconciler{
-				Client: fakeClient,
+				Client:         fakeClient,
+				RedfishClients: rfclient.NewProvider(fakeClient),
 			}
 
 			// Call discoverDPUDevice - should succeed even with unknown DPU type because it's in NIC mode
@@ -992,7 +998,8 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				Build()
 
 			reconciler = &DPUDeviceReconciler{
-				Client: k8sClient,
+				Client:         k8sClient,
+				RedfishClients: rfclient.NewProvider(k8sClient),
 			}
 		}
 
@@ -1119,7 +1126,8 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				Build()
 
 			reconciler = &DPUDeviceReconciler{
-				Client: k8sClient,
+				Client:         k8sClient,
+				RedfishClients: rfclient.NewProvider(k8sClient),
 			}
 		}
 
@@ -1164,7 +1172,8 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				Build()
 
 			reconciler = &DPUDeviceReconciler{
-				Client: k8sClient,
+				Client:         k8sClient,
+				RedfishClients: rfclient.NewProvider(k8sClient),
 			}
 		}
 
@@ -1220,7 +1229,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				WithScheme(scheme).
 				Build()
 
-			reconciler = &DPUDeviceReconciler{Client: k8sClient}
+			reconciler = &DPUDeviceReconciler{Client: k8sClient, RedfishClients: rfclient.NewProvider(k8sClient)}
 
 			bmcAddress := dpuDevice.BMCAddress()
 			_, err := reconciler.resolveAndAuthenticateBMC(ctx, dpuDevice, bmcAddress, false)
@@ -1264,7 +1273,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				WithScheme(scheme).
 				Build()
 
-			reconciler = &DPUDeviceReconciler{Client: k8sClient}
+			reconciler = &DPUDeviceReconciler{Client: k8sClient, RedfishClients: rfclient.NewProvider(k8sClient)}
 
 			bmcAddress := dpuDevice.BMCAddress()
 			_, err := reconciler.resolveAndAuthenticateBMC(ctx, dpuDevice, bmcAddress, false)
@@ -1311,7 +1320,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				WithObjects(invalidSecret).
 				Build()
 
-			reconciler = &DPUDeviceReconciler{Client: k8sClient}
+			reconciler = &DPUDeviceReconciler{Client: k8sClient, RedfishClients: rfclient.NewProvider(k8sClient)}
 
 			bmcAddress := dpuDevice.BMCAddress()
 			_, err := reconciler.resolveAndAuthenticateBMC(ctx, dpuDevice, bmcAddress, false)
@@ -1385,7 +1394,8 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				Build()
 
 			reconciler := &DPUDeviceReconciler{
-				Client: k8sClient,
+				Client:         k8sClient,
+				RedfishClients: rfclient.NewProvider(k8sClient),
 			}
 
 			dpuDevice := &provisioningv1.DPUDevice{
@@ -1431,7 +1441,8 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				Build()
 
 			reconciler := &DPUDeviceReconciler{
-				Client: k8sClient,
+				Client:         k8sClient,
+				RedfishClients: rfclient.NewProvider(k8sClient),
 			}
 
 			dpuDevice := &provisioningv1.DPUDevice{
@@ -1578,7 +1589,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				WithStatusSubresource(dpuDevice).
 				Build()
 
-			reconciler = &DPUDeviceReconciler{Client: k8sClient}
+			reconciler = &DPUDeviceReconciler{Client: k8sClient, RedfishClients: rfclient.NewProvider(k8sClient)}
 
 			_, err = reconciler.reconcile(ctx, dpuDevice)
 			Expect(err).NotTo(HaveOccurred())
@@ -1618,7 +1629,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				WithStatusSubresource(dpuDevice).
 				Build()
 
-			reconciler = &DPUDeviceReconciler{Client: k8sClient}
+			reconciler = &DPUDeviceReconciler{Client: k8sClient, RedfishClients: rfclient.NewProvider(k8sClient)}
 
 			_, err = reconciler.reconcile(ctx, dpuDevice)
 			Expect(err).NotTo(HaveOccurred())
@@ -1658,7 +1669,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				WithStatusSubresource(dpuDevice).
 				Build()
 
-			reconciler = &DPUDeviceReconciler{Client: k8sClient}
+			reconciler = &DPUDeviceReconciler{Client: k8sClient, RedfishClients: rfclient.NewProvider(k8sClient)}
 
 			result, err := reconciler.reconcile(ctx, dpuDevice)
 			Expect(err).NotTo(HaveOccurred())
@@ -1705,7 +1716,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				WithStatusSubresource(dpuDevice).
 				Build()
 
-			reconciler = &DPUDeviceReconciler{Client: k8sClient}
+			reconciler = &DPUDeviceReconciler{Client: k8sClient, RedfishClients: rfclient.NewProvider(k8sClient)}
 
 			_, err = reconciler.reconcile(ctx, dpuDevice)
 			Expect(err).NotTo(HaveOccurred())
@@ -1745,7 +1756,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				WithStatusSubresource(dpuDevice).
 				Build()
 
-			reconciler = &DPUDeviceReconciler{Client: k8sClient}
+			reconciler = &DPUDeviceReconciler{Client: k8sClient, RedfishClients: rfclient.NewProvider(k8sClient)}
 
 			_, err = reconciler.reconcile(ctx, dpuDevice)
 			Expect(err).NotTo(HaveOccurred())
@@ -1802,7 +1813,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				WithStatusSubresource(dpuDevice).
 				Build()
 
-			reconciler = &DPUDeviceReconciler{Client: k8sClient}
+			reconciler = &DPUDeviceReconciler{Client: k8sClient, RedfishClients: rfclient.NewProvider(k8sClient)}
 
 			_, err = reconciler.reconcile(ctx, dpuDevice)
 			Expect(err).NotTo(HaveOccurred())
@@ -1843,7 +1854,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				WithStatusSubresource(dpuDevice).
 				Build()
 
-			reconciler = &DPUDeviceReconciler{Client: k8sClient}
+			reconciler = &DPUDeviceReconciler{Client: k8sClient, RedfishClients: rfclient.NewProvider(k8sClient)}
 
 			_, err = reconciler.reconcile(ctx, dpuDevice)
 			Expect(err).To(HaveOccurred())
@@ -1885,7 +1896,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				WithStatusSubresource(dpuDevice).
 				Build()
 
-			reconciler = &DPUDeviceReconciler{Client: k8sClient}
+			reconciler = &DPUDeviceReconciler{Client: k8sClient, RedfishClients: rfclient.NewProvider(k8sClient)}
 
 			_, err = reconciler.reconcile(ctx, dpuDevice)
 			Expect(err).To(HaveOccurred())
@@ -1923,7 +1934,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				WithStatusSubresource(dpuDevice).
 				Build()
 
-			reconciler = &DPUDeviceReconciler{Client: k8sClient}
+			reconciler = &DPUDeviceReconciler{Client: k8sClient, RedfishClients: rfclient.NewProvider(k8sClient)}
 
 			_, err = reconciler.reconcile(ctx, dpuDevice)
 			Expect(err).NotTo(HaveOccurred())
@@ -2059,7 +2070,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			_ = provisioningv1.AddToScheme(scheme)
 
 			fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
-			reconciler = &DPUDeviceReconciler{Client: fakeClient}
+			reconciler = &DPUDeviceReconciler{Client: fakeClient, RedfishClients: rfclient.NewProvider(fakeClient)}
 		})
 
 		It("should return nil when no credential secret is set", func() {
@@ -2157,7 +2168,8 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				Build()
 
 			reconciler = &DPUDeviceReconciler{
-				Client: fakeClient,
+				Client:         fakeClient,
+				RedfishClients: rfclient.NewProvider(fakeClient),
 			}
 		})
 
@@ -2519,6 +2531,8 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				},
 				Status: provisioningv1.DPUDeviceStatus{
 					BMCCredentialSecretName: ptr.To(perDeviceSecretV1),
+					BMCIP:                   ptr.To("192.0.2.30"),
+					BMCPort:                 ptr.To(uint32(443)),
 				},
 			}
 
@@ -2532,7 +2546,8 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				WithStatusSubresource(dpuDevice).
 				Build()
 
-			r := &DPUDeviceReconciler{Client: cl}
+			recorder := &retireRecorder{ClientProvider: rfclient.NewProvider(cl)}
+			r := &DPUDeviceReconciler{Client: cl, RedfishClients: recorder}
 
 			// Simulate deletion by setting DeletionTimestamp
 			Expect(cl.Delete(ctx, dpuDevice)).To(Succeed())
@@ -2543,6 +2558,8 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
+			// The deleted device's cached clients do not outlive it.
+			Expect(recorder.retired).To(ConsistOf("https://192.0.2.30:443"))
 
 			// Secret should have its finalizer removed
 			updatedSecret := &corev1.Secret{}
@@ -2726,7 +2743,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			defer mockServer.Stop()
 
 			dpuDevice = createTestDPUDevice(mockServer, "test-dpudevice-install")
-			mtlsClient, err := rfclient.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpuDevice.Namespace, reconciler.Client)
+			mtlsClient, err := reconciler.RedfishClients.AcquireForDevice(ctx, dpuDevice.Namespace, dpuDevice)
 			Expect(err).NotTo(HaveOccurred())
 
 			// A real, parseable certificate to stand in for the cert-manager-issued one.
@@ -2796,7 +2813,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 
 			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-backfill")
 			dpuDevice.Status.BMCServerCertificate = &provisioningv1.CertificateStatus{}
-			mtlsClient, err := rfclient.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpuDevice.Namespace, reconciler.Client)
+			mtlsClient, err := reconciler.RedfishClients.AcquireForDevice(ctx, dpuDevice.Namespace, dpuDevice)
 			Expect(err).NotTo(HaveOccurred())
 
 			handled, result := reconciler.backfillServerCertExpiry(ctx, dpuDevice, mtlsClient, defaultBMCServerCertRenewBefore)
@@ -2813,7 +2830,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 
 			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-backfill-inwindow")
 			dpuDevice.Status.BMCServerCertificate = &provisioningv1.CertificateStatus{}
-			mtlsClient, err := rfclient.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpuDevice.Namespace, reconciler.Client)
+			mtlsClient, err := reconciler.RedfishClients.AcquireForDevice(ctx, dpuDevice.Namespace, dpuDevice)
 			Expect(err).NotTo(HaveOccurred())
 
 			// renewBefore larger than the served cert's remaining lifetime => already in window.
@@ -2833,7 +2850,8 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 		It("is a no-op (Ready) when the expiry is known and outside the renew window", func() {
 			scheme := runtime.NewScheme()
 			Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
-			reconciler := &DPUDeviceReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+			reconciler := &DPUDeviceReconciler{Client: fakeClient, RedfishClients: rfclient.NewProvider(fakeClient)}
 
 			dpuDevice := &provisioningv1.DPUDevice{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-dpudevice", Namespace: testNamespace},
@@ -2897,8 +2915,9 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			scheme := runtime.NewScheme()
 			Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
 			Expect(corev1.AddToScheme(scheme)).To(Succeed())
-			// No TLS secrets => NewTLSClient fails.
-			reconciler := &DPUDeviceReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+			// No TLS secrets => client construction fails.
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+			reconciler := &DPUDeviceReconciler{Client: fakeClient, RedfishClients: rfclient.NewProvider(fakeClient)}
 
 			bmcIP := "127.0.0.1"
 			bmcPort := uint32(1) // nothing is listening here
@@ -2980,11 +2999,12 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 				{Type: "Discovered", Status: metav1.ConditionTrue, Reason: "Discovered", LastTransitionTime: metav1.Now()},
 			})
 
-			reconciler := &DPUDeviceReconciler{Client: fake.NewClientBuilder().
+			fakeClient := fake.NewClientBuilder().
 				WithScheme(scheme).
 				WithObjects(dpuDevice, caTrustBundle, bmcPasswordSecret, dpfOperatorConfig).
 				WithStatusSubresource(dpuDevice).
-				Build()}
+				Build()
+			reconciler := &DPUDeviceReconciler{Client: fakeClient, RedfishClients: rfclient.NewProvider(fakeClient)}
 
 			_, err = reconciler.reconcile(ctx, dpuDevice)
 			Expect(err).NotTo(HaveOccurred())
@@ -3147,7 +3167,11 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			}}
 
 			Expect(reconciler.createServerCertCR(ctx, dpuDevice, "old-ip-csr")).To(Succeed())
+			recorder := &retireRecorder{ClientProvider: reconciler.RedfishClients}
+			reconciler.RedfishClients = recorder
 			Expect(reconciler.invalidateBMCAddress(ctx, dpuDevice, oldBMCIP)).To(Succeed())
+			// Clients cached for the old address are dropped: whatever answers there is not this device.
+			Expect(recorder.retired).To(ConsistOf(fmt.Sprintf("https://%s:%d", oldBMCIP, *dpuDevice.Status.BMCPort)))
 
 			Expect(dpuDevice.Labels[cutil.DPUDeviceBMCIPLabel]).To(Equal(newBMCIP))
 			Expect(dpuDevice.Status.BMCServerCertificate.NotAfter).To(BeNil())
@@ -3403,6 +3427,17 @@ func findCondition(dpuDevice *provisioningv1.DPUDevice, conditionType string) *m
 }
 
 // setupDiscoveryTest creates a mock Redfish server and reconciler with necessary secrets
+// retireRecorder wraps a provider and records the endpoints the controller retires.
+type retireRecorder struct {
+	rfclient.ClientProvider
+	retired []string
+}
+
+func (r *retireRecorder) RetireEndpoint(endpoint string) {
+	r.retired = append(r.retired, endpoint)
+	r.ClientProvider.RetireEndpoint(endpoint)
+}
+
 func setupDiscoveryTest() (*mock.RedfishMockServer, *DPUDeviceReconciler) {
 	scheme := runtime.NewScheme()
 	_ = provisioningv1.AddToScheme(scheme)
@@ -3464,7 +3499,8 @@ func setupDiscoveryTest() (*mock.RedfishMockServer, *DPUDeviceReconciler) {
 		Build()
 
 	reconciler := &DPUDeviceReconciler{
-		Client: fakeClient,
+		Client:         fakeClient,
+		RedfishClients: rfclient.NewProvider(fakeClient),
 	}
 
 	return mockServer, reconciler
