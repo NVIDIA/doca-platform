@@ -65,7 +65,7 @@ var _ = Describe("reconcileBMCFactoryReset", func() {
 			}).
 			Build()
 
-		return mockServer, &DPUDeviceReconciler{Client: fakeClient}
+		return mockServer, &DPUDeviceReconciler{Client: fakeClient, RedfishClients: rfclient.NewProvider(fakeClient)}
 	}
 
 	// newDevice also creates the DPUDevice on the API server, because the reset step records its
@@ -329,10 +329,14 @@ var _ = Describe("reconcileBMCFactoryReset", func() {
 			defer mockServer.Stop()
 			dpuDevice := newDevice(reconciler, mockServer, "reset-completed")
 			dpuDevice.Status.BMCFactoryResetRequestTime = ptr.To(metav1.NewTime(time.Now().Add(-5 * time.Minute)))
+			recorder := &retireRecorder{ClientProvider: reconciler.RedfishClients}
+			reconciler.RedfishClients = recorder
 
 			stop, err := reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stop).To(BeFalse())
+			// The reset wiped the BMC's trust state, so clients cached for it are dropped.
+			Expect(recorder.retired).To(ConsistOf(dpuDevice.BMCAddress()))
 
 			condition := resetCondition(dpuDevice)
 			Expect(condition.Status).To(Equal(metav1.ConditionTrue))

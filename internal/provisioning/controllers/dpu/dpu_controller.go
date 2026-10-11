@@ -34,6 +34,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/hostagent"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/mock"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish"
+	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	dpfutils "github.com/nvidia/doca-platform/internal/utils"
@@ -81,7 +82,15 @@ type DPUReconciler struct {
 	controller           controller.Controller
 }
 
-func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinCommandGenerator util.NodeJoinCommandGenerator, artifactGenerator util.DPUArtifactGenerator, options util.DPUOptions, dpuMap *util.DPUInProvisioningMap) *DPUReconciler {
+// NewDPUReconciler builds the DPU reconciler and its phase handlers. redfishClients is the
+// manager-wide Redfish client provider the handlers share with the DPUDevice controller; it is
+// required, and a nil provider panics at startup.
+func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinCommandGenerator util.NodeJoinCommandGenerator, artifactGenerator util.DPUArtifactGenerator, options util.DPUOptions, dpuMap *util.DPUInProvisioningMap, redfishClients rfclient.ClientProvider) *DPUReconciler {
+	if redfishClients == nil {
+		// Startup, not 3am: an unwired provider would silently drop back to rebuilding a BMC
+		// client on every reconcile.
+		panic("NewDPUReconciler requires a Redfish client provider")
+	}
 	ctrlCtx := &util.ControllerContext{
 		Client:               mgr.GetClient(),
 		Scheme:               mgr.GetScheme(),
@@ -91,6 +100,7 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 		JoinCommandGenerator: joinCommandGenerator,
 		DPUArtifactGenerator: artifactGenerator,
 		DPUInProvisioningMap: dpuMap,
+		RedfishClients:       redfishClients,
 	}
 	handlers := map[provisioningv1.DPUPhase]PhaseHandlerFunc{
 		"":                                  state.Initializing,

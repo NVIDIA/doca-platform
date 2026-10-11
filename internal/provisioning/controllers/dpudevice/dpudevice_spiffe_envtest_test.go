@@ -25,6 +25,7 @@ import (
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	spirev1alpha1 "github.com/nvidia/doca-platform/third_party/forked/github.com/spiffe/spire-controller-manager/api/v1alpha1"
 
@@ -86,8 +87,9 @@ var _ = Describe("DPUDevice SPIFFE reconcile (envtest)", Ordered, func() {
 		mgr, err := ctrl.NewManager(restCfg, ctrl.Options{Scheme: scheme, LeaderElection: false})
 		Expect(err).NotTo(HaveOccurred())
 		reconciler := &DPUDeviceReconciler{
-			Client:   mgr.GetClient(),
-			Recorder: mgr.GetEventRecorderFor(DPUDeviceControllerName),
+			Client:         mgr.GetClient(),
+			Recorder:       mgr.GetEventRecorderFor(DPUDeviceControllerName),
+			RedfishClients: rfclient.NewProvider(mgr.GetClient()),
 		}
 		Expect(reconciler.SetupWithManager(mgr)).To(Succeed())
 

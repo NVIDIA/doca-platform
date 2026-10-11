@@ -23,6 +23,7 @@ import (
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/events"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	spirev1alpha1 "github.com/nvidia/doca-platform/third_party/forked/github.com/spiffe/spire-controller-manager/api/v1alpha1"
@@ -118,7 +119,7 @@ var _ = Describe("SPIFFE ClusterStaticEntry reconcile", func() {
 			WithIndex(&provisioningv1.DPU{}, dpuByDPUDeviceNameField, indexDPUByDPUDeviceName).
 			WithObjects(objs...).
 			Build()
-		reconciler = &DPUDeviceReconciler{Client: fakeClient, Recorder: recorder}
+		reconciler = &DPUDeviceReconciler{Client: fakeClient, Recorder: recorder, RedfishClients: rfclient.NewProvider(fakeClient)}
 	}
 
 	BeforeEach(func() {
@@ -329,7 +330,7 @@ var _ = Describe("SPIFFE ClusterStaticEntry reconcile", func() {
 				},
 			}).
 			Build()
-		reconciler = &DPUDeviceReconciler{Client: fakeClient, Recorder: recorder}
+		reconciler = &DPUDeviceReconciler{Client: fakeClient, Recorder: recorder, RedfishClients: rfclient.NewProvider(fakeClient)}
 
 		Expect(reconciler.reconcileSPIFFEEntry(ctx, dpuDevice, spiffeConfig(true))).To(MatchError(ContainSubstring("failed to apply ClusterStaticEntry")))
 		cond := conditions.Get(dpuDevice, provisioningv1.ConditionSPIFFEEntryReady)
@@ -416,7 +417,7 @@ var _ = DescribeTable("DPUDevice protected deletion", func(spiffe bool) {
 		objects = append(objects, &spirev1alpha1.ClusterStaticEntry{ObjectMeta: metav1.ObjectMeta{Name: testCSEName}})
 	}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
-	r := &DPUDeviceReconciler{Client: cl}
+	r := &DPUDeviceReconciler{Client: cl, RedfishClients: rfclient.NewProvider(cl)}
 	req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(device)}
 	Expect(cl.Delete(ctx, device)).To(Succeed())
 	Expect(cl.Get(ctx, req.NamespacedName, device)).To(Succeed())
@@ -485,7 +486,7 @@ var _ = Describe("SPIFFE ClusterStaticEntry deletion", func() {
 		cse := &spirev1alpha1.ClusterStaticEntry{}
 		cse.SetName(testCSEName)
 		fakeClient := fake.NewClientBuilder().WithScheme(spiffeScheme()).WithObjects(cse).Build()
-		r := &DPUDeviceReconciler{Client: fakeClient, Recorder: record.NewFakeRecorder(10)}
+		r := &DPUDeviceReconciler{Client: fakeClient, Recorder: record.NewFakeRecorder(10), RedfishClients: rfclient.NewProvider(fakeClient)}
 		dpuDevice := spiffeDPUDevice()
 
 		// The CR carries no finalizer, so the delete takes effect immediately and the re-read
@@ -503,7 +504,7 @@ var _ = Describe("SPIFFE ClusterStaticEntry deletion", func() {
 		cse.SetName(testCSEName)
 		cse.SetFinalizers([]string{"example.com/keep"})
 		fakeClient := fake.NewClientBuilder().WithScheme(spiffeScheme()).WithObjects(cse).Build()
-		r := &DPUDeviceReconciler{Client: fakeClient, Recorder: record.NewFakeRecorder(10)}
+		r := &DPUDeviceReconciler{Client: fakeClient, Recorder: record.NewFakeRecorder(10), RedfishClients: rfclient.NewProvider(fakeClient)}
 		dpuDevice := spiffeDPUDevice()
 
 		// The delete is issued but the finalizer keeps the CR around (deletionTimestamp set), so
@@ -515,7 +516,7 @@ var _ = Describe("SPIFFE ClusterStaticEntry deletion", func() {
 
 	It("reports done when no CR ever existed", func() {
 		fakeClient := fake.NewClientBuilder().WithScheme(spiffeScheme()).Build()
-		r := &DPUDeviceReconciler{Client: fakeClient}
+		r := &DPUDeviceReconciler{Client: fakeClient, RedfishClients: rfclient.NewProvider(fakeClient)}
 
 		done, err := r.deleteSPIFFEEntry(ctx, spiffeDPUDevice())
 		Expect(err).NotTo(HaveOccurred())
@@ -524,7 +525,7 @@ var _ = Describe("SPIFFE ClusterStaticEntry deletion", func() {
 
 	It("reports done for an unrepresentable serial (no CR could have been created)", func() {
 		fakeClient := fake.NewClientBuilder().WithScheme(spiffeScheme()).Build()
-		r := &DPUDeviceReconciler{Client: fakeClient}
+		r := &DPUDeviceReconciler{Client: fakeClient, RedfishClients: rfclient.NewProvider(fakeClient)}
 		dpuDevice := spiffeDPUDevice()
 		dpuDevice.Spec.SerialNumber = "MT/24:40"
 
@@ -540,7 +541,7 @@ var _ = Describe("SPIFFE ClusterStaticEntry deletion", func() {
 					return noKindMatch()
 				},
 			}).Build()
-		r := &DPUDeviceReconciler{Client: fakeClient}
+		r := &DPUDeviceReconciler{Client: fakeClient, RedfishClients: rfclient.NewProvider(fakeClient)}
 
 		done, err := r.deleteSPIFFEEntry(ctx, spiffeDPUDevice())
 		Expect(err).NotTo(HaveOccurred())
@@ -556,7 +557,7 @@ var _ = Describe("SPIFFE ClusterStaticEntry deletion", func() {
 					return noKindMatch()
 				},
 			}).Build()
-		r := &DPUDeviceReconciler{Client: fakeClient}
+		r := &DPUDeviceReconciler{Client: fakeClient, RedfishClients: rfclient.NewProvider(fakeClient)}
 
 		done, err := r.deleteSPIFFEEntry(ctx, spiffeDPUDevice())
 		Expect(err).NotTo(HaveOccurred())
@@ -579,7 +580,7 @@ var _ = Describe("SPIFFE ClusterStaticEntry deletion", func() {
 					return c.Get(ctx, key, obj, opts...)
 				},
 			}).Build()
-		r := &DPUDeviceReconciler{Client: fakeClient}
+		r := &DPUDeviceReconciler{Client: fakeClient, RedfishClients: rfclient.NewProvider(fakeClient)}
 
 		done, err := r.deleteSPIFFEEntry(ctx, spiffeDPUDevice())
 		Expect(err).NotTo(HaveOccurred())

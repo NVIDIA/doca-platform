@@ -85,7 +85,6 @@ func PerformArmForceRestart(ctx context.Context, dpu *provisioningv1.DPU, ctrlCt
 		return *state, err // Retryable
 	}
 
-	defer client.CloseIdleConnections()
 	return executeRestartStateMachine(ctx, dpu, state, tracker, client)
 }
 
@@ -124,7 +123,7 @@ func validateTracker(dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus) (
 	return tracker, nil
 }
 
-// createRedfishClientForDPU fetches the DPUDevice and creates a Redfish TLS client.
+// createRedfishClientForDPU fetches the DPUDevice and returns its cached Redfish TLS client.
 func createRedfishClientForDPU(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, state *provisioningv1.DPUStatus) (*rc.Client, error) {
 	dpuDevice := &provisioningv1.DPUDevice{}
 	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
@@ -132,7 +131,7 @@ func createRedfishClientForDPU(ctx context.Context, dpu *provisioningv1.DPU, ctr
 		return nil, err // Retryable
 	}
 
-	client, err := rc.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	client, err := ctrlCtx.RedfishProvider().AcquireForDevice(ctx, dpu.Namespace, dpuDevice)
 	if err != nil {
 		setArmCondition(state, "FailedToCreateClient", err.Error())
 		return nil, err // Retryable

@@ -19,7 +19,6 @@ package client
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
@@ -386,6 +385,45 @@ type Client struct {
 	readOnce sync.Once
 	reader   *resty.Client
 	IsBF4    bool
+	ids      stableIDs
+}
+
+// stableIDs memoizes the Redfish System and Manager identifiers, which do not change for the life
+// of a cached client. Without this, every System- or Manager-scoped read pays a collection GET
+// first. Only identifiers are memoized: the read that uses one still goes to the BMC.
+type stableIDs struct {
+	mu        sync.Mutex
+	systemID  string
+	managerID string
+}
+
+// cachedIDs returns the memoized System and Manager IDs; either is empty until discovered.
+func (c *Client) cachedIDs() (systemID, managerID string) {
+	c.ids.mu.Lock()
+	defer c.ids.mu.Unlock()
+	return c.ids.systemID, c.ids.managerID
+}
+
+// rememberSystemID memoizes the discovered System ID.
+func (c *Client) rememberSystemID(id string) {
+	c.ids.mu.Lock()
+	defer c.ids.mu.Unlock()
+	c.ids.systemID = id
+}
+
+// rememberManagerID memoizes the discovered BMC Manager ID.
+func (c *Client) rememberManagerID(id string) {
+	c.ids.mu.Lock()
+	defer c.ids.mu.Unlock()
+	c.ids.managerID = id
+}
+
+// forgetStableIDs drops the memoized identifiers after affirmative evidence that a Redfish
+// resource no longer resolves, so the next read rediscovers them. A timeout is not such evidence.
+func (c *Client) forgetStableIDs() {
+	c.ids.mu.Lock()
+	defer c.ids.mu.Unlock()
+	c.ids.systemID, c.ids.managerID = "", ""
 }
 
 type BmcManager struct {
@@ -796,11 +834,19 @@ func (c *Client) GetManagers(ctx context.Context) (*resty.Response, *Managers, e
 }
 
 func getBMCManagerID(ctx context.Context, c *Client) (*string, error) {
+	if _, managerID := c.cachedIDs(); managerID != "" {
+		return &managerID, nil
+	}
 	_, managers, err := c.GetManagers(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return findBMCManagerID(managers)
+	managerID, err := findBMCManagerID(managers)
+	if err != nil {
+		return nil, err
+	}
+	c.rememberManagerID(*managerID)
+	return managerID, nil
 }
 
 // findBMCManagerID selects the BMC member from the managers collection.
@@ -1035,12 +1081,19 @@ func (c *Client) GetSystems(ctx context.Context) (*resty.Response, *Systems, err
 }
 
 func getSystemID(ctx context.Context, c *Client) (string, error) {
+	if systemID, _ := c.cachedIDs(); systemID != "" {
+		return systemID, nil
+	}
 	_, systems, err := c.GetSystems(ctx)
 	if err != nil {
 		return "", err
 	}
-
-	return findSystemID(systems)
+	systemID, err := findSystemID(systems)
+	if err != nil {
+		return "", err
+	}
+	c.rememberSystemID(systemID)
+	return systemID, nil
 }
 
 // findSystemID selects the BlueField member from the systems collection.
@@ -1490,63 +1543,6 @@ func NewBasicAuthClient(ctx context.Context, bmcAddress, user, passwd string) (*
 // tlsClientError wraps an error with the BMC address used to construct the client.
 func tlsClientError(bmcAddress string, err error) error {
 	return fmt.Errorf("failed to create TLS client for %s: %w", bmcAddress, err)
-}
-
-// NewTLSClient returns a Client using verified mTLS. The BMC server certificate is verified
-// against the DPF CA (CA-pinned chain + IP-or-CN identity pinning); client-side auth is provided by
-// the Redfish client key pair sourced via CertSource (Kubernetes API or mounted files).
-func NewTLSClient(ctx context.Context, bmcAddress string, namespace string, k8sClient client.Client) (*Client, error) {
-	ctx, cancel := ReadContext(ctx)
-	defer cancel()
-	if !strings.HasPrefix(bmcAddress, httpsPrefix) {
-		bmcAddress = httpsPrefix + bmcAddress
-	}
-
-	bmcURL, err := url.Parse(bmcAddress)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse BMC address %q: %w", bmcAddress, err)
-	}
-	serverName := bmcURL.Hostname()
-
-	rawClient, err := NewRawClient(bmcAddress)
-	if err != nil {
-		return nil, tlsClientError(bmcAddress, fmt.Errorf("failed to create raw client: %w", err))
-	}
-	defer rawClient.CloseIdleConnections()
-
-	_, rootServiceInfo, err := rawClient.GetRootService(ctx)
-	if err != nil {
-		return nil, tlsClientError(bmcAddress, err)
-	}
-	if rootServiceInfo != nil && rootServiceInfo.IsBF4() {
-		rawClient.IsBF4 = true
-	}
-
-	certSource := newCertSource(k8sClient, namespace)
-	caCertBundle, err := certSource.CACert(ctx)
-	if err != nil {
-		return nil, tlsClientError(bmcAddress, err)
-	}
-	clientKeyPair, err := certSource.ClientKeyPair(ctx, rawClient.IsBF4)
-	if err != nil {
-		return nil, tlsClientError(bmcAddress, err)
-	}
-	if err := verifyClientKeyPairChainsToCA(clientKeyPair, caCertBundle); err != nil {
-		return nil, tlsClientError(bmcAddress, err)
-	}
-	certPool := x509.NewCertPool()
-	if !certPool.AppendCertsFromPEM(caCertBundle) {
-		return nil, fmt.Errorf("failed to load CA certs")
-	}
-	tlsCfg, err := newRedfishTLSConfig(certPool, []tls.Certificate{clientKeyPair}, false, serverName)
-	if err != nil {
-		return nil, tlsClientError(bmcAddress, err)
-	}
-	c := resty.New().SetBaseURL(bmcAddress).SetTLSClientConfig(tlsCfg)
-
-	tlsClient := &Client{Client: c, IsBF4: rawClient.IsBF4}
-
-	return tlsClient, nil
 }
 
 // GetSecureBoot queries current Secure Boot state from BMC

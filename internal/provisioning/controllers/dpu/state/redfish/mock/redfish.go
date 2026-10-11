@@ -1310,8 +1310,6 @@ func (r *RedfishMockServer) SetReplaceCertError(simulateError bool) {
 }
 
 // SetProductDescriptionError enables or disables GetProductDescription endpoint error simulation.
-// Since NewTLSClient calls GetProductDescription as a connectivity check, this effectively
-// simulates BMC unreachable at the TLS client creation level.
 func (r *RedfishMockServer) SetProductDescriptionError(simulateError bool) {
 	r.productDescriptionError = simulateError
 }

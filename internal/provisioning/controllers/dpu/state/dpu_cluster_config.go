@@ -151,14 +151,12 @@ func checkFwVersion(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 		return err
 	}
 
-	var rfClient *rfclient.Client
-	var err error
 	var versionInfo *rfclient.VersionInfo
 
-	if rfClient, err = rfclient.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client); err != nil {
+	rfClient, err := ctrlCtx.RedfishProvider().AcquireForDevice(ctx, dpu.Namespace, dpuDevice)
+	if err != nil {
 		return err
 	}
-	defer rfClient.CloseIdleConnections()
 
 	if _, versionInfo, err = rfClient.CheckDPUUEFI(ctx); err != nil {
 		return err

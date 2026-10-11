@@ -128,7 +128,6 @@ func reconcileHostlessReboot(ctx context.Context, dpu *provisioningv1.DPU, state
 		return *state, err
 	}
 
-	defer client.CloseIdleConnections()
 	if state.RebootStatus == nil {
 		now := metav1.Now()
 		method := provisioningv1.RebootMethodPowerCycle
@@ -204,7 +203,6 @@ func reconcileWaitForArmShutdown(ctx context.Context, dpu *provisioningv1.DPU, s
 		return *state, err
 	}
 
-	defer client.CloseIdleConnections()
 	resp, system, err := client.GetSystem(readCtx)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondRebooted.String(), err, "FailedToGetRedfishSystem", err.Error()))
@@ -281,5 +279,5 @@ func redfishClientForDPU(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *
 	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, dpuDevice); err != nil {
 		return nil, err
 	}
-	return rc.NewTLSClient(ctx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	return ctrlCtx.RedfishProvider().AcquireForDevice(ctx, dpu.Namespace, dpuDevice)
 }

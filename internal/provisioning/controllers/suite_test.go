@@ -41,6 +41,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/bluefieldsoftware"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/discovery"
+	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpucluster"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpudevice"
@@ -85,6 +86,7 @@ var (
 	dpunodeReconciler     *dpunode.DPUNodeReconciler
 	dpuReconciler         *dpu.DPUReconciler
 	dpuMap                *dutil.DPUInProvisioningMap
+	redfishClients        *rfclient.Provider
 	closeBFBServer        func()
 	closePLDMUnpackServer func()
 )
@@ -191,13 +193,16 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	dpuMap = dutil.NewDPUInProvisioningMap(maxDPUParallelInstallations)
+	// One provider shared by the DPU and DPUDevice reconcilers, as in the provisioning manager.
+	redfishClients = rfclient.NewProvider(k8sManager.GetClient())
 
 	dpuReconciler = dpu.NewDPUReconciler(k8sManager,
 		alloc,
 		&mockNodeJoinCommandGenerator{},
 		&mockDPUArtifactGenerator{},
 		dutil.DPUOptions{DPUInstallInterface: string(provisioningv1.InstallViaMock), MaxDPUParallelInstallations: maxDPUParallelInstallations},
-		dpuMap)
+		dpuMap,
+		redfishClients)
 	err = dpu.SetupIndexers(ctx, k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 	err = dpuReconciler.SetupWithManager(k8sManager)
@@ -292,9 +297,10 @@ var _ = BeforeSuite(func() {
 
 	// Add DPUDevice controller
 	dpuDeviceReconciler := &dpudevice.DPUDeviceReconciler{
-		Client:   k8sManager.GetClient(),
-		Scheme:   k8sManager.GetScheme(),
-		Recorder: k8sManager.GetEventRecorderFor(dpudevice.DPUDeviceControllerName),
+		Client:         k8sManager.GetClient(),
+		Scheme:         k8sManager.GetScheme(),
+		Recorder:       k8sManager.GetEventRecorderFor(dpudevice.DPUDeviceControllerName),
+		RedfishClients: redfishClients,
 	}
 	err = dpuDeviceReconciler.SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())

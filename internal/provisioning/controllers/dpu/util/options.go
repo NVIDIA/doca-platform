@@ -23,6 +23,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/allocator"
+	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/future"
 
 	corev1 "k8s.io/api/core/v1"
@@ -91,6 +92,25 @@ type ControllerContext struct {
 	DPUArtifactGenerator DPUArtifactGenerator
 	DPUInProvisioningMap *DPUInProvisioningMap
 	DPFOperatorConfig    *operatorv1.DPFOperatorConfig
+	// RedfishClients caches the verified mTLS BMC clients. It is owned by provisioning-manager
+	// startup; state handlers never close the clients they get from it. Read it through
+	// RedfishProvider, not directly.
+	RedfishClients rfclient.ClientProvider
+}
+
+// RedfishProvider returns the provider state handlers get BMC clients from.
+//
+// NewDPUReconciler rejects a nil provider, so in the provisioning manager this always returns the
+// process-wide one. The fallback covers tests that build a ControllerContext directly and reach a
+// handler that talks to a BMC: they get an unshared provider rather than a nil dereference.
+//
+// The DPUDevice controller deliberately has no such fallback: it reads the field directly, so an
+// unwired one fails immediately instead of quietly losing client reuse.
+func (c *ControllerContext) RedfishProvider() rfclient.ClientProvider {
+	if c.RedfishClients != nil {
+		return c.RedfishClients
+	}
+	return rfclient.NewProvider(c.Client)
 }
 
 // ZeroTrustProvisioningFlow reports whether the cluster policy is zero-trust for provisioning

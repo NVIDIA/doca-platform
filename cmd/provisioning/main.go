@@ -305,22 +305,6 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, flags *cliFlags, bf
 
 	dpuMap := dutil.NewDPUInProvisioningMap(flags.maxDPUParallelInstallations)
 
-	dpuReconciler := dpu.NewDPUReconciler(
-		mgr,
-		alloc,
-		&dutil.KubeadmBootstrapTokenGenerator{Client: mgr.GetClient(), TokenTTL: flags.nodeJoinTokenTTL},
-		&state.DefaultDPUArtifactGenerator{},
-		dpuOptions,
-		dpuMap,
-	)
-	if err := dpu.SetupIndexers(ctx, mgr); err != nil {
-		setupLog.Error(err, "failed to setup field indexers")
-		os.Exit(1)
-	}
-	if err := dpuReconciler.SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "DPU")
-		os.Exit(1)
-	}
 	if err := (&dpuset.DPUSetReconciler{
 		Client: mgr.GetClient(),
 		Options: dpuset.DPUSetOptions{
@@ -361,12 +345,38 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, flags *cliFlags, bf
 	// When a client cert directory is configured the verified mTLS client reads its client key pair
 	// from the mounted volume instead of the Kubernetes API (from a secret in the same namespace).
 	rfclient.SetClientCertDir(flags.redfishClientCertDir)
+
+	// One provider caches the verified mTLS BMC clients for this manager. It reads the trust bundle
+	// through the manager cache, which already runs a ConfigMap informer for it. It is never closed:
+	// the process exits when the manager stops, and closing it earlier would fail the reconciles
+	// still draining at shutdown.
+	redfishClients := rfclient.NewProvider(mgr.GetCache())
+
 	if err := (&dpudevice.DPUDeviceReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor(dpudevice.DPUDeviceControllerName),
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		Recorder:       mgr.GetEventRecorderFor(dpudevice.DPUDeviceControllerName),
+		RedfishClients: redfishClients,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPUDevice")
+		os.Exit(1)
+	}
+
+	if err := dpu.SetupIndexers(ctx, mgr); err != nil {
+		setupLog.Error(err, "failed to setup field indexers")
+		os.Exit(1)
+	}
+	dpuReconciler := dpu.NewDPUReconciler(
+		mgr,
+		alloc,
+		&dutil.KubeadmBootstrapTokenGenerator{Client: mgr.GetClient(), TokenTTL: flags.nodeJoinTokenTTL},
+		&state.DefaultDPUArtifactGenerator{},
+		dpuOptions,
+		dpuMap,
+		redfishClients,
+	)
+	if err := dpuReconciler.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "DPU")
 		os.Exit(1)
 	}
 

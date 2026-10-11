@@ -545,7 +545,7 @@ func TestBF4OSInstall(t *testing.T) {
 
 // TestCertificateLifecycle walks the controller's mTLS bootstrap: truststore reconcile,
 // GenerateCSR, install of the CA-signed certificate, and then a verified connection that pins the
-// CA and the BMC IP like rfclient.NewTLSClient does.
+// CA and the BMC IP like the provisioning controller's verified client does.
 func TestCertificateLifecycle(t *testing.T) {
 	_, _, url := startServer(t, config.DPUTypeBF3, defaultFirmware())
 	c, err := rfclient.NewBasicAuthClient(context.Background(), url, rfclient.BF3BMCUser, "x")
@@ -613,7 +613,7 @@ func TestCertificateLifecycle(t *testing.T) {
 		t.Fatal("served certificate is not the installed one")
 	}
 
-	// Verified connection: chain to the CA and pin the BMC IP, as NewTLSClient does.
+	// Verified connection: chain to the CA and pin the BMC IP, as the provisioning controller's verified client does.
 	pool := x509.NewCertPool()
 	pool.AppendCertsFromPEM(caPEM)
 	conn, err := tls.Dial("tcp", strings.TrimPrefix(url, "https://"), &tls.Config{RootCAs: pool, ServerName: bmcIP, MinVersion: tls.VersionTLS12})

@@ -78,12 +78,11 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 
 	readCtx, cancelRead := rc.ReadContext(ctx)
 	defer cancelRead()
-	client, err := rc.NewTLSClient(readCtx, device.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	client, err := ctrlCtx.RedfishProvider().AcquireForDevice(readCtx, dpu.Namespace, device)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUConfigFWParameters), err, "FailedToCreateClient", err.Error()))
 		return *state, err
 	}
-	defer client.CloseIdleConnections()
 
 	if dpu.Status.DPUType == provisioningv1.DPUTypeBlueField4 {
 		resp, _, err := client.SetHostPrivilegeRestricted()

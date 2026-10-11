@@ -56,7 +56,7 @@ var (
 	testNS      *corev1.Namespace
 	testObjects []client.Object
 	// testCATrustBundlePEM is a valid CA certificate PEM used to populate the dpf-ca-trust-bundle
-	// ConfigMap that NewTLSClient reads. Individual tests that dial a mock BMC should patch this
+	// ConfigMap that the client provider reads. Individual tests that dial a mock BMC should patch this
 	// bundle with mockServer.GetServerCertPEM() so server chain verification succeeds.
 	testCATrustBundlePEM []byte
 )
@@ -111,9 +111,9 @@ var _ = BeforeSuite(func() {
 	Expect(serverCertPEM).NotTo(BeEmpty())
 
 	// The verified mTLS client reads its key pair from a mounted directory. Provide one for the
-	// suite so NewTLSClient can build the client (the mock BMC does not require client auth). The
+	// suite so the client provider can build the client (the mock BMC does not require client auth). The
 	// client leaf is signed by the CA returned from CreateMTLSCerts, so that CA must be in the
-	// trust bundle for the client-cert chain self-check in NewTLSClient to pass.
+	// trust bundle for the client provider's client-cert chain self-check to pass.
 	clientCACrt, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts("127.0.0.1")
 	// The bundle must verify both the mock BMC server certificate and the Redfish client cert.
 	testCATrustBundlePEM = append(append([]byte{}, serverCertPEM...), clientCACrt...)
@@ -138,7 +138,7 @@ var _ = BeforeEach(func() {
 	}).WithTimeout(10 * time.Second).Should(Succeed())
 	testObjects = []client.Object{}
 
-	// NewTLSClient reads the CA bundle from the dpf-ca-trust-bundle ConfigMap in the DPU namespace.
+	// The client provider reads the CA bundle from the dpf-ca-trust-bundle ConfigMap in the DPU namespace.
 	// Create it in every test namespace so mTLS Redfish clients can be constructed.
 	caBundleCM := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{

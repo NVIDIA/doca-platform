@@ -111,12 +111,11 @@ func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 
 	readCtx, cancelRead := rc.ReadContext(ctx)
 	defer cancelRead()
-	client, err := rc.NewTLSClient(readCtx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	client, err := ctrlCtx.RedfishProvider().AcquireForDevice(readCtx, dpu.Namespace, dpuDevice)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), err, "FailedToCreateClient", err.Error()))
 		return *state, err
 	}
-	defer client.CloseIdleConnections()
 
 	cond := cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "Updating", "Updating PLDM Firmware")
 	_, existingCond := cutil.GetDPUCondition(&dpu.Status, cond.Type)
@@ -457,12 +456,11 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 
 	readCtx, cancelRead := rc.ReadContext(ctx)
 	defer cancelRead()
-	client, err := rc.NewTLSClient(readCtx, dpuDevice.BMCAddress(), dpu.Namespace, ctrlCtx.Client)
+	client, err := ctrlCtx.RedfishProvider().AcquireForDevice(readCtx, dpu.Namespace, dpuDevice)
 	if err != nil {
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToCreateClient", err.Error()))
 		return *state, err
 	}
-	defer client.CloseIdleConnections()
 
 	cond := cutil.NewCondition(provisioningv1.DPUCondFwBundleSubmitted.String(), nil, "Submitting", "Submitting PLDM Firmware")
 	_, existingCond := cutil.GetDPUCondition(&dpu.Status, cond.Type)
