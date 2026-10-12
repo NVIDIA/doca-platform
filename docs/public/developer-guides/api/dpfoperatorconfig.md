@@ -318,6 +318,8 @@ spec:
 
 * `spec.provisioningController.hostAgentDNSPolicy`: DNS policy for the hostagent pod. Valid values are `ClusterFirstWithHostNet`, `ClusterFirst`, or `Default`.
 
+* `spec.provisioningController.preInstallAgentRegistrationTimeout`: How long the `Initializing` phase waits for the in-band dpu-agent to set `preInstall.agentReported` on a DPU CR during initial provisioning or reprovisioning. When the timeout elapses, provisioning continues without agent-assisted pre-install for that cycle. The value is a duration string built from integer-and-unit segments (`h`, `m`, `s`, `ms`, `us`/`µs`, `ns`); fractional values such as `1.5h` are rejected (e.g. `30s`, `1m`).
+
   The maxDPUParallelInstallations and maxUnavailableDPUNodes options can be configured together and can be combined with maxParallelOperations and maxUnavailable in Nvidia NodeMaintenance-operator configuration. Below are some examples to show the expected behaviour.
 
 | maxDPUParallelInstallations in DPFOperatorconfig | maxUnavailableDPUNodes in DPFOperatorconfig | maxParallelOperations in Nvidia NodeMaintenanceConfig | maxUnavailable in Nvidia NodeMaintenanceConfig | max number of DPUs in provisioning | max number of Nodes under node effect in NodeMaintenanceOperator|
