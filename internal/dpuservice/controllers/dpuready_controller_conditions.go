@@ -20,12 +20,14 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	sfcsetcontroller "github.com/nvidia/doca-platform/internal/servicechainset/controllers"
+	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -34,6 +36,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -51,7 +54,24 @@ const (
 	statePending = "pending"
 	// stateMissing indicates the node was deleted after having joined the cluster (error condition).
 	stateMissing = "missing"
+	// stateProvisioning indicates the DPU has not reached a phase where operational state is meaningful.
+	stateProvisioning = "provisioning"
+	// stateError indicates the DPU is in the terminal Error phase, its operational state is not assessed.
+	stateError = "error"
 )
+
+// operationalConditionsApply reports whether operational conditions are evaluated in the given DPU phase.
+// Earlier phases (including reboots and reprovisioning) may still see a stale Node in the DPU cluster.
+func operationalConditionsApply(phase provisioningv1.DPUPhase) bool {
+	switch phase {
+	case provisioningv1.DPUServiceReadiness,
+		provisioningv1.DPUNodeEffectRemoval,
+		provisioningv1.DPUReady:
+		return true
+	default:
+		return false
+	}
+}
 
 func (r *DPUReadyReconciler) reconcileDPUOperationalConditions(ctx context.Context, scope *reconcileScope) error {
 	log := ctrllog.FromContext(ctx)
@@ -74,6 +94,9 @@ func (r *DPUReadyReconciler) reconcileDPUOperationalConditions(ctx context.Conte
 		if dpuBeingDeleted || nodeBeingDeleted {
 			// Set operational conditions to Unknown during deletion
 			operationalConditions = setAllOperationalConditions(stateDeletion)
+		} else if dpu.Status.Phase == provisioningv1.DPUError {
+			// A node left over from before the failure must not make a failed DPU look ready
+			operationalConditions = setAllOperationalConditions(stateError)
 		} else if node == nil {
 			if dpuIsReady {
 				// Node was deleted after joining - error condition
@@ -82,6 +105,9 @@ func (r *DPUReadyReconciler) reconcileDPUOperationalConditions(ctx context.Conte
 				// Node hasn't joined yet - normal provisioning
 				operationalConditions = setAllOperationalConditions(statePending)
 			}
+		} else if !operationalConditionsApply(dpu.Status.Phase) {
+			// The Node may be left over from before a reboot or reprovision, its state is not trustworthy yet
+			operationalConditions = setAllOperationalConditions(stateProvisioning)
 		} else {
 			// Normal case: node exists and is not being deleted
 			operationalConditions, err = r.aggregateOperationalConditions(ctx, dpuClusterClient, node, dpu, scope.dpuServiceList)
@@ -142,6 +168,30 @@ var operationalConditionSpecs = map[string]operationalConditionSpec{
 			string(provisioningv1.DPUOperationalCondReady):                          "Waiting for node to join the cluster",
 		},
 	},
+	stateProvisioning: {
+		status: metav1.ConditionUnknown,
+		reason: string(conditions.ReasonPending),
+		messages: map[string]string{
+			string(provisioningv1.DPUOperationalCondNodeProblemsReady):              "Waiting for DPU provisioning to finish before assessing node health",
+			string(provisioningv1.DPUOperationalCondDPUServiceCriticalPodsReady):    "Waiting for DPU provisioning to finish before assessing critical pods",
+			string(provisioningv1.DPUOperationalCondDPUServiceNonCriticalPodsReady): "Waiting for DPU provisioning to finish before assessing non-critical pods",
+			string(provisioningv1.DPUOperationalCondDPUServiceInterfacesReady):      "Waiting for DPU provisioning to finish before assessing service interfaces",
+			string(provisioningv1.DPUOperationalCondDPUServiceChainsReady):          "Waiting for DPU provisioning to finish before assessing service chains",
+			string(provisioningv1.DPUOperationalCondReady):                          "Waiting for DPU provisioning to finish",
+		},
+	},
+	stateError: {
+		status: metav1.ConditionFalse,
+		reason: string(conditions.ReasonError),
+		messages: map[string]string{
+			string(provisioningv1.DPUOperationalCondNodeProblemsReady):              "Node health not assessed: DPU is in Error phase",
+			string(provisioningv1.DPUOperationalCondDPUServiceCriticalPodsReady):    "Critical pods not assessed: DPU is in Error phase",
+			string(provisioningv1.DPUOperationalCondDPUServiceNonCriticalPodsReady): "Non-critical pods not assessed: DPU is in Error phase",
+			string(provisioningv1.DPUOperationalCondDPUServiceInterfacesReady):      "Service interfaces not assessed: DPU is in Error phase",
+			string(provisioningv1.DPUOperationalCondDPUServiceChainsReady):          "Service chains not assessed: DPU is in Error phase",
+			string(provisioningv1.DPUOperationalCondReady):                          "DPU is in Error phase",
+		},
+	},
 	stateMissing: {
 		status: metav1.ConditionFalse,
 		reason: string(conditions.ReasonError),
@@ -183,7 +233,7 @@ func (r *DPUReadyReconciler) aggregateOperationalConditions(ctx context.Context,
 
 	var errs []error
 	// 2. & 3. DPU Service Pods conditions (critical and non-critical) - fetch pods once
-	criticalPodsCondition, nonCriticalPodsCondition, err := r.aggregateDPUServicePodsConditions(ctx, dpu.Name, dpuServiceList, dpuClusterClient)
+	criticalPodsCondition, nonCriticalPodsCondition, err := r.aggregateDPUServicePodsConditions(ctx, dpu, node, dpuServiceList, dpuClusterClient)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("aggregate DPUService Pods conditions: %w", err))
 		// Set both pod conditions to Unknown
@@ -334,7 +384,8 @@ func (r *DPUReadyReconciler) aggregateNodeProblemsCondition(node *corev1.Node) m
 }
 
 // aggregateDPUServicePodsConditions fetches pods once and returns both critical and non-critical conditions
-func (r *DPUReadyReconciler) aggregateDPUServicePodsConditions(ctx context.Context, dpuName string, dpuServiceList *dpuservicev1.DPUServiceList, dpuClusterClient client.Client) (metav1.Condition, metav1.Condition, error) {
+func (r *DPUReadyReconciler) aggregateDPUServicePodsConditions(ctx context.Context, dpu provisioningv1.DPU, node *corev1.Node, dpuServiceList *dpuservicev1.DPUServiceList, dpuClusterClient client.Client) (metav1.Condition, metav1.Condition, error) {
+	dpuName := dpu.Name
 	// Build service ID criticality map
 	serviceIDCriticalityMap := make(map[string]bool, len(dpuServiceList.Items))
 	for i := range dpuServiceList.Items {
@@ -357,10 +408,12 @@ func (r *DPUReadyReconciler) aggregateDPUServicePodsConditions(ctx context.Conte
 	// Separate pods by criticality in a single pass
 	var criticalPodCount, nonCriticalPodCount int
 	var criticalNotReadyPods, nonCriticalNotReadyPods []string
+	servicesWithPod := make(map[string]struct{}, len(podList.Items))
 
 	for i := range podList.Items {
 		pod := &podList.Items[i]
 		serviceID := pod.Labels[dpuservicev1.DPFServiceIDLabelKey]
+		servicesWithPod[serviceID] = struct{}{}
 
 		podIsCritical, serviceExists := serviceIDCriticalityMap[serviceID]
 		if !serviceExists {
@@ -382,17 +435,50 @@ func (r *DPUReadyReconciler) aggregateDPUServicePodsConditions(ctx context.Conte
 		}
 	}
 
+	// A critical service that should run on this node but has no pod yet is not ready. Without this,
+	// the empty pod list right after the node joins reads as "all pods ready". Non-critical services
+	// are not checked, they may legitimately have no pod on this node.
+	var dpuCluster *provisioningv1.DPUCluster
+	var criticalServicesWithoutPod []string
+	for i := range dpuServiceList.Items {
+		dpuService := &dpuServiceList.Items[i]
+		if _, isCritical := dpuService.Labels[criticalDPUServiceLabel]; !isCritical {
+			continue
+		}
+		// Same match as getServicesStatusPerDPU. An empty Status.ServiceID matches no pod, so a service
+		// that is not reconciled yet counts as having no pod.
+		if _, hasPod := servicesWithPod[dpuService.Status.ServiceID]; hasPod && dpuService.Status.ServiceID != "" {
+			continue
+		}
+		if dpuCluster == nil {
+			dpuCluster = &provisioningv1.DPUCluster{}
+			key := client.ObjectKey{Namespace: dpu.Spec.Cluster.Namespace, Name: dpu.Spec.Cluster.Name}
+			// A missing DPUCluster is an error too, otherwise absent critical services would read as ready.
+			if err := r.Client.Get(ctx, key, dpuCluster); err != nil {
+				return metav1.Condition{}, metav1.Condition{}, fmt.Errorf("failed to get DPUCluster: %w", err)
+			}
+		}
+		expected, err := dpuServiceExpectedOnNode(dpuService, dpuCluster, node)
+		if err != nil {
+			return metav1.Condition{}, metav1.Condition{}, fmt.Errorf("failed to evaluate selectors of DPUService %s: %w", dpuService.Name, err)
+		}
+		if !expected {
+			continue
+		}
+		criticalServicesWithoutPod = append(criticalServicesWithoutPod, dpuService.Name+" (no pod yet)")
+	}
+
 	var criticalCondition metav1.Condition
 	var nonCriticalCondition metav1.Condition
 	// Build critical condition
-	if len(criticalNotReadyPods) > 0 {
+	if len(criticalNotReadyPods)+len(criticalServicesWithoutPod) > 0 {
 		criticalCondition = conditions.NewFalseCondition(
 			string(provisioningv1.DPUOperationalCondDPUServiceCriticalPodsReady),
 			"PodsNotReady",
 			fmt.Sprintf("Critical Pods not ready (%d/%d): %s",
 				criticalPodCount-len(criticalNotReadyPods),
-				criticalPodCount,
-				formatUnreadyItems(criticalNotReadyPods)),
+				criticalPodCount+len(criticalServicesWithoutPod),
+				formatUnreadyItems(slices.Concat(criticalNotReadyPods, criticalServicesWithoutPod))),
 		)
 	} else {
 		criticalCondition = conditions.NewTrueCondition(
@@ -421,6 +507,22 @@ func (r *DPUReadyReconciler) aggregateDPUServicePodsConditions(ctx context.Conte
 	}
 
 	return criticalCondition, nonCriticalCondition, nil
+}
+
+// dpuServiceExpectedOnNode reports whether the DPUService targets the node's DPUCluster and, when it
+// restricts its DaemonSet by node selector, that selector matches the node.
+func dpuServiceExpectedOnNode(dpuService *dpuservicev1.DPUService, dpuCluster *provisioningv1.DPUCluster, node *corev1.Node) (bool, error) {
+	clusterSelector, err := utils.LabelSelectorAsSelector(dpuService.Spec.DPUClusterSelector)
+	if err != nil {
+		return false, err
+	}
+	if !clusterSelector.Matches(labels.Set(dpuCluster.Labels)) {
+		return false, nil
+	}
+	if dpuService.Spec.ServiceDaemonSet == nil {
+		return true, nil
+	}
+	return nodeMatchesNodeSelector(node, dpuService.Spec.ServiceDaemonSet.NodeSelector)
 }
 
 // aggregateDPUServiceInterfacesCondition aggregates the interfaces condition.

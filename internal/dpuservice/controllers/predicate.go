@@ -22,6 +22,7 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 
@@ -304,6 +305,20 @@ func nodeOVNEncapIPPredicate() predicate.Funcs {
 		GenericFunc: func(e event.GenericEvent) bool {
 			return false
 		},
+	}
+}
+
+// dpuPhaseChanged triggers on DPU phase transitions, which decide whether operational conditions are evaluated.
+func dpuPhaseChanged() predicate.Funcs {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldDPU, oldOk := e.ObjectOld.(*provisioningv1.DPU)
+			newDPU, newOk := e.ObjectNew.(*provisioningv1.DPU)
+			return oldOk && newOk && oldDPU.Status.Phase != newDPU.Status.Phase
+		},
+		CreateFunc:  func(event.CreateEvent) bool { return false },
+		DeleteFunc:  func(event.DeleteEvent) bool { return false },
+		GenericFunc: func(event.GenericEvent) bool { return false },
 	}
 }
 

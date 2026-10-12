@@ -18,6 +18,8 @@ package controllers
 
 import (
 	"context"
+	"slices"
+	"sync"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
@@ -657,6 +659,12 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 		}
 		Expect(testClient.Create(ctx, nonCriticalService)).To(Succeed())
 		DeferCleanup(testutils.CleanupAndWait, ctx, testClient, nonCriticalService)
+
+		By("Setting the service IDs in the DPUService status, as the DPUService controller does")
+		for _, svc := range []*dpuservicev1.DPUService{criticalService, nonCriticalService} {
+			svc.Status.ServiceID = *svc.Spec.ServiceID
+			Expect(testClient.Status().Update(ctx, svc)).To(Succeed())
+		}
 	})
 
 	Context("Node Health Condition", func() {
@@ -966,6 +974,23 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 			By("Triggering reconciliation")
 			Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, dpuNodeObj)).To(Succeed())
 
+			By("Verifying a pre-ServiceReadiness DPU does not evaluate the (possibly stale) Node")
+			Eventually(func(g Gomega) {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
+				g.Expect(dpu.Status.OperationalConditions).To(HaveLen(6))
+				for _, cond := range dpu.Status.OperationalConditions {
+					g.Expect(cond.Status).To(Equal(metav1.ConditionUnknown))
+					g.Expect(cond.Reason).To(Equal("Pending"))
+					g.Expect(cond.Message).To(ContainSubstring("DPU provisioning"))
+				}
+			}).WithTimeout(5 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+
+			By("Moving the DPU to ServiceReadiness, which must trigger a reconcile on its own")
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
+			patcher = patch.NewSerialPatcher(dpu, testClient)
+			dpu.Status.Phase = provisioningv1.DPUServiceReadiness
+			Expect(patcher.Patch(ctx, dpu, patch.WithFieldOwner("test"))).To(Succeed())
+
 			By("Verifying conditions transition to normal aggregation")
 			Eventually(func(g Gomega) {
 				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
@@ -1001,7 +1026,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 				},
 			}
 			Expect(dpuClusterClient.Create(ctx, criticalPod)).To(Succeed())
-			DeferCleanup(dpuClusterClient.Delete, ctx, criticalPod)
+			DeferCleanup(dpuClusterClient.Delete, ctx, criticalPod, client.GracePeriodSeconds(0))
 
 			By("Setting critical pod status to Running and Ready")
 			criticalPod.Status = corev1.PodStatus{
@@ -1029,7 +1054,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 				},
 			}
 			Expect(dpuClusterClient.Create(ctx, nonCriticalPod)).To(Succeed())
-			DeferCleanup(dpuClusterClient.Delete, ctx, nonCriticalPod)
+			DeferCleanup(dpuClusterClient.Delete, ctx, nonCriticalPod, client.GracePeriodSeconds(0))
 
 			By("Setting non-critical pod status to Pending")
 			nonCriticalPod.Status = corev1.PodStatus{
@@ -1053,6 +1078,299 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 					),
 				))
 			}).WithTimeout(10 * time.Second).WithPolling(500 * time.Millisecond).Should(Succeed())
+		})
+	})
+
+	Context("Service readiness race", func() {
+		var (
+			setPhase         func(phase provisioningv1.DPUPhase)
+			createServicePod func(name, serviceID string, ready bool) *corev1.Pod
+			markPodReady     func(pod *corev1.Pod)
+			recordHistory    func() (stop func() []metav1.ConditionStatus)
+			operationalReady func(g Gomega) metav1.Condition
+		)
+
+		BeforeEach(func() {
+			setPhase = func(phase provisioningv1.DPUPhase) {
+				Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
+				patcher := patch.NewSerialPatcher(dpu, testClient)
+				dpu.Status.Phase = phase
+				Expect(patcher.Patch(ctx, dpu, patch.WithFieldOwner("test"))).To(Succeed())
+			}
+
+			createServicePod = func(name, serviceID string, ready bool) *corev1.Pod {
+				pod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      name,
+						Namespace: testNS.Name,
+						Labels:    map[string]string{dpuservicev1.DPFServiceIDLabelKey: serviceID},
+					},
+					Spec: corev1.PodSpec{
+						NodeName: dpu.Name,
+						Containers: []corev1.Container{{
+							Name:  "test",
+							Image: "test",
+						}},
+					},
+				}
+				Expect(dpuClusterClient.Create(ctx, pod)).To(Succeed())
+				// Pods bound to a node are only terminating after a graceful delete (no kubelet in envtest)
+				// and would show up as not ready in the next spec, which reuses the node name.
+				DeferCleanup(dpuClusterClient.Delete, ctx, pod, client.GracePeriodSeconds(0))
+				pod.Status = corev1.PodStatus{Phase: corev1.PodPending}
+				Expect(dpuClusterClient.Status().Update(ctx, pod)).To(Succeed())
+				if ready {
+					markPodReady(pod)
+				}
+				return pod
+			}
+
+			markPodReady = func(pod *corev1.Pod) {
+				pod.Status = corev1.PodStatus{
+					Phase: corev1.PodRunning,
+					Conditions: []corev1.PodCondition{{
+						Type:   corev1.PodReady,
+						Status: corev1.ConditionTrue,
+					}},
+				}
+				Expect(dpuClusterClient.Status().Update(ctx, pod)).To(Succeed())
+			}
+
+			operationalReady = func(g Gomega) metav1.Condition {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
+				cond := meta.FindStatusCondition(dpu.Status.OperationalConditions, string(provisioningv1.DPUOperationalCondReady))
+				g.Expect(cond).NotTo(BeNil())
+				return *cond
+			}
+
+			// recordHistory samples OperationalReady in the background and returns the sequence of
+			// distinct statuses seen, so a True that later goes back to False/Unknown is detectable.
+			recordHistory = func() func() []metav1.ConditionStatus {
+				var (
+					mu      sync.Mutex
+					once    sync.Once
+					history []metav1.ConditionStatus
+				)
+				// Take the key up front, dpu is rewritten by Get calls on the test goroutine.
+				key := client.ObjectKeyFromObject(dpu)
+				stopCh, doneCh := make(chan struct{}), make(chan struct{})
+				go func() {
+					defer close(doneCh)
+					ticker := time.NewTicker(50 * time.Millisecond)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-stopCh:
+							return
+						case <-ticker.C:
+							current := &provisioningv1.DPU{}
+							if err := testClient.Get(ctx, key, current); err != nil {
+								continue
+							}
+							cond := meta.FindStatusCondition(current.Status.OperationalConditions, string(provisioningv1.DPUOperationalCondReady))
+							if cond == nil {
+								continue
+							}
+							mu.Lock()
+							if len(history) == 0 || history[len(history)-1] != cond.Status {
+								history = append(history, cond.Status)
+							}
+							mu.Unlock()
+						}
+					}
+				}()
+				stop := func() []metav1.ConditionStatus {
+					once.Do(func() {
+						close(stopCh)
+						<-doneCh
+					})
+					mu.Lock()
+					defer mu.Unlock()
+					return append([]metav1.ConditionStatus(nil), history...)
+				}
+				DeferCleanup(func() { _ = stop() })
+				return stop
+			}
+		})
+
+		It("does not report OperationalReady before the DPUService pods exist and never flaps afterwards", func() {
+			stop := recordHistory()
+
+			By("Joined Node but DPU still in DPU Config: nothing is evaluated")
+			setPhase(provisioningv1.DPUConfig)
+			Eventually(func(g Gomega) {
+				g.Expect(operationalReady(g).Status).To(Equal(metav1.ConditionUnknown))
+			}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+
+			By("Entering Service Readiness while no DPUService pod is scheduled yet")
+			setPhase(provisioningv1.DPUServiceReadiness)
+			Eventually(func(g Gomega) {
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
+				g.Expect(dpu.Status.OperationalConditions).To(ContainElements(
+					And(
+						HaveField("Type", Equal(string(provisioningv1.DPUOperationalCondDPUServiceCriticalPodsReady))),
+						HaveField("Status", Equal(metav1.ConditionFalse)),
+						HaveField("Message", ContainSubstring("critical-service (no pod yet)")),
+					),
+					And(
+						HaveField("Type", Equal(string(provisioningv1.DPUOperationalCondReady))),
+						HaveField("Status", Equal(metav1.ConditionFalse)),
+					),
+				))
+			}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+			Consistently(func(g Gomega) {
+				g.Expect(operationalReady(g).Status).NotTo(Equal(metav1.ConditionTrue))
+			}).WithTimeout(2 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+
+			By("Pods are scheduled but not ready yet")
+			criticalPod := createServicePod("critical-pod", "critical-svc-id", false)
+			nonCriticalPod := createServicePod("non-critical-pod", "non-critical-svc-id", false)
+			Consistently(func(g Gomega) {
+				g.Expect(operationalReady(g).Status).NotTo(Equal(metav1.ConditionTrue))
+			}).WithTimeout(2 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+
+			By("Pods become ready")
+			markPodReady(criticalPod)
+			markPodReady(nonCriticalPod)
+			Eventually(func(g Gomega) {
+				g.Expect(operationalReady(g).Status).To(Equal(metav1.ConditionTrue))
+			}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+			Consistently(func(g Gomega) {
+				g.Expect(operationalReady(g).Status).To(Equal(metav1.ConditionTrue))
+			}).WithTimeout(2 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+
+			By("Verifying OperationalReady never went True and back")
+			history := stop()
+			firstTrue := slices.Index(history, metav1.ConditionTrue)
+			Expect(firstTrue).To(BeNumerically(">=", 0), "OperationalReady never became True, history: %v", history)
+			Expect(history[firstTrue:]).To(Equal([]metav1.ConditionStatus{metav1.ConditionTrue}),
+				"OperationalReady flapped after becoming True, history: %v", history)
+		})
+
+		It("does not wait for a non-critical DPUService that has no pod", func() {
+			createServicePod("critical-pod", "critical-svc-id", true)
+			setPhase(provisioningv1.DPUServiceReadiness)
+
+			Eventually(func(g Gomega) {
+				g.Expect(operationalReady(g)).To(HaveField("Status", Equal(metav1.ConditionTrue)), "conditions: %+v", dpu.Status.OperationalConditions)
+			}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+		})
+
+		It("does not wait for DPUServices that do not target this DPU or node", func() {
+			By("Creating DPUServices for another DPUCluster and for other nodes")
+			otherClusterService := &dpuservicev1.DPUService{
+				ObjectMeta: metav1.ObjectMeta{Name: "other-cluster-service", Namespace: testNS.Name, Labels: map[string]string{criticalDPUServiceLabel: ""}},
+				Spec: dpuservicev1.DPUServiceSpec{
+					ServiceID:          ptr.To("other-cluster-svc-id"),
+					DPUClusterSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"does-not": "match"}},
+					Security:           &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(false)},
+					HelmChart: dpuservicev1.HelmChart{Source: dpuservicev1.ApplicationSource{
+						RepoURL: "oci://example.com", Version: "v1.0.0", Chart: "test-chart",
+					}},
+				},
+			}
+			Expect(testClient.Create(ctx, otherClusterService)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, otherClusterService)
+
+			otherNodeService := &dpuservicev1.DPUService{
+				ObjectMeta: metav1.ObjectMeta{Name: "other-node-service", Namespace: testNS.Name, Labels: map[string]string{criticalDPUServiceLabel: ""}},
+				Spec: dpuservicev1.DPUServiceSpec{
+					ServiceID: ptr.To("other-node-svc-id"),
+					ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{
+						NodeSelector: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+							MatchExpressions: []corev1.NodeSelectorRequirement{{Key: "only-on-other-nodes", Operator: corev1.NodeSelectorOpExists}},
+						}}},
+					},
+					Security: &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(false)},
+					HelmChart: dpuservicev1.HelmChart{Source: dpuservicev1.ApplicationSource{
+						RepoURL: "oci://example.com", Version: "v1.0.0", Chart: "test-chart",
+					}},
+				},
+			}
+			Expect(testClient.Create(ctx, otherNodeService)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, otherNodeService)
+
+			By("Running the targeted services")
+			createServicePod("critical-pod", "critical-svc-id", true)
+			createServicePod("non-critical-pod", "non-critical-svc-id", true)
+			setPhase(provisioningv1.DPUServiceReadiness)
+
+			Eventually(func(g Gomega) {
+				g.Expect(operationalReady(g)).To(HaveField("Status", Equal(metav1.ConditionTrue)), "conditions: %+v", dpu.Status.OperationalConditions)
+			}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+		})
+
+		It("does not report OperationalReady while the node labels the DPUServices select on are not applied yet", func() {
+			const labelKey = "test.nvidia.com/dpu-services"
+
+			By("Making both DPUServices select on a node label that DPU Cluster Config applies later")
+			for _, name := range []string{"critical-service", "non-critical-service"} {
+				svc := &dpuservicev1.DPUService{}
+				Expect(testClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: name}, svc)).To(Succeed())
+				patcher := patch.NewSerialPatcher(svc, testClient)
+				svc.SetServiceDaemonSetNodeSelector(&corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+					MatchExpressions: []corev1.NodeSelectorRequirement{{Key: labelKey, Operator: corev1.NodeSelectorOpExists}},
+				}}})
+				Expect(patcher.Patch(ctx, svc, patch.WithFieldOwner("test"))).To(Succeed())
+			}
+
+			By("Node joined without the labels, DPU in DPU Config: no service applies, nothing may read as ready")
+			setPhase(provisioningv1.DPUConfig)
+			Eventually(func(g Gomega) {
+				g.Expect(operationalReady(g).Status).To(Equal(metav1.ConditionUnknown))
+			}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+			// Record from here on. The DPU starts in the Ready phase, where no service applies to the
+			// unlabeled node and OperationalReady is True, which is not part of the scenario.
+			stop := recordHistory()
+			Consistently(func(g Gomega) {
+				g.Expect(operationalReady(g).Status).NotTo(Equal(metav1.ConditionTrue))
+			}).WithTimeout(2 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+
+			By("DPU Cluster Config applies the labels and the DPU enters Service Readiness, pods are not there yet")
+			Expect(dpuClusterClient.Get(ctx, client.ObjectKeyFromObject(dpuClusterNode), dpuClusterNode)).To(Succeed())
+			patcher := patch.NewSerialPatcher(dpuClusterNode, dpuClusterClient)
+			dpuClusterNode.Labels[labelKey] = "true"
+			Expect(patcher.Patch(ctx, dpuClusterNode, patch.WithFieldOwner("test"))).To(Succeed())
+			setPhase(provisioningv1.DPUServiceReadiness)
+			Consistently(func(g Gomega) {
+				g.Expect(operationalReady(g).Status).NotTo(Equal(metav1.ConditionTrue))
+			}).WithTimeout(2 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+
+			By("Pods are scheduled and ready")
+			// Non-critical first: a missing non-critical pod does not block ready, so the critical pod going first would read True too early.
+			createServicePod("non-critical-pod", "non-critical-svc-id", true)
+			createServicePod("critical-pod", "critical-svc-id", true)
+			Eventually(func(g Gomega) {
+				g.Expect(operationalReady(g)).To(HaveField("Status", Equal(metav1.ConditionTrue)), "conditions: %+v", dpu.Status.OperationalConditions)
+			}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+			Consistently(func(g Gomega) {
+				g.Expect(operationalReady(g).Status).To(Equal(metav1.ConditionTrue))
+			}).WithTimeout(2 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+
+			history := stop()
+			firstTrue := slices.Index(history, metav1.ConditionTrue)
+			Expect(firstTrue).To(BeNumerically(">=", 0), "history: %v", history)
+			Expect(history[firstTrue:]).To(Equal([]metav1.ConditionStatus{metav1.ConditionTrue}),
+				"OperationalReady flapped after becoming True, history: %v", history)
+		})
+
+		It("reports OperationalReady False once the DPU is in Error, even if it was ready before", func() {
+			By("Reaching OperationalReady True in Service Readiness")
+			createServicePod("critical-pod", "critical-svc-id", true)
+			createServicePod("non-critical-pod", "non-critical-svc-id", true)
+			setPhase(provisioningv1.DPUServiceReadiness)
+			Eventually(func(g Gomega) {
+				g.Expect(operationalReady(g).Status).To(Equal(metav1.ConditionTrue))
+			}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+
+			By("DPU moves to Error: the node is not assessed and the earlier True is replaced")
+			setPhase(provisioningv1.DPUError)
+			Eventually(func(g Gomega) {
+				g.Expect(operationalReady(g)).To(And(
+					HaveField("Status", Equal(metav1.ConditionFalse)),
+					HaveField("Message", ContainSubstring("Error phase")),
+				))
+			}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
 		})
 	})
 
