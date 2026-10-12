@@ -255,15 +255,13 @@ func (r *DPFOperatorConfigReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 		// Set the summary condition for the DPFOperatorConfig.
 		//
-		// CertManagementReady is kept out of the summary: it reports on the platform intermediate CA,
-		// which nothing signs certificates with yet, so an unready or misconfigured PKI must not hold
-		// back a cluster that is otherwise fully functional. It is still reported on its own condition,
-		// which is what makes a misconfiguration diagnosable before anything depends on it. Remove the
-		// exclusion once the provisioning certificates actually chain to this CA.
+		// CertManagementReady counts towards the summary: the provisioning certificates chain to the
+		// platform intermediate CA, so an unready or misconfigured PKI means the certificates the
+		// Redfish client, the DPU BMCs and the bfb-registry present cannot be issued, which is not a
+		// cluster anyone should read as ready.
 		//
 		// DeprecatedFieldsNotInUse is informational and must never affect Ready.
 		conditions.SetSummary(dpfOperatorConfig, conditions.ExcludeFromSummary(
-			operatorv1.CertManagementReadyCondition,
 			operatorv1.DeprecatedFieldsNotInUseCondition,
 		))
 
@@ -450,6 +448,16 @@ func (r *DPFOperatorConfigReconciler) reconcile(ctx context.Context, dpfOperator
 		return ctrl.Result{}, errors.Join(certErr, err)
 	}
 	conditions.AddTrue(dpfOperatorConfig, operatorv1.CATrustBundleReadyCondition)
+
+	// The bundle the recorded anchor was rolled out under, which is what a rotation of that anchor is
+	// measured against. Recorded under the same condition as the anchor, but only here, because the
+	// step above is what publishes it: recorded any earlier it would be one bundle behind, and the
+	// next rotation would be retired against a bundle the peers had applied before it began.
+	if !anchorState.RotationRequired() {
+		if err := certmanagement.RecordTrustBundleHash(ctx, r.Client, dpfOperatorConfig); err != nil {
+			certErr = errors.Join(certErr, err)
+		}
+	}
 
 	if certErr != nil {
 		return ctrl.Result{}, certErr

@@ -59,8 +59,9 @@ const (
 )
 
 // CreateDPUAgentRole creates or updates a per-DPU Role that restricts the DPU
-// agent to only its own DPU CR and required bootstrap resources.
-func CreateDPUAgentRole(ctx context.Context, client crclient.Client, scheme *runtime.Scheme, dpu *provisioningv1.DPU, flavor *provisioningv1.DPUFlavor) error {
+// agent to only its own DPU CR and required bootstrap resources. caTrustBundleConfigMapName is
+// the configured trust bundle name; empty falls back to the default name.
+func CreateDPUAgentRole(ctx context.Context, client crclient.Client, scheme *runtime.Scheme, dpu *provisioningv1.DPU, flavor *provisioningv1.DPUFlavor, caTrustBundleConfigMapName string) error {
 	roleName := providentity.DPUAgentUsername(dpu.Name)
 	rules := []rbacv1.PolicyRule{
 		{
@@ -94,7 +95,7 @@ func CreateDPUAgentRole(ctx context.Context, client crclient.Client, scheme *run
 			Verbs:         []string{"get"},
 		},
 	}
-	configMapNames := referencedConfigMapNames(flavor)
+	configMapNames := referencedConfigMapNames(flavor, caTrustBundleConfigMapName)
 	if len(configMapNames) > 0 {
 		rules = append(rules, rbacv1.PolicyRule{
 			APIGroups:     []string{""},
@@ -141,8 +142,8 @@ func CreateDPUAgentRole(ctx context.Context, client crclient.Client, scheme *run
 // reconcile: on reprovision the previous generation's Role and RoleBinding are
 // garbage-collected with the DPUSet that owned them, and without a repeated
 // ensure the agent is left 403-denied on its own DPU CR with nothing to recover it.
-func EnsureDPUAgentRole(ctx context.Context, client crclient.Client, dpu *provisioningv1.DPU, dpuDevice *provisioningv1.DPUDevice) error {
-	if err := EnsureDPUAgentRoleForCurrentFlavor(ctx, client, client.Scheme(), dpu); err != nil {
+func EnsureDPUAgentRole(ctx context.Context, client crclient.Client, dpu *provisioningv1.DPU, dpuDevice *provisioningv1.DPUDevice, caTrustBundleConfigMapName string) error {
+	if err := EnsureDPUAgentRoleForCurrentFlavor(ctx, client, client.Scheme(), dpu, caTrustBundleConfigMapName); err != nil {
 		return err
 	}
 	subject, err := DPUAgentRoleBindingSubject(ctx, client, dpu, dpuDevice)
@@ -181,7 +182,7 @@ func DPUAgentRoleBindingSubject(ctx context.Context, client crclient.Client, dpu
 // grants get on dpu.Spec.DPUFlavor. Call this before Config FW Parameters when a
 // leftover in-band agent is live: leftover Roles still pin resourceNames to the
 // previous flavor, and pre-install NVConfig reads the current flavor in that phase.
-func EnsureDPUAgentRoleForCurrentFlavor(ctx context.Context, client crclient.Client, scheme *runtime.Scheme, dpu *provisioningv1.DPU) error {
+func EnsureDPUAgentRoleForCurrentFlavor(ctx context.Context, client crclient.Client, scheme *runtime.Scheme, dpu *provisioningv1.DPU, caTrustBundleConfigMapName string) error {
 	if dpu == nil || dpu.Spec.DPUFlavor == "" {
 		return nil
 	}
@@ -195,19 +196,30 @@ func EnsureDPUAgentRoleForCurrentFlavor(ctx context.Context, client crclient.Cli
 		}
 		flavor = nil
 	}
-	return CreateDPUAgentRole(ctx, client, scheme, dpu, flavor)
+	return CreateDPUAgentRole(ctx, client, scheme, dpu, flavor, caTrustBundleConfigMapName)
 }
 
-func referencedConfigMapNames(flavor *provisioningv1.DPUFlavor) []string {
+func referencedConfigMapNames(flavor *provisioningv1.DPUFlavor, caTrustBundleConfigMapName string) []string {
 	seen := map[string]struct{}{}
-	// dpu-agent CA trust bundle watcher always reads this ConfigMap.
-	seen[operatorv1.DefaultCATrustBundleConfigMapName] = struct{}{}
-	if flavor == nil {
-		return []string{operatorv1.DefaultCATrustBundleConfigMapName}
+	names := make([]string, 0, 2)
+	// The dpu-agent CA trust bundle watcher reads the configured bundle. The default name is
+	// granted alongside it so an agent whose cloud-init predates the configured name, and one
+	// reconciling while the name changes, both keep reading the bundle rather than being denied it.
+	for _, name := range []string{operatorv1.DefaultCATrustBundleConfigMapName, caTrustBundleConfigMapName} {
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
 	}
-	names := make([]string, 0, len(flavor.Spec.ConfigFiles)+1)
-	names = append(names, operatorv1.DefaultCATrustBundleConfigMapName)
-	for _, file := range flavor.Spec.ConfigFiles {
+	var configFiles []provisioningv1.ConfigFile
+	if flavor != nil {
+		configFiles = flavor.Spec.ConfigFiles
+	}
+	for _, file := range configFiles {
 		if file.Type == nil || *file.Type != provisioningv1.ConfigFileTypeAgentApplied {
 			continue
 		}

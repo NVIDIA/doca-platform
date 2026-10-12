@@ -223,6 +223,21 @@ func TestReconcileCATrustBundle(t *testing.T) {
 		Group: operatorv1.CertManagerGroup,
 	}
 
+	// The platform intermediate CA and the authority above it, as cert-manager records them. The
+	// provisioning leaves are signed by this chain, so the self-signed bundle has to publish it
+	// alongside the provisioning CA and every subtest expecting a bundle stages it.
+	platformRoot := testCertPEM("platform-root")
+	platformIntermediate := testCertPEM("platform-intermediate")
+	createPlatformCASecret := func(g *WithT, ns string) {
+		g.Expect(testClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: operatorv1.PlatformIntermediateCAName},
+			Data: map[string][]byte{
+				caCertSecretKey:   platformRoot,
+				corev1.TLSCertKey: platformIntermediate,
+			},
+		})).To(Succeed())
+	}
+
 	t.Run("requeues when the CA secret is missing", func(t *testing.T) {
 		g := NewWithT(t)
 		ns := "ca-bundle-no-secret"
@@ -268,6 +283,7 @@ func TestReconcileCATrustBundle(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: ProvisioningCASecretName},
 			Data:       map[string][]byte{corev1.TLSCertKey: caCert},
 		})).To(Succeed())
+		createPlatformCASecret(g, ns)
 		config := newConfig(ns)
 		r := newReconciler()
 
@@ -276,7 +292,14 @@ func TestReconcileCATrustBundle(t *testing.T) {
 
 		cm := &corev1.ConfigMap{}
 		g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName}, cm)).To(Succeed())
-		g.Expect(cm.Data[operatorv1.CATrustBundleKey]).To(Equal(string(caCert)))
+		// Both authorities, because the leaves are split across them: what the provisioning CA signed
+		// before the platform CA existed, and everything signed under the platform CA since. A bundle
+		// with only one of the two has peers rejecting certificates on the other side of that line.
+		bundle := cm.Data[operatorv1.CATrustBundleKey]
+		g.Expect(countCerts([]byte(bundle))).To(Equal(3))
+		g.Expect(bundle).To(ContainSubstring(string(caCert)))
+		g.Expect(bundle).To(ContainSubstring(string(platformRoot)))
+		g.Expect(bundle).To(ContainSubstring(string(platformIntermediate)))
 		g.Expect(cm.Data[operatorv1.CATrustBundleHashKey]).NotTo(BeEmpty())
 		g.Expect(cm.Labels).To(HaveKeyWithValue(operatorv1.DPFComponentLabelKey, "dpf-operator"))
 		// The bundle is intentionally not owned by the DPFOperatorConfig; it is deleted explicitly.
@@ -293,6 +316,7 @@ func TestReconcileCATrustBundle(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: ProvisioningCASecretName},
 			Data:       map[string][]byte{corev1.TLSCertKey: caCert},
 		})).To(Succeed())
+		createPlatformCASecret(g, ns)
 		// Pre-existing bundle with another CA and an unrelated key that must be preserved.
 		g.Expect(testClient.Create(ctx, &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName},
@@ -309,7 +333,8 @@ func TestReconcileCATrustBundle(t *testing.T) {
 		cm := &corev1.ConfigMap{}
 		g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName}, cm)).To(Succeed())
 		bundle := []byte(cm.Data[operatorv1.CATrustBundleKey])
-		g.Expect(countCerts(bundle)).To(Equal(2))
+		// The pre-existing CA, the provisioning CA and the two of the platform chain.
+		g.Expect(countCerts(bundle)).To(Equal(4))
 		g.Expect(string(bundle)).To(ContainSubstring(string(otherCert)))
 		g.Expect(string(bundle)).To(ContainSubstring(string(caCert)))
 		g.Expect(cm.Data[operatorv1.CATrustBundleHashKey]).NotTo(BeEmpty())
@@ -326,6 +351,7 @@ func TestReconcileCATrustBundle(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: ProvisioningCASecretName},
 			Data:       map[string][]byte{corev1.TLSCertKey: caCert},
 		})).To(Succeed())
+		createPlatformCASecret(g, ns)
 		r := newReconciler()
 
 		for i := 0; i < 3; i++ {
@@ -335,7 +361,52 @@ func TestReconcileCATrustBundle(t *testing.T) {
 
 		cm := &corev1.ConfigMap{}
 		g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName}, cm)).To(Succeed())
-		g.Expect(countCerts([]byte(cm.Data[operatorv1.CATrustBundleKey]))).To(Equal(1))
+		// The same three the first reconcile wrote: repeating it must not duplicate either authority.
+		g.Expect(countCerts([]byte(cm.Data[operatorv1.CATrustBundleKey]))).To(Equal(3))
+	})
+
+	t.Run("requeues when the platform CA has not been issued yet", func(t *testing.T) {
+		g := NewWithT(t)
+		ns := "ca-bundle-no-platform-ca"
+		createNamespace(g, ns)
+		g.Expect(testClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: ProvisioningCASecretName},
+			Data:       map[string][]byte{corev1.TLSCertKey: testCertPEM("ca-without-platform")},
+		})).To(Succeed())
+		r := newReconciler()
+
+		err := r.reconcileCATrustBundle(ctx, newConfig(ns), selfSignedAnchor)
+		pendingErr := &caTrustBundlePendingError{}
+		g.Expect(errors.As(err, &pendingErr)).To(BeTrue())
+
+		// Publishing a bundle without the platform CA would be worse than waiting for it: the leaves
+		// DPF has already moved onto that authority would be rejected by everyone reading the bundle.
+		err = testClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName}, &corev1.ConfigMap{})
+		g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+	})
+
+	t.Run("requeues when the platform CA holds no certificate PEM block", func(t *testing.T) {
+		g := NewWithT(t)
+		ns := "ca-bundle-malformed-platform-ca"
+		createNamespace(g, ns)
+		g.Expect(testClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: ProvisioningCASecretName},
+			Data:       map[string][]byte{corev1.TLSCertKey: testCertPEM("ca-malformed-platform")},
+		})).To(Succeed())
+		// Non-empty but unparseable: the merge would skip it and leave the bundle short of the
+		// platform chain, so a payload like this has to read as not issued yet rather than as issued.
+		g.Expect(testClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: operatorv1.PlatformIntermediateCAName},
+			Data:       map[string][]byte{corev1.TLSCertKey: []byte("not a certificate")},
+		})).To(Succeed())
+		r := newReconciler()
+
+		err := r.reconcileCATrustBundle(ctx, newConfig(ns), selfSignedAnchor)
+		pendingErr := &caTrustBundlePendingError{}
+		g.Expect(errors.As(err, &pendingErr)).To(BeTrue())
+
+		err = testClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName}, &corev1.ConfigMap{})
+		g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 	})
 
 	t.Run("backfills bundle-hash on pre-existing ConfigMap with unchanged bundle", func(t *testing.T) {
@@ -347,12 +418,16 @@ func TestReconcileCATrustBundle(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: ProvisioningCASecretName},
 			Data:       map[string][]byte{corev1.TLSCertKey: caCert},
 		})).To(Succeed())
+		createPlatformCASecret(g, ns)
 
 		// Simulate an older-operator ConfigMap: identical bundle content but missing bundle-hash key.
+		// Identical now means both authorities, which is what the reconcile below would write.
+		unchanged, err := mergeCABundle(nil, caCert, platformRoot, platformIntermediate)
+		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(testClient.Create(ctx, &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName},
 			Data: map[string]string{
-				operatorv1.CATrustBundleKey: string(caCert),
+				operatorv1.CATrustBundleKey: string(unchanged),
 			},
 		})).To(Succeed())
 
@@ -361,7 +436,7 @@ func TestReconcileCATrustBundle(t *testing.T) {
 
 		cm := &corev1.ConfigMap{}
 		g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName}, cm)).To(Succeed())
-		g.Expect(cm.Data[operatorv1.CATrustBundleKey]).To(Equal(string(caCert)))
+		g.Expect(cm.Data[operatorv1.CATrustBundleKey]).To(Equal(string(unchanged)))
 		g.Expect(cm.Data[operatorv1.CATrustBundleHashKey]).NotTo(BeEmpty())
 	})
 
@@ -375,17 +450,20 @@ func TestReconcileCATrustBundle(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: ProvisioningCASecretName},
 			Data:       map[string][]byte{corev1.TLSCertKey: newCert},
 		})).To(Succeed())
+		createPlatformCASecret(g, ns)
 
-		staleHash, err := computeBundleHash(append(append([]byte{}, oldCert...), newCert...))
+		pruned, err := mergeCABundle(nil, newCert, platformRoot, platformIntermediate)
 		g.Expect(err).NotTo(HaveOccurred())
-		expectedHash, err := computeBundleHash(newCert)
+		staleHash, err := computeBundleHash(append(append([]byte{}, oldCert...), pruned...))
+		g.Expect(err).NotTo(HaveOccurred())
+		expectedHash, err := computeBundleHash(pruned)
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(staleHash).NotTo(Equal(expectedHash))
 
 		g.Expect(testClient.Create(ctx, &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName},
 			Data: map[string]string{
-				operatorv1.CATrustBundleKey:     string(newCert),
+				operatorv1.CATrustBundleKey:     string(pruned),
 				operatorv1.CATrustBundleHashKey: staleHash,
 			},
 		})).To(Succeed())
@@ -395,7 +473,7 @@ func TestReconcileCATrustBundle(t *testing.T) {
 
 		cm := &corev1.ConfigMap{}
 		g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName}, cm)).To(Succeed())
-		g.Expect(cm.Data[operatorv1.CATrustBundleKey]).To(Equal(string(newCert)))
+		g.Expect(cm.Data[operatorv1.CATrustBundleKey]).To(Equal(string(pruned)))
 		g.Expect(cm.Data[operatorv1.CATrustBundleHashKey]).To(Equal(expectedHash))
 	})
 
@@ -408,6 +486,7 @@ func TestReconcileCATrustBundle(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: ProvisioningCASecretName},
 			Data:       map[string][]byte{corev1.TLSCertKey: caCert},
 		})).To(Succeed())
+		createPlatformCASecret(g, ns)
 		// deleteCATrustBundle reads the anchor from the cluster rather than taking it as an argument,
 		// so the webhook intermediate CA the chart owns has to stand in for it here.
 		createWebhookIntermediateCA(g, ns)
@@ -569,6 +648,7 @@ func TestReconcileCATrustBundle(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: ProvisioningCASecretName},
 			Data:       map[string][]byte{corev1.TLSCertKey: testCertPEM("ca-delete-no-anchor")},
 		})).To(Succeed())
+		createPlatformCASecret(g, ns)
 		createWebhookIntermediateCA(g, ns)
 		r := newReconciler()
 		config := newConfig(ns)
@@ -594,6 +674,7 @@ func TestReconcileCATrustBundle(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: ProvisioningCASecretName},
 			Data:       map[string][]byte{corev1.TLSCertKey: testCertPEM("ca-handover")},
 		})).To(Succeed())
+		createPlatformCASecret(g, ns)
 		r := newReconciler()
 		config := newConfig(ns)
 		g.Expect(r.reconcileCATrustBundle(ctx, config, selfSignedAnchor)).To(Succeed())

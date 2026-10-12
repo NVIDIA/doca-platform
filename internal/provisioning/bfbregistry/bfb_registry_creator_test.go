@@ -21,6 +21,9 @@ import (
 	"sync/atomic"
 	"testing"
 
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
+	"github.com/nvidia/doca-platform/pkg/certmanager"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -362,7 +365,7 @@ var _ = Describe("ensureServerCertificate", func() {
 		cn, _, _ := unstructured.NestedString(u.Object, "spec", "commonName")
 		Expect(cn).To(Equal(PodName))
 		issuer, _, _ := unstructured.NestedString(u.Object, "spec", "issuerRef", "name")
-		Expect(issuer).To(Equal(ServerCertIssuerName))
+		Expect(issuer).To(Equal(operatorv1.PlatformIssuerName))
 		alg, _, _ := unstructured.NestedString(u.Object, "spec", "privateKey", "algorithm")
 		Expect(alg).To(Equal("ECDSA"))
 
@@ -375,6 +378,23 @@ var _ = Describe("ensureServerCertificate", func() {
 		))
 		ips, _, _ := unstructured.NestedStringSlice(u.Object, "spec", "ipAddresses")
 		Expect(ips).To(ConsistOf("10.0.0.5"))
+	})
+
+	It("signs with the configured issuer", func() {
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(leader).Build()
+		r := &BFBRegistryRunnable{Client: c, CAIssuerRef: certmanager.IssuerReference{
+			Name:  "external-issuer",
+			Kind:  operatorv1.CertManagerClusterIssuerKind,
+			Group: operatorv1.CertManagerGroup,
+		}}
+		Expect(r.ensureServerCertificate(ctx, ns, "10.0.0.5", leader)).To(Succeed())
+
+		issuerRef, _, _ := unstructured.NestedStringMap(getCert(c).Object, "spec", "issuerRef")
+		Expect(issuerRef).To(Equal(map[string]string{
+			"name":  "external-issuer",
+			"kind":  operatorv1.CertManagerClusterIssuerKind,
+			"group": operatorv1.CertManagerGroup,
+		}))
 	})
 
 	It("is idempotent and updates the IP SAN on node failover", func() {

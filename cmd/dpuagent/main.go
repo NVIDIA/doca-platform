@@ -33,6 +33,7 @@ import (
 	"strings"
 	"time"
 
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/constants"
@@ -93,6 +94,7 @@ func main() {
 	pflag.StringVar(&options.KubeadmSecretName, "kubeadm-secret-name", "", "Name of the Secret containing the Kubeadm join command")
 	pflag.StringVar(&options.KubeadmSecretNamespace, "kubeadm-secret-namespace", "", "Namespace of the Secret containing the Kubeadm join command")
 	pflag.StringVar(&options.BFBRegistryURL, "bfb-registry-url", "", "HTTP base URL of bfb-registry (scheme://host:port) for downloading files from the registry")
+	pflag.StringVar(&options.CATrustBundleConfigMapName, "ca-trust-bundle-configmap-name", operatorv1.DefaultCATrustBundleConfigMapName, "Name of the ConfigMap holding the dpf CA trust bundle the agent keeps synced into the DPU OS trust store")
 	pflag.StringVar(&options.NodeLabelScriptsDir, "node-label-scripts-dir", opts.DefaultNodeLabelScriptsDir, "Directory containing executable scripts that report DPU cluster Node labels")
 	pflag.BoolVar(&options.AstraEnabled, "astra-enabled", false, "Enable astra-specific behavior")
 	pflag.IntVar(&options.NICDeviceCount, "nic-device-count", opts.DefaultNICDeviceCount, "Expected NIC device count for provisioning validation")

@@ -18,6 +18,8 @@ package client
 
 import (
 	"sync"
+
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 )
 
 // DefaultClientCertDir is the default directory holding the mounted Redfish client key pair.
@@ -40,6 +42,34 @@ func SetClientCertDir(dir string) {
 	clientCertDirMu.Lock()
 	defer clientCertDirMu.Unlock()
 	clientCertDir = dir
+}
+
+// caTrustBundleConfigMapName is the ConfigMap holding the trust bundle the BMC server certificate
+// is validated against. It is configured once at startup via SetCATrustBundleConfigMapName (from
+// the --ca-trust-bundle-configmap-name flag) and is guarded by caTrustBundleConfigMapNameMu so
+// setter/reader access is race-free regardless of timing.
+var (
+	caTrustBundleConfigMapNameMu sync.RWMutex
+	caTrustBundleConfigMapName   = operatorv1.DefaultCATrustBundleConfigMapName
+)
+
+// SetCATrustBundleConfigMapName configures the ConfigMap the trust bundle is read from. With an
+// external issuer the operator owns that ConfigMap and names it, so the name cannot be fixed at
+// compile time. An empty name keeps the default rather than leaving nothing to read.
+func SetCATrustBundleConfigMapName(name string) {
+	if name == "" {
+		return
+	}
+	caTrustBundleConfigMapNameMu.Lock()
+	defer caTrustBundleConfigMapNameMu.Unlock()
+	caTrustBundleConfigMapName = name
+}
+
+// CATrustBundleConfigMapName returns the ConfigMap the trust bundle is read from.
+func CATrustBundleConfigMapName() string {
+	caTrustBundleConfigMapNameMu.RLock()
+	defer caTrustBundleConfigMapNameMu.RUnlock()
+	return caTrustBundleConfigMapName
 }
 
 // getClientCertDir returns the currently configured client cert directory.

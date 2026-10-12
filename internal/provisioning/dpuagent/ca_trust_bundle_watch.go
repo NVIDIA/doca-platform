@@ -58,22 +58,33 @@ func (d *DPUAgent) startCATrustBundleWatcher(ctx context.Context) {
 	}()
 }
 
+// caTrustBundleConfigMapName returns the ConfigMap the DPU OS trust store is synced from. The
+// configured name reaches the agent through cloud-init, so an agent provisioned before the name
+// was configurable falls back to the default rather than reading an empty name.
+func (d *DPUAgent) caTrustBundleConfigMapName() string {
+	if name := d.optCtx.Options.CATrustBundleConfigMapName; name != "" {
+		return name
+	}
+	return operatorv1.DefaultCATrustBundleConfigMapName
+}
+
 func (d *DPUAgent) reconcileCATrustBundle(ctx context.Context) {
 	ns := d.optCtx.Options.DPUNamespace
+	name := d.caTrustBundleConfigMapName()
 	cm := &corev1.ConfigMap{}
-	if err := d.optCtx.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName}, cm); err != nil {
-		klog.Warningf("CA trust bundle watcher: failed to get ConfigMap %s/%s: %v", ns, operatorv1.DefaultCATrustBundleConfigMapName, err)
+	if err := d.optCtx.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, cm); err != nil {
+		klog.Warningf("CA trust bundle watcher: failed to get ConfigMap %s/%s: %v", ns, name, err)
 		return
 	}
 
 	bundlePEM := cm.Data[operatorv1.CATrustBundleKey]
 	if strings.TrimSpace(bundlePEM) == "" {
-		klog.Warningf("CA trust bundle watcher: ConfigMap %s/%s missing %q", ns, operatorv1.DefaultCATrustBundleConfigMapName, operatorv1.CATrustBundleKey)
+		klog.Warningf("CA trust bundle watcher: ConfigMap %s/%s missing %q", ns, name, operatorv1.CATrustBundleKey)
 		return
 	}
 	bundleHash := cm.Data[operatorv1.CATrustBundleHashKey]
 	if strings.TrimSpace(bundleHash) == "" {
-		klog.Warningf("CA trust bundle watcher: ConfigMap %s/%s missing %q", ns, operatorv1.DefaultCATrustBundleConfigMapName, operatorv1.CATrustBundleHashKey)
+		klog.Warningf("CA trust bundle watcher: ConfigMap %s/%s missing %q", ns, name, operatorv1.CATrustBundleHashKey)
 		return
 	}
 

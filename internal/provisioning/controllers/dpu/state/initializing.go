@@ -204,7 +204,7 @@ func Initializing(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 	// Refresh the per-DPU RBAC only when that agent has reported; first provision has no
 	// live agent here and still creates the RBAC in Prepare BFB.
 	if cutil.PreInstallAgentReported(dpu) {
-		if err := cutil.EnsureDPUAgentRole(ctx, ctrlCtx.Client, dpu, dpuDevice); err != nil {
+		if err := cutil.EnsureDPUAgentRole(ctx, ctrlCtx.Client, dpu, dpuDevice, ctrlCtx.Options.CATrustBundleConfigMapName); err != nil {
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondInitialized.String(), err, "FailedToEnsureAgentRole", err.Error()))
 			return *state, err
 		}

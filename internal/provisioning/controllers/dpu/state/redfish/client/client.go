@@ -107,12 +107,8 @@ const (
 	// APIHostPrivilegeConfigSettings is the Settings URI for host privilege configuration (BF4).
 	APIHostPrivilegeConfigSettings = APIRootService + "/Chassis/BlueField_0/NetworkAdapters/BlueField_NIC_0/Oem/Nvidia/HostPrivilegeConfig/Settings"
 
-	// CATrustBundleConfigMap is the ConfigMap containing trust bundle PEM set.
-	CATrustBundleConfigMap = "dpf-ca-trust-bundle"
 	// CATrustBundleKey is the data key containing PEM certificate bundle.
 	CATrustBundleKey = "ca.crt"
-	// Issuer is a cert-manager Issuer deployed by DPF
-	Issuer = "dpf-provisioning-issuer"
 	// ClientCertSecret and ClientCertSecretBF4 are created by the cert-manager Certificates deployed
 	// by DPF and mounted into the provisioning controller at the client-cert directory (see
 	// DefaultClientCertDir and the --redfish-client-cert-dir flag). The controller reads the client

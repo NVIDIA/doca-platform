@@ -46,6 +46,7 @@ type Options struct {
 	KubeadmSecretName          string
 	KubeadmSecretNamespace     string
 	BFBRegistryURL             string
+	CATrustBundleConfigMapName string
 	NodeLabelScriptsDir        string
 	AstraEnabled               bool
 	NICDeviceCount             int

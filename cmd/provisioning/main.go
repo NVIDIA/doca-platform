@@ -45,6 +45,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpuset"
 	httputils "github.com/nvidia/doca-platform/internal/provisioning/utils/http"
 	provisioningwebhooks "github.com/nvidia/doca-platform/internal/provisioning/webhooks"
+	"github.com/nvidia/doca-platform/pkg/certmanager"
 	pkgdpucluster "github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/pkg/health"
 	spirev1alpha1 "github.com/nvidia/doca-platform/third_party/forked/github.com/spiffe/spire-controller-manager/api/v1alpha1"
@@ -145,6 +146,18 @@ type cliFlags struct {
 	deploymentMode                     string
 	redfishClientCertDir               string
 	caTrustBundleConfigMapName         string
+	caIssuerName                       string
+	caIssuerKind                       string
+	caIssuerGroup                      string
+}
+
+// caIssuerRef returns the issuer the certificates minted at runtime are signed by.
+func (f *cliFlags) caIssuerRef() certmanager.IssuerReference {
+	return certmanager.IssuerReference{
+		Name:  f.caIssuerName,
+		Kind:  f.caIssuerKind,
+		Group: f.caIssuerGroup,
+	}
 }
 
 func parseFlags() *cliFlags {
@@ -188,7 +201,11 @@ func parseFlags() *cliFlags {
 	fs.StringVar(&flags.hostAgentDNSPolicy, "hostagent-dns-policy", string(corev1.DNSClusterFirstWithHostNet), "DNS policy for the hostagent pod")
 	fs.StringVar(&flags.deploymentMode, "deployment-mode", "", "required: cluster deployment mode from DPFOperatorConfig (zero-trust or host-trusted)")
 	fs.StringVar(&flags.redfishClientCertDir, "redfish-client-cert-dir", rfclient.DefaultClientCertDir, "Directory holding the mounted Redfish client key pair (tls.crt/tls.key). The BF4 key pair is read from '<dir>-bf4'.")
-	fs.StringVar(&flags.caTrustBundleConfigMapName, "ca-trust-bundle-configmap-name", operatorv1.DefaultCATrustBundleConfigMapName, "Name of the ConfigMap holding the dpf CA trust bundle mounted into the HostAgent to validate the bfb-registry server certificate.")
+	fs.StringVar(&flags.caTrustBundleConfigMapName, "ca-trust-bundle-configmap-name", operatorv1.DefaultCATrustBundleConfigMapName, "Name of the ConfigMap holding the dpf CA trust bundle: mounted into the HostAgent to validate the bfb-registry server certificate, synced into the DPU BMC truststores, and used to validate BMC server certificates.")
+	leafIssuer := certmanager.PlatformLeafIssuerRef()
+	fs.StringVar(&flags.caIssuerName, "ca-issuer-name", leafIssuer.Name, "Name of the cert-manager issuer that signs the certificates this controller mints at runtime: the DPU BMC server certificate and the bfb-registry server certificate.")
+	fs.StringVar(&flags.caIssuerKind, "ca-issuer-kind", leafIssuer.Kind, "Kind of the issuer named by --ca-issuer-name, either Issuer or ClusterIssuer.")
+	fs.StringVar(&flags.caIssuerGroup, "ca-issuer-group", leafIssuer.Group, "API group of the issuer named by --ca-issuer-name.")
 
 	logsv1.AddFlags(logOptions, fs)
 
@@ -292,6 +309,8 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, flags *cliFlags, bf
 		BFBRegistryLoadBalancer:            flags.bfbRegistryLoadBalancerAddress,
 		CustomCASecretName:                 flags.customCASecretName,
 		KubernetesAPIServerVIP:             bfbregistry.APIServerVIPFromDMSPodEnvs(flags.dmsPodEnvs),
+		CAIssuerRef:                        flags.caIssuerRef(),
+		CATrustBundleConfigMapName:         flags.caTrustBundleConfigMapName,
 		MaxDPUParallelInstallations:        flags.maxDPUParallelInstallations,
 		DPUMaxConcurrentReconciles:         flags.dpuMaxConcurrentReconciles,
 		OSInstallTimeout:                   flags.osInstallTimeout,
@@ -345,6 +364,10 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, flags *cliFlags, bf
 	// When a client cert directory is configured the verified mTLS client reads its client key pair
 	// from the mounted volume instead of the Kubernetes API (from a secret in the same namespace).
 	rfclient.SetClientCertDir(flags.redfishClientCertDir)
+	// The BMC server certificate is validated against the same bundle the BMC truststore is synced
+	// from, so the verified mTLS client reads the configured name rather than assuming the default.
+	// It is set before the provider is built, so the provider's first read already uses it.
+	rfclient.SetCATrustBundleConfigMapName(flags.caTrustBundleConfigMapName)
 
 	// One provider caches the verified mTLS BMC clients for this manager. It reads the trust bundle
 	// through the manager cache, which already runs a ConfigMap informer for it. It is never closed:
@@ -353,10 +376,12 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, flags *cliFlags, bf
 	redfishClients := rfclient.NewProvider(mgr.GetCache())
 
 	if err := (&dpudevice.DPUDeviceReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		Recorder:       mgr.GetEventRecorderFor(dpudevice.DPUDeviceControllerName),
-		RedfishClients: redfishClients,
+		Client:                     mgr.GetClient(),
+		Scheme:                     mgr.GetScheme(),
+		Recorder:                   mgr.GetEventRecorderFor(dpudevice.DPUDeviceControllerName),
+		RedfishClients:             redfishClients,
+		CAIssuerRef:                flags.caIssuerRef(),
+		CATrustBundleConfigMapName: flags.caTrustBundleConfigMapName,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPUDevice")
 		os.Exit(1)
@@ -567,6 +592,7 @@ func main() {
 		BFBPVC:                 flags.bfbPVC,
 		ImagePullSecrets:       imagePullSecretsReferences,
 		KubernetesAPIServerVIP: bfbregistry.APIServerVIPFromDMSPodEnvs(flags.dmsPodEnvs),
+		CAIssuerRef:            flags.caIssuerRef(),
 	}); err != nil {
 		setupLog.Error(err, "unable to register bfb-registry runnable")
 		os.Exit(1)

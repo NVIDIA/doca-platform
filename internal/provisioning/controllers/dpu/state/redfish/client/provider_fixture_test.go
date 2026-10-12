@@ -142,7 +142,7 @@ func writePair(t *testing.T, dir string, certPEM, keyPEM []byte) {
 // caConfigMap returns the namespace trust bundle ConfigMap holding caPEM.
 func caConfigMap(namespace string, caPEM []byte) *corev1.ConfigMap {
 	return &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: CATrustBundleConfigMap, Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: CATrustBundleConfigMapName(), Namespace: namespace},
 		Data:       map[string]string{CATrustBundleKey: string(caPEM)},
 	}
 }

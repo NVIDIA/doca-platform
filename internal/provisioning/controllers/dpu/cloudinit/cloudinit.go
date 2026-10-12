@@ -114,6 +114,10 @@ type Params struct {
 	// written to the DPU OS trust store via cloud-init and installed with update-ca-certificates so
 	// the DPU OS (apt over HTTPS, etc.) validates the bfb-registry server certificate.
 	CATrustBundle string
+	// CATrustBundleConfigMapName is the ConfigMap CATrustBundle was read from. The dpu-agent keeps
+	// the DPU OS trust store synced with it for the lifetime of the DPU, so it has to be the same
+	// ConfigMap the operator maintains: a later rotation would otherwise never reach the DPU.
+	CATrustBundleConfigMapName string
 }
 
 // ApplyFlavor populates the flavor-derived fields from the given DPUFlavor.
@@ -213,6 +217,7 @@ func ResolveParams(ctx context.Context, controllerCtx *util.ControllerContext, d
 		return Params{}, operatorv1.DPFOperatorConfig{}, err
 	}
 	params.CATrustBundle = caBundle
+	params.CATrustBundleConfigMapName = dpfOperatorConfig.GetCATrustBundleConfigMapName()
 
 	return params, dpfOperatorConfig, nil
 }

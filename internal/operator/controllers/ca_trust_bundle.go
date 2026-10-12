@@ -47,6 +47,9 @@ const (
 	// dpfOperatorComponentLabelValue marks the trust bundle as one DPF filled in, which is what
 	// tells a bundle it may delete on teardown from one the operator provided.
 	dpfOperatorComponentLabelValue = "dpf-operator"
+	// caCertSecretKey is where cert-manager records the certificate of the authority that signed a
+	// Certificate, as opposed to tls.crt which holds the issued certificate itself.
+	caCertSecretKey = "ca.crt"
 	// Field names of the structured log values below, named once so the same object is not filed
 	// under a different key depending on which path logged it.
 	logKeyConfigMap = "configMap"
@@ -155,10 +158,22 @@ func (r *DPFOperatorConfigReconciler) reconcileOperatorOwnedCATrustBundle(ctx co
 // for DPU provisioning. It copies the tls.crt of the provisioning CA Secret into the bundle using an
 // ensure-present, non-pruning merge so that additional certificates (e.g. during a dual-CA rotation)
 // are preserved.
+//
+// The bundle carries two authorities rather than one. The provisioning CA validates the certificates
+// issued under it before the platform CA existed, which the BMC truststores still hold and the
+// certificates below it keep presenting until they are reissued. The platform CA validates
+// everything signed since: the Redfish client certificates and, through the issuer flag, the DPU BMC
+// and bfb-registry server certificates. Publishing only one of the two would leave peers rejecting
+// certificates on the other side of that line.
 func (r *DPFOperatorConfigReconciler) reconcileSelfSignedCATrustBundle(ctx context.Context, config *operatorv1.DPFOperatorConfig) error {
 	bundleName := config.GetCATrustBundleConfigMapName()
 
 	caCert, err := r.readProvisioningCACertificate(ctx, config.Namespace)
+	if err != nil {
+		return err
+	}
+
+	platformChain, err := r.readPlatformCACertificates(ctx, config.Namespace)
 	if err != nil {
 		return err
 	}
@@ -176,7 +191,7 @@ func (r *DPFOperatorConfigReconciler) reconcileSelfSignedCATrustBundle(ctx conte
 		existingBundle = []byte(existing.Data[operatorv1.CATrustBundleKey])
 	}
 
-	merged, err := mergeCABundle(existingBundle, caCert)
+	merged, err := mergeCABundle(existingBundle, caCert, platformChain)
 	if err != nil {
 		return fmt.Errorf("failed to merge CA trust bundle: %w", err)
 	}
@@ -217,6 +232,50 @@ func (r *DPFOperatorConfigReconciler) readProvisioningCACertificate(ctx context.
 	}
 
 	return caCert, nil
+}
+
+// readPlatformCACertificates returns what a peer needs in order to validate a certificate signed by
+// the platform issuer: the authority the platform intermediate chains up to, and the intermediate
+// itself, for peers that are not sent it alongside the leaf.
+//
+// cert-manager issues the Secret asynchronously, as it does the provisioning CA above, so an absent
+// one is reported and requeued rather than treated as fatal. Publishing the bundle without it would
+// be worse than waiting: the certificates DPF has already moved onto this authority would be
+// rejected by everyone reading the bundle.
+func (r *DPFOperatorConfigReconciler) readPlatformCACertificates(ctx context.Context, namespace string) ([]byte, error) {
+	log := ctrllog.FromContext(ctx)
+
+	secret := &corev1.Secret{}
+	key := client.ObjectKey{Namespace: namespace, Name: operatorv1.PlatformIntermediateCAName}
+	if err := r.Client.Get(ctx, key, secret); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("Platform intermediate CA secret not found yet, requeuing", logKeySecret, operatorv1.PlatformIntermediateCAName)
+			return nil, &caTrustBundlePendingError{
+				reason:  conditions.ReasonPending,
+				message: "Waiting for the platform intermediate CA to be issued by cert-manager",
+			}
+		}
+		return nil, fmt.Errorf("failed to get platform intermediate CA secret %s: %w", key, err)
+	}
+
+	// The anchor first, then the intermediate under it. The merge de-duplicates, so a cert-manager
+	// that already puts the whole chain in tls.crt costs nothing here.
+	chain := make([]byte, 0, len(secret.Data[caCertSecretKey])+len(secret.Data[corev1.TLSCertKey]))
+	chain = append(chain, secret.Data[caCertSecretKey]...)
+	chain = append(chain, secret.Data[corev1.TLSCertKey]...)
+	// Hashing is what decides whether the chain holds a certificate at all, since the merge below
+	// skips anything that is not a certificate PEM block: a payload that is merely non-empty would
+	// be dropped there and publish a bundle without the platform chain, which is the failure this
+	// waits out.
+	if _, err := computeBundleHash(chain); err != nil {
+		log.Info("Platform intermediate CA secret has no certificate yet, requeuing", logKeySecret, operatorv1.PlatformIntermediateCAName)
+		return nil, &caTrustBundlePendingError{
+			reason:  conditions.ReasonPending,
+			message: "Waiting for the platform intermediate CA to contain a valid certificate",
+		}
+	}
+
+	return chain, nil
 }
 
 // getCATrustBundle reads the CA trust bundle ConfigMap, reporting an absent one through found rather
@@ -359,18 +418,20 @@ func (r *DPFOperatorConfigReconciler) deleteCATrustBundle(ctx context.Context, c
 }
 
 // mergeCABundle returns a PEM bundle that contains all certificates from existing plus any certificate
-// from caCert that is not already present. It never removes certificates already in existing (non-pruning)
-// and de-duplicates by certificate content.
-func mergeCABundle(existing, caCert []byte) ([]byte, error) {
+// from additions that is not already present. It never removes certificates already in existing
+// (non-pruning) and de-duplicates by certificate content.
+func mergeCABundle(existing []byte, additions ...[]byte) ([]byte, error) {
 	var out bytes.Buffer
 	seen := map[[sha256.Size]byte]bool{}
 
-	// Existing certificates first to keep them (and their order) stable, then the current CA if missing.
+	// Existing certificates first to keep them (and their order) stable, then the additions if missing.
 	if err := appendCertBlocks(&out, seen, existing); err != nil {
 		return nil, err
 	}
-	if err := appendCertBlocks(&out, seen, caCert); err != nil {
-		return nil, err
+	for _, addition := range additions {
+		if err := appendCertBlocks(&out, seen, addition); err != nil {
+			return nil, err
+		}
 	}
 	return out.Bytes(), nil
 }
