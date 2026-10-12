@@ -121,6 +121,7 @@ func (r *DPUReadyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&provisioningv1.DPU{}, handler.EnqueueRequestsFromMapFunc(r.dpuToDPUNodeReq), builder.WithPredicates(predicate.Or(
 			predicateutils.ReadyConditionChanged(),
 			predicateutils.ConditionChanged(conditions.ConditionType(provisioningv1.DPUCondHostNetworkReady)),
+			dpuPhaseChanged(),
 		))).
 		Watches(&dpuservicev1.DPUServiceChain{}, handler.EnqueueRequestsFromMapFunc(r.sfcObjToDPUNodeReq), builder.WithPredicates(predicateutils.ReadyConditionChanged())).
 		Watches(&dpuservicev1.DPUServiceInterface{}, handler.EnqueueRequestsFromMapFunc(r.sfcObjToDPUNodeReq), builder.WithPredicates(predicateutils.ReadyConditionChanged())).
