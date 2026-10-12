@@ -56,6 +56,7 @@ func newDefaultVariables(defaults *release.Defaults) Variables {
 			Kind:  operatorv1.CertManagerIssuerKind,
 			Group: operatorv1.CertManagerGroup,
 		},
+		CATrustBundleConfigMapName: operatorv1.DefaultCATrustBundleConfigMapName,
 		DisableSystemComponents: map[operatorv1.ComponentName]bool{
 			operatorv1.ProvisioningControllerName: false,
 			operatorv1.DPUServiceControllerName:   false,
@@ -181,6 +182,9 @@ type Variables struct {
 	// webhook intermediate CA that the dpf-operator chart anchors the whole PKI on. It is the only
 	// part of the provisioning PKI that differs between the self-signed and the external issuer mode.
 	PlatformCAIssuerRef certmanager.IssuerReference
+	// CATrustBundleConfigMapName is the effective name of the CA trust bundle ConfigMap, resolved
+	// from spec.security.certManagement. Components that validate peers are pointed at it.
+	CATrustBundleConfigMapName string
 }
 
 type DPFProvisioningVariables struct {
@@ -393,6 +397,7 @@ func setBasicConfig(variables Variables, config *operatorv1.DPFOperatorConfig) V
 	variables.ArgoCDNamespace = config.Namespace
 	// PlatformCAIssuerRef is deliberately not set here: the authority anchoring the PKI is read from
 	// the cluster, not from the DPFOperatorConfig, so the caller resolves it and sets it.
+	variables.CATrustBundleConfigMapName = config.GetCATrustBundleConfigMapName()
 	return variables
 }
 

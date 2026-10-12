@@ -26,6 +26,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nvidia/doca-platform/pkg/certmanager"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -59,10 +61,8 @@ const (
 	BFBHostPath        = "/var/lib/nvidia/dpf/bfb"
 
 	// ServerCertSecretName is the Secret (and Certificate CR) holding the bfb-registry
-	// HTTPS server certificate, issued by the provisioning CA Issuer.
+	// HTTPS server certificate, issued by the platform CA Issuer.
 	ServerCertSecretName = "bfb-registry-server-cert"
-	// ServerCertIssuerName is the cert-manager CA Issuer that signs the server certificate.
-	ServerCertIssuerName = "dpf-provisioning-issuer"
 	// ServerCertMountPath is where the server certificate Secret is mounted into the Pod.
 	ServerCertMountPath = "/etc/bfb-registry/tls"
 
@@ -95,6 +95,9 @@ type BFBRegistryRunnable struct {
 	// bfb-registry server certificate SANs so the hostagent's VIP-based NodePort BFB download
 	// passes TLS verification. Empty when no VIP override is configured.
 	KubernetesAPIServerVIP string
+	// CAIssuerRef is the cert-manager issuer that signs the server certificate, set from the
+	// controller's --ca-issuer-* flags. Empty fields fall back to the platform issuer.
+	CAIssuerRef certmanager.IssuerReference
 }
 
 func (r *BFBRegistryRunnable) Start(ctx context.Context) error {
@@ -535,6 +538,7 @@ func (r *BFBRegistryRunnable) ensureServerCertificate(ctx context.Context, names
 		return fmt.Errorf("NODE_IP is empty, cannot build bfb-registry server certificate SANs")
 	}
 	dnsNames, ipAddresses := serverCertSANs(namespace, nodeIP, r.KubernetesAPIServerVIP)
+	issuerRef := r.CAIssuerRef.WithPlatformLeafDefaults()
 
 	cert := &unstructured.Unstructured{}
 	cert.SetGroupVersionKind(certificateGVK)
@@ -556,9 +560,9 @@ func (r *BFBRegistryRunnable) ensureServerCertificate(ctx context.Context, names
 			"dnsNames":    toInterfaceSlice(dnsNames),
 			"ipAddresses": toInterfaceSlice(ipAddresses),
 			"issuerRef": map[string]interface{}{
-				"name":  ServerCertIssuerName,
-				"kind":  "Issuer",
-				"group": "cert-manager.io",
+				"name":  issuerRef.Name,
+				"kind":  issuerRef.Kind,
+				"group": issuerRef.Group,
 			},
 		}
 		return unstructured.SetNestedMap(cert.Object, spec, "spec")
@@ -590,6 +594,9 @@ type EnsureBFBRegistryDeps struct {
 	// Pod; when set it is added to the bfb-registry server certificate SANs. See
 	// BFBRegistryRunnable.KubernetesAPIServerVIP.
 	KubernetesAPIServerVIP string
+	// CAIssuerRef is the issuer that signs the server certificate. See
+	// BFBRegistryRunnable.CAIssuerRef.
+	CAIssuerRef certmanager.IssuerReference
 }
 
 // EnsureBFBRegistry ensures the bfb-registry server Certificate, Pod and Service
@@ -605,6 +612,7 @@ func EnsureBFBRegistry(ctx context.Context, deps EnsureBFBRegistryDeps, namespac
 		BFBPVC:                 deps.BFBPVC,
 		ImagePullSecrets:       deps.ImagePullSecrets,
 		KubernetesAPIServerVIP: deps.KubernetesAPIServerVIP,
+		CAIssuerRef:            deps.CAIssuerRef,
 	}
 	if err := run.ensureServerCertificate(ctx, namespace, nodeIP, leaderPod); err != nil {
 		return err

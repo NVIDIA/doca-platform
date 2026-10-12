@@ -63,3 +63,34 @@ func (r IssuerReference) WithIssuerDefaults() IssuerReference {
 	}
 	return r
 }
+
+// PlatformLeafIssuerRef returns the issuer every provisioning leaf certificate is signed by. Unlike
+// the anchor above the intermediate CA, this reference is the same in both CA modes, which is what
+// lets a leaf be issued without knowing which mode is in effect. The operator templates it onto the
+// controllers that mint certificates at runtime so the name is configured in one place rather than
+// compiled into each of them.
+func PlatformLeafIssuerRef() IssuerReference {
+	return IssuerReference{
+		Name:  operatorv1.PlatformIssuerName,
+		Kind:  operatorv1.CertManagerIssuerKind,
+		Group: operatorv1.CertManagerGroup,
+	}
+}
+
+// WithPlatformLeafDefaults returns the reference with every unset field filled in from
+// PlatformLeafIssuerRef. A controller that mints certificates reads its issuer from a flag, so this
+// keeps it issuing under the platform CA rather than stamping an incomplete issuerRef when a field
+// is left off.
+func (r IssuerReference) WithPlatformLeafDefaults() IssuerReference {
+	defaults := PlatformLeafIssuerRef()
+	if r.Name == "" {
+		r.Name = defaults.Name
+	}
+	if r.Kind == "" {
+		r.Kind = defaults.Kind
+	}
+	if r.Group == "" {
+		r.Group = defaults.Group
+	}
+	return r
+}

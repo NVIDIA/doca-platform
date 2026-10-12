@@ -463,10 +463,15 @@ type CertManagementConfiguration struct {
 	// the bundle is yours to provide. With the self-signed root of DPF the operator generates the
 	// content itself, under this name. To trust additional CAs alongside the root of DPF, merge them
 	// into the ConfigMap directly, DPF preserves certificates it did not add.
+	//
+	// The name is fixed once the config exists. It reaches each DPU in the provisioning configuration
+	// it is installed with, so renaming it later would leave the DPUs already provisioned reading a
+	// ConfigMap DPF no longer maintains, holding trust material that silently stops being updated.
 	// +kubebuilder:default=dpf-ca-trust-bundle
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="trustBundleConfigMapName is immutable"
 	// +optional
 	TrustBundleConfigMapName string `json:"trustBundleConfigMapName,omitempty"`
 }
@@ -525,6 +530,22 @@ type CertManagementStatus struct {
 	// Nothing rolled out yet is reported by leaving it out altogether.
 	// +optional
 	Anchor *CertManagementAnchor `json:"anchor,omitempty"`
+
+	// TrustBundleHash is the hash the CA trust bundle carried when Anchor was recorded as rolled
+	// out, refreshed by every reconcile that rolls the same authority out again.
+	//
+	// It is the reference point a change of authority is measured against. cert-manager reissues the
+	// platform intermediate CA on its own schedule, so the bundle published at the moment such a
+	// change is observed is still the one every peer already trusts, and convergence measured
+	// against it would call the rotation over before a single peer had seen the new chain. Recording
+	// it stops there for as long as the rotation is outstanding, which leaves it holding exactly
+	// that bundle.
+	//
+	// No bundle published yet is reported by leaving it out altogether.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=128
+	// +optional
+	TrustBundleHash string `json:"trustBundleHash,omitempty"`
 }
 
 // CertManagementAnchor identifies the cert-manager issuer a certificate authority is anchored to.

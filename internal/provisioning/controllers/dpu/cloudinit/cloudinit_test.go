@@ -297,6 +297,8 @@ ovs-vsctl add-br br-test
 			DPUNamespace:           "ns-1",
 			DPUAgentRepoURL:        "http://bfb-registry:8080/deb",
 			BFBRegistryURL:         "http://bfb-registry:8080",
+
+			CATrustBundleConfigMapName: "custom-ca-trust-bundle",
 		})
 
 		netplanFile := getWriteFile(parsed, "/etc/netplan/50-dpf-bootstrap.yaml")
@@ -317,6 +319,9 @@ network:
 		Expect(agentConf.Content).To(ContainSubstring("--zero-trust-mode=true"))
 		Expect(agentConf.Content).To(ContainSubstring("--bootstrap-kubeconfig=/var/lib/dpf/dpuagent/bootstrap-kubeconfig"))
 		Expect(agentConf.Content).To(ContainSubstring("--bfb-registry-url=http://bfb-registry:8080"))
+		// The agent has to keep syncing from the ConfigMap the bundle was read from, so the name
+		// travels with the content rather than the agent assuming the default.
+		Expect(agentConf.Content).To(ContainSubstring("--ca-trust-bundle-configmap-name=custom-ca-trust-bundle"))
 
 		kubeconfigFile := getWriteFile(parsed, "/var/lib/dpf/dpuagent/bootstrap-kubeconfig")
 		Expect(kubeconfigFile.Content).To(Equal(sampleKubeconfig))
@@ -663,6 +668,32 @@ var _ = Describe("ResolveParams registry scheme", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(params.BFBRegistryURL).To(Equal("https://bfb-registry.example.com"))
 		Expect(params.DPUAgentRepoURL).To(Equal("https://bfb-registry.example.com/deb"))
+	})
+
+	It("resolves the trust bundle name the agent keeps syncing from", func() {
+		scheme := runtime.NewScheme()
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+		Expect(operatorv1.AddToScheme(scheme)).To(Succeed())
+		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+
+		operatorConfig := &operatorv1.DPFOperatorConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "config", Namespace: "dpf-operator-system"},
+			Spec: operatorv1.DPFOperatorConfigSpec{
+				Networking: &operatorv1.Networking{ControlPlaneMTU: ptr.To(1500)},
+				Security: &operatorv1.SecurityConfiguration{
+					CertManagement: &operatorv1.CertManagementConfiguration{
+						TrustBundleConfigMapName: "custom-ca-trust-bundle",
+					},
+				},
+			},
+		}
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(operatorConfig).Build()
+		ctrlCtx := &util.ControllerContext{Client: c}
+		dpu := &provisioningv1.DPU{ObjectMeta: metav1.ObjectMeta{Name: "dpu-1", Namespace: "default"}}
+
+		params, _, err := ResolveParams(context.Background(), ctrlCtx, dpu, &provisioningv1.DPUFlavor{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(params.CATrustBundleConfigMapName).To(Equal("custom-ca-trust-bundle"))
 	})
 })
 

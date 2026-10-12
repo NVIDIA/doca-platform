@@ -142,7 +142,7 @@ var _ = BeforeEach(func() {
 	// Create it in every test namespace so mTLS Redfish clients can be constructed.
 	caBundleCM := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      rfclient.CATrustBundleConfigMap,
+			Name:      rfclient.CATrustBundleConfigMapName(),
 			Namespace: testNS.Name,
 		},
 		Data: map[string]string{

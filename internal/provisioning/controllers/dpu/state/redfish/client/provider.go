@@ -386,9 +386,10 @@ func checkKeyPairValidity(pair tls.Certificate, now time.Time) error {
 func (p *Provider) readCACreds(ctx context.Context, namespace string) (*caCreds, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	name := CATrustBundleConfigMapName()
 	cm := &corev1.ConfigMap{}
-	if err := p.caReader.Get(ctx, types.NamespacedName{Name: CATrustBundleConfigMap, Namespace: namespace}, cm); err != nil {
-		return nil, fmt.Errorf("failed to get ConfigMap %q: %w", CATrustBundleConfigMap, err)
+	if err := p.caReader.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, cm); err != nil {
+		return nil, fmt.Errorf("failed to get ConfigMap %q: %w", name, err)
 	}
 	if cached := p.caByNS[namespace]; cached != nil && cached.version == cm.ResourceVersion {
 		return cached, nil
@@ -396,7 +397,7 @@ func (p *Provider) readCACreds(ctx context.Context, namespace string) (*caCreds,
 
 	bundle := []byte(cm.Data[CATrustBundleKey])
 	if len(bundle) == 0 {
-		return nil, fmt.Errorf("no %q in ConfigMap %q", CATrustBundleKey, CATrustBundleConfigMap)
+		return nil, fmt.Errorf("no %q in ConfigMap %q", CATrustBundleKey, name)
 	}
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM(bundle) {

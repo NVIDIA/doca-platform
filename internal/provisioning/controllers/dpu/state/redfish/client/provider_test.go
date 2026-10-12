@@ -65,7 +65,7 @@ func rotateCA(t *testing.T, k8s client.Client, ca *ca) {
 	t.Helper()
 	rotated := newCA(t, "rotated-ca")
 	cm := &corev1.ConfigMap{}
-	if err := k8s.Get(context.Background(), types.NamespacedName{Name: CATrustBundleConfigMap, Namespace: providerNamespace}, cm); err != nil {
+	if err := k8s.Get(context.Background(), types.NamespacedName{Name: CATrustBundleConfigMapName(), Namespace: providerNamespace}, cm); err != nil {
 		t.Fatal(err)
 	}
 	patch := client.MergeFrom(cm.DeepCopy())
@@ -298,7 +298,7 @@ func TestUnchangedBundleRewriteKeepsTheCachedClient(t *testing.T) {
 
 	before := acquire(t, p, key)
 	cm := &corev1.ConfigMap{}
-	if err := k8s.Get(context.Background(), types.NamespacedName{Name: CATrustBundleConfigMap, Namespace: providerNamespace}, cm); err != nil {
+	if err := k8s.Get(context.Background(), types.NamespacedName{Name: CATrustBundleConfigMapName(), Namespace: providerNamespace}, cm); err != nil {
 		t.Fatal(err)
 	}
 	patch := client.MergeFrom(cm.DeepCopy())
@@ -450,7 +450,7 @@ func TestFailClosedOnUnusableCredentialMaterial(t *testing.T) {
 		certPEM, keyPEM := ca.clientPair(t)
 		writePair(t, dir, certPEM, keyPEM)
 		cm := &corev1.ConfigMap{}
-		if err := k8s.Get(context.Background(), types.NamespacedName{Name: CATrustBundleConfigMap, Namespace: providerNamespace}, cm); err != nil {
+		if err := k8s.Get(context.Background(), types.NamespacedName{Name: CATrustBundleConfigMapName(), Namespace: providerNamespace}, cm); err != nil {
 			t.Fatal(err)
 		}
 		if err := k8s.Delete(context.Background(), cm); err != nil {

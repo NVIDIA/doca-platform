@@ -85,6 +85,9 @@ write_files:
 {{- if .BFBRegistryURL}}
       --bfb-registry-url={{.BFBRegistryURL}}
 {{- end}}
+{{- if .CATrustBundleConfigMapName}}
+      --ca-trust-bundle-configmap-name={{.CATrustBundleConfigMapName}}
+{{- end}}
       --kubeadm-secret-namespace={{.KubeadmSecretNamespace}}
 {{- if .SpiffeMode}}
       --spiffe-mode=true

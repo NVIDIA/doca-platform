@@ -158,7 +158,7 @@ func prepareBF3BFB(ctx context.Context, dpu *provisioningv1.DPU, bfCFG []byte, s
 // SPIFFE-ID subject and return an empty token (the cloud-init render then omits the
 // bootstrap kubeconfig).
 func ensureRBAC(ctx context.Context, ctrlCtx *dutil.ControllerContext, dpu *provisioningv1.DPU, dpuDevice *provisioningv1.DPUDevice) (string, error) {
-	if err := cutil.EnsureDPUAgentRole(ctx, ctrlCtx.Client, dpu, dpuDevice); err != nil {
+	if err := cutil.EnsureDPUAgentRole(ctx, ctrlCtx.Client, dpu, dpuDevice, ctrlCtx.Options.CATrustBundleConfigMapName); err != nil {
 		return "", err
 	}
 

@@ -36,6 +36,7 @@ import (
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/pkg/certmanager"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	spirev1alpha1 "github.com/nvidia/doca-platform/third_party/forked/github.com/spiffe/spire-controller-manager/api/v1alpha1"
 
@@ -89,7 +90,6 @@ const (
 	// serverCertRotationBackoff is used when the mTLS client cannot be opened for rotation.
 	serverCertRotationBackoff = 5 * time.Minute
 
-	CATrustBundleConfigMap          = "dpf-ca-trust-bundle"
 	CATrustBundleDataKey            = "ca.crt"
 	BundleHashDataKey               = "bundle-hash"
 	bmcManagerDateTimeSyncThreshold = 1 * time.Minute
@@ -107,6 +107,21 @@ type DPUDeviceReconciler struct {
 	// RedfishClients caches the verified mTLS BMC clients this controller uses. It is owned by
 	// provisioning-manager startup.
 	RedfishClients rfclient.ClientProvider
+	// CAIssuerRef is the cert-manager issuer that signs the BMC server certificate, set from the
+	// controller's --ca-issuer-* flags. Empty fields fall back to the platform issuer.
+	CAIssuerRef certmanager.IssuerReference
+	// CATrustBundleConfigMapName is the ConfigMap the BMC truststore is synced from, set from the
+	// controller's --ca-trust-bundle-configmap-name flag. Empty falls back to the default name.
+	CATrustBundleConfigMapName string
+}
+
+// caTrustBundleName returns the ConfigMap the BMC truststore is synced from. An external issuer
+// owns the bundle and names it, so the name is configurable rather than fixed.
+func (r *DPUDeviceReconciler) caTrustBundleName() string {
+	if r.CATrustBundleConfigMapName == "" {
+		return operatorv1.DefaultCATrustBundleConfigMapName
+	}
+	return r.CATrustBundleConfigMapName
 }
 
 //+kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpudevices,verbs=get;list;watch;create;update;patch;delete
@@ -830,15 +845,16 @@ type desiredCATrustCert struct {
 func (r *DPUDeviceReconciler) reconcileCATrustBundle(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 	log.Info("Reconciling BMC CA trust bundle", "dpudevice", dpuDevice.Name, "namespace", dpuDevice.Namespace)
+	bundleName := r.caTrustBundleName()
 	configMap := &corev1.ConfigMap{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: CATrustBundleConfigMap, Namespace: dpuDevice.Namespace}, configMap); err != nil {
-		setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleUnavailable, fmt.Sprintf("failed to get ConfigMap %s: %v", CATrustBundleConfigMap, err))
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: bundleName, Namespace: dpuDevice.Namespace}, configMap); err != nil {
+		setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleUnavailable, fmt.Sprintf("failed to get ConfigMap %s: %v", bundleName, err))
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
 	bundlePEM := configMap.Data[CATrustBundleDataKey]
 	if bundlePEM == "" {
-		err := fmt.Errorf("ConfigMap %s is missing %q", CATrustBundleConfigMap, CATrustBundleDataKey)
+		err := fmt.Errorf("ConfigMap %s is missing %q", bundleName, CATrustBundleDataKey)
 		setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleUnavailable, err.Error())
 		return ctrl.Result{}, err
 	}
@@ -851,7 +867,7 @@ func (r *DPUDeviceReconciler) reconcileCATrustBundle(ctx context.Context, dpuDev
 
 	bundleHash := configMap.Data[BundleHashDataKey]
 	if bundleHash == "" {
-		setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleUnavailable, fmt.Sprintf("ConfigMap %s is missing %q", CATrustBundleConfigMap, BundleHashDataKey))
+		setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleUnavailable, fmt.Sprintf("ConfigMap %s is missing %q", bundleName, BundleHashDataKey))
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
@@ -1450,16 +1466,17 @@ func issuedServerCertUsableForBMC(certPEM, caBundlePEM []byte, expectedHost stri
 }
 
 func (r *DPUDeviceReconciler) getBootstrapCACert(ctx context.Context, namespace string) ([]byte, error) {
+	bundleName := r.caTrustBundleName()
 	caTrustBundle := &corev1.ConfigMap{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: rfclient.CATrustBundleConfigMap, Namespace: namespace}, caTrustBundle); err != nil {
-		return nil, fmt.Errorf("failed to get ConfigMap %q: %w", rfclient.CATrustBundleConfigMap, err)
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: bundleName, Namespace: namespace}, caTrustBundle); err != nil {
+		return nil, fmt.Errorf("failed to get ConfigMap %q: %w", bundleName, err)
 	}
 	bundle := []byte(caTrustBundle.Data[rfclient.CATrustBundleKey])
 	if len(bundle) == 0 {
-		return nil, fmt.Errorf("configmap %s is missing %q", rfclient.CATrustBundleConfigMap, rfclient.CATrustBundleKey)
+		return nil, fmt.Errorf("configmap %s is missing %q", bundleName, rfclient.CATrustBundleKey)
 	}
 	if _, err := parseDesiredCATrustBundle(string(bundle)); err != nil {
-		return nil, fmt.Errorf("configmap %s contains no valid certificate PEM: %w", rfclient.CATrustBundleConfigMap, err)
+		return nil, fmt.Errorf("configmap %s contains no valid certificate PEM: %w", bundleName, err)
 	}
 	return bundle, nil
 }
@@ -1477,6 +1494,7 @@ func (r *DPUDeviceReconciler) generateCR(dpudevice *provisioningv1.DPUDevice, cs
 	cr.SetName(cutil.GenerateBMCServerCertRequestName(dpudevice.Name))
 	cr.SetNamespace(dpudevice.Namespace)
 	cr.SetOwnerReferences([]metav1.OwnerReference{*metav1.NewControllerRef(dpudevice, provisioningv1.DPUDeviceGroupVersionKind)})
+	issuerRef := r.CAIssuerRef.WithPlatformLeafDefaults()
 	err := unstructured.SetNestedMap(cr.Object, map[string]interface{}{
 		"request": b64.StdEncoding.EncodeToString([]byte(csr)),
 		"isCA":    false,
@@ -1489,9 +1507,9 @@ func (r *DPUDeviceReconciler) generateCR(dpudevice *provisioningv1.DPUDevice, cs
 			Duration: serverCertDuration,
 		}.ToUnstructured(),
 		"issuerRef": map[string]interface{}{
-			"name":  rfclient.Issuer,
-			"kind":  "Issuer",
-			"group": certManagerGroup,
+			"name":  issuerRef.Name,
+			"kind":  issuerRef.Kind,
+			"group": issuerRef.Group,
 		},
 	}, "spec")
 	if err != nil {
@@ -2228,7 +2246,10 @@ func (r *DPUDeviceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&provisioningv1.DPUDevice{}).
 		Owns(certificateRequest).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []ctrl.Request {
-			if obj.GetName() != CATrustBundleConfigMap {
+			// Resolved once at startup from the flag the operator templates the configured name onto.
+			// The name is immutable on the DPFOperatorConfig, so the one this filters on cannot go
+			// stale underneath the watch and leave the BMC truststores unreconciled.
+			if obj.GetName() != r.caTrustBundleName() {
 				return nil
 			}
 			dpuDeviceList := &provisioningv1.DPUDeviceList{}

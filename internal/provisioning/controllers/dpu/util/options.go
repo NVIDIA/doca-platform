@@ -25,6 +25,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/allocator"
 	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/future"
+	"github.com/nvidia/doca-platform/pkg/certmanager"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -68,6 +69,13 @@ type DPUOptions struct {
 	// to the bfb-registry server certificate SANs so the hostagent's VIP-based NodePort download
 	// passes TLS verification. Empty when no VIP override is configured.
 	KubernetesAPIServerVIP string
+	// CAIssuerRef is the cert-manager issuer that signs the bfb-registry server certificate when
+	// the DPU reconciler is the one ensuring it, set from the controller's --ca-issuer-* flags.
+	CAIssuerRef certmanager.IssuerReference
+	// CATrustBundleConfigMapName is the ConfigMap the dpu-agent syncs the DPU OS trust store from,
+	// set from the controller's --ca-trust-bundle-configmap-name flag. The per-DPU Role has to
+	// grant it by name, otherwise the agent is denied the bundle it was told to read.
+	CATrustBundleConfigMapName string
 	// OSInstallTimeout is the maximum time allowed for OS installation.
 	OSInstallTimeout time.Duration
 	// OSInstallRetries is the maximum number of retryable OS installation attempts in

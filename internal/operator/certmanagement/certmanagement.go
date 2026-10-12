@@ -28,6 +28,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/certmanager"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -331,9 +332,9 @@ func missingIssuerMessage(issuerRef certmanager.IssuerReference) string {
 }
 
 // detectRotationRequired reports whether the issuer anchoring the provisioning PKI is about to
-// change, or has already changed, on a cluster that has provisioned DPUs. Those DPUs were
-// provisioned to trust the chain of the previous anchor and DPF cannot update their BMC truststores,
-// so the operator has to drive a CA rotation for them.
+// change, or has already changed, on a cluster carrying peers provisioned under it. Those peers
+// hold the chain of the previous anchor in trust stores DPF cannot rebuild, so the operator has to
+// drive a CA rotation for them.
 //
 // It compares the chosen anchor against the one recorded on the status, not against the live
 // platform CA Certificate: that Certificate is repointed by the very apply this has to outlive, and
@@ -343,8 +344,9 @@ func missingIssuerMessage(issuerRef certmanager.IssuerReference) string {
 // state off the API server, since a Certificate is read as unstructured and those reads are not
 // served from the cache of the manager.
 //
-// It stops reporting when the caller records the new anchor, which it does once the rollout of it is
-// no longer outstanding.
+// It stops reporting once a bundle published since the change has reached every DPU and DPUDevice,
+// the point at which the trust material carrying the new chain is everywhere DPF can reach it, and
+// the caller records the new anchor.
 func detectRotationRequired(ctx context.Context, c client.Client, config *operatorv1.DPFOperatorConfig, desiredRef certmanager.IssuerReference) (bool, error) {
 	recordedRef := recordedAnchor(config)
 	// Nothing rolled out yet: a fresh install picks its mode without rotating anything.
@@ -352,13 +354,32 @@ func detectRotationRequired(ctx context.Context, c client.Client, config *operat
 		return false, nil
 	}
 
-	// Without provisioned DPUs there is no truststore holding the previous chain, so the anchor can be
-	// swapped freely and cert-manager reissuing under it is all that is needed.
+	// With no peer at all there is no truststore holding the previous chain, so the anchor can be
+	// swapped freely and cert-manager reissuing under it is all that is needed. Both kinds of peer
+	// are counted for the same reason both count towards convergence, and a DPUDevice is the one
+	// that has to be asked for separately: it is created from the hardware the host discovers rather
+	// than by a DPU, so the BMC truststore it syncs outlives the DPUs provisioned beside it. Asking
+	// about the DPUs alone would let the anchor be swapped out from under a BMC that still trusts
+	// only the chain of the previous one, which is the truststore DPF cannot rebuild.
 	dpus := &provisioningv1.DPUList{}
-	if err := c.List(ctx, dpus); err != nil {
+	if err := c.List(ctx, dpus, client.InNamespace(config.Namespace)); err != nil {
 		return false, fmt.Errorf("failed to list DPUs: %w", err)
 	}
-	return len(dpus.Items) > 0, nil
+	dpuDevices := &provisioningv1.DPUDeviceList{}
+	if err := c.List(ctx, dpuDevices, client.InNamespace(config.Namespace)); err != nil {
+		return false, fmt.Errorf("failed to list DPUDevices: %w", err)
+	}
+	if len(dpus.Items) == 0 && len(dpuDevices.Items) == 0 {
+		return false, nil
+	}
+
+	// The rotation is over once the DPUs provisioned under the previous anchor trust the new chain
+	// too, which is what lets the caller record the new anchor and stop reporting it.
+	converged, err := trustBundleConverged(ctx, c, config)
+	if err != nil {
+		return false, err
+	}
+	return !converged, nil
 }
 
 // RecordAnchor records the certificate authority the provisioning PKI has been rolled out against.
@@ -368,21 +389,46 @@ func detectRotationRequired(ctx context.Context, c client.Client, config *operat
 // precisely what reports that rotation. Recording it during one is what would retire a rotation the
 // peers have not caught up with.
 func RecordAnchor(config *operatorv1.DPFOperatorConfig, issuerRef certmanager.IssuerReference) {
-	if config.Status.Security == nil {
-		config.Status.Security = &operatorv1.SecurityStatus{}
-	}
-	if config.Status.Security.CertManagement == nil {
-		config.Status.Security.CertManagement = &operatorv1.CertManagementStatus{}
-	}
-	config.Status.Security.CertManagement.Anchor = &operatorv1.CertManagementAnchor{
+	certManagement := ensureCertManagementStatus(config)
+	certManagement.Anchor = &operatorv1.CertManagementAnchor{
 		Name:  issuerRef.Name,
 		Kind:  issuerRef.Kind,
 		Group: issuerRef.Group,
 	}
 }
 
-// ensureAnchorRecorded records what the provisioning PKI is anchored to on a config that does not
-// carry it yet, reading it from the live platform CA Certificate, and reports whether it did.
+// RecordTrustBundleHash records the trust bundle published under the anchor that has been rolled
+// out, which is the reference point a rotation of that anchor is measured against.
+//
+// It is recorded under the same condition as the anchor itself, that no rotation is outstanding,
+// but only once the bundle has been published rather than right after the apply: taken before the
+// publish it would be one bundle behind, and the next rotation would then be retired against a
+// bundle the peers had already applied before it began.
+func RecordTrustBundleHash(ctx context.Context, c client.Client, config *operatorv1.DPFOperatorConfig) error {
+	bundleHash, err := publishedBundleHash(ctx, c, config)
+	if err != nil {
+		setError(config, err)
+		return err
+	}
+	ensureCertManagementStatus(config).TrustBundleHash = bundleHash
+	return nil
+}
+
+// ensureCertManagementStatus returns the cert management status of the config, creating it and the
+// security status above it when the config carries neither yet.
+func ensureCertManagementStatus(config *operatorv1.DPFOperatorConfig) *operatorv1.CertManagementStatus {
+	if config.Status.Security == nil {
+		config.Status.Security = &operatorv1.SecurityStatus{}
+	}
+	if config.Status.Security.CertManagement == nil {
+		config.Status.Security.CertManagement = &operatorv1.CertManagementStatus{}
+	}
+	return config.Status.Security.CertManagement
+}
+
+// ensureAnchorRecorded records what the provisioning PKI is anchored to, and the bundle it was
+// rolled out under, on a config carrying neither yet, and reports whether it recorded anything. The
+// anchor is read from the live platform CA Certificate and the bundle from the one published.
 //
 // This is the one read of that Certificate left, and it exists for the cluster DPF is upgraded onto:
 // one that has been anchored for a while, by a version that recorded nothing, where taking the
@@ -396,7 +442,29 @@ func RecordAnchor(config *operatorv1.DPFOperatorConfig, issuerRef certmanager.Is
 // AnchorPhaseRecorded and the reconcile that only records.
 func ensureAnchorRecorded(ctx context.Context, c client.Client, config *operatorv1.DPFOperatorConfig) (bool, error) {
 	if recordedAnchor(config) != nil {
-		return false, nil
+		// An anchor recorded without a bundle beside it is the cluster upgraded from the release that
+		// recorded only the anchor. The reference point is seeded here rather than where it is
+		// recorded alongside the anchor, because that only runs while no rotation is outstanding: an
+		// upgrade that re-anchors in the same step is already in one by its first reconcile and would
+		// never get a reference point at all. An absent one reads as a bundle that has already
+		// changed, which retires the rotation against the bundle from before it began. Read now, the
+		// bundle out there is still the one published under the recorded anchor, since the apply that
+		// repoints the platform CA is the caller's next reconcile.
+		if recordedBundleHash(config) != "" {
+			return false, nil
+		}
+		publishedHash, err := publishedBundleHash(ctx, c, config)
+		if err != nil {
+			return false, err
+		}
+		// Nothing published yet is not a reference point missing, it is a bundle that has not gone
+		// out. Reporting it as recorded would hand back a reconcile that applies nothing, and the
+		// apply is what publishes the bundle this is waiting for.
+		if publishedHash == "" {
+			return false, nil
+		}
+		ensureCertManagementStatus(config).TrustBundleHash = publishedHash
+		return true, nil
 	}
 
 	intermediateCA := &unstructured.Unstructured{}
@@ -425,6 +493,13 @@ func ensureAnchorRecorded(ctx context.Context, c client.Client, config *operator
 		Kind:  currentRef["kind"],
 		Group: currentRef["group"],
 	}.WithIssuerDefaults())
+	// The bundle out there was published under the anchor just recorded, so it is the reference
+	// point for a rotation of it. Seeded here as well because a cluster upgraded mid-rotation would
+	// otherwise be left without one, and an absent reference point reads as a bundle that has
+	// already changed.
+	if err := RecordTrustBundleHash(ctx, c, config); err != nil {
+		return false, err
+	}
 	return true, nil
 }
 
@@ -443,6 +518,90 @@ func recordedAnchor(config *operatorv1.DPFOperatorConfig) *certmanager.IssuerRef
 		Kind:  certManagement.Anchor.Kind,
 		Group: certManagement.Anchor.Group,
 	}
+}
+
+// trustBundleConverged reports whether the chain of the new anchor has been published and applied
+// by every peer that validates through it. It is what retires a recorded rotation.
+//
+// It has to answer two questions, not one. The first is whether the bundle carries the new chain at
+// all. cert-manager reissues the platform CA on its own schedule, so the reconcile that observes a
+// re-anchor publishes nothing new, and a bundle every peer already applied would otherwise read as
+// converged and retire the rotation before a single peer had seen the new chain. The hash recorded
+// beside the anchor is what that is measured against: it stops being refreshed for as long as a
+// rotation is outstanding, so a published hash still equal to it means nothing new was published.
+//
+// The second is whether the peers have applied it, and both kinds of peer count. The DPU agent
+// writes the bundle into the DPU OS trust store and reports the hash on the DPU; the DPUDevice
+// controller syncs it into the BMC truststore and reports it on the DPUDevice. The BMC is the
+// truststore DPF cannot rebuild once it has gone stale, which is the whole reason a rotation is
+// reported, so retiring one on the DPUs alone would call it over for the peer it is about.
+//
+// Only the peers this bundle actually reaches count, and a peer that has never reported a hash is
+// not one of them: nothing has written DPF trust material into it, so it holds nothing the rotation
+// replaces, and a DPU still being provisioned is provisioned with the bundle published now. Waiting
+// on one would leave the rotation outstanding for good, since the paths that report no hash at all
+// never begin to. A peer that has reported one and is behind it is the case this is about, and it
+// still counts. For the same reason both lists are scoped to the namespace of the config: the
+// bundle is published there and read from the namespace of the peer, so a peer elsewhere is served
+// by a different bundle, or by none.
+func trustBundleConverged(ctx context.Context, c client.Client, config *operatorv1.DPFOperatorConfig) (bool, error) {
+	publishedHash, err := publishedBundleHash(ctx, c, config)
+	if err != nil {
+		return false, err
+	}
+	if publishedHash == "" || publishedHash == recordedBundleHash(config) {
+		return false, nil
+	}
+
+	dpus := &provisioningv1.DPUList{}
+	if err := c.List(ctx, dpus, client.InNamespace(config.Namespace)); err != nil {
+		return false, fmt.Errorf("failed to list DPUs: %w", err)
+	}
+	for _, dpu := range dpus.Items {
+		if dpu.Status.AgentStatus == nil || dpu.Status.AgentStatus.TrustBundleHash == nil {
+			continue
+		}
+		if *dpu.Status.AgentStatus.TrustBundleHash != publishedHash {
+			return false, nil
+		}
+	}
+
+	dpuDevices := &provisioningv1.DPUDeviceList{}
+	if err := c.List(ctx, dpuDevices, client.InNamespace(config.Namespace)); err != nil {
+		return false, fmt.Errorf("failed to list DPUDevices: %w", err)
+	}
+	for _, dpuDevice := range dpuDevices.Items {
+		if dpuDevice.Status.CATrustBundle == nil || dpuDevice.Status.CATrustBundle.ObservedBundleHash == nil {
+			continue
+		}
+		if *dpuDevice.Status.CATrustBundle.ObservedBundleHash != publishedHash {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// publishedBundleHash returns the hash the CA trust bundle currently carries, empty when no bundle
+// is published or the one that is has no hash on it yet.
+func publishedBundleHash(ctx context.Context, c client.Client, config *operatorv1.DPFOperatorConfig) (string, error) {
+	bundle := &corev1.ConfigMap{}
+	key := client.ObjectKey{Namespace: config.Namespace, Name: config.GetCATrustBundleConfigMapName()}
+	if err := c.Get(ctx, key, bundle); err != nil {
+		if apierrors.IsNotFound(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to get ConfigMap %s: %w", key, err)
+	}
+	return bundle.Data[operatorv1.CATrustBundleHashKey], nil
+}
+
+// recordedBundleHash returns the bundle hash recorded alongside the anchor the PKI was rolled out
+// against, empty when nothing has been recorded yet.
+func recordedBundleHash(config *operatorv1.DPFOperatorConfig) string {
+	if config.Status.Security == nil || config.Status.Security.CertManagement == nil {
+		return ""
+	}
+	return config.Status.Security.CertManagement.TrustBundleHash
 }
 
 // getIssuer reads the referenced issuer, resolving a namespaced Issuer in the namespace of the

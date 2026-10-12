@@ -28,6 +28,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/pkg/bfcfg"
+	"github.com/nvidia/doca-platform/pkg/certmanager"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -285,6 +286,8 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 			p.setResources,
 			p.setBFBRegistryLoadBalancerAddress,
 			p.setReplicas,
+			p.setCAIssuer,
+			p.setCATrustBundleConfigMapName,
 		}
 		for _, mod := range mods {
 			if err := mod(deployment, vars); err != nil {
@@ -777,6 +780,42 @@ func (p *provisioningControllerObjects) setNodeEffectRemovalTimeout(deploy *apps
 		return nil
 	}
 	return setFlags(c, fmt.Sprintf("--node-effect-removal-timeout=%s", vars.DPFProvisioningController.NodeEffectRemovalTimeout.Duration.String()))
+}
+
+// setCAIssuer tells the controller which issuer to sign the certificates it mints at runtime with:
+// the DPU BMC server certificate and the bfb-registry server certificate. Both are created outside
+// the manifest, so the issuer reaches them here rather than through a leaf Certificate object.
+//
+// The value is the platform issuer in both CA modes, since only the anchor above the intermediate CA
+// differs between them. It is templated all the same so that renaming the issuer rolls the
+// controller out with the new name instead of requiring a matching change in its binary.
+func (p *provisioningControllerObjects) setCAIssuer(deploy *appsv1.Deployment, _ Variables) error {
+	c := getManagerContainer(deploy)
+	if c == nil {
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
+	}
+	issuerRef := certmanager.PlatformLeafIssuerRef()
+	return setFlags(c,
+		fmt.Sprintf("--ca-issuer-name=%s", issuerRef.Name),
+		fmt.Sprintf("--ca-issuer-kind=%s", issuerRef.Kind),
+		fmt.Sprintf("--ca-issuer-group=%s", issuerRef.Group),
+	)
+}
+
+// setCATrustBundleConfigMapName passes the effective trust bundle name down to the HostAgent, which
+// validates the bfb-registry server certificate against it. The controller defaults the flag to the
+// same name, so this only matters once an external issuer lets the operator name the bundle
+// themselves: without it the HostAgent would keep reading a ConfigMap nobody maintains.
+func (p *provisioningControllerObjects) setCATrustBundleConfigMapName(deploy *appsv1.Deployment, vars Variables) error {
+	c := getManagerContainer(deploy)
+	if c == nil {
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
+	}
+	name := vars.CATrustBundleConfigMapName
+	if name == "" {
+		name = operatorv1.DefaultCATrustBundleConfigMapName
+	}
+	return setFlags(c, fmt.Sprintf("--ca-trust-bundle-configmap-name=%s", name))
 }
 
 func (p *provisioningControllerObjects) setHostAgentDNSPolicy(deploy *appsv1.Deployment, vars Variables) error {

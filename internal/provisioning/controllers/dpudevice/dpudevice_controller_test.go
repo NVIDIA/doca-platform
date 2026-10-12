@@ -41,6 +41,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/mock"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/pkg/certmanager"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -201,8 +202,25 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			issuerRef, found, err := unstructured.NestedMap(spec, "issuerRef")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(found).To(BeTrue())
+			Expect(issuerRef["name"]).To(Equal(operatorv1.PlatformIssuerName))
 			Expect(issuerRef["kind"]).To(Equal("Issuer"))
 			Expect(issuerRef["group"]).To(Equal("cert-manager.io"))
+		})
+
+		It("should set issuerRef from the configured issuer", func() {
+			reconciler.CAIssuerRef = certmanager.IssuerReference{
+				Name:  "external-issuer",
+				Kind:  operatorv1.CertManagerClusterIssuerKind,
+				Group: operatorv1.CertManagerGroup,
+			}
+			cr, err := reconciler.generateCR(dpuDevice, testCSR)
+			Expect(err).NotTo(HaveOccurred())
+
+			spec, _, _ := unstructured.NestedMap(cr.Object, "spec")
+			issuerRef, _, _ := unstructured.NestedMap(spec, "issuerRef")
+			Expect(issuerRef["name"]).To(Equal("external-issuer"))
+			Expect(issuerRef["kind"]).To(Equal(operatorv1.CertManagerClusterIssuerKind))
+			Expect(issuerRef["group"]).To(Equal(operatorv1.CertManagerGroup))
 		})
 	})
 
@@ -520,7 +538,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			scheme := reconciler.Client.Scheme()
 			Expect(operatorv1.AddToScheme(scheme)).To(Succeed())
 			bundle := &corev1.ConfigMap{}
-			Expect(reconciler.Get(ctx, types.NamespacedName{Name: CATrustBundleConfigMap, Namespace: testNamespace}, bundle)).To(Succeed())
+			Expect(reconciler.Get(ctx, types.NamespacedName{Name: operatorv1.DefaultCATrustBundleConfigMapName, Namespace: testNamespace}, bundle)).To(Succeed())
 			bundle.Data[BundleHashDataKey] = "test-bundle"
 			reconciler.Client = fake.NewClientBuilder().WithScheme(scheme).
 				WithObjects(device, config, bundle).WithStatusSubresource(device).Build()
@@ -1427,7 +1445,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			caCrt, _, _, _, _ := testutils.CreateMTLSCerts("127.0.0.1")
 			caTrustBundle := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      CATrustBundleConfigMap,
+					Name:      operatorv1.DefaultCATrustBundleConfigMapName,
 					Namespace: "test-namespace",
 				},
 				Data: map[string]string{
@@ -1463,6 +1481,100 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(condition.Reason).To(Equal(provisioningv1.ReasonCATrustBundleUnavailable))
 			Expect(condition.Message).To(ContainSubstring(`is missing "bundle-hash"`))
 			Expect(condition.ObservedGeneration).To(Equal(int64(5)))
+		})
+
+		It("should read the bundle from the configured ConfigMap name", func() {
+			ctx := context.Background()
+			scheme := runtime.NewScheme()
+			_ = provisioningv1.AddToScheme(scheme)
+			_ = corev1.AddToScheme(scheme)
+
+			caCrt, _, _, _, _ := testutils.CreateMTLSCerts("127.0.0.1")
+			caTrustBundle := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "enterprise-trust",
+					Namespace: "test-namespace",
+				},
+				Data: map[string]string{
+					CATrustBundleDataKey: string(caCrt),
+				},
+			}
+
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(caTrustBundle).
+				Build()
+
+			reconciler := &DPUDeviceReconciler{
+				Client:                     k8sClient,
+				CATrustBundleConfigMapName: "enterprise-trust",
+			}
+
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpudevice-configured-bundle",
+					Namespace: "test-namespace",
+				},
+			}
+
+			result, err := reconciler.reconcileCATrustBundle(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(5 * time.Second))
+
+			// Reaching the bundle-hash check proves the configured ConfigMap was read: the default
+			// name does not exist in this client, so the Get would have failed instead.
+			condition := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceCATrustBundleReady))
+			Expect(condition).NotTo(BeNil())
+			Expect(condition.Reason).To(Equal(provisioningv1.ReasonCATrustBundleUnavailable))
+			Expect(condition.Message).To(ContainSubstring("enterprise-trust"))
+			Expect(condition.Message).To(ContainSubstring(`is missing "bundle-hash"`))
+		})
+
+		It("should not fall back to the default ConfigMap when a name is configured", func() {
+			ctx := context.Background()
+			scheme := runtime.NewScheme()
+			_ = provisioningv1.AddToScheme(scheme)
+			_ = corev1.AddToScheme(scheme)
+
+			caCrt, _, _, _, _ := testutils.CreateMTLSCerts("127.0.0.1")
+			defaultBundle := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      operatorv1.DefaultCATrustBundleConfigMapName,
+					Namespace: "test-namespace",
+				},
+				Data: map[string]string{
+					CATrustBundleDataKey: string(caCrt),
+					BundleHashDataKey:    "hash-of-the-default-bundle",
+				},
+			}
+
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(defaultBundle).
+				Build()
+
+			reconciler := &DPUDeviceReconciler{
+				Client:                     k8sClient,
+				CATrustBundleConfigMapName: "enterprise-trust",
+			}
+
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpudevice-no-default-fallback",
+					Namespace: "test-namespace",
+				},
+			}
+
+			result, err := reconciler.reconcileCATrustBundle(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(5 * time.Second))
+
+			condition := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceCATrustBundleReady))
+			Expect(condition).NotTo(BeNil())
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).To(Equal(provisioningv1.ReasonCATrustBundleUnavailable))
+			Expect(condition.Message).To(ContainSubstring("enterprise-trust"))
+			Expect(dpuDevice.Status.CATrustBundle).To(BeNil())
 		})
 
 		It("should write CATrustBundleSyncing reason on condition update", func() {
@@ -2964,7 +3076,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			// it in the bundle. Leave it out while keeping the client CA, so the controller's own
 			// mounted key pair still verifies: that is an untrusted BMC, not a stale client cert.
 			caTrustBundle := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{Name: CATrustBundleConfigMap, Namespace: testNamespace},
+				ObjectMeta: metav1.ObjectMeta{Name: operatorv1.DefaultCATrustBundleConfigMapName, Namespace: testNamespace},
 				Data:       map[string]string{CATrustBundleDataKey: string(redfishClientCACertPEM)},
 			}
 			bmcPasswordSecret := &corev1.Secret{

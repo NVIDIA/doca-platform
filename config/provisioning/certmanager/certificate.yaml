@@ -1,8 +1,11 @@
 # The following manifests contain a self-signed issuer CR and a certificate CR.
 # The webhook serving certificate is signed by dpf-webhook-issuer, the shared DPF intermediate CA
 # for webhook serving certificates, which the dpf-operator helm chart creates in the DPF namespace.
-# The provisioning CA below is still self-signed: it signs the certificates that DPU BMCs and DPU
-# operating systems are provisioned to trust, so re-rooting it is a CA rotation.
+# The Redfish client certificates are signed by dpf-platform-issuer, the shared DPF intermediate CA
+# for the provisioning certificates, which the DPF Operator creates in the DPF namespace. The
+# self-signed provisioning CA below signs no leaf any more. It stays because the certificates it
+# signed are presented until they have been reissued, and the CA trust bundle publishes it for as
+# long as peers have to validate them.
 # More document can be found at https://docs.cert-manager.io
 # WARNING: Targets CertManager v1.0. Check https://cert-manager.io/docs/installation/upgrading/ for breaking changes.
 apiVersion: cert-manager.io/v1
@@ -66,26 +69,6 @@ spec:
   secretName: dpf-provisioning-ca-secret # this secret will not be prefixed, since it's not managed by kustomize
   
 ---
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: client-cert
-  namespace: system
-spec:
-  dnsNames:
-  - SERVICE_NAME.SERVICE_NAMESPACE.svc
-  - SERVICE_NAME.SERVICE_NAMESPACE.svc.cluster.local
-  commonName: dpf-provisioning-client-cert
-  duration: 8760h
-  issuerRef:
-    kind: Issuer
-    name: issuer
-  renewBefore: 4360h
-  secretName: dpf-provisioning-client-secret # this secret will not be prefixed, since it's not managed by kustomize
-  usages:
-  - client auth
-
----
 
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -102,7 +85,7 @@ spec:
   renewBefore: 4360h
   issuerRef:
     kind: Issuer
-    name: issuer
+    name: dpf-platform-issuer # this name will not be prefixed, since it's not managed by kustomize
   secretName: dpf-provisioning-redfish-client-secret # this secret will not be prefixed, since it's not managed by kustomize
   usages:
     - client auth
@@ -124,7 +107,7 @@ spec:
   renewBefore: 4360h
   issuerRef:
     kind: Issuer
-    name: issuer
+    name: dpf-platform-issuer # this name will not be prefixed, since it's not managed by kustomize
   secretName: dpf-provisioning-redfish-client-secret-bf4 # this secret will not be prefixed, since it's not managed by kustomize
   usages:
     - client auth

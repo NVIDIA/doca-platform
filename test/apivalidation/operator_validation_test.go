@@ -606,6 +606,23 @@ var _ = Describe("Operator API Validation", func() {
 				Expect(config.Spec.Security.CertManagement.TrustBundleConfigMapName).
 					To(Equal(operatorv1.DefaultCATrustBundleConfigMapName))
 			})
+
+			// The name reaches a DPU in the configuration it is provisioned with, so a rename can
+			// only leave the DPUs already provisioned reading a ConfigMap DPF no longer maintains.
+			// Rejecting it here is what keeps that from being a silent change.
+			It("rejects a rename of the trust bundle", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				config.Spec.Security = &operatorv1.SecurityConfiguration{
+					CertManagement: &operatorv1.CertManagementConfiguration{TrustBundleConfigMapName: "enterprise-ca-bundle"},
+				}
+				Expect(testClient.Create(ctx, config)).To(Succeed())
+				cleanupObjs = append(cleanupObjs, config)
+
+				patch := client.MergeFrom(config.DeepCopy())
+				config.Spec.Security.CertManagement.TrustBundleConfigMapName = "other-ca-bundle"
+				Expect(testClient.Patch(ctx, config, patch)).
+					To(MatchError(ContainSubstring("trustBundleConfigMapName is immutable")))
+			})
 		})
 
 		Context("Validate etcd encryption at rest", func() {

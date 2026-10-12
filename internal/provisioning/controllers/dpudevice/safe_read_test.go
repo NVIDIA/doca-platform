@@ -196,7 +196,7 @@ func caTrustBundle(t *testing.T, namespace string) *corev1.ConfigMap {
 		t.Fatal(err)
 	}
 	return &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: rfclient.CATrustBundleConfigMap, Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: rfclient.CATrustBundleConfigMapName(), Namespace: namespace},
 		Data: map[string]string{
 			rfclient.CATrustBundleKey: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
 		},

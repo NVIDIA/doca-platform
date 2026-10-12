@@ -93,7 +93,7 @@ var _ = Describe("ZT Bootstrap", func() {
 				},
 			}
 
-			err := CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, flavor)
+			err := CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, flavor, "")
 			Expect(err).NotTo(HaveOccurred())
 
 			role := &rbacv1.Role{}
@@ -152,15 +152,15 @@ var _ = Describe("ZT Bootstrap", func() {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existingRole).Build()
 			dpu.Spec.BlueFieldSoftware = ptr.To("bfs-1")
 
-			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, nil)).To(Succeed())
-			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, nil)).To(Succeed())
+			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, nil, "")).To(Succeed())
+			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, nil, "")).To(Succeed())
 		})
 
 		It("should grant access to dpf-ca-trust-bundle even when flavor has no configmap references", func() {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 			dpu.Spec.BlueFieldSoftware = ptr.To("bfs-1")
 
-			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, nil)).To(Succeed())
+			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, nil, "")).To(Succeed())
 
 			role := &rbacv1.Role{}
 			Expect(fakeClient.Get(ctx, types.NamespacedName{
@@ -177,10 +177,27 @@ var _ = Describe("ZT Bootstrap", func() {
 			Expect(role.Rules[5].Verbs).To(Equal([]string{"get"}))
 		})
 
+		It("should grant a configured trust bundle alongside the default one", func() {
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+			dpu.Spec.BlueFieldSoftware = ptr.To("bfs-1")
+
+			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, nil, "custom-ca-trust-bundle")).To(Succeed())
+
+			role := &rbacv1.Role{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{
+				Name:      "da-dpu-01",
+				Namespace: "dpf-operator-system",
+			}, role)).To(Succeed())
+			Expect(role.Rules[5].Resources).To(Equal([]string{"configmaps"}))
+			// The default stays granted so an agent still reading it across a name change, or one
+			// provisioned before the name was configurable, is not denied the bundle.
+			Expect(role.Rules[5].ResourceNames).To(Equal([]string{"custom-ca-trust-bundle", "dpf-ca-trust-bundle"}))
+		})
+
 		It("should update existing role when configmap references change", func() {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, nil)).To(Succeed())
+			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, nil, "")).To(Succeed())
 			flavor := &provisioningv1.DPUFlavor{
 				Spec: provisioningv1.DPUFlavorSpec{
 					ConfigFiles: []provisioningv1.ConfigFile{
@@ -205,7 +222,7 @@ var _ = Describe("ZT Bootstrap", func() {
 					},
 				},
 			}
-			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, flavor)).To(Succeed())
+			Expect(CreateDPUAgentRole(ctx, fakeClient, scheme, dpu, flavor, "")).To(Succeed())
 
 			role := &rbacv1.Role{}
 			Expect(fakeClient.Get(ctx, types.NamespacedName{
@@ -237,7 +254,7 @@ var _ = Describe("ZT Bootstrap", func() {
 			}
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
 
-			Expect(EnsureDPUAgentRoleForCurrentFlavor(ctx, fakeClient, scheme, dpu)).To(Succeed())
+			Expect(EnsureDPUAgentRoleForCurrentFlavor(ctx, fakeClient, scheme, dpu, "")).To(Succeed())
 
 			role := &rbacv1.Role{}
 			Expect(fakeClient.Get(ctx, types.NamespacedName{

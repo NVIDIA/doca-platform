@@ -26,6 +26,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -44,6 +45,7 @@ func testScheme(t *testing.T) *runtime.Scheme {
 	scheme := runtime.NewScheme()
 	NewWithT(t).Expect(operatorv1.AddToScheme(scheme)).To(Succeed())
 	NewWithT(t).Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+	NewWithT(t).Expect(corev1.AddToScheme(scheme)).To(Succeed())
 	for _, gvk := range []schema.GroupVersionKind{CertificateGVK, IssuerGVK, clusterIssuerGVK} {
 		scheme.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
 		scheme.AddKnownTypeWithName(gvk.GroupVersion().WithKind(gvk.Kind+"List"), &unstructured.UnstructuredList{})
@@ -341,6 +343,46 @@ func TestReconcile(t *testing.T) {
 	}
 }
 
+// newTrustBundle builds the published CA trust bundle carrying the given hash, which is what the
+// DPU agents report back once they have applied it.
+func newTrustBundle(hash string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      operatorv1.DefaultCATrustBundleConfigMapName,
+			Namespace: testNamespace,
+		},
+		Data: map[string]string{operatorv1.CATrustBundleHashKey: hash},
+	}
+}
+
+// newDPUWithBundleHash builds a DPU whose agent last applied the given trust bundle hash.
+func newDPUWithBundleHash(name, hash string) *provisioningv1.DPU {
+	return &provisioningv1.DPU{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace},
+		Status: provisioningv1.DPUStatus{
+			AgentStatus: &provisioningv1.AgentStatus{TrustBundleHash: ptr.To(hash)},
+		},
+	}
+}
+
+// newDPUDeviceWithBundleHash builds a DPUDevice whose BMC truststore was last synced with the given
+// trust bundle hash.
+func newDPUDeviceWithBundleHash(name, hash string) *provisioningv1.DPUDevice {
+	return &provisioningv1.DPUDevice{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace},
+		Status: provisioningv1.DPUDeviceStatus{
+			CATrustBundle: &provisioningv1.TrustBundleStatus{ObservedBundleHash: ptr.To(hash)},
+		},
+	}
+}
+
+// inOtherNamespace moves a peer out of the namespace the DPFOperatorConfig publishes its trust
+// bundle in, which is where the peers it serves live.
+func inOtherNamespace[T client.Object](obj T) T {
+	obj.SetNamespace("other-namespace")
+	return obj
+}
+
 // TestDetectRotationRequired covers when re-anchoring the PKI needs a CA rotation: only once DPUs
 // exist, because it is their BMC truststores that DPF cannot update. It also covers the recorded
 // rotation outliving the difference it was derived from, which the apply destroys.
@@ -357,9 +399,12 @@ func TestDetectRotationRequired(t *testing.T) {
 		// config carries none and the anchor is seeded from the platform CA Certificate below, which
 		// is the sequence the reconcile follows.
 		recordedAnchor *certmanager.IssuerReference
-		anchor         certmanager.IssuerReference
-		objs           []client.Object
-		want           bool
+		// recordedBundleHash stages the bundle that was published when recordedAnchor was rolled
+		// out, which is what tells a bundle carrying the new chain from the one already out there.
+		recordedBundleHash string
+		anchor             certmanager.IssuerReference
+		objs               []client.Object
+		want               bool
 	}{
 		{
 			name: "a fresh install has nothing anchored to rotate",
@@ -378,7 +423,7 @@ func TestDetectRotationRequired(t *testing.T) {
 			want:   false,
 		},
 		{
-			name:   "switching to an external issuer without DPUs needs no rotation",
+			name:   "switching to an external issuer without peers needs no rotation",
 			anchor: clusterIssuerRef,
 			objs:   []client.Object{newPlatformCACertificate(selfSignedRef(), readyStatus(true, ""))},
 			want:   false,
@@ -388,6 +433,19 @@ func TestDetectRotationRequired(t *testing.T) {
 			anchor: clusterIssuerRef,
 			objs:   []client.Object{newPlatformCACertificate(selfSignedRef(), readyStatus(true, "")), dpu},
 			want:   true,
+		},
+		{
+			// A DPUDevice is created from the hardware the host discovers rather than by a DPU, so
+			// the BMC truststore it syncs outlives the DPUs provisioned beside it. Asking about the
+			// DPUs alone would swap the anchor out from under a BMC still trusting only the chain
+			// of the previous one.
+			name:   "switching to an external issuer with a DPUDevice and no DPU needs a rotation",
+			anchor: clusterIssuerRef,
+			objs: []client.Object{
+				newPlatformCACertificate(selfSignedRef(), readyStatus(true, "")),
+				newDPUDeviceWithBundleHash("dpudevice-without-dpu", "bundle-hash-one"),
+			},
+			want: true,
 		},
 		{
 			name: "reverting to the self-signed root with DPUs needs a rotation",
@@ -424,6 +482,119 @@ func TestDetectRotationRequired(t *testing.T) {
 			objs:           []client.Object{newPlatformCACertificate(clusterIssuerRef, readyStatus(true, "")), dpu},
 			want:           false,
 		},
+		{
+			// cert-manager reissues the platform CA on its own schedule, so the reconcile that
+			// observes the re-anchor publishes no new bundle. The one still out there is the one
+			// every peer applied before the rotation began, and calling that convergence would
+			// retire the rotation before a single peer had seen the new chain.
+			name:               "a rotation is not retired by the bundle published before it began",
+			recordedAnchor:     ptr.To(selfSignedRef()),
+			recordedBundleHash: "bundle-hash-one",
+			anchor:             clusterIssuerRef,
+			objs: []client.Object{
+				newPlatformCACertificate(selfSignedRef(), readyStatus(true, "")),
+				newTrustBundle("bundle-hash-one"),
+				newDPUWithBundleHash("dpu-converged", "bundle-hash-one"),
+				newDPUDeviceWithBundleHash("dpudevice-converged", "bundle-hash-one"),
+			},
+			want: true,
+		},
+		{
+			// The cluster upgraded from the release that recorded the anchor and not the bundle
+			// beside it, re-anchoring in the same step. It is in a rotation by its first reconcile,
+			// which is the one case that never records a bundle, and the one out there is the one
+			// from before the rotation that every peer already reports. Read as a bundle published
+			// since, it would retire the rotation while every peer still trusts only the previous
+			// chain.
+			name:           "a rotation across an upgrade that recorded no bundle is not retired",
+			recordedAnchor: ptr.To(selfSignedRef()),
+			anchor:         clusterIssuerRef,
+			objs: []client.Object{
+				newPlatformCACertificate(clusterIssuerRef, readyStatus(true, "")),
+				newTrustBundle("bundle-hash-one"),
+				newDPUWithBundleHash("dpu-on-the-previous-bundle", "bundle-hash-one"),
+				newDPUDeviceWithBundleHash("dpudevice-on-the-previous-bundle", "bundle-hash-one"),
+			},
+			want: true,
+		},
+		{
+			name:               "a rotation is still required while a DPU lags behind the published bundle",
+			recordedAnchor:     ptr.To(selfSignedRef()),
+			recordedBundleHash: "bundle-hash-one",
+			anchor:             clusterIssuerRef,
+			objs: []client.Object{
+				newPlatformCACertificate(clusterIssuerRef, readyStatus(true, "")),
+				newTrustBundle("bundle-hash-two"),
+				newDPUWithBundleHash("dpu-lagging", "bundle-hash-one"),
+			},
+			want: true,
+		},
+		{
+			// The BMC truststore the DPUDevice syncs is the one DPF cannot rebuild once it has gone
+			// stale, so it is the peer the rotation is really about.
+			name:               "a rotation is still required while a DPUDevice lags behind the published bundle",
+			recordedAnchor:     ptr.To(selfSignedRef()),
+			recordedBundleHash: "bundle-hash-one",
+			anchor:             clusterIssuerRef,
+			objs: []client.Object{
+				newPlatformCACertificate(clusterIssuerRef, readyStatus(true, "")),
+				newTrustBundle("bundle-hash-two"),
+				newDPUWithBundleHash("dpu-converged", "bundle-hash-two"),
+				newDPUDeviceWithBundleHash("dpudevice-lagging", "bundle-hash-one"),
+			},
+			want: true,
+		},
+		{
+			name:               "a rotation is retired once every DPU and DPUDevice reports the published bundle",
+			recordedAnchor:     ptr.To(selfSignedRef()),
+			recordedBundleHash: "bundle-hash-one",
+			anchor:             clusterIssuerRef,
+			objs: []client.Object{
+				newPlatformCACertificate(clusterIssuerRef, readyStatus(true, "")),
+				newTrustBundle("bundle-hash-two"),
+				newDPUWithBundleHash("dpu-converged", "bundle-hash-two"),
+				newDPUDeviceWithBundleHash("dpudevice-converged", "bundle-hash-two"),
+			},
+			want: false,
+		},
+		{
+			// A DPUDevice only reaches the BMC truststore sync once its server certificate is
+			// ready, and a DPU has no agent until it is provisioned, so neither reports a hash
+			// before then. Neither holds trust material this rotation replaces either, and the
+			// paths that never report at all would hold the rotation open for good.
+			name:               "a rotation is retired while a peer that has never reported a bundle exists",
+			recordedAnchor:     ptr.To(selfSignedRef()),
+			recordedBundleHash: "bundle-hash-one",
+			anchor:             clusterIssuerRef,
+			objs: []client.Object{
+				newPlatformCACertificate(clusterIssuerRef, readyStatus(true, "")),
+				newTrustBundle("bundle-hash-two"),
+				newDPUWithBundleHash("dpu-converged", "bundle-hash-two"),
+				newDPUDeviceWithBundleHash("dpudevice-converged", "bundle-hash-two"),
+				&provisioningv1.DPU{ObjectMeta: metav1.ObjectMeta{Name: "dpu-provisioning", Namespace: testNamespace}},
+				&provisioningv1.DPUDevice{ObjectMeta: metav1.ObjectMeta{Name: "dpudevice-unsynced", Namespace: testNamespace}},
+			},
+			want: false,
+		},
+		{
+			// A peer in another namespace is served by another bundle, or by none at all: the
+			// DPUDevice controller reads the bundle from its own namespace and DPF publishes one
+			// beside the config. Waiting for such a peer to report this bundle would be waiting on
+			// something this rotation never reaches, leaving it outstanding for good.
+			name:               "a rotation is retired while a peer outside the namespace of the config lags",
+			recordedAnchor:     ptr.To(selfSignedRef()),
+			recordedBundleHash: "bundle-hash-one",
+			anchor:             clusterIssuerRef,
+			objs: []client.Object{
+				newPlatformCACertificate(clusterIssuerRef, readyStatus(true, "")),
+				newTrustBundle("bundle-hash-two"),
+				newDPUWithBundleHash("dpu-converged", "bundle-hash-two"),
+				newDPUDeviceWithBundleHash("dpudevice-converged", "bundle-hash-two"),
+				inOtherNamespace(newDPUWithBundleHash("dpu-elsewhere", "bundle-hash-one")),
+				inOtherNamespace(newDPUDeviceWithBundleHash("dpudevice-elsewhere", "bundle-hash-one")),
+			},
+			want: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -442,6 +613,10 @@ func TestDetectRotationRequired(t *testing.T) {
 			config := newConfig()
 			if tt.recordedAnchor != nil {
 				RecordAnchor(config, *tt.recordedAnchor)
+				// The reconcile records this beside the anchor, from the bundle published at the
+				// time. It is staged rather than read from objs because what a rotation is measured
+				// against is the bundle from before it, not the one published since.
+				config.Status.Security.CertManagement.TrustBundleHash = tt.recordedBundleHash
 			}
 			_, err := ensureAnchorRecorded(context.Background(), c, config)
 			g.Expect(err).NotTo(HaveOccurred())
@@ -464,7 +639,10 @@ func TestEnsureAnchorRecorded(t *testing.T) {
 		g := NewWithT(t)
 		c := fake.NewClientBuilder().
 			WithScheme(testScheme(t)).
-			WithObjects(newPlatformCACertificate(clusterIssuerRef, readyStatus(true, ""))).
+			WithObjects(
+				newPlatformCACertificate(clusterIssuerRef, readyStatus(true, "")),
+				newTrustBundle("bundle-hash-one"),
+			).
 			Build()
 		config := newConfig()
 
@@ -476,6 +654,10 @@ func TestEnsureAnchorRecorded(t *testing.T) {
 			Kind:  clusterIssuerRef.Kind,
 			Group: clusterIssuerRef.Group,
 		})))
+		// Seeded with the anchor, because a rotation of it is measured against the bundle published
+		// under it. Left out, the first bundle this upgraded cluster publishes would read as one
+		// that changed since, and a rotation across the upgrade would be retired on the spot.
+		g.Expect(config.Status.Security.CertManagement.TrustBundleHash).To(Equal("bundle-hash-one"))
 	})
 
 	// cert-manager defaults an issuerRef that leaves out the kind or the group, and the anchor read
@@ -532,6 +714,45 @@ func TestEnsureAnchorRecorded(t *testing.T) {
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(seeded).To(BeFalse())
 		g.Expect(config.Status.Security.CertManagement.Anchor.Name).To(Equal(selfSignedRef().Name))
+	})
+
+	// The release before this one recorded the anchor and nothing beside it. Seeding the bundle only
+	// where it is recorded alongside the anchor would miss this cluster, because that runs only while
+	// no rotation is outstanding and an upgrade that re-anchors in the same step is already in one.
+	t.Run("seeds the bundle a recorded anchor was rolled out under", func(t *testing.T) {
+		g := NewWithT(t)
+		c := fake.NewClientBuilder().
+			WithScheme(testScheme(t)).
+			WithObjects(
+				newPlatformCACertificate(selfSignedRef(), readyStatus(true, "")),
+				newTrustBundle("bundle-hash-one"),
+			).
+			Build()
+		config := newConfig()
+		RecordAnchor(config, selfSignedRef())
+
+		seeded, err := ensureAnchorRecorded(context.Background(), c, config)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(seeded).To(BeTrue())
+		g.Expect(config.Status.Security.CertManagement.TrustBundleHash).To(Equal("bundle-hash-one"))
+		g.Expect(config.Status.Security.CertManagement.Anchor.Name).To(Equal(selfSignedRef().Name))
+	})
+
+	// Reporting this one as recorded would hand back a reconcile that applies nothing, and the apply
+	// is what publishes the bundle it would be waiting for.
+	t.Run("records nothing while no bundle has been published", func(t *testing.T) {
+		g := NewWithT(t)
+		c := fake.NewClientBuilder().
+			WithScheme(testScheme(t)).
+			WithObjects(newPlatformCACertificate(selfSignedRef(), readyStatus(true, ""))).
+			Build()
+		config := newConfig()
+		RecordAnchor(config, selfSignedRef())
+
+		seeded, err := ensureAnchorRecorded(context.Background(), c, config)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(seeded).To(BeFalse())
+		g.Expect(config.Status.Security.CertManagement.TrustBundleHash).To(BeEmpty())
 	})
 }
 

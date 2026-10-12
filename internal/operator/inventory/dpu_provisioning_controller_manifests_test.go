@@ -115,6 +115,28 @@ func TestDPFProvisioningControllerObjects_Parse(t *testing.T) {
 	}
 }
 
+// getProvisioningManagerContainer returns the manager container of the generated provisioning
+// controller Deployment, which is where the flags templated by the operator land.
+func getProvisioningManagerContainer(g Gomega, objs []client.Object) *corev1.Container {
+	for _, obj := range objs {
+		if obj.GetObjectKind().GroupVersionKind().Kind != string(DeploymentKind) ||
+			obj.GetName() != DPFProvisioningControllerName {
+			continue
+		}
+		uns, ok := obj.(*unstructured.Unstructured)
+		g.Expect(ok).To(BeTrue())
+		deployment := &appsv1.Deployment{}
+		g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(uns.UnstructuredContent(), deployment)).To(Succeed())
+		for i, c := range deployment.Spec.Template.Spec.Containers {
+			if c.Name == managerContainerName {
+				return &deployment.Spec.Template.Spec.Containers[i]
+			}
+		}
+	}
+	g.Expect(false).To(BeTrue(), "manager container not found in the generated provisioning controller Deployment")
+	return nil
+}
+
 //nolint:gocyclo
 func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 	g := NewWithT(t)
@@ -331,12 +353,96 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 			fmt.Sprintf("--dms-pod-envs=KUBERNETES_SERVICE_HOST=%s,KUBERNETES_SERVICE_PORT=%d", expectedKubernetesAPIServerVIP, expectedKubernetesAPIServerPort),
 			fmt.Sprintf("--multi-dpu-operations-sync-wait-time=%s", expectedMultiDPUOperationsSyncWaitTime),
 			"--bfb-registry-load-balancer-address=",
+			fmt.Sprintf("--ca-issuer-name=%s", operatorv1.PlatformIssuerName),
+			fmt.Sprintf("--ca-issuer-kind=%s", operatorv1.CertManagerIssuerKind),
+			fmt.Sprintf("--ca-issuer-group=%s", operatorv1.CertManagerGroup),
+			fmt.Sprintf("--ca-trust-bundle-configmap-name=%s", operatorv1.DefaultCATrustBundleConfigMapName),
 		}
 		g.Expect(gotDeployment.Spec.Template.Spec.Containers).To(HaveLen(2))
 		g.Expect(container.Args).To(HaveLen(len(expectedArgs)))
 		for i, ea := range expectedArgs {
 			g.Expect(container.Args[i]).To(Equal(ea))
 		}
+	})
+
+	t.Run("test the leaf issuer flag is the platform issuer in both CA modes", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		newVars := func() Variables {
+			vars := newDefaultVariables(defaults)
+			vars.DPFProvisioningController = DPFProvisioningVariables{
+				BFBPersistentVolumeClaimName: ptr.To("pvc"),
+				DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
+			}
+			return vars
+		}
+		// The anchor above the intermediate CA is what a mode switch changes. The leaf issuer below
+		// it does not move, so the controllers keep minting under the same authority and a switch
+		// does not roll them out.
+		externalIssuer := newVars()
+		externalIssuer.PlatformCAIssuerRef = certmanager.IssuerReference{
+			Name:  "customer-issuer",
+			Kind:  operatorv1.CertManagerClusterIssuerKind,
+			Group: operatorv1.CertManagerGroup,
+		}
+
+		for name, vars := range map[string]Variables{"self signed": newVars(), "external issuer": externalIssuer} {
+			generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
+			g.Expect(err).NotTo(HaveOccurred(), name)
+
+			container := getProvisioningManagerContainer(g, generatedObjs)
+			g.Expect(container.Args).To(ContainElements(
+				fmt.Sprintf("--ca-issuer-name=%s", operatorv1.PlatformIssuerName),
+				fmt.Sprintf("--ca-issuer-kind=%s", operatorv1.CertManagerIssuerKind),
+				fmt.Sprintf("--ca-issuer-group=%s", operatorv1.CertManagerGroup),
+			), name)
+		}
+	})
+
+	t.Run("test the trust bundle flag follows the configured name", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: ptr.To("pvc"),
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
+		}
+		vars.CATrustBundleConfigMapName = "customer-trust-bundle"
+
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		container := getProvisioningManagerContainer(g, generatedObjs)
+		g.Expect(container.Args).To(ContainElement("--ca-trust-bundle-configmap-name=customer-trust-bundle"))
+	})
+
+	t.Run("test the provisioning leaves are signed by the platform issuer", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: ptr.To("pvc"),
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
+		}
+
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		issuerNames := map[string]string{}
+		for _, obj := range generatedObjs {
+			if obj.GetObjectKind().GroupVersionKind().Kind != string(CertificateKind) {
+				continue
+			}
+			uns, ok := obj.(*unstructured.Unstructured)
+			g.Expect(ok).To(BeTrue())
+			name, _, err := unstructured.NestedString(uns.UnstructuredContent(), "spec", "issuerRef", "name")
+			g.Expect(err).NotTo(HaveOccurred())
+			issuerNames[obj.GetName()] = name
+		}
+
+		g.Expect(issuerNames).To(HaveKeyWithValue("dpf-provisioning-redfish-client-cert", operatorv1.PlatformIssuerName))
+		g.Expect(issuerNames).To(HaveKeyWithValue("dpf-provisioning-redfish-client-cert-bf4", operatorv1.PlatformIssuerName))
+		// The webhook chain belongs to the webhooks FR and is deliberately left where it is.
+		g.Expect(issuerNames).To(HaveKeyWithValue("dpf-provisioning-serving-cert", "dpf-webhook-issuer"))
+		// Nobody consumes this one, so it is not carried onto the shared hierarchy.
+		g.Expect(issuerNames).NotTo(HaveKey("dpf-provisioning-client-cert"))
 	})
 
 	t.Run("test overriding provisioning issuer ca secret name", func(t *testing.T) {
