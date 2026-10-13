@@ -11,6 +11,7 @@ This page contains advanced configuration documentation for the DOCA Platform Fr
 * [DPU Services](dpuservices/README.md) - Documentation for DPF DPU services including Argus, Firefly, DOCA Telemetry Service, and Kata Containers
 * [Host Trusted with Non Kubernetes Workers](host-installation-for-non-k8s-env/README.md) - Installation guides for DPF Host Trusted with workers that are not part of a Kubernetes cluster
 * [Using Private Registries](using-private-registries.md) - Configuration for using private container registries
+* [Air-Gapped DPUs with a SOCKS Proxy](air-gapped-socks-proxy.md) - Letting DPUs without internet access pull images through a SOCKS5 proxy by configuring containerd with a DPUFlavor
 * [Zero Trust Advanced Configuration](zero-trust-advanced-configuration.md) - Advanced configuration for the DPF Zero Trust
 * [Provisioning CA Certificate Rotation](ca-certificate-rotation.md) - Runbook for rotating the provisioning CA with dual-trust convergence checks on BMC and DPU sides
 * [External Certificate Authority](external-certificate-authority.md) - Chaining the certificates of DPF to a cert-manager issuer you own instead of the self-signed DPF root
