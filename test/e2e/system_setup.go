@@ -1022,6 +1022,9 @@ func ProcessDPUNodeMaintenanceHold(ctx context.Context, input ProvisionDPUCluste
 		// Fail fast on a terminal provisioning error or reboot-script failure.
 		dpus := &provisioningv1.DPUList{}
 		g.Expect(input.client.List(ctx, dpus)).To(Succeed())
+		// This loop is the one that observes the DPUs while they reboot, so the requested reboot
+		// method is logged from here.
+		logDPURebootRequests(dpus.Items, tracker)
 		for i := range dpus.Items {
 			dpu := &dpus.Items[i]
 			Expect(dpu.Status.Phase).NotTo(Equal(provisioningv1.DPUError),
