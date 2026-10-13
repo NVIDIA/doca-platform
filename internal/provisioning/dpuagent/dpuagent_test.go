@@ -19,12 +19,16 @@ package dpuagent
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/ovsscript"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statusmanager"
 	dpuutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
@@ -194,7 +198,7 @@ var _ = Describe("DPUAgent", func() {
 				meta.SetStatusCondition(&s.Conditions, metav1.Condition{Type: "OldOSCondition", Status: metav1.ConditionTrue, Reason: "Old"})
 			})
 
-			Expect(agent.reconcileOwnedDPU(ctx, preInstallStatus)).To(Succeed())
+			Expect(agent.reconcileOwnedDPU(ctx, preInstallStatus, nil)).To(Succeed())
 
 			latestDPU := &provisioningv1.DPU{}
 			Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "test-dpu"}, latestDPU)).To(Succeed())
@@ -748,6 +752,506 @@ var _ = Describe("DPUAgent", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("context canceled"))
 			Expect(secondOpExecuted).To(BeFalse(), "subsequent operation should not be executed after context is canceled")
+		})
+	})
+
+	Describe("in-place reconfig Run", func() {
+		noopMarker := func(_ string) error { return nil }
+
+		reconcile := func(agent *DPUAgent, fakeClient client.Client, event ...*provisioningv1.DPU) error {
+			preInstallStatus := statusmanager.New(fakeClient, "test-ns", "test-dpu", "")
+			statusCtx, cancelStatus := context.WithCancel(ctx)
+			defer cancelStatus()
+			preInstallStatus.Start(statusCtx)
+			var observed *provisioningv1.DPU
+			if len(event) > 0 {
+				observed = event[0]
+			}
+			return agent.reconcileOwnedDPU(ctx, preInstallStatus, observed)
+		}
+
+		setDPUConfigPhase := func(c client.Client) {
+			dpu := &provisioningv1.DPU{}
+			Expect(c.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "test-dpu"}, dpu)).To(Succeed())
+			patch := client.MergeFrom(dpu.DeepCopy())
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			Expect(c.Status().Patch(ctx, dpu, patch)).To(Succeed())
+		}
+
+		newAgent := func(fakeClient client.Client, executeFunc func(context.Context, *operations.Context) error) *DPUAgent {
+			return &DPUAgent{
+				retryInterval:        testRetryInterval,
+				writeDoneMarkerFunc:  noopMarker,
+				removeDoneMarkerFunc: noopMarker,
+				optCtx:               newTestOptCtx(fakeClient),
+				operations: []operations.Operation{
+					&mockOperation{name: "reconfig-op", conditionType: "ReconfigOp", executeFunc: executeFunc},
+				},
+			}
+		}
+
+		DescribeTable("phaseLeftDPUConfig",
+			func(phase provisioningv1.DPUPhase, want bool) {
+				Expect(phaseLeftDPUConfig(phase)).To(Equal(want))
+			},
+			Entry("Ready", provisioningv1.DPUReady, true),
+			Entry("Host Network Configuration", provisioningv1.DPUHostNetworkConfiguration, true),
+			Entry("DPU Cluster Config", provisioningv1.DPUClusterConfig, true),
+			Entry("Service Readiness", provisioningv1.DPUServiceReadiness, true),
+			Entry("Node Effect Removal", provisioningv1.DPUNodeEffectRemoval, true),
+			Entry("Node Effect", provisioningv1.DPUNodeEffect, true),
+			Entry("DPU Config", provisioningv1.DPUConfig, false),
+			Entry("Rebooting", provisioningv1.DPURebooting, false),
+			Entry("Initializing", provisioningv1.DPUInitializing, false),
+			Entry("Error", provisioningv1.DPUError, false),
+			Entry("Deleting", provisioningv1.DPUDeleting, false),
+		)
+
+		It("keeps the OVS script marker on a process-start Run", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			runDir, err := os.MkdirTemp("", "dpu-agent-run-*")
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { Expect(os.RemoveAll(runDir)).To(Succeed()) })
+			Expect(os.WriteFile(filepath.Join(runDir, doneMarkerFileName), []byte("old\n"), 0644)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(runDir, ovsscript.DoneMarkerFileName), nil, 0644)).To(Succeed())
+
+			agent := &DPUAgent{
+				retryInterval:       testRetryInterval,
+				runDir:              runDir,
+				writeDoneMarkerFunc: noopMarker,
+				optCtx:              newTestOptCtx(fakeClient),
+				operations: []operations.Operation{
+					&mockOperation{name: "op1", conditionType: "Op1Condition", executeFunc: func(_ context.Context, _ *operations.Context) error {
+						_, statErr := os.Stat(filepath.Join(runDir, ovsscript.DoneMarkerFileName))
+						Expect(statErr).NotTo(HaveOccurred())
+						return nil
+					}},
+				},
+			}
+			Expect(agent.Run(ctx)).To(Succeed())
+			_, err = os.Stat(filepath.Join(runDir, doneMarkerFileName))
+			Expect(os.IsNotExist(err)).To(BeTrue())
+		})
+
+		It("removes the OVS script marker on an in-place reconfig Run", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			runDir, err := os.MkdirTemp("", "dpu-agent-run-*")
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { Expect(os.RemoveAll(runDir)).To(Succeed()) })
+			Expect(os.WriteFile(filepath.Join(runDir, ovsscript.DoneMarkerFileName), nil, 0644)).To(Succeed())
+			optCtx := newTestOptCtx(fakeClient)
+			optCtx.ReapplyConfig = true
+
+			agent := &DPUAgent{
+				retryInterval:       testRetryInterval,
+				runDir:              runDir,
+				writeDoneMarkerFunc: noopMarker,
+				optCtx:              optCtx,
+				operations: []operations.Operation{
+					&mockOperation{name: "op1", conditionType: "Op1Condition", executeFunc: func(_ context.Context, _ *operations.Context) error {
+						_, statErr := os.Stat(filepath.Join(runDir, ovsscript.DoneMarkerFileName))
+						Expect(os.IsNotExist(statErr)).To(BeTrue())
+						return nil
+					}},
+				},
+			}
+			Expect(agent.Run(ctx)).To(Succeed())
+		})
+
+		It("clears per-run caches so an in-process reconfig uses the live flavor", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			optCtx := newTestOptCtx(fakeClient)
+			optCtx.SetResolvedNVConfig(&operations.ResolvedNVConfig{HostOSInitRequired: true})
+			optCtx.GrubConfigChanged = true
+			optCtx.DeferredNVConfigParams = []operations.DeferredNVConfigParam{{Device: "0000:03:00.0", Params: "FOO=1"}}
+			optCtx.SRIOVState = "stale"
+			optCtx.CondMessage = "stale"
+
+			agent := &DPUAgent{
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: noopMarker,
+				optCtx:              optCtx,
+				operations: []operations.Operation{
+					&mockOperation{name: "op1", conditionType: "Op1Condition", executeFunc: func(_ context.Context, got *operations.Context) error {
+						Expect(got.GetResolvedNVConfig()).To(BeNil())
+						Expect(got.GrubConfigChanged).To(BeFalse())
+						Expect(got.DeferredNVConfigParams).To(BeNil())
+						Expect(got.SRIOVState).To(BeNil())
+						Expect(got.CondMessage).To(BeEmpty())
+						return nil
+					}},
+				},
+			}
+			Expect(agent.Run(ctx)).To(Succeed())
+		})
+
+		It("preserves CA trust bundle and SPIRE condition on in-process reconfig", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			hash := "bundle-hash"
+			now := metav1.Now()
+			optCtx := newTestOptCtx(fakeClient)
+			optCtx.ReapplyConfig = true
+			optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+				s.TrustBundleHash = &hash
+				s.TrustBundleLastUpdateTime = &now
+				s.Conditions = []metav1.Condition{{
+					Type:               provisioningv1.DPUAgentConditionSPIREWorkloadAttestorEnabled,
+					Status:             metav1.ConditionTrue,
+					Reason:             provisioningv1.DPUAgentConditionSPIREWorkloadAttestorEnabled,
+					Message:            "SPIRE Kubernetes workload attestation is enabled",
+					LastTransitionTime: now,
+				}}
+			})
+
+			agent := &DPUAgent{
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: noopMarker,
+				optCtx:              optCtx,
+				operations: []operations.Operation{
+					&mockOperation{name: "op1", conditionType: "Op1Condition", executeFunc: func(_ context.Context, got *operations.Context) error {
+						local := got.Status.GetLocal()
+						Expect(local.TrustBundleHash).NotTo(BeNil())
+						Expect(*local.TrustBundleHash).To(Equal(hash))
+						Expect(local.TrustBundleLastUpdateTime).NotTo(BeNil())
+						cond := meta.FindStatusCondition(local.Conditions, provisioningv1.DPUAgentConditionSPIREWorkloadAttestorEnabled)
+						Expect(cond).NotTo(BeNil())
+						Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+						Expect(local.Version).To(Equal(agentStatusVersion()))
+						return nil
+					}},
+				},
+			}
+			Expect(agent.Run(ctx)).To(Succeed())
+		})
+
+		It("reports an injected DPF version", func() {
+			orig := version
+			version = "v30.0.0"
+			DeferCleanup(func() { version = orig })
+
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			agent := &DPUAgent{
+				retryInterval:        testRetryInterval,
+				removeDoneMarkerFunc: func(string) error { return nil },
+				writeDoneMarkerFunc:  func(string) error { return nil },
+				optCtx:               newTestOptCtx(fakeClient),
+				operations: []operations.Operation{
+					&mockOperation{name: "op1", conditionType: "Op1Condition"},
+				},
+			}
+			Expect(agent.Run(ctx)).To(Succeed())
+			Expect(agent.optCtx.Status.GetLocal().Version).To(Equal("v30.0.0"))
+		})
+
+		It("writes version on the first status push and the flavor resourceVersion only after success", func() {
+			dpu := newTestDPU()
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			optCtx := newTestOptCtx(fakeClient)
+			optCtx.DPUFlavor.ResourceVersion = "42"
+			agent := &DPUAgent{
+				retryInterval:        testRetryInterval,
+				removeDoneMarkerFunc: noopMarker,
+				writeDoneMarkerFunc:  func(string) error { return fmt.Errorf("disk full") },
+				optCtx:               optCtx,
+				operations: []operations.Operation{
+					&mockOperation{name: "push", conditionType: "PushCondition", shouldUpdateStatusBeforeContinue: true, executeFunc: func(_ context.Context, _ *operations.Context) error {
+						return nil
+					}},
+				},
+			}
+			err := agent.Run(ctx)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("done marker"))
+
+			latestDPU := &provisioningv1.DPU{}
+			Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "test-dpu"}, latestDPU)).To(Succeed())
+			Expect(latestDPU.Status.AgentStatus).NotTo(BeNil())
+			Expect(latestDPU.Status.AgentStatus.Version).To(Equal(agentStatusVersion()))
+			Expect(latestDPU.Status.AgentStatus.AppliedFlavorResourceVersion).To(BeEmpty())
+			Expect(agent.optCtx.Status.GetLocal().AppliedFlavorResourceVersion).To(BeEmpty())
+
+			agent.writeDoneMarkerFunc = noopMarker
+			Expect(agent.Run(ctx)).To(Succeed())
+			Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "test-dpu"}, latestDPU)).To(Succeed())
+			Expect(latestDPU.Status.AgentStatus.Version).To(Equal(agentStatusVersion()))
+			Expect(latestDPU.Status.AgentStatus.AppliedFlavorResourceVersion).To(Equal("42"))
+		})
+
+		It("does not start a second Run while still in DPU Config", func() {
+			dpu := newTestDPU()
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			runs := 0
+			agent := newAgent(fakeClient, func(_ context.Context, _ *operations.Context) error {
+				runs++
+				return nil
+			})
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			Expect(runs).To(Equal(0))
+		})
+
+		It("starts one Run when phase returns to DPU Config after Ready", func() {
+			dpu := newTestDPU()
+			dpu.Status.Phase = provisioningv1.DPUReady
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			runs := 0
+			agent := newAgent(fakeClient, func(_ context.Context, optCtx *operations.Context) error {
+				runs++
+				Expect(optCtx.ReapplyConfig).To(BeTrue())
+				return nil
+			})
+			agent.optCtx.DPUFlavor.ResourceVersion = "99"
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			Expect(runs).To(Equal(0))
+
+			setDPUConfigPhase(fakeClient)
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			Expect(runs).To(Equal(1))
+			Expect(agent.optCtx.ReapplyConfig).To(BeFalse())
+			Expect(agent.reconfig).To(Equal(reconfigIdle))
+
+			latestDPU := &provisioningv1.DPU{}
+			Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "test-dpu"}, latestDPU)).To(Succeed())
+			Expect(latestDPU.Status.AgentStatus.Version).To(Equal(agentStatusVersion()))
+			Expect(latestDPU.Status.AgentStatus.AppliedFlavorResourceVersion).To(Equal("99"))
+		})
+
+		It("starts one Run when phase returns to DPU Config after Host Network Configuration", func() {
+			dpu := newTestDPU()
+			dpu.Status.Phase = provisioningv1.DPUHostNetworkConfiguration
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			runs := 0
+			agent := newAgent(fakeClient, func(_ context.Context, _ *operations.Context) error {
+				runs++
+				return nil
+			})
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			setDPUConfigPhase(fakeClient)
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			Expect(runs).To(Equal(1))
+		})
+
+		It("starts one Run when the watch event left DPU Config and the live object is already DPU Config", func() {
+			dpu := newTestDPU()
+			dpu.ResourceVersion = "12"
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			runs := 0
+			agent := newAgent(fakeClient, func(_ context.Context, _ *operations.Context) error {
+				runs++
+				return nil
+			})
+			event := dpu.DeepCopy()
+			event.ResourceVersion = "10"
+			event.Status.Phase = provisioningv1.DPUNodeEffect
+			Expect(reconcile(agent, fakeClient, event)).To(Succeed())
+			Expect(runs).To(Equal(1))
+			Expect(agent.reconfig).To(Equal(reconfigIdle))
+		})
+
+		It("does not start another Run for a queued post-config event from the same return", func() {
+			dpu := newTestDPU()
+			dpu.ResourceVersion = "12"
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			runs := 0
+			agent := newAgent(fakeClient, func(_ context.Context, _ *operations.Context) error {
+				runs++
+				return nil
+			})
+			first := dpu.DeepCopy()
+			first.ResourceVersion = "10"
+			first.Status.Phase = provisioningv1.DPUNodeEffect
+			Expect(reconcile(agent, fakeClient, first)).To(Succeed())
+			Expect(runs).To(Equal(1))
+
+			queued := dpu.DeepCopy()
+			queued.ResourceVersion = "11"
+			queued.Status.Phase = provisioningv1.DPUNodeEffect
+			Expect(reconcile(agent, fakeClient, queued)).To(Succeed())
+			Expect(runs).To(Equal(1))
+			Expect(agent.reconfig).To(Equal(reconfigIdle))
+
+			next := dpu.DeepCopy()
+			next.ResourceVersion = "1000"
+			next.Status.Phase = provisioningv1.DPUNodeEffect
+			Expect(reconcile(agent, fakeClient, next)).To(Succeed())
+			Expect(runs).To(Equal(2))
+		})
+
+		It("does not start a Run when the watch event is Rebooting and the live object is DPU Config", func() {
+			dpu := newTestDPU()
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			runs := 0
+			agent := newAgent(fakeClient, func(_ context.Context, _ *operations.Context) error {
+				runs++
+				return nil
+			})
+			event := dpu.DeepCopy()
+			event.Status.Phase = provisioningv1.DPURebooting
+			Expect(reconcile(agent, fakeClient, event)).To(Succeed())
+			Expect(runs).To(Equal(0))
+			Expect(agent.reconfig).To(Equal(reconfigIdle))
+		})
+
+		It("does not arm from a watch event for a different DPU UID", func() {
+			dpu := newTestDPU()
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			runs := 0
+			agent := newAgent(fakeClient, func(_ context.Context, _ *operations.Context) error {
+				runs++
+				return nil
+			})
+			event := dpu.DeepCopy()
+			event.UID = "other-uid"
+			event.Status.Phase = provisioningv1.DPUNodeEffect
+			Expect(reconcile(agent, fakeClient, event)).To(Succeed())
+			Expect(runs).To(Equal(0))
+			Expect(agent.reconfig).To(Equal(reconfigIdle))
+		})
+
+		It("starts one Run when phase returns to DPU Config after Node Effect", func() {
+			dpu := newTestDPU()
+			dpu.Status.Phase = provisioningv1.DPUNodeEffect
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			runs := 0
+			agent := newAgent(fakeClient, func(_ context.Context, _ *operations.Context) error {
+				runs++
+				return nil
+			})
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			setDPUConfigPhase(fakeClient)
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			Expect(runs).To(Equal(1))
+		})
+
+		It("does not start a Run when Rebooting returns to DPU Config", func() {
+			dpu := newTestDPU()
+			dpu.Status.Phase = provisioningv1.DPURebooting
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			runs := 0
+			agent := newAgent(fakeClient, func(_ context.Context, _ *operations.Context) error {
+				runs++
+				return nil
+			})
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			setDPUConfigPhase(fakeClient)
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			Expect(runs).To(Equal(0))
+		})
+
+		It("does not start a third Run while still in DPU Config after a successful reconfig", func() {
+			dpu := newTestDPU()
+			dpu.Status.Phase = provisioningv1.DPUReady
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			runs := 0
+			agent := newAgent(fakeClient, func(_ context.Context, _ *operations.Context) error {
+				runs++
+				return nil
+			})
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			setDPUConfigPhase(fakeClient)
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			Expect(runs).To(Equal(1))
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			Expect(runs).To(Equal(1))
+		})
+
+		It("retries after a failed reconfig Run", func() {
+			dpu := newTestDPU()
+			dpu.Status.Phase = provisioningv1.DPUReady
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			runs := 0
+			agent := newAgent(fakeClient, func(_ context.Context, _ *operations.Context) error {
+				runs++
+				return nil
+			})
+			agent.writeDoneMarkerFunc = func(string) error { return fmt.Errorf("disk full") }
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			setDPUConfigPhase(fakeClient)
+			err := reconcile(agent, fakeClient)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("in-place reconfig Run"))
+			Expect(runs).To(Equal(1))
+			Expect(agent.reconfig).To(Equal(reconfigArmed))
+
+			agent.writeDoneMarkerFunc = noopMarker
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			Expect(runs).To(Equal(2))
+		})
+
+		It("does not start an in-place Run on the same reconcile as a UID change", func() {
+			dpu := newTestDPU()
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			runs := 0
+			agent := newAgent(fakeClient, func(_ context.Context, _ *operations.Context) error {
+				runs++
+				return nil
+			})
+			agent.reconfig = reconfigArmed
+			agent.seenResourceVersion = 50
+			agent.optCtx.Options.DPUUID = "old-uid"
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			Expect(runs).To(Equal(0))
+			Expect(agent.reconfig).To(Equal(reconfigArmed))
+			Expect(agent.seenResourceVersion).To(Equal(uint64(50)))
+		})
+
+		It("does not clear an in-flight reconfig when the UID changes", func() {
+			dpu := newTestDPU()
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			runs := 0
+			agent := newAgent(fakeClient, func(_ context.Context, _ *operations.Context) error {
+				runs++
+				return nil
+			})
+			agent.reconfig = reconfigRunning
+			agent.seenResourceVersion = 50
+			agent.optCtx.ReapplyConfig = true
+			agent.optCtx.Options.DPUUID = "old-uid"
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			Expect(runs).To(Equal(0))
+			Expect(agent.reconfig).To(Equal(reconfigRunning))
+			Expect(agent.optCtx.ReapplyConfig).To(BeTrue())
+			Expect(agent.seenResourceVersion).To(Equal(uint64(50)))
+		})
+
+		It("skips a concurrent reconcile while a reconfig Run is in flight", func() {
+			dpu := newTestDPU()
+			dpu.Status.Phase = provisioningv1.DPUReady
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			var runs atomic.Int32
+			started := make(chan struct{})
+			release := make(chan struct{})
+			agent := newAgent(fakeClient, func(_ context.Context, _ *operations.Context) error {
+				runs.Add(1)
+				close(started)
+				<-release
+				return nil
+			})
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			setDPUConfigPhase(fakeClient)
+
+			done := make(chan struct{})
+			go func() {
+				defer GinkgoRecover()
+				Expect(reconcile(agent, fakeClient)).To(Succeed())
+				close(done)
+			}()
+			Eventually(started).Should(BeClosed())
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			Expect(runs.Load()).To(Equal(int32(1)))
+			close(release)
+			Eventually(done).Should(BeClosed())
 		})
 	})
 })

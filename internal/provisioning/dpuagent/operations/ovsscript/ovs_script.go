@@ -31,9 +31,13 @@ import (
 
 const (
 	defaultScriptPath = "/opt/dpf/ovs.sh"
-	// defaultDoneMarker records OVS script completion (with boot ID) under /run so agent
-	// restarts can use to detect previous successful runs and skip it until the next reboot clears that directory.
-	defaultDoneMarker = "/run/dpu-agent/ovs-script-complete"
+	// DoneMarkerFileName is the OVS completion marker under the agent run directory.
+	// An in-place reconfig Run() deletes it so the script runs again in the same boot.
+	// A process restart keeps the marker and skips until reboot.
+	DoneMarkerFileName = "ovs-script-complete"
+	// defaultDoneMarker records OVS script completion under /run so an agent restart
+	// after a crash can skip until the next reboot clears that directory.
+	defaultDoneMarker = "/run/dpu-agent/" + DoneMarkerFileName
 )
 
 type RunOVSScript struct {
@@ -91,7 +95,8 @@ func (o *RunOVSScript) markerPath() string {
 }
 
 // completedThisBoot reports whether the OVS script already ran successfully this boot,
-// so later agent restarts can skip it until the next reboot.
+// so later agent restarts can skip it until the next reboot. In-place reconfig
+// removes the marker before Run() so this returns false for that Run().
 func (o *RunOVSScript) completedThisBoot() bool {
 	_, err := os.Stat(o.markerPath())
 	return err == nil

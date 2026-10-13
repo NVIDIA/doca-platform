@@ -22,7 +22,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -56,8 +58,10 @@ import (
 	dpuutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
+	"github.com/nvidia/doca-platform/internal/release"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
@@ -66,6 +70,10 @@ import (
 )
 
 const defaultRetryInterval = 30 * time.Second
+
+// version overrides the DPF release reported on agentStatus.version. Packaging
+// leaves it empty; the agent then reads /etc/dpf-version. Tests set it directly.
+var version string
 
 const bootIDFile = "/proc/sys/kernel/random/boot_id"
 
@@ -86,7 +94,30 @@ type DPUAgent struct {
 	writeDoneMarkerFunc func(dir string) error
 	// removeDoneMarkerFunc, if non-nil, replaces the default marker remover (tests only).
 	removeDoneMarkerFunc func(dir string) error
+
+	mu sync.Mutex
+	// reconfig is process-local: idle / armed / running. See reconfigState.
+	reconfig reconfigState
+	// seenResourceVersion is the highest DPU resourceVersion already observed.
+	// A queued watch event at or below it cannot arm another Run.
+	seenResourceVersion uint64
 }
+
+// reconfigState is the in-place reconfig machine. One value at a time.
+//
+//	idle    — process start, or a reconfig Run finished while still in DPU Config.
+//	          A DPU Config event does not start Run().
+//	armed   — the watch saw a phase that means DPU Config already finished.
+//	          Rebooting does not arm. The next DPU Config event starts Run().
+//	running — that Run() is in progress. Context.ReapplyConfig is true only for
+//	          this call. After an OS reboot the agent is a new process and starts idle.
+type reconfigState int
+
+const (
+	reconfigIdle reconfigState = iota
+	reconfigArmed
+	reconfigRunning
+)
 
 func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
 	// The DPU Agent executes operations sequentially in the order defined in the slice.
@@ -136,12 +167,8 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 	}
 	d.optCtx.Status.Start(ctx)
 	d.optCtx.RebootMethodDiscovery = d.resolveRebootMethodDiscovery(ctx)
-	d.optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
-		*s = provisioningv1.AgentStatus{
-			Conditions:   []metav1.Condition{},
-			RebootMethod: ptr.To(provisioningv1.RebootMethodUnknown),
-		}
-	})
+	d.optCtx.ResetPerRunState()
+	d.resetStatusForRun()
 	if err := d.initCurrentBootID(); err != nil {
 		return err
 	}
@@ -151,6 +178,13 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 	}
 	if err := removeMarker(d.runDir); err != nil {
 		return fmt.Errorf("failed to remove stale done marker: %w", err)
+	}
+	// Only an in-process reconfig deletes the OVS marker. A process restart in
+	// the same boot must keep it so the script stays once-per-boot.
+	if d.optCtx.ReapplyConfig {
+		if err := removeOVSScriptMarker(d.runDir); err != nil {
+			return fmt.Errorf("failed to remove stale OVS script marker: %w", err)
+		}
 	}
 	for _, op := range d.operations {
 		if err := d.checkBootstrapAbort(ctx); err != nil {
@@ -202,6 +236,11 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 	if err := writeMarker(d.runDir); err != nil {
 		return fmt.Errorf("failed to write done marker: %w", err)
 	}
+	if rv := d.optCtx.DPUFlavor.GetResourceVersion(); rv != "" {
+		d.optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+			s.AppliedFlavorResourceVersion = rv
+		})
+	}
 	if err := d.optCtx.Status.UpdateRemote(true); err != nil {
 		return abortIfDPUGone(err)
 	}
@@ -238,19 +277,20 @@ func (d *DPUAgent) StartDPUReconcileLoop(ctx context.Context) {
 }
 
 // runDPUReconcileLoop blocks until ctx is canceled. Reconciles the owned DPU on Kubernetes
-// watch wakeups (pre-install NVCONFIG at Config FW Parameters during reprovision).
+// watch wakeups: pre-install NVCONFIG when the DPU is recreated, and an in-place Run()
+// when phase returns to DPU Config after leaving it.
 func (d *DPUAgent) runDPUReconcileLoop(ctx context.Context) error {
 	klog.Info("Starting owned DPU reconcile loop")
 	// Pre-install reports to a recreated DPU, so it has its own status manager without the
 	// startup UID check. Operations reach it through the pre-install context's Status.
 	preInstallStatus := statusmanager.New(d.optCtx.Client, d.optCtx.Options.DPUNamespace, d.optCtx.Options.DPUName, "")
-	trigger := func() {
+	trigger := func(event *provisioningv1.DPU) {
 		defer func() {
 			if r := recover(); r != nil {
 				klog.Errorf("owned DPU reconcile panicked, recovered: %v", r)
 			}
 		}()
-		if err := d.reconcileOwnedDPU(ctx, preInstallStatus); err != nil {
+		if err := d.reconcileOwnedDPU(ctx, preInstallStatus, event); err != nil {
 			klog.Warningf("owned DPU reconcile: %v", err)
 		}
 	}
@@ -262,7 +302,7 @@ func (d *DPUAgent) runDPUReconcileLoop(ctx context.Context) error {
 	return dpuagentclient.RunDPUWatch(ctx, d.optCtx.WatchClient, d.optCtx.Options.DPUNamespace, d.optCtx.Options.DPUName, trigger)
 }
 
-func (d *DPUAgent) reconcileOwnedDPU(ctx context.Context, preInstallStatus *statusmanager.Manager) error {
+func (d *DPUAgent) reconcileOwnedDPU(ctx context.Context, preInstallStatus *statusmanager.Manager, event *provisioningv1.DPU) error {
 	dpu := &provisioningv1.DPU{}
 	if err := d.optCtx.Client.Get(ctx, client.ObjectKey{Namespace: d.optCtx.Options.DPUNamespace, Name: d.optCtx.Options.DPUName}, dpu); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -290,8 +330,139 @@ func (d *DPUAgent) reconcileOwnedDPU(ctx context.Context, preInstallStatus *stat
 				return err
 			}
 		}
+		return nil
+	}
+	return d.maybeReconfigRun(ctx, dpu, event)
+}
+
+// objectResourceVersion parses metadata.resourceVersion. Kubernetes assigns these
+// as decimal integers. An empty or non-numeric value cannot be ordered.
+func objectResourceVersion(obj metav1.Object) (uint64, bool) {
+	if obj == nil {
+		return 0, false
+	}
+	rv, err := strconv.ParseUint(obj.GetResourceVersion(), 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return rv, true
+}
+
+// phaseLeftDPUConfig reports phases that mean DPU Config already finished.
+// Rebooting is excluded: the host reboot path returns to DPU Config inside the
+// original Run(), and must not start another one. Early phases (Initializing,
+// Error, Deleting) are excluded so a return to DPU Config from those is not an
+// in-place reconfig. Node Effect is included so the in-place jump arms the next
+// DPU Config entry.
+func phaseLeftDPUConfig(phase provisioningv1.DPUPhase) bool {
+	switch phase {
+	case provisioningv1.DPUReady,
+		provisioningv1.DPUHostNetworkConfiguration,
+		provisioningv1.DPUClusterConfig,
+		provisioningv1.DPUServiceReadiness,
+		provisioningv1.DPUNodeEffectRemoval,
+		provisioningv1.DPUNodeEffect:
+		return true
+	default:
+		return false
+	}
+}
+
+// maybeReconfigRun starts one in-place Run() when the DPU returns to DPU Config
+// after the watch has seen a post-config phase (idle → armed → running).
+// It does not start a second Run while one is already in progress.
+// event is the DPU from the watch event, or nil for the reconcile that runs
+// before a watch session. A post-config phase on that event arms the Run even
+// when the live GET has already returned to DPU Config. The event must be newer
+// than a resourceVersion already observed, so queued snapshots from the same
+// return do not start another Run.
+func (d *DPUAgent) maybeReconfigRun(ctx context.Context, dpu *provisioningv1.DPU, event *provisioningv1.DPU) error {
+	d.mu.Lock()
+	if d.reconfig == reconfigRunning {
+		d.mu.Unlock()
+		return nil
+	}
+	// Same UID only: a stale event for a replaced DPU must not arm the new one.
+	// Compare the event before raising the high-water mark, then record both
+	// versions. A queued Node Effect event behind the GET must still arm once;
+	// a later event at or below the observed version must not.
+	if event != nil && event.UID == dpu.UID {
+		if rv, ok := objectResourceVersion(event); ok && rv > d.seenResourceVersion {
+			if phaseLeftDPUConfig(event.Status.Phase) {
+				d.reconfig = reconfigArmed
+			}
+			d.seenResourceVersion = rv
+		}
+	}
+	if rv, ok := objectResourceVersion(dpu); ok && rv > d.seenResourceVersion {
+		d.seenResourceVersion = rv
+	}
+	if phaseLeftDPUConfig(dpu.Status.Phase) {
+		d.reconfig = reconfigArmed
+		d.mu.Unlock()
+		return nil
+	}
+	if dpu.Status.Phase != provisioningv1.DPUConfig || d.reconfig != reconfigArmed {
+		d.mu.Unlock()
+		return nil
+	}
+	d.reconfig = reconfigRunning
+	d.optCtx.ReapplyConfig = true
+	d.mu.Unlock()
+
+	var err error
+	defer func() {
+		d.mu.Lock()
+		d.optCtx.ReapplyConfig = false
+		if err != nil {
+			d.reconfig = reconfigArmed
+		} else {
+			d.reconfig = reconfigIdle
+		}
+		d.mu.Unlock()
+	}()
+
+	klog.Infof("DPU reconcile: in-place reconfig Run() for DPU %s/%s", dpu.Namespace, dpu.Name)
+	err = d.Run(ctx)
+	if err != nil {
+		return fmt.Errorf("in-place reconfig Run: %w", err)
 	}
 	return nil
+}
+
+// agentStatusVersion is the DPF version reported on agentStatus.version.
+// Presence is the capability signal. The value is not compared.
+func agentStatusVersion() string {
+	if v := strings.TrimSpace(version); v != "" {
+		return v
+	}
+	// The packaged agent reads /etc/dpf-version. Without that file, DPFVersion is
+	// v0.1.0, which is still non-empty, so this agent is not treated as an old agent.
+	return release.DPFVersion()
+}
+
+// resetStatusForRun replaces in-memory AgentStatus at the start of Run().
+// Version is set on every Run so the first status push of the process, including
+// a push before Run() succeeds, reports a capable agent. An in-process reconfig
+// keeps the CA trust-bundle fields and the SPIRE attestor condition: those loops
+// run outside the operation list and would otherwise lose their in-memory state.
+func (d *DPUAgent) resetStatusForRun() {
+	prev := d.optCtx.Status.GetLocal()
+	next := provisioningv1.AgentStatus{
+		Conditions:   []metav1.Condition{},
+		RebootMethod: ptr.To(provisioningv1.RebootMethodUnknown),
+		Version:      agentStatusVersion(),
+	}
+	if d.optCtx.ReapplyConfig {
+		next.TrustBundleHash = prev.TrustBundleHash
+		next.TrustBundleLastUpdateTime = prev.TrustBundleLastUpdateTime
+		if cond := meta.FindStatusCondition(prev.Conditions, provisioningv1.DPUAgentConditionSPIREWorkloadAttestorEnabled); cond != nil {
+			next.Conditions = append(next.Conditions, *cond)
+		}
+	}
+	d.optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+		*s = next
+	})
 }
 
 func (d *DPUAgent) snapshotPreInstallCtx(dpu *provisioningv1.DPU, status *statusmanager.Manager) operations.Context {
@@ -417,6 +588,18 @@ func removeDoneMarker(dir string) error {
 	markerPath := filepath.Join(dir, doneMarkerFileName)
 	if err := os.Remove(markerPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove stale done marker %s: %w", markerPath, err)
+	}
+	return nil
+}
+
+// removeOVSScriptMarker deletes ovs-script-complete under dir so an in-process
+// reconfig runs the OVS script again. Run() calls it only when ReapplyConfig is
+// set. A process restart in the same boot must not call it: the marker stays,
+// and the script remains once-per-boot.
+func removeOVSScriptMarker(dir string) error {
+	markerPath := filepath.Join(dir, ovsscript.DoneMarkerFileName)
+	if err := os.Remove(markerPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove stale OVS script marker %s: %w", markerPath, err)
 	}
 	return nil
 }

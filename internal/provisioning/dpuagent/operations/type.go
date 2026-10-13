@@ -119,6 +119,12 @@ type Context struct {
 	// SRIOVState holds sriovconfig plans for the shared device-plugin config.
 	// Untyped to avoid an import cycle; only sriovconfig.sharedState should read it.
 	SRIOVState any
+
+	// ReapplyConfig is true only while an in-process reconfig Run() is executing.
+	// NVConfig must not skip on a leftover NVConfigApplied=True, and StartKubelet
+	// must not bounce kubelet. A process restart leaves this false, so the
+	// same-boot NVConfigApplied skip still applies after an OS reboot.
+	ReapplyConfig bool
 }
 
 // DeferredNVConfigParam is one deferred mlxconfig set request for a PCI device.
@@ -155,6 +161,19 @@ func (ctx *Context) GetResolvedNVConfig() *ResolvedNVConfig {
 // cache errors (same semantics as NSPorts).
 func (ctx *Context) SetResolvedNVConfig(r *ResolvedNVConfig) {
 	ctx.resolvedNVConfig = r
+}
+
+// ResetPerRunState clears caches that must not leak from a previous Run() into a
+// later in-process Run(). Port discovery caches are kept: the NICs do not change.
+func (ctx *Context) ResetPerRunState() {
+	if ctx == nil {
+		return
+	}
+	ctx.SetResolvedNVConfig(nil)
+	ctx.GrubConfigChanged = false
+	ctx.DeferredNVConfigParams = nil
+	ctx.SRIOVState = nil
+	ctx.CondMessage = ""
 }
 
 // NSPorts returns the discovered N/S NIC ports, running discovery on the first

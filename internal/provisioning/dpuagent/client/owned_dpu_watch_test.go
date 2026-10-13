@@ -71,7 +71,8 @@ func TestRunDPUWatchUsesNameScopedWatch(t *testing.T) {
 		},
 	}
 
-	err := RunDPUWatch(ctx, wc, "dpf-operator-system", "worker1-mt2323xz09fx", func() {
+	err := RunDPUWatch(ctx, wc, "dpf-operator-system", "worker1-mt2323xz09fx", func(event *provisioningv1.DPU) {
+		require.Nil(t, event)
 		reconcileCalls++
 	})
 	require.ErrorIs(t, err, context.Canceled)
@@ -95,7 +96,7 @@ func TestRunDPUWatchReturnsWatchSetupError(t *testing.T) {
 		},
 	}
 
-	err := RunDPUWatch(context.Background(), wc, "dpf-operator-system", "worker1-mt2323xz09fx", func() {})
+	err := RunDPUWatch(context.Background(), wc, "dpf-operator-system", "worker1-mt2323xz09fx", func(*provisioningv1.DPU) {})
 	require.ErrorContains(t, err, "watch DPUs in namespace dpf-operator-system")
 	require.ErrorIs(t, err, wantErr)
 }
@@ -135,7 +136,7 @@ func TestRunDPUWatchReopensOnChannelClose(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- RunDPUWatch(ctx, wc, "dpf-operator-system", "target-dpu", func() {
+		done <- RunDPUWatch(ctx, wc, "dpf-operator-system", "target-dpu", func(*provisioningv1.DPU) {
 			reconcileCalls.Add(1)
 		})
 	}()
@@ -154,4 +155,74 @@ func TestRunDPUWatchReopensOnChannelClose(t *testing.T) {
 	require.ErrorIs(t, <-done, context.Canceled)
 	require.GreaterOrEqual(t, watchCalls.Load(), int32(2))
 	require.GreaterOrEqual(t, reconcileCalls.Load(), int32(2), "reconcile should trigger after watch reopen")
+}
+
+func TestRunDPUWatchPassesEventDPU(t *testing.T) {
+	t.Parallel()
+
+	fw := watch.NewFake()
+	defer fw.Stop()
+
+	watchReady := make(chan struct{})
+	baseClient := fake.NewClientBuilder().Build()
+	wc := &watchClient{
+		Client: baseClient,
+		watchFn: func(_ context.Context, _ crclient.ObjectList, _ ...crclient.ListOption) (watch.Interface, error) {
+			select {
+			case <-watchReady:
+			default:
+				close(watchReady)
+			}
+			return fw, nil
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	got := make(chan *provisioningv1.DPU, 2)
+	done := make(chan error, 1)
+	go func() {
+		done <- RunDPUWatch(ctx, wc, "dpf-operator-system", "target-dpu", func(event *provisioningv1.DPU) {
+			got <- event
+			if event != nil {
+				cancel()
+			}
+		})
+	}()
+
+	require.Eventually(t, func() bool {
+		select {
+		case event := <-got:
+			return event == nil
+		default:
+			return false
+		}
+	}, time.Second, 10*time.Millisecond, "pre-watch reconcile should pass a nil DPU")
+	require.Eventually(t, func() bool {
+		select {
+		case <-watchReady:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, 10*time.Millisecond)
+
+	eventDPU := &provisioningv1.DPU{}
+	eventDPU.Name = "target-dpu"
+	eventDPU.Namespace = "dpf-operator-system"
+	eventDPU.Status.Phase = provisioningv1.DPUNodeEffect
+	go fw.Modify(eventDPU)
+
+	var observed *provisioningv1.DPU
+	require.Eventually(t, func() bool {
+		select {
+		case observed = <-got:
+			return observed != nil
+		default:
+			return false
+		}
+	}, time.Second, 10*time.Millisecond, "watch event should pass the event DPU")
+	require.Equal(t, provisioningv1.DPUNodeEffect, observed.Status.Phase)
+	require.ErrorIs(t, <-done, context.Canceled)
 }

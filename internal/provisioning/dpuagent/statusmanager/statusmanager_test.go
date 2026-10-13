@@ -424,6 +424,29 @@ var _ = Describe("Manager", func() {
 			Expect(status.PreInstall.Conditions).To(HaveLen(1))
 		})
 
+		It("copies version and applied flavor resourceVersion, and leaves them when a later snapshot omits them", func() {
+			m := New(c, testDPUNamespace, testDPUName, testDPUUID)
+			startManager(m)
+			m.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+				s.Version = "1"
+				s.AppliedFlavorResourceVersion = "99"
+			})
+			Expect(m.UpdateRemote(true)).To(Succeed())
+
+			status := getAgentStatus(c)
+			Expect(status.Version).To(Equal("1"))
+			Expect(status.AppliedFlavorResourceVersion).To(Equal("99"))
+
+			m.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+				s.Version = ""
+				s.AppliedFlavorResourceVersion = ""
+			})
+			Expect(m.UpdateRemote(true)).To(Succeed())
+			status = getAgentStatus(c)
+			Expect(status.Version).To(Equal("1"))
+			Expect(status.AppliedFlavorResourceVersion).To(Equal("99"))
+		})
+
 		It("clears hostOSInit when it is nil in memory", func() {
 			m := New(c, testDPUNamespace, testDPUName, testDPUUID)
 			startManager(m)

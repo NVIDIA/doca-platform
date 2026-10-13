@@ -568,12 +568,10 @@ func removeForeverPending(
 	if lastObserved == nil {
 		return mlxfwresetOutput, false
 	}
-	// This usually means provisioning already finished and dpu-agent restarted
-	// while the DPU OS did not reboot. In that case we must avoid shutting
-	// down the DPU OS again. This can also happen if the agent flow is interrupted
-	// unexpectedly during provisioning, but that path is considered extremely
-	// unlikely and is not handled separately. If it happens, reprovisioning resolves the issue.
-	if lastObserved.BootID == optCtx.CurrentBootID {
+	// A process restart on the same boot must not turn a leftover reset_needed into
+	// another shutdown. In-place reconfig continues into the pending-parameter
+	// filter so a parameter the live flavor still requests can select a reboot.
+	if lastObserved.BootID == optCtx.CurrentBootID && !optCtx.ReapplyConfig {
 		return mlxfwresetOutput, true
 	}
 	lastPending := []provisioningv1.PendingNVConfigEntry{}
