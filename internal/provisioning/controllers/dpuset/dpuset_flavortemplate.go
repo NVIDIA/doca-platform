@@ -97,16 +97,21 @@ func (r *DPUSetReconciler) reconcileDPUFlavorTemplateCondition(ctx context.Conte
 type templateEval struct {
 	// disrupt is true when the DPU must be reprovisioned (delete + recreate).
 	disrupt bool
-	// renderErr is set when rendering/admission failed for an existing DPU. The DPU
-	// is NOT disrupted; the failure is surfaced as a non-disruptive annotation.
+	// renderErr is set when rendering, admission, or an unowned-flavor refusal failed for
+	// an existing DPU. The DPU is NOT disrupted; the failure is surfaced as a
+	// non-disruptive annotation and the rest of the set is still reconciled.
 	renderErr error
 	// equalButStale is true when the render matches the existing generated DPUFlavor
 	// but the DPU's hash labels are out of date and should be patched.
 	equalButStale bool
+	// configOnly is the admitted spec to write onto the existing generated DPUFlavor
+	// when the render differs only in fields admission allows updating. It is not
+	// disruptive and does not start an in-place reconfig round.
+	configOnly *provisioningv1.DPUFlavorSpec
 	// clearRenderFailed is true when the DPU still carries an update-time render failure
 	// whose inputs are no longer live, so the annotations must be removed.
 	clearRenderFailed bool
-	// live label values, valid only when equalButStale is true.
+	// live label values, valid when equalButStale is true or configOnly is set.
 	liveTemplateHash string
 	liveValuesHash   string
 }
@@ -314,9 +319,13 @@ func (r *DPUSetReconciler) evalTemplateDPU(ctx context.Context, dpuSet provision
 
 // classifyRenderedDrift decides whether a freshly rendered flavor diverges from the stored
 // generated flavor. It normalizes the rendered spec through a server-side dry-run CREATE so it
-// carries the same CRD defaults as the stored flavor (which was read back defaulted); The dry-run
+// carries the same CRD defaults as the stored flavor (which was read back defaulted). The dry-run
 // also runs admission, so an un-admittable render is surfaced as a non-disruptive render failure
 // (DPUFlavorRendered=False) instead of tearing the DPU down and failing on recreate.
+//
+// When the defaulted spec differs, a dry-run UPDATE of the generated flavor distinguishes a
+// config-only change (admission accepts: patch the flavor in place) from an immutable or quota
+// change (admission rejects: reprovision, and do not patch).
 func (r *DPUSetReconciler) classifyRenderedDrift(ctx context.Context, rendered, generated *provisioningv1.DPUFlavor,
 	dpu provisioningv1.DPU, liveHash, liveValuesHash string) templateEval {
 	logger := log.FromContext(ctx)
@@ -343,13 +352,46 @@ func (r *DPUSetReconciler) classifyRenderedDrift(ctx context.Context, rendered, 
 	if reflect.DeepEqual(probe.Spec, generated.Spec) {
 		return templateEval{equalButStale: true, liveTemplateHash: liveHash, liveValuesHash: liveValuesHash}
 	}
-	return templateEval{disrupt: true}
+
+	// A flavor without the generated-by label is user-authored: create treated AlreadyExists
+	// as success, and adoptGeneratedFlavor will not claim it. Decide that here, before the
+	// dry-run update. Admission accepting would patch a flavor this DPUSet does not own, and
+	// admission rejecting would reprovision the DPU onto that same flavor (recreate treats
+	// AlreadyExists as success and stamps the new hashes). Either outcome is permanent, so
+	// surface it as a non-disruptive render failure. Returning the refusal from the apply
+	// loop would fail this reconcile and skip every later DPU in the set.
+	if generated.Labels[cutil.GeneratedByLabel] != cutil.GeneratedByDPUFlavorTemplate {
+		return templateEval{
+			renderErr: fmt.Errorf("refusing to update DPUFlavor %s/%s: %s label is not %s",
+				generated.Namespace, generated.Name, cutil.GeneratedByLabel, cutil.GeneratedByDPUFlavorTemplate),
+			liveTemplateHash: liveHash,
+			liveValuesHash:   liveValuesHash,
+		}
+	}
+
+	// The rendered spec is valid to create. Ask admission whether it is also valid to apply
+	// onto the flavor this DPU already has. A rejection here is an immutable or quota change:
+	// reprovision, and leave the stored flavor untouched.
+	updated := generated.DeepCopy()
+	updated.Spec = probe.Spec
+	if err := r.Update(ctx, updated, client.DryRunAll); err != nil {
+		if apierrors.IsInvalid(err) || apierrors.IsBadRequest(err) {
+			logger.Info("Rendered DPUFlavor update rejected by admission; DPU will be reprovisioned",
+				"DPU", dpu.Name, "error", err.Error())
+			return templateEval{disrupt: true}
+		}
+		logger.Error(err, "Dry-run update of rendered DPUFlavor failed; not disrupting DPU", "DPU", dpu.Name)
+		return templateEval{}
+	}
+	desired := updated.Spec
+	return templateEval{configOnly: &desired, liveTemplateHash: liveHash, liveValuesHash: liveValuesHash}
 }
 
 // reconcileTemplateDPUs handles the non-disruptive side effects of template evaluation for
-// existing template-mode DPUs: patching stale hash labels when the render is unchanged, and
-// recording render-failure annotations when an update render fails. Disruptive divergence is
-// left to the strategy (rolloutRolling / onDelete) via computeDPUDrift.
+// existing template-mode DPUs: patching the generated DPUFlavor when the render differs only
+// in admitted fields, patching stale hash labels, and recording render-failure annotations
+// when an update render fails. A config-only flavor update does not set dpuReconfig.inProgress.
+// Disruptive divergence is left to the strategy (rolloutRolling / onDelete) via computeDPUDrift.
 //
 // The label/annotation patches here are persisted for the NEXT reconcile; they intentionally do
 // not refresh the caller's dpuMap snapshot. In-reconcile decisions use templateEvals, never the
@@ -386,6 +428,14 @@ func (r *DPUSetReconciler) reconcileTemplateDPUs(ctx context.Context, dpuSet *pr
 			if err := r.patchDPUTemplateLabels(ctx, &dpu, eval.liveTemplateHash, eval.liveValuesHash); err != nil {
 				return err
 			}
+		case eval.configOnly != nil:
+			// Hash labels stay stale if the flavor update fails, so the next reconcile retries.
+			if err := r.updateGeneratedFlavorSpec(ctx, &dpu, *eval.configOnly); err != nil {
+				return err
+			}
+			if err := r.patchDPUTemplateLabels(ctx, &dpu, eval.liveTemplateHash, eval.liveValuesHash); err != nil {
+				return err
+			}
 		case eval.clearRenderFailed:
 			logger.Info("DPUFlavorTemplate inputs match the DPU's last successful render; clearing stale render-failed annotation",
 				"DPU", fmt.Sprintf("%s/%s", dpu.Namespace, dpu.Name))
@@ -393,6 +443,33 @@ func (r *DPUSetReconciler) reconcileTemplateDPUs(ctx context.Context, dpuSet *pr
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+// updateGeneratedFlavorSpec writes an admitted config-only spec onto the DPU's generated
+// DPUFlavor. Metadata, including ownerRef and the protective finalizer, is left unchanged.
+// classifyRenderedDrift already refuses a flavor without the generated-by label. This check
+// is the write-time backstop for a label removed between eval and patch, so a race cannot
+// change a flavor this DPUSet does not own. The caller leaves the hash labels stale and retries.
+func (r *DPUSetReconciler) updateGeneratedFlavorSpec(ctx context.Context, dpu *provisioningv1.DPU, spec provisioningv1.DPUFlavorSpec) error {
+	key := types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUFlavor}
+	flavor := &provisioningv1.DPUFlavor{}
+	if err := r.Get(ctx, key, flavor); err != nil {
+		return fmt.Errorf("get generated DPUFlavor %s: %w", key, err)
+	}
+	if reflect.DeepEqual(flavor.Spec, spec) {
+		return nil
+	}
+	if flavor.Labels[cutil.GeneratedByLabel] != cutil.GeneratedByDPUFlavorTemplate {
+		return fmt.Errorf("refusing to update DPUFlavor %s: %s label is not %s", key, cutil.GeneratedByLabel, cutil.GeneratedByDPUFlavorTemplate)
+	}
+	// Patch only the spec. Merge patch nulls fields the new spec drops, and the
+	// resourceVersion precondition keeps a concurrent adopt from losing ownerRef or finalizer.
+	base := flavor.DeepCopy()
+	flavor.Spec = spec
+	if err := r.Patch(ctx, flavor, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+		return fmt.Errorf("patch generated DPUFlavor %s: %w", key, err)
 	}
 	return nil
 }
