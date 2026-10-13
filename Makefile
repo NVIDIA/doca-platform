@@ -1445,19 +1445,21 @@ DPUAGENT_RPM = $(LOCALBIN)/dpu-agent-$(DPUAGENT_PKG_VERSION)-1.aarch64.rpm
 .PHONY: deb-dpuagent
 deb-dpuagent: $(NFPM) ## Package dpuagent binary as .deb (expects binary to exist).
 	$(Q) cp $(DPUAGENT_BINARY) $(DPUAGENT_PKG_DIR)/dpuagent
+	$(Q) printf '%s\n' $(TAG) > $(DPUAGENT_PKG_DIR)/dpf-version
 	$(Q) cd $(DPUAGENT_PKG_DIR) && \
 		VERSION=$(DPUAGENT_PKG_VERSION) \
 		$(NFPM) package --packager deb --target $(DPUAGENT_DEB)
-	$(Q) rm -f $(DPUAGENT_PKG_DIR)/dpuagent
+	$(Q) rm -f $(DPUAGENT_PKG_DIR)/dpuagent $(DPUAGENT_PKG_DIR)/dpf-version
 	@echo "Packaged $(DPUAGENT_DEB)"
 
 .PHONY: rpm-dpuagent
 rpm-dpuagent: $(NFPM) ## Package dpuagent binary as .rpm (expects binary to exist).
 	$(Q) cp $(DPUAGENT_BINARY) $(DPUAGENT_PKG_DIR)/dpuagent
+	$(Q) printf '%s\n' $(TAG) > $(DPUAGENT_PKG_DIR)/dpf-version
 	$(Q) cd $(DPUAGENT_PKG_DIR) && \
 		VERSION=$(DPUAGENT_PKG_VERSION) \
 		$(NFPM) package --packager rpm --target $(DPUAGENT_RPM)
-	$(Q) rm -f $(DPUAGENT_PKG_DIR)/dpuagent
+	$(Q) rm -f $(DPUAGENT_PKG_DIR)/dpuagent $(DPUAGENT_PKG_DIR)/dpf-version
 	@echo "Packaged $(DPUAGENT_RPM)"
 
 # dpu_hw SPIRE NodeAttestor plugin (agent runs on the DPU, server on the SPIRE server).

@@ -119,6 +119,10 @@ var _ = Describe("Kubelet", func() {
 			})).To(BeTrue())
 		})
 
+		It("should be skipped during in-process reconfig", func() {
+			Expect((&StartKubelet{}).ShouldSkip(&operations.Context{ReapplyConfig: true})).To(BeTrue())
+		})
+
 		It("should disable and start kubelet", func() {
 			var executedCmds []string
 			operation := &StartKubelet{

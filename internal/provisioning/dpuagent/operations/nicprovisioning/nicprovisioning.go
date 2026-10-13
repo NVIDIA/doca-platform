@@ -104,6 +104,11 @@ type NICProvisioning struct {
 	ccTerminationCh <-chan string
 
 	runtimeConfigWG sync.WaitGroup
+	// dmsMu serializes Execute's DMS work with runtime-config applies.
+	dmsMu sync.Mutex
+	// reapplyCh is created when the runtime loop starts. Execute signals it so
+	// an in-process reconfig reapplies runtime config after NVConfig.
+	reapplyCh chan struct{}
 }
 
 func (n *NICProvisioning) Name() string {
@@ -135,6 +140,13 @@ func (n *NICProvisioning) Execute(execCtx context.Context, optCtx *operations.Co
 	}
 	klog.InfoS("NIC provisioning", "dpu", optCtx.Options.DPUName, "namespace", optCtx.Options.DPUNamespace,
 		"bfbRegistryURL", optCtx.Options.BFBRegistryURL)
+
+	n.dmsMu.Lock()
+	defer n.dmsMu.Unlock()
+	// Signal even when Execute fails, so a runtime-config condition left False can recover.
+	// The channel is nil until the runtime loop starts, so the first Run() is a no-op.
+	defer n.requestRuntimeReapply()
+
 	// Tell the controller this boot needs E/W NIC runtime config, and drop the result
 	// of a previous boot so DPU Config cannot leave the phase before this run's first
 	// runtime config pass finishes.
@@ -242,6 +254,8 @@ func (n *NICProvisioning) applyNVConfigAndUpdateStatus(execCtx context.Context, 
 // applyRuntimeConfigAndRecordFailures applies runtime config to devices and records the
 // devices whose apply failed in n.failedDevices, which the loop retries.
 func (n *NICProvisioning) applyRuntimeConfigAndRecordFailures(execCtx context.Context, optCtx *operations.Context, devices []nicconfigurationv1alpha1.NicDevice) {
+	n.dmsMu.Lock()
+	defer n.dmsMu.Unlock()
 	applyRuntimeConfig := n.applyRuntimeConfig
 	if n.applyRuntimeConfigFn != nil {
 		applyRuntimeConfig = n.applyRuntimeConfigFn
@@ -929,9 +943,22 @@ func (n *NICProvisioning) StartRuntimeConfigLoop(ctx context.Context, optCtx *op
 		klog.Info("NIC provisioning: no local DMS session; skip runtime configuration loop")
 		return
 	}
+	n.reapplyCh = make(chan struct{}, 1)
 	n.runtimeConfigWG.Add(1)
 	klog.Info("NIC provisioning: starting runtime configuration loop")
 	go n.runRuntimeConfigLoop(ctx, optCtx)
+}
+
+// requestRuntimeReapply asks the runtime loop to apply after Execute. No-op
+// until StartRuntimeConfigLoop has created the channel (the first Run).
+func (n *NICProvisioning) requestRuntimeReapply() {
+	if n.reapplyCh == nil {
+		return
+	}
+	select {
+	case n.reapplyCh <- struct{}{}:
+	default:
+	}
 }
 
 func (n *NICProvisioning) runRuntimeConfigLoop(ctx context.Context, optCtx *operations.Context) {
@@ -1009,6 +1036,13 @@ func (n *NICProvisioning) runRuntimeConfigLoop(ctx context.Context, optCtx *oper
 		case <-ctx.Done():
 			klog.Info("NIC provisioning: runtime configuration loop stopped")
 			return
+		case <-n.reapplyCh:
+			klog.Info("NIC provisioning: reapplying runtime config after in-process Execute")
+			n.applyRuntimeConfigAndRecordFailures(ctx, optCtx, n.discoveredNICDevices)
+			if err := n.updateRuntimeConfigStatus(optCtx); err != nil {
+				klog.ErrorS(err, "failed to update NIC runtime config status after in-process Execute")
+			}
+			armFailedRetry()
 		// case <-ticker.C:
 		// 	n.applyRuntimeConfigAndRecordFailures(ctx, optCtx, n.discoveredNICDevices)
 		// 	if err := n.updateRuntimeConfigStatus(optCtx); err != nil {

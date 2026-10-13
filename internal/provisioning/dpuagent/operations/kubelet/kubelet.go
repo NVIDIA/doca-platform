@@ -133,7 +133,11 @@ func (s *StartKubelet) ConditionType() string {
 }
 
 func (s *StartKubelet) ShouldSkip(ctx *operations.Context) bool {
-	return ctx.Options.SkipStartKubelet
+	if ctx.Options.SkipStartKubelet {
+		return true
+	}
+	// Kubelet is already running from the first Run(). disable+start would bounce it.
+	return ctx.ReapplyConfig
 }
 
 func (s *StartKubelet) ShouldUpdateStatusBeforeContinue(ctx *operations.Context) bool {

@@ -1098,3 +1098,17 @@ func TestNICProvisioning_configureRestrictedMode(t *testing.T) {
 		assert.Contains(t, err.Error(), "boom stderr")
 	})
 }
+
+func TestRequestRuntimeReapplyDoesNotBlock(t *testing.T) {
+	op := &NICProvisioning{}
+	op.requestRuntimeReapply()
+
+	op.reapplyCh = make(chan struct{}, 1)
+	op.requestRuntimeReapply()
+	op.requestRuntimeReapply()
+	select {
+	case <-op.reapplyCh:
+	default:
+		t.Fatal("expected one buffered reapply signal")
+	}
+}

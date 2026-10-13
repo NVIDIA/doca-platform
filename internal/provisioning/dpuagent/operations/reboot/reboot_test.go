@@ -1256,6 +1256,41 @@ var _ = Describe("Reboot", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(*m).To(Equal(provisioningv1.RebootMethodNoAction))
 			})
+
+			It("keeps a same-boot pending parameter that the live flavor still requests during reconfig", func() {
+				device := testPCIAddress0
+				optCtx := &operations.Context{
+					ReapplyConfig: true,
+					CurrentBootID: "boot-1",
+					LatestDPU: &provisioningv1.DPU{
+						Status: provisioningv1.DPUStatus{
+							AgentStatus: &provisioningv1.AgentStatus{
+								LastObservedPendingNVConfig: &provisioningv1.PendingNVConfigState{
+									BootID: "boot-1",
+									Devices: []provisioningv1.PendingNVConfigDevice{{
+										Device: device,
+										Entries: []provisioningv1.PendingNVConfigEntry{{
+											Name: "PARAM_A", Current: "0", NextBoot: "1",
+										}},
+									}},
+								},
+							},
+						},
+					},
+				}
+				desired := desiredNVConfigParameters{device: []string{"PARAM_A"}}
+				out := mlxfwresetStatusJSON{
+					ResetNeeded: ptr.To(true),
+					PendingNvconfigParameters: pendingParamList{{
+						Name: "PARAM_A", Current: "0", NextBoot: "1",
+					}},
+				}
+				filtered, ignore := removeForeverPending(optCtx, desired, device, out)
+				Expect(ignore).To(BeFalse())
+				Expect(filtered.PendingNvconfigParameters).To(ConsistOf(provisioningv1.PendingNVConfigEntry{
+					Name: "PARAM_A", Current: "0", NextBoot: "1",
+				}))
+			})
 		})
 
 		It("getRebootMethod returns error when no PCI devices are found", func() {

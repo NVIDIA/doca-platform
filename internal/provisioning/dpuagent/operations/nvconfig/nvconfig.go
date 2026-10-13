@@ -64,6 +64,12 @@ func (n *ConfigureNVConfig) ShouldSkip(ctx *operations.Context) bool {
 	if ctx.Options.SkipNVConfig {
 		return true
 	}
+	// In-process reconfig must apply the live flavor even when a previous Run()
+	// already reported NVConfigApplied=True. After an OS reboot this flag is false,
+	// so the same-boot skip below still avoids a redundant mlxconfig set.
+	if ctx.ReapplyConfig {
+		return false
+	}
 	if ctx.LatestDPU == nil {
 		klog.Error("Latest DPU not retrieved, will return error during execution. (this should never happen)")
 		return false

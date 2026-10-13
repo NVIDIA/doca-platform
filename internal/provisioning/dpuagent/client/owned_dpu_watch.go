@@ -27,12 +27,15 @@ import (
 
 // RunDPUWatch triggers onReconcile once immediately, then whenever a watch event may
 // affect the owning DPU (matched by name in namespace).
-func RunDPUWatch(ctx context.Context, c crclient.WithWatch, namespace, dpuName string, onReconcile func()) error {
+// The pre-watch call passes a nil DPU. A watch event passes the DPU from that event
+// so a phase the following GET no longer shows can still be observed.
+func RunDPUWatch(ctx context.Context, c crclient.WithWatch, namespace, dpuName string, onReconcile func(event *provisioningv1.DPU)) error {
 watchLoop:
 	for {
 		// Reconcile once before each watch session so changes that happened
-		// between watch reconnects are observed.
-		onReconcile()
+		// between watch reconnects are observed. There is no event object for
+		// that call.
+		onReconcile(nil)
 		w, err := c.Watch(
 			ctx,
 			&provisioningv1.DPUList{},
@@ -54,11 +57,11 @@ watchLoop:
 					w.Stop()
 					continue watchLoop
 				}
-				_, ok = event.Object.(*provisioningv1.DPU)
+				dpu, ok := event.Object.(*provisioningv1.DPU)
 				if !ok {
 					continue
 				}
-				onReconcile()
+				onReconcile(dpu)
 			}
 		}
 	}

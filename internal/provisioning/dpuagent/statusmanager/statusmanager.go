@@ -245,6 +245,14 @@ func mergeAgentStatus(dst, s *provisioningv1.AgentStatus) {
 	if s.KubeletVersion != nil {
 		dst.KubeletVersion = s.KubeletVersion
 	}
+	// Empty means "not set in this snapshot". A restart must not clear a version
+	// already reported, and a failed Run must not clear the last applied flavor.
+	if s.Version != "" {
+		dst.Version = s.Version
+	}
+	if s.AppliedFlavorResourceVersion != "" {
+		dst.AppliedFlavorResourceVersion = s.AppliedFlavorResourceVersion
+	}
 	if s.TrustBundleHash != nil {
 		dst.TrustBundleHash = s.TrustBundleHash
 	}

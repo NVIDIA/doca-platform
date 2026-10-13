@@ -23,5 +23,11 @@ contents:
     file_info:
       mode: 0644
 
+  # Same path release.DPFVersion reads. Not a config file: an upgrade must replace it.
+  - src: ./dpf-version
+    dst: /etc/dpf-version
+    file_info:
+      mode: 0644
+
 scripts:
   preremove: scripts/prerm.sh
