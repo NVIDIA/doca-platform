@@ -18,8 +18,10 @@ package redfish
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -27,14 +29,22 @@ import (
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-const waitingForBMCRShimReason = "WaitingForBMCRShim"
-const armPowerOnWaitTimeout = 5 * time.Minute
+const (
+	waitingForBMCRShimReason  = "WaitingForBMCRShim"
+	bmcRShimWaitTimeoutReason = "BMCRShimWaitTimeout"
+	armPowerOnTimeoutReason   = "DPUArmPowerOnTimeout"
+	lowPowerStandbyReason     = "BMCRShimUnavailableLowPowerStandby"
+
+	armPowerOnWaitTimeout = 5 * time.Minute
+	bmcRShimWaitTimeout   = 10 * time.Minute
+)
 
 func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
@@ -119,6 +129,8 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		return *state, err
 	}
 	if isDPUArmPoweredOff(system) {
+		// A powered-off Arm invalidates any earlier BMC RShim request.
+		removeCondition(state, provisioningv1.DPUCondFWBMCRShimRequested)
 		_, armCond := cutil.GetDPUCondition(state, provisioningv1.DPUCondFWArmRestarted.String())
 		switch {
 		case armCond == nil || armCond.Status != metav1.ConditionTrue:
@@ -130,10 +142,16 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 			logger.Info("successfully reset DPU Arm. Waiting for DPU Arm to become powered on...")
 			cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondFWArmRestarted, "", ""))
 		case time.Since(armCond.LastTransitionTime.Time) > armPowerOnWaitTimeout:
-			err := fmt.Errorf("DPU Arm did not power on within %s after ForceRestart (PowerState %q, Status.State %q)",
+			// Not terminal: an operator chassis reset must let provisioning continue by itself.
+			reason := armPowerOnTimeoutReason
+			msg := fmt.Sprintf("DPU Arm did not power on within %s after ForceRestart (PowerState %q, Status.State %q)",
 				armPowerOnWaitTimeout, system.PowerState, system.Status.State)
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "DPUArmPowerOnTimeout", err.Error()))
-			state.Phase = provisioningv1.DPUError
+			// LowPowerStandby is a BF3-only state; BF4 returns before this phase's RShim logic.
+			if isLowPowerStandby(system) {
+				reason = lowPowerStandbyReason
+				msg += "; BMC RShim cannot attach in LowPowerStandby. Collect a BMC dump, then run 'ipmitool chassis power reset' on the DPU BMC; provisioning resumes automatically"
+			}
+			markStalled(ctx, state, dpu, ctrlCtx, reason, msg)
 			return *state, nil
 		}
 		// Keep the message empty/stable so LastTransitionTime stays anchored for the timeout.
@@ -142,7 +160,9 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		return *state, nil
 	}
 
-	if !isWaitingForBMCRShim(state) {
+	// The marker gates the ownership-changing calls (once per request) and anchors the wait timer.
+	_, requested := cutil.GetDPUCondition(state, provisioningv1.DPUCondFWBMCRShimRequested.String())
+	if requested == nil {
 		// Note: this does NOT terminate running rshim on host
 		resp, _, err := client.DisableHostRshim()
 		if err != nil {
@@ -166,6 +186,8 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToEnableBMCRshim", err.Error()))
 			return *state, err
 		}
+		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondFWBMCRShimRequested, "", ""))
+		_, requested = cutil.GetDPUCondition(state, provisioningv1.DPUCondFWBMCRShimRequested.String())
 	}
 
 	enabled, _, err := client.GetBMCRShimEnabled(ctx)
@@ -176,18 +198,50 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 	}
 	if !enabled {
 		// BMC enable is asynchronous: PATCH success does not mean BmcRShimEnabled is true yet.
+		if time.Since(requested.LastTransitionTime.Time) > bmcRShimWaitTimeout {
+			markStalled(ctx, state, dpu, ctrlCtx, bmcRShimWaitTimeoutReason,
+				fmt.Sprintf("BMC RShim not enabled %s after the request (PowerState %q, Status.State %q, OemLastState %q); see the Zero Trust RShim troubleshooting guide",
+					bmcRShimWaitTimeout, system.PowerState, system.Status.State, system.BootProgress.OemLastState))
+			return *state, nil
+		}
 		waitErr := fmt.Errorf("waiting for BMC RShim to become enabled")
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), waitErr, waitingForBMCRShimReason, ""))
 		return *state, nil
 	}
 	logger.Info("BMC RShim is enabled")
+	// Reset the per-attempt markers so a reprovision starts clean (a stale ArmRestarted would skip the ForceRestart).
+	for _, t := range []provisioningv1.DPUConditionType{provisioningv1.DPUCondFWBMCRShimStalled, provisioningv1.DPUCondFWBMCRShimRequested, provisioningv1.DPUCondFWArmRestarted} {
+		removeCondition(state, t)
+	}
 
 	state.Phase = provisioningv1.DPUPrepareBFB
 	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondFWConfigured, "", ""))
 	return *state, nil
 }
 
-func isWaitingForBMCRShim(state *provisioningv1.DPUStatus) bool {
-	_, cond := cutil.GetDPUCondition(state, provisioningv1.DPUCondFWConfigured.String())
-	return cond != nil && cond.Reason == waitingForBMCRShimReason
+// isLowPowerStandby matches the signature seen when the BMC cannot attach rshim (redmine 5261461/5263635).
+// It is a diagnostic-only subset of isDPUArmPoweredOff (no behavior depends on it) and only runs for BF3: BF4 returns before this phase's rshim logic.
+func isLowPowerStandby(system *rc.SystemInfo) bool {
+	return system != nil && system.PowerState == "Paused" && system.Status.State == "StandbyOffline" &&
+		system.BootProgress.OemLastState == "LowPowerStandby"
+}
+
+// removeCondition removes every condition of the given type from the DPU status.
+func removeCondition(state *provisioningv1.DPUStatus, condType provisioningv1.DPUConditionType) {
+	state.Conditions = slices.DeleteFunc(state.Conditions, func(c metav1.Condition) bool { return c.Type == condType.String() })
+}
+
+// markStalled flags a wait that exceeded its bound without leaving the phase, and emits a Warning event once per reason.
+func markStalled(ctx context.Context, state *provisioningv1.DPUStatus, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, reason, msg string) {
+	_, prev := cutil.GetDPUCondition(state, provisioningv1.DPUCondFWBMCRShimStalled.String())
+	isNew := prev == nil || prev.Reason != reason
+	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondFWBMCRShimStalled, reason, msg))
+	err := errors.New(msg)
+	cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, reason, msg))
+	if isNew {
+		log.FromContext(ctx).Error(err, "Config FW Parameters stalled", "reason", reason)
+		if ctrlCtx.Recorder != nil {
+			ctrlCtx.Recorder.Event(dpu, corev1.EventTypeWarning, reason, msg)
+		}
+	}
 }

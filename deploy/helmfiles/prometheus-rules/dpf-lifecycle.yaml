@@ -25,6 +25,15 @@ spec:
           annotations:
             summary: "DPU {{ $labels.namespace }}/{{ $labels.name }} stuck in phase {{ $labels.phase }}"
             description: "DPU has been in non-terminal phase {{ $labels.phase }} for more than 1 hour. Check the provisioning controller logs and the host node's rshim/BFB pipeline."
+        - alert: DPFDPUBMCRShimStalled
+          expr: max by(namespace, name) (dpf_dpu_status_conditions{type="FWBMCRShimStalled", status="True"}) == 1
+          for: 5m
+          labels:
+            severity: warning
+            service: doca-platform-framework
+          annotations:
+            summary: "DPU {{ $labels.namespace }}/{{ $labels.name }} is waiting for BMC RShim"
+            description: "Config FW Parameters is stalled: the DPU Arm did not power on or BMC RShim did not become enabled within its bound. The DPU stays in the phase and resumes by itself once recovered. See the FWConfigured condition message and the Zero Trust RShim troubleshooting guide (for LowPowerStandby, a BMC chassis power reset is the validated recovery)."
         - alert: DPFDPUErrorPhase
           expr: max by(namespace, name) (dpf_dpu_status_phase{phase="Error"}) == 1
           for: 15m

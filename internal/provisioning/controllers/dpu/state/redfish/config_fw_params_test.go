@@ -31,6 +31,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -247,25 +248,116 @@ var _ = Describe("ConfigFWParameters", func() {
 			Expect(status.Phase).To(Equal(provisioningv1.DPUPrepareBFB))
 		})
 
-		It("goes to DPUError when the Arm does not power on within the timeout", func() {
+		expireCond := func(dpu *provisioningv1.DPU, t provisioningv1.DPUConditionType, age time.Duration) {
+			// SetDPUCondition always stamps LastTransitionTime with now, so expired
+			// conditions have to be injected directly.
+			dpu.Status.Conditions = append(dpu.Status.Conditions, metav1.Condition{
+				Type:               t.String(),
+				Status:             metav1.ConditionTrue,
+				Reason:             t.String(),
+				LastTransitionTime: metav1.NewTime(time.Now().Add(-age)),
+			})
+		}
+
+		It("stalls without leaving the phase when the Arm does not power on within the timeout", func() {
 			mockServer, dpu := prepareBF3Fixture()
 			defer mockServer.Stop()
 			mockServer.SetSystemPowerState("Paused")
-			// SetDPUCondition always stamps LastTransitionTime with now, so the expired
-			// restart condition has to be injected directly.
-			dpu.Status.Conditions = append(dpu.Status.Conditions, metav1.Condition{
-				Type:               provisioningv1.DPUCondFWArmRestarted.String(),
-				Status:             metav1.ConditionTrue,
-				Reason:             provisioningv1.DPUCondFWArmRestarted.String(),
-				LastTransitionTime: metav1.NewTime(time.Now().Add(-2 * armPowerOnWaitTimeout)),
-			})
+			expireCond(dpu, provisioningv1.DPUCondFWArmRestarted, 2*armPowerOnWaitTimeout)
+			expireCond(dpu, provisioningv1.DPUCondFWBMCRShimRequested, 2*bmcRShimWaitTimeout)
 
 			status, err := ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(status.Phase).To(Equal(provisioningv1.DPUError))
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfigFWParameters))
 			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondFWConfigured.String())
 			Expect(cond).NotTo(BeNil())
-			Expect(cond.Reason).To(Equal("DPUArmPowerOnTimeout"))
+			Expect(cond.Reason).To(Equal(armPowerOnTimeoutReason))
+			_, requested := cutil.GetDPUCondition(&status, provisioningv1.DPUCondFWBMCRShimRequested.String())
+			Expect(requested).To(BeNil(), "a powered-off Arm invalidates the earlier RShim request")
+			_, stalled := cutil.GetDPUCondition(&status, provisioningv1.DPUCondFWBMCRShimStalled.String())
+			Expect(stalled).NotTo(BeNil())
+			Expect(stalled.Status).To(Equal(metav1.ConditionTrue))
+		})
+
+		It("reports LowPowerStandby after the restart timeout and recovers once the Arm is powered", func() {
+			mockServer, dpu := prepareBF3Fixture()
+			defer mockServer.Stop()
+			mockServer.SetSystemPowerState("Paused")
+			mockServer.SetOemLastState("LowPowerStandby")
+			expireCond(dpu, provisioningv1.DPUCondFWArmRestarted, 2*armPowerOnWaitTimeout)
+
+			recorder := record.NewFakeRecorder(10)
+			ctrlCtx := &dutil.ControllerContext{Client: k8sClient, Recorder: recorder}
+			status, err := ConfigFWParameters(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfigFWParameters))
+			Expect(mockServer.GetLastResetType()).To(BeEmpty(), "no second ForceRestart")
+			Expect(recorder.Events).To(Receive(ContainSubstring(lowPowerStandbyReason)))
+			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondFWConfigured.String())
+			Expect(cond.Reason).To(Equal(lowPowerStandbyReason))
+			Expect(cond.Message).To(ContainSubstring("chassis power reset"))
+
+			// Operator chassis reset: the Arm boots (still StandbyOffline, other boot state), then is On.
+			mockServer.SetOemLastState("OSStart")
+			dpu.Status = status
+			status, err = ConfigFWParameters(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfigFWParameters))
+			Expect(mockServer.GetLastResetType()).To(BeEmpty())
+
+			mockServer.SetSystemPowerState("")
+			mockServer.SetBMCRShimEnabled(true)
+			dpu.Status = status
+			status, err = ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUPrepareBFB))
+			for _, t := range []provisioningv1.DPUConditionType{provisioningv1.DPUCondFWBMCRShimStalled, provisioningv1.DPUCondFWBMCRShimRequested, provisioningv1.DPUCondFWArmRestarted} {
+				_, c := cutil.GetDPUCondition(&status, t.String())
+				Expect(c).To(BeNil(), t.String())
+			}
+		})
+
+		It("requests BMC RShim once and never re-sends it, even after a transient read failure", func() {
+			mockServer, dpu := prepareBF3Fixture()
+			defer mockServer.Stop()
+
+			status, err := ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mockServer.GetBMCRShimPatchCount()).To(Equal(1))
+
+			mockServer.SetBMCRShimGetError(true)
+			dpu.Status = status
+			status, err = ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).To(HaveOccurred())
+
+			mockServer.SetBMCRShimGetError(false)
+			dpu.Status = status
+			_, err = ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mockServer.GetBMCRShimPatchCount()).To(Equal(1))
+		})
+
+		It("stalls a prolonged BMC RShim wait without re-sending, and advances once enabled", func() {
+			mockServer, dpu := prepareBF3Fixture()
+			defer mockServer.Stop()
+			expireCond(dpu, provisioningv1.DPUCondFWBMCRShimRequested, 2*bmcRShimWaitTimeout)
+
+			status, err := ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfigFWParameters))
+			Expect(mockServer.GetBMCRShimPatchCount()).To(BeZero())
+			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondFWConfigured.String())
+			Expect(cond.Reason).To(Equal(bmcRShimWaitTimeoutReason))
+			_, stalled := cutil.GetDPUCondition(&status, provisioningv1.DPUCondFWBMCRShimStalled.String())
+			Expect(stalled).NotTo(BeNil())
+
+			mockServer.SetBMCRShimEnabled(true)
+			dpu.Status = status
+			status, err = ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUPrepareBFB))
+			_, stalled = cutil.GetDPUCondition(&status, provisioningv1.DPUCondFWBMCRShimStalled.String())
+			Expect(stalled).To(BeNil())
 		})
 
 		It("returns FailedToGetBMCRShim when GET Oem/Nvidia fails while waiting", func() {

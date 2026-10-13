@@ -36,6 +36,13 @@ Collect diagnostic dumps from DPF infrastructure components, such as BlueField B
 * Kubernetes resources do not contain enough information to debug a provisioning or reboot issue
 * You need Redfish task artifacts and the raw BMC dump archive for escalation
 
+### [Zero Trust BMC RShim troubleshooting](zero-trust-rshim.md)
+Diagnose and recover a BlueField-3 DPU stuck in Config FW Parameters waiting for BMC RShim.
+
+**Use when:**
+
+* A DPU stays in `Config FW Parameters` with `WaitingForBMCRShim`, `DPUArmPowerOnTimeout` or `BMCRShimUnavailableLowPowerStandby`
+
 ### [Using the DOCA Debug Image](doca-debug-image.md)
 How to start a privileged DOCA debug container with host networking and use release-aligned DOCA tooling for debugging.
 

@@ -102,6 +102,7 @@ Manifest: [`dpf-lifecycle.yaml`](https://github.com/NVIDIA/doca-platform/blob/pu
 | Alert | Severity | For | Fires when |
 |-------|----------|-----|------------|
 | `DPFDPUProvisioningStuck` | warning | 1h | A DPU sits in a non-terminal phase (not `Ready`, `Error`, or `Deleting`) |
+| `DPFDPUBMCRShimStalled` | warning | 5m | Config FW Parameters is stalled waiting for the DPU Arm or BMC RShim (see [Zero Trust BMC RShim troubleshooting](../../troubleshooting/zero-trust-rshim.md)) |
 | `DPFDPUErrorPhase` | warning | 15m | A DPU is in the terminal `Error` phase (provisioning failed) |
 | `DPFDPUDeletingStuck` | warning | 1h | A DPU sits in the `Deleting` phase |
 | `DPFBFBStuck` | warning | 30m | A BFB sits in the `Downloading` or `Error` phase |
