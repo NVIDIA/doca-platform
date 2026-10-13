@@ -108,6 +108,8 @@ const (
 	DPUCondInterfaceInitialized   DPUConditionType = "InterfaceInitialized"
 	DPUCondFWConfigured           DPUConditionType = "FWConfigured"
 	DPUCondFWArmRestarted         DPUConditionType = "FWArmRestarted"
+	DPUCondFWBMCRShimRequested    DPUConditionType = "FWBMCRShimRequested"
+	DPUCondFWBMCRShimStalled      DPUConditionType = "FWBMCRShimStalled"
 	DPUCondFwBundleSubmitted      DPUConditionType = "FwBundleSubmitted"
 	DPUCondFwBundleUpdated        DPUConditionType = "FwBundleUpdated"
 	DPUCondFwBundleActivated      DPUConditionType = "FwBundleActivated"

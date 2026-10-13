@@ -92,6 +92,7 @@ type RedfishMockServer struct {
 	virtualMediaInserted            map[string]bool          // Inserted state per VirtualMedia ID (IMAGE, CONFIG)
 	time                            string                   // BMC time
 	bmcRShimEnabled                 bool                     // BmcRShimEnabled reported by GET Oem/Nvidia
+	bmcRShimPatchCount              atomic.Int32             // number of enable PATCHes received
 	bmcRShimGetError                bool                     // Simulate GET Oem/Nvidia error for testing
 	lastForceUpdate                 atomic.Bool              // ForceUpdate requested by the most recent PLDM multipart update, read from the test goroutine
 	armPoweredOff                   atomic.Bool              // DPU Arm reported as shut down by GET System, toggled by NvidiaChassis.Reset from another goroutine
@@ -1463,6 +1464,11 @@ func (r *RedfishMockServer) SetBMCRShimEnabled(enabled bool) {
 	r.bmcRShimEnabled = enabled
 }
 
+// GetBMCRShimPatchCount returns how many BMC RShim enable PATCHes the mock received.
+func (r *RedfishMockServer) GetBMCRShimPatchCount() int {
+	return int(r.bmcRShimPatchCount.Load())
+}
+
 // SetBMCRShimGetError enables or disables GET Oem/Nvidia error simulation for testing.
 func (r *RedfishMockServer) SetBMCRShimGetError(simulateError bool) {
 	r.bmcRShimGetError = simulateError
@@ -1504,6 +1510,7 @@ func (r *RedfishMockServer) handleBMCRShimOem(w http.ResponseWriter, req *http.R
 			},
 		})
 	case http.MethodPatch:
+		r.bmcRShimPatchCount.Add(1)
 		writeJSONResponse(w, map[string]interface{}{
 			"@Message.ExtendedInfo": []map[string]interface{}{
 				{
