@@ -75,7 +75,7 @@ wait_for_dpus() {
 		--for=condition=OSInstalled
 
 	echo "Waiting for DPUs to join the cluster..."
-	kubectl wait --namespace "${NAMESPACE}" --timeout=20m dpu --all \
+	kubectl wait --namespace "${NAMESPACE}" --timeout=30m dpu --all \
 		--for=condition=DPUClusterReady
 
 	echo "Waiting for DPUs to be operationally ready..."
