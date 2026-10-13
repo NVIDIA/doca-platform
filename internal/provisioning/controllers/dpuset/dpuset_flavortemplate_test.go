@@ -42,6 +42,8 @@ const (
 	tmplNS = "tmpl-ns"
 	// okBody renders a valid DPUFlavor whose bfcfgParameters depend on a value.
 	okBody = "spec:\n  bfcfgParameters:\n    - \"mtu={{ .mtu }}\"\n"
+	// sysctlBody renders a config-only sysctl parameter.
+	sysctlBody = "spec:\n  sysctl:\n    parameters:\n      - \"net.ipv4.ip_forward={{ .fwd }}\"\n"
 	// errBody references a missing key and fails under missingkey=error.
 	errBody = "spec:\n  bfcfgParameters:\n    - \"{{ .missing }}\"\n"
 )
@@ -334,6 +336,45 @@ var _ = Describe("DPUSet template mode", func() {
 			return r, *dpuSet, dpu
 		}
 
+		// buildExistingRejectingFlavorUpdate is buildExisting whose DPUFlavor updates fail with
+		// updateErr, so a dry-run update can stand in for admission without a real API server.
+		buildExistingRejectingFlavorUpdate := func(flavorSpec *provisioningv1.DPUFlavorSpec, body, values string, updateErr error) (*DPUSetReconciler, provisioningv1.DPUSet, provisioningv1.DPU) {
+			template := newTemplate(body)
+			device := newDevice(values)
+			flavor := &provisioningv1.DPUFlavor{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpu-0",
+					Namespace: tmplNS,
+					Labels:    map[string]string{cutil.GeneratedByLabel: cutil.GeneratedByDPUFlavorTemplate},
+				},
+				Spec: *flavorSpec,
+			}
+			reject := interceptor.Funcs{
+				Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					if _, ok := obj.(*provisioningv1.DPUFlavor); ok {
+						return updateErr
+					}
+					return c.Update(ctx, obj, opts...)
+				},
+			}
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(template, device, flavor).
+				WithInterceptorFuncs(reject).Build()
+			r := &DPUSetReconciler{Client: c, Scheme: scheme}
+			dpuSet := newTemplateDPUSet()
+			dpu := provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "dpu-0", Namespace: tmplNS,
+					Labels: map[string]string{
+						cutil.DPUFlavorTemplateNameLabel: "tmpl",
+						cutil.DPUFlavorTemplateHashLabel: "stale",
+						cutil.DPUDeviceValuesHashLabel:   "stale",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{DPUDeviceName: "dev", DPUFlavor: "dpu-0"},
+			}
+			return r, *dpuSet, dpu
+		}
+
 		It("is a no-op when recorded hashes already match the live inputs", func() {
 			r, dpuSet, dpu := buildExisting(nil, okBody, `{"mtu":9000}`)
 			// Stamp the DPU with the live hashes so the fast path returns early.
@@ -383,11 +424,75 @@ var _ = Describe("DPUSet template mode", func() {
 			Expect(eval.disrupt).To(BeTrue())
 		})
 
-		It("disrupts when the re-render differs from the generated flavor", func() {
+		It("disrupts when a dry-run update rejects an immutable spec change", func() {
+			// bfcfgParameters is immutable. The fake client does not run admission, so the
+			// interceptor stands in for the CRD rule and the validating webhook.
 			stale := &provisioningv1.DPUFlavorSpec{BFCfgParameters: []string{"mtu=1500"}}
-			r, dpuSet, dpu := buildExisting(stale, okBody, `{"mtu":9000}`)
+			r, dpuSet, dpu := buildExistingRejectingFlavorUpdate(
+				stale, okBody, `{"mtu":9000}`,
+				apierrors.NewBadRequest("bfcfgParameters is immutable"),
+			)
 			eval := r.evalTemplateDPU(ctx, dpuSet, dpu)
 			Expect(eval.disrupt).To(BeTrue())
+			Expect(eval.configOnly).To(BeNil())
+			Expect(eval.renderErr).NotTo(HaveOccurred())
+		})
+
+		It("surfaces a non-disruptive render failure when the stored flavor is not generated", func() {
+			// A user-authored flavor of the generated name must not be patched, and must not
+			// be treated as disruptive: recreate would adopt AlreadyExists and stamp hashes
+			// against a flavor this DPUSet does not own.
+			stale := &provisioningv1.DPUFlavorSpec{}
+			stale.Sysctl.Parameters = []string{"net.ipv4.ip_forward=0"}
+			r, dpuSet, dpu := buildExisting(stale, sysctlBody, `{"fwd":"1"}`)
+			flavor := &provisioningv1.DPUFlavor{}
+			Expect(r.Get(ctx, types.NamespacedName{Namespace: tmplNS, Name: "dpu-0"}, flavor)).To(Succeed())
+			delete(flavor.Labels, cutil.GeneratedByLabel)
+			Expect(r.Update(ctx, flavor)).To(Succeed())
+
+			eval := r.evalTemplateDPU(ctx, dpuSet, dpu)
+			Expect(eval.disrupt).To(BeFalse())
+			Expect(eval.configOnly).To(BeNil())
+			Expect(eval.renderErr).To(HaveOccurred())
+			Expect(eval.renderErr.Error()).To(ContainSubstring(cutil.GeneratedByLabel))
+		})
+
+		It("does not disrupt an immutable change on a flavor that is not generated", func() {
+			stale := &provisioningv1.DPUFlavorSpec{BFCfgParameters: []string{"mtu=1500"}}
+			r, dpuSet, dpu := buildExisting(stale, okBody, `{"mtu":9000}`)
+			flavor := &provisioningv1.DPUFlavor{}
+			Expect(r.Get(ctx, types.NamespacedName{Namespace: tmplNS, Name: "dpu-0"}, flavor)).To(Succeed())
+			delete(flavor.Labels, cutil.GeneratedByLabel)
+			Expect(r.Update(ctx, flavor)).To(Succeed())
+
+			eval := r.evalTemplateDPU(ctx, dpuSet, dpu)
+			Expect(eval.disrupt).To(BeFalse())
+			Expect(eval.configOnly).To(BeNil())
+			Expect(eval.renderErr).To(HaveOccurred())
+		})
+
+		It("reports a config-only update when admission accepts the rendered spec", func() {
+			stale := &provisioningv1.DPUFlavorSpec{}
+			stale.Sysctl.Parameters = []string{"net.ipv4.ip_forward=0"}
+			r, dpuSet, dpu := buildExisting(stale, sysctlBody, `{"fwd":"1"}`)
+			eval := r.evalTemplateDPU(ctx, dpuSet, dpu)
+			Expect(eval.disrupt).To(BeFalse())
+			Expect(eval.renderErr).NotTo(HaveOccurred())
+			Expect(eval.configOnly).NotTo(BeNil())
+			Expect(eval.configOnly.Sysctl.Parameters).To(Equal([]string{"net.ipv4.ip_forward=1"}))
+			Expect(eval.liveTemplateHash).NotTo(BeEmpty())
+			Expect(eval.liveValuesHash).NotTo(BeEmpty())
+		})
+
+		It("holds (no disrupt) on a transient dry-run update error", func() {
+			stale := &provisioningv1.DPUFlavorSpec{}
+			stale.Sysctl.Parameters = []string{"net.ipv4.ip_forward=0"}
+			r, dpuSet, dpu := buildExistingRejectingFlavorUpdate(
+				stale, sysctlBody, `{"fwd":"1"}`,
+				apierrors.NewServiceUnavailable("boom"),
+			)
+			eval := r.evalTemplateDPU(ctx, dpuSet, dpu)
+			Expect(eval).To(Equal(templateEval{}))
 		})
 
 		It("surfaces a render error without disrupting", func() {
@@ -643,6 +748,177 @@ var _ = Describe("DPUSet template mode", func() {
 			got := &provisioningv1.DPU{}
 			Expect(r.Get(ctx, types.NamespacedName{Namespace: tmplNS, Name: "dpu-0"}, got)).To(Succeed())
 			Expect(got.Annotations[cutil.RenderFailedReasonAnnotation]).To(Equal(cutil.RenderFailedOnUpdate))
+		})
+
+		It("updates the generated flavor and hash labels on a config-only render change", func() {
+			stale := provisioningv1.DPUFlavorSpec{}
+			stale.Sysctl.Parameters = []string{"net.ipv4.ip_forward=0"}
+			// A mutable field the new render does not set must be cleared, not left merged in.
+			stale.Grub.KernelParameters = []string{"console=ttyAMA0"}
+			template := newTemplate(sysctlBody)
+			device := newDevice(`{"fwd":"1"}`)
+			flavor := &provisioningv1.DPUFlavor{
+				ObjectMeta: metav1.ObjectMeta{Name: "dpu-0", Namespace: tmplNS,
+					Labels: map[string]string{cutil.GeneratedByLabel: cutil.GeneratedByDPUFlavorTemplate}},
+				Spec: stale,
+			}
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{Name: "dpu-0", Namespace: tmplNS,
+					Labels: map[string]string{
+						cutil.DPUFlavorTemplateNameLabel: "tmpl",
+						cutil.DPUFlavorTemplateHashLabel: "stale",
+						cutil.DPUDeviceValuesHashLabel:   "stale",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{DPUDeviceName: "dev", DPUFlavor: "dpu-0"},
+			}
+			r := tmplReconciler(scheme, template, device, flavor, dpu)
+			dpuSet := newTemplateDPUSet()
+
+			dpuMap := map[string]provisioningv1.DPU{"dpu-0": *dpu}
+			Expect(r.reconcileTemplateDPUs(ctx, dpuSet, dpuMap, r.evalTemplateDPUs(ctx, dpuSet, dpuMap))).To(Succeed())
+
+			gotFlavor := &provisioningv1.DPUFlavor{}
+			Expect(r.Get(ctx, types.NamespacedName{Namespace: tmplNS, Name: "dpu-0"}, gotFlavor)).To(Succeed())
+			Expect(gotFlavor.Spec.Sysctl.Parameters).To(Equal([]string{"net.ipv4.ip_forward=1"}))
+			Expect(gotFlavor.Spec.Grub.KernelParameters).To(BeEmpty())
+			Expect(gotFlavor.Labels[cutil.GeneratedByLabel]).To(Equal(cutil.GeneratedByDPUFlavorTemplate))
+
+			got := &provisioningv1.DPU{}
+			Expect(r.Get(ctx, types.NamespacedName{Namespace: tmplNS, Name: "dpu-0"}, got)).To(Succeed())
+			Expect(got.Labels[cutil.DPUFlavorTemplateHashLabel]).NotTo(Equal("stale"))
+			Expect(got.Labels[cutil.DPUDeviceValuesHashLabel]).NotTo(Equal("stale"))
+			// Config-only flavor updates do not start an in-place round.
+			Expect(got.Status.DPUReconfig).To(BeNil())
+		})
+
+		It("records a render failure for an unowned flavor and still updates the other DPUs", func() {
+			stale := provisioningv1.DPUFlavorSpec{}
+			stale.Sysctl.Parameters = []string{"net.ipv4.ip_forward=0"}
+			template := newTemplate(sysctlBody)
+			device := newDevice(`{"fwd":"1"}`)
+			// Same name as the generated flavor, but user-authored: create treated AlreadyExists
+			// as success, and adoptGeneratedFlavor will not claim it. The refusal must not
+			// fail the reconcile, or the owned DPU in the same set would be skipped.
+			unowned := &provisioningv1.DPUFlavor{
+				ObjectMeta: metav1.ObjectMeta{Name: "dpu-unowned", Namespace: tmplNS},
+				Spec:       stale,
+			}
+			owned := &provisioningv1.DPUFlavor{
+				ObjectMeta: metav1.ObjectMeta{Name: "dpu-owned", Namespace: tmplNS,
+					Labels: map[string]string{cutil.GeneratedByLabel: cutil.GeneratedByDPUFlavorTemplate}},
+				Spec: stale,
+			}
+			dpuLabels := func() map[string]string {
+				return map[string]string{
+					cutil.DPUFlavorTemplateNameLabel: "tmpl",
+					cutil.DPUFlavorTemplateHashLabel: "stale",
+					cutil.DPUDeviceValuesHashLabel:   "stale",
+				}
+			}
+			unownedDPU := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{Name: "dpu-unowned", Namespace: tmplNS, Labels: dpuLabels()},
+				Spec:       provisioningv1.DPUSpec{DPUDeviceName: "dev", DPUFlavor: "dpu-unowned"},
+			}
+			ownedDPU := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{Name: "dpu-owned", Namespace: tmplNS, Labels: dpuLabels()},
+				Spec:       provisioningv1.DPUSpec{DPUDeviceName: "dev", DPUFlavor: "dpu-owned"},
+			}
+			r := tmplReconciler(scheme, template, device, unowned, owned, unownedDPU, ownedDPU)
+			dpuSet := newTemplateDPUSet()
+
+			dpuMap := map[string]provisioningv1.DPU{"dpu-unowned": *unownedDPU, "dpu-owned": *ownedDPU}
+			Expect(r.reconcileTemplateDPUs(ctx, dpuSet, dpuMap, r.evalTemplateDPUs(ctx, dpuSet, dpuMap))).To(Succeed())
+
+			gotUnowned := &provisioningv1.DPUFlavor{}
+			Expect(r.Get(ctx, types.NamespacedName{Namespace: tmplNS, Name: "dpu-unowned"}, gotUnowned)).To(Succeed())
+			Expect(gotUnowned.Spec.Sysctl.Parameters).To(Equal([]string{"net.ipv4.ip_forward=0"}))
+			Expect(gotUnowned.Labels).NotTo(HaveKey(cutil.GeneratedByLabel))
+
+			gotUnownedDPU := &provisioningv1.DPU{}
+			Expect(r.Get(ctx, types.NamespacedName{Namespace: tmplNS, Name: "dpu-unowned"}, gotUnownedDPU)).To(Succeed())
+			Expect(gotUnownedDPU.Annotations[cutil.RenderFailedReasonAnnotation]).To(Equal(cutil.RenderFailedOnUpdate))
+			Expect(gotUnownedDPU.Annotations[cutil.RenderFailedMessageAnnotation]).To(ContainSubstring(cutil.GeneratedByLabel))
+			Expect(gotUnownedDPU.Labels[cutil.DPUFlavorTemplateHashLabel]).To(Equal("stale"))
+			Expect(gotUnownedDPU.Labels[cutil.DPUDeviceValuesHashLabel]).To(Equal("stale"))
+
+			gotOwned := &provisioningv1.DPUFlavor{}
+			Expect(r.Get(ctx, types.NamespacedName{Namespace: tmplNS, Name: "dpu-owned"}, gotOwned)).To(Succeed())
+			Expect(gotOwned.Spec.Sysctl.Parameters).To(Equal([]string{"net.ipv4.ip_forward=1"}))
+			gotOwnedDPU := &provisioningv1.DPU{}
+			Expect(r.Get(ctx, types.NamespacedName{Namespace: tmplNS, Name: "dpu-owned"}, gotOwnedDPU)).To(Succeed())
+			Expect(gotOwnedDPU.Labels[cutil.DPUFlavorTemplateHashLabel]).NotTo(Equal("stale"))
+		})
+
+		It("refuses a direct spec write when the flavor lacks the generated-by label", func() {
+			// Eval refuses this before apply. The write-time check is the backstop if the
+			// label disappears between the two.
+			stale := provisioningv1.DPUFlavorSpec{}
+			stale.Sysctl.Parameters = []string{"net.ipv4.ip_forward=0"}
+			flavor := &provisioningv1.DPUFlavor{
+				ObjectMeta: metav1.ObjectMeta{Name: "dpu-0", Namespace: tmplNS},
+				Spec:       stale,
+			}
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{Name: "dpu-0", Namespace: tmplNS},
+				Spec:       provisioningv1.DPUSpec{DPUFlavor: "dpu-0"},
+			}
+			r := tmplReconciler(scheme, flavor)
+			desired := stale
+			desired.Sysctl.Parameters = []string{"net.ipv4.ip_forward=1"}
+
+			err := r.updateGeneratedFlavorSpec(ctx, dpu, desired)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(cutil.GeneratedByLabel))
+
+			got := &provisioningv1.DPUFlavor{}
+			Expect(r.Get(ctx, types.NamespacedName{Namespace: tmplNS, Name: "dpu-0"}, got)).To(Succeed())
+			Expect(got.Spec.Sysctl.Parameters).To(Equal([]string{"net.ipv4.ip_forward=0"}))
+		})
+
+		It("leaves the generated flavor unchanged when admission rejects an immutable render change", func() {
+			stale := provisioningv1.DPUFlavorSpec{BFCfgParameters: []string{"mtu=1500"}}
+			template := newTemplate(okBody)
+			device := newDevice(`{"mtu":9000}`)
+			flavor := &provisioningv1.DPUFlavor{
+				ObjectMeta: metav1.ObjectMeta{Name: "dpu-0", Namespace: tmplNS,
+					Labels: map[string]string{cutil.GeneratedByLabel: cutil.GeneratedByDPUFlavorTemplate}},
+				Spec: stale,
+			}
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{Name: "dpu-0", Namespace: tmplNS,
+					Labels: map[string]string{
+						cutil.DPUFlavorTemplateNameLabel: "tmpl",
+						cutil.DPUFlavorTemplateHashLabel: "stale",
+						cutil.DPUDeviceValuesHashLabel:   "stale",
+					},
+				},
+				Spec: provisioningv1.DPUSpec{DPUDeviceName: "dev", DPUFlavor: "dpu-0"},
+			}
+			reject := interceptor.Funcs{
+				Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					if _, ok := obj.(*provisioningv1.DPUFlavor); ok {
+						return apierrors.NewBadRequest("bfcfgParameters is immutable")
+					}
+					return c.Update(ctx, obj, opts...)
+				},
+			}
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(template, device, flavor, dpu).
+				WithInterceptorFuncs(reject).Build()
+			r := &DPUSetReconciler{Client: c, Scheme: scheme}
+			dpuSet := newTemplateDPUSet()
+
+			dpuMap := map[string]provisioningv1.DPU{"dpu-0": *dpu}
+			Expect(r.reconcileTemplateDPUs(ctx, dpuSet, dpuMap, r.evalTemplateDPUs(ctx, dpuSet, dpuMap))).To(Succeed())
+
+			gotFlavor := &provisioningv1.DPUFlavor{}
+			Expect(r.Get(ctx, types.NamespacedName{Namespace: tmplNS, Name: "dpu-0"}, gotFlavor)).To(Succeed())
+			Expect(gotFlavor.Spec.BFCfgParameters).To(Equal([]string{"mtu=1500"}))
+
+			got := &provisioningv1.DPU{}
+			Expect(r.Get(ctx, types.NamespacedName{Namespace: tmplNS, Name: "dpu-0"}, got)).To(Succeed())
+			Expect(got.Labels[cutil.DPUFlavorTemplateHashLabel]).To(Equal("stale"))
+			Expect(got.Status.DPUReconfig).To(BeNil())
 		})
 	})
 })
