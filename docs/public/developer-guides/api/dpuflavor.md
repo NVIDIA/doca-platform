@@ -121,6 +121,30 @@ A device no entry selects is left as-is; `count: 0` empties it.
 Setting a DPU VF trusted is not supported; there is no `trusted` option here (compare
 [ScalableFunctionOptions](#scalablefunctionoptions), where SFs do support it).
 
+### NVConfig parameters for Virtual Functions
+
+VFs require `SRIOV_EN=1` and, critically, `PF_NUM_OF_VF_VALID=1` with `PF_NUM_OF_VF=<count>` in
+firmware. Because `PF_NUM_OF_VF` is gated behind `PF_NUM_OF_VF_VALID` in firmware, both must be in the same
+batch with `force: true` (see [Forcing parameters that firmware hides](#forcing-parameters-that-firmware-hides)).
+
+> [!NOTE]
+> The ECPF (DPU ARM side) supports at most 32 VFs per port.
+
+```yaml
+spec:
+  nvconfig:
+    - device: '*'
+      force: true
+      parameters:
+        - SRIOV_EN=1
+        - PF_NUM_OF_VF_VALID=1
+        - PF_NUM_OF_VF=8
+  virtualFunctions:
+    - count: 8
+      device: '*'
+      poolName: bf_vf
+```
+
 ### DPUFlavorDMA
 
 | Field | Type | Description |
