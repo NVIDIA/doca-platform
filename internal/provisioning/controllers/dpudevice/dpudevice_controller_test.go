@@ -2406,6 +2406,32 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(updatedNew.Finalizers).To(ContainElement(provisioningv1.BMCCredentialFinalizer))
 		})
 
+		It("should keep old secret finalizer when the new secret cannot be protected", func() {
+			oldSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       perDeviceSecretV1,
+					Namespace:  testNamespace,
+					Finalizers: []string{provisioningv1.BMCCredentialFinalizer},
+				},
+				Data: map[string][]byte{"password": []byte("old-pass")},
+			}
+			Expect(fakeClient.Create(ctx, oldSecret)).To(Succeed())
+
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "rotating-device",
+					Namespace: testNamespace,
+				},
+			}
+
+			err := reconciler.moveCredentialFinalizer(ctx, dpuDevice, perDeviceSecretV1, perDeviceSecretV2)
+			Expect(err).To(HaveOccurred())
+
+			updatedOld := &corev1.Secret{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNamespace}, updatedOld)).To(Succeed())
+			Expect(updatedOld.Finalizers).To(ContainElement(provisioningv1.BMCCredentialFinalizer))
+		})
+
 		It("should keep old secret finalizer during rotation when another device still references it", func() {
 			oldSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
@@ -2493,6 +2519,40 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			updated := &corev1.Secret{}
 			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: perDeviceSecretV1, Namespace: testNamespace}, updated)).To(Succeed())
 			Expect(updated.Finalizers).NotTo(ContainElement(provisioningv1.BMCCredentialFinalizer))
+		})
+
+		It("should clean up both secrets when deleted during an interrupted rotation", func() {
+			for _, name := range []string{perDeviceSecretV1, perDeviceSecretV2} {
+				Expect(fakeClient.Create(ctx, &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       name,
+						Namespace:  testNamespace,
+						Finalizers: []string{provisioningv1.BMCCredentialFinalizer},
+					},
+					Data: map[string][]byte{"password": []byte("pass")},
+				})).To(Succeed())
+			}
+
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "rotating-device",
+					Namespace: testNamespace,
+				},
+				Spec: provisioningv1.DPUDeviceSpec{
+					BMCCredentialSecretName: ptr.To(perDeviceSecretV2),
+				},
+				Status: provisioningv1.DPUDeviceStatus{
+					BMCCredentialSecretName: ptr.To(perDeviceSecretV1),
+				},
+			}
+
+			Expect(reconciler.cleanupCredentialFinalizer(ctx, dpuDevice)).To(Succeed())
+
+			for _, name := range []string{perDeviceSecretV1, perDeviceSecretV2} {
+				updated := &corev1.Secret{}
+				Expect(fakeClient.Get(ctx, types.NamespacedName{Name: name, Namespace: testNamespace}, updated)).To(Succeed())
+				Expect(updated.Finalizers).NotTo(ContainElement(provisioningv1.BMCCredentialFinalizer), name)
+			}
 		})
 
 		It("should keep the finalizer when another DPUDevice still references the secret", func() {
