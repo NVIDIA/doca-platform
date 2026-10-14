@@ -22,5 +22,11 @@ spec:
     port: 8888
     targetPort: 8888
     protocol: TCP
+  {{- range .Values.extraPorts }}
+  - name: {{ .name }}
+    port: {{ .servicePort | default .containerPort }}
+    targetPort: {{ .containerPort }}
+    protocol: {{ .protocol | default "TCP" }}
+  {{- end }}
   selector:
     {{- include "opentelemetry-collector.selectorLabels" . | nindent 4 }}

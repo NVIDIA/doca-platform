@@ -79,6 +79,11 @@ spec:
         - name: metrics
           containerPort: 8888
           protocol: TCP
+        {{- range .Values.extraPorts }}
+        - name: {{ .name }}
+          containerPort: {{ .containerPort }}
+          protocol: {{ .protocol | default "TCP" }}
+        {{- end }}
         livenessProbe:
           httpGet:
             path: /

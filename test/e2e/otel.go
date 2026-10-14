@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/test/utils/loki"
@@ -166,6 +167,73 @@ func ValidateDPUClusterOpenTelemetryConfiguration(ctx context.Context, input *sy
 				"ConfigMap should contain the OTLP exporter for metrics")
 		}).WithTimeout(10 * time.Second).WithPolling(time.Second).Should(Succeed())
 	}
+}
+
+const (
+	// additionalOpenTelemetryCollectorName is a user DPUService. Its name stays
+	// distinct from the operator-managed opentelemetry-collector DPUService.
+	additionalOpenTelemetryCollectorName = "custom-otel"
+	// additionalOpenTelemetryCollectorEndpoint is rendered only by the user collector.
+	additionalOpenTelemetryCollectorEndpoint = "https://custom-otel.e2e.example:4318"
+)
+
+// ValidateAdditionalDPUCollector deploys a second collector beside the packaged one.
+// The user DPUService carries the custom document. The operator-managed collector
+// keeps the pipelines from DPFOperatorConfig.
+func ValidateAdditionalDPUCollector(ctx context.Context, input *systemTestInput) {
+	additionalService := objectFromFile[dpuservicev1.DPUService]("../objects/application/dpuservice-custom-otel.yaml")
+	additionalService.Spec.HelmChart.Source.RepoURL = helmRegistry
+	additionalService.Spec.HelmChart.Source.Version = tag
+	Expect(input.client.Create(ctx, additionalService)).To(Succeed())
+	DeferCleanup(func(ctx context.Context) {
+		Expect(client.IgnoreNotFound(input.client.Delete(ctx, additionalService))).To(Succeed())
+		for i, dpuClient := range dpuClusterClient {
+			clusterName := input.dpuClusters[i].Name
+			Eventually(func(g Gomega) {
+				err := dpuClient.Get(ctx, client.ObjectKey{
+					Namespace: dpfOperatorSystemNamespace,
+					Name:      additionalOpenTelemetryCollectorConfigMapName(clusterName),
+				}, &corev1.ConfigMap{})
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
+		}
+	})
+
+	for i, dpuClient := range dpuClusterClient {
+		clusterName := input.dpuClusters[i].Name
+		By(fmt.Sprintf("Checking the additional and packaged collectors in DPU cluster %s", clusterName))
+		Eventually(func(g Gomega) {
+			custom := collectorConfigMapData(ctx, g, dpuClient, additionalOpenTelemetryCollectorConfigMapName(clusterName))
+			g.Expect(custom).To(ContainSubstring(additionalOpenTelemetryCollectorEndpoint))
+			g.Expect(custom).To(ContainSubstring("health_check:"))
+			g.Expect(custom).NotTo(ContainSubstring("filelog/doca"))
+
+			packaged := collectorConfigMapData(ctx, g, dpuClient, clusterName+"-opentelemetry-collector-config")
+			g.Expect(packaged).To(ContainSubstring("filelog/doca"))
+			g.Expect(packaged).To(ContainSubstring(input.config.Spec.Monitoring.OpenTelemetryCollector.Logging.Endpoint))
+			g.Expect(packaged).NotTo(ContainSubstring(additionalOpenTelemetryCollectorEndpoint))
+		}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
+
+		VerifyClusterPods(ctx, dpuClient, []string{additionalOpenTelemetryCollectorName})
+	}
+}
+
+// additionalOpenTelemetryCollectorConfigMapName is the ConfigMap rendered for the user
+// DPUService. The Helm release name is {cluster}-custom-otel, which does not contain the
+// chart name, so the full name is {release}-opentelemetry-collector.
+func additionalOpenTelemetryCollectorConfigMapName(clusterName string) string {
+	return clusterName + "-" + additionalOpenTelemetryCollectorName + "-opentelemetry-collector-config"
+}
+
+func collectorConfigMapData(ctx context.Context, g Gomega, dpuClient client.Client, name string) string {
+	cm := &corev1.ConfigMap{}
+	g.Expect(dpuClient.Get(ctx, client.ObjectKey{
+		Namespace: dpfOperatorSystemNamespace,
+		Name:      name,
+	}, cm)).To(Succeed())
+	data, exists := cm.Data["otel-collector-config.yaml"]
+	g.Expect(exists).To(BeTrue(), "otel-collector-config.yaml not found in ConfigMap %s", name)
+	return data
 }
 
 // ValidateManagementClusterLogFlow verifies logs flow from management cluster to Loki
