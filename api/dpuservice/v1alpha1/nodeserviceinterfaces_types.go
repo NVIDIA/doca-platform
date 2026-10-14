@@ -231,6 +231,7 @@ type InterfaceEntryStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced
 // +kubebuilder:metadata:annotations=helm.sh/resource-policy=keep
+// +kubebuilder:selectablefield:JSONPath=`.spec.node`
 // +kubebuilder:printcolumn:name="Node",type=string,JSONPath=`.spec.node`
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=`.status.conditions[?(@.type=='Ready')].status`
 // +kubebuilder:printcolumn:name="Reason",type="string",JSONPath=`.status.conditions[?(@.type=='Ready')].reason`
