@@ -1,0 +1,43 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: custom-otel
+  namespace: dpf-operator-system
+spec:
+  security:
+    privileged: true
+  helmChart:
+    # repoURL and version are empty placeholders. The e2e suite sets them from
+    # HELM_REGISTRY and TAG before creating this object.
+    source:
+      repoURL: ""
+      version: ""
+      chart: dpu-networking
+    values:
+      opentelemetry-collector:
+        enabled: true
+        imagePullSecrets:
+          - name: dpf-pull-secret
+        config:
+          extensions:
+            health_check:
+              endpoint: 0.0.0.0:13133
+          receivers:
+            otlp:
+              protocols:
+                grpc:
+                  endpoint: 0.0.0.0:4317
+                http:
+                  endpoint: 0.0.0.0:4318
+          exporters:
+            otlphttp/traces:
+              endpoint: https://custom-otel.e2e.example:4318
+          service:
+            extensions:
+              - health_check
+            pipelines:
+              traces:
+                receivers:
+                  - otlp
+                exporters:
+                  - otlphttp/traces

@@ -393,6 +393,9 @@ spec:
 
 </details>
 
+To extend or replace the default OpenTelemetry Collector configuration with your own,
+see [Custom Configuration](user-managed-components.md#custom-configuration).
+
 ## Tracing
 
 DPF controllers can export distributed trace spans for their reconcile loops via OpenTelemetry, using the `tracing.k8s.io/traceparent` and `tracing.k8s.io/tracestate` annotations an upstream caller (e.g. carbide) sets on the CRs it creates, so a single request can be followed across DPF's own controllers.
@@ -435,4 +438,9 @@ spec:
         endpoint: "http://<host-node-ip>:30050"
 ```
 
-`tracing` takes the same `transport` and `caSecretRef` fields as `logging`/`metrics` — see [Transport](#transport) and [TLS and Custom CA Certificates](#tls-and-custom-ca-certificates) above.
+`tracing` takes the same `transport` and `caSecretRef` fields as `logging`/`metrics` — see [Transport](#transport)
+and [TLS and Custom CA Certificates](#tls-and-custom-ca-certificates) above. A separate collector deployed as its own
+DPUService forwards only the pipelines in its own `config`.
+See [Custom Configuration](user-managed-components.md#custom-configuration).
+Disable the packaged collector with `spec.monitoring.openTelemetryCollector.disable: true` when the packaged trace
+forwarding should stop.

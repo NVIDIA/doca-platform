@@ -291,6 +291,70 @@ The OpenTelemetry Collector on the Host Cluster runs as a DaemonSet with three p
 
 For configuration details, see the [OpenTelemetry Collector documentation](https://opentelemetry.io/docs/collector/).
 
+### Custom Configuration
+
+The [operator-managed collector](operator-managed-components.md#opentelemetry-collector) on each DPU cluster uses the
+packaged configuration. Whether that collector runs is decided on `DPFOperatorConfig`: it is deployed when `logging`,
+`metrics`, or `tracing` has an endpoint, and `spec.monitoring.openTelemetryCollector.disable: true` removes it. A custom
+configuration belongs on a separate `DPUService`.
+
+To run a collector with your own receivers, processors, exporters, and pipelines, apply a separate `DPUService`. Use a
+different name. The example below uses the v30.0.0 `dpu-networking` chart from the NVIDIA Helm registry. When this
+installation uses another registry or DPF version, copy `spec.helmChart.source` from a system DPUService in
+`dpf-operator-system` that uses that chart, such as `flannel`. Set
+`opentelemetry-collector.enabled: true` and `opentelemetry-collector.config` to the whole collector document. `logging`,
+`metrics`, and `tracing` are not merged into `config`. Keep the `health_check` extension on port 13133 so the DaemonSet
+probes succeed. The Service exposes 4317, 4318, and 8888. Set `extraPorts` for any other port the config listens on. The
+container is privileged, so the DPUService must set `spec.security.privileged: true`.
+
+Run the custom collector together with the packaged one, or run only the custom collector by disabling the packaged one:
+
+```yaml
+spec:
+  monitoring:
+    openTelemetryCollector:
+      disable: true
+```
+
+```yaml
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: custom-opentelemetry-collector
+  namespace: dpf-operator-system
+spec:
+  security:
+    privileged: true
+  helmChart:
+    source:
+      repoURL: https://helm.ngc.nvidia.com/nvidia/doca
+      version: v30.0.0
+      chart: dpu-networking
+    values:
+      opentelemetry-collector:
+        enabled: true
+        config:
+          extensions:
+            health_check:
+              endpoint: 0.0.0.0:13133
+          receivers:
+            otlp:
+              protocols:
+                grpc:
+                  endpoint: 0.0.0.0:4317
+                http:
+                  endpoint: 0.0.0.0:4318
+          exporters:
+            otlphttp/traces:
+              endpoint: https://otel.example.com:4318
+          service:
+            extensions: [ health_check ]
+            pipelines:
+              traces:
+                receivers: [ otlp ]
+                exporters: [ otlphttp/traces ]
+```
+
 ## Kube-State-Metrics
 
 The user-deployed Kube-State-Metrics instance monitors Host Cluster Kubernetes resources (Pods, Deployments, Nodes, etc.). This is separate from the operator-deployed Kube-State-Metrics that monitors DPU custom resources.

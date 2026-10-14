@@ -718,6 +718,12 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 					}
 					ValidateDPUClusterOpenTelemetryConfiguration(ctx, input)
 				})
+				It("should run an additional collector from a user DPUService", Labels{Domain.RequiresNodes}, func() {
+					if !input.hasDpuNodes() {
+						Skip("Skip test as there are no DPU nodes")
+					}
+					ValidateAdditionalDPUCollector(ctx, input)
+				})
 			})
 
 			Context("Log Flow", func() {

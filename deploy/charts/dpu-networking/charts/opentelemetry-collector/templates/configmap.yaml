@@ -20,6 +20,13 @@ metadata:
     {{- include "opentelemetry-collector.labels" . | nindent 4 }}
 data:
   otel-collector-config.yaml: |
+{{- if .Values.config }}
+{{- if kindIs "string" .Values.config }}
+{{ .Values.config | indent 4 }}
+{{- else }}
+{{ .Values.config | toYaml | indent 4 }}
+{{- end }}
+{{- else }}
     extensions:
       health_check:
         endpoint: 0.0.0.0:13133
@@ -198,4 +205,5 @@ data:
           receivers: [otlp]
           processors: [memory_limiter, k8sattributes, resource, batch]
           exporters: [{{ $tracesExporter }}, debug]
+{{- end }}
 {{- end }}
