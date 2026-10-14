@@ -132,6 +132,15 @@ func (c *Client) CloseIdleConnections() {
 	c.readClient().GetClient().CloseIdleConnections()
 }
 
+// withCtxErr makes a cancel or deadline visible to errors.Is when it races the
+// response and surfaces as a truncated body or a decode error instead.
+func withCtxErr(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil && !errors.Is(err, ctxErr) {
+		return errors.Join(ctxErr, err)
+	}
+	return err
+}
+
 // read performs one bounded GET and decodes a non-null HTTP 200 payload.
 func read[T any](ctx context.Context, c *Client, path string) (*resty.Response, *T, error) {
 	// Composite operations supply an earlier shared deadline; this also bounds
@@ -148,7 +157,7 @@ func read[T any](ctx context.Context, c *Client, path string) (*resty.Response, 
 	}
 	resp, err := c.readClient().R().SetContext(ctx).Get(path)
 	if err != nil {
-		return resp, nil, requestError(resp, err)
+		return resp, nil, requestError(resp, withCtxErr(ctx, err))
 	}
 	if resp.StatusCode() != http.StatusOK {
 		if resp.StatusCode() == http.StatusNotFound {
@@ -166,7 +175,7 @@ func read[T any](ctx context.Context, c *Client, path string) (*resty.Response, 
 	}
 	var result *T
 	if err := json.Unmarshal(resp.Body(), &result); err != nil {
-		return resp, nil, requestError(resp, err)
+		return resp, nil, requestError(resp, withCtxErr(ctx, err))
 	}
 	if result == nil {
 		return resp, nil, requestError(resp, errors.New("missing required Redfish payload"))
