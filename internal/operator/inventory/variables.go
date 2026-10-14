@@ -182,6 +182,19 @@ type Variables struct {
 	// webhook intermediate CA that the dpf-operator chart anchors the whole PKI on. It is the only
 	// part of the provisioning PKI that differs between the self-signed and the external issuer mode.
 	PlatformCAIssuerRef certmanager.IssuerReference
+	// PlatformCACommonName is the subject the platform intermediate CA is requested with, set only
+	// on a cluster whose platform CA carries the identity of the provisioning CA that preceded it.
+	// Empty leaves the subject the manifest requests, which is every cluster installed since.
+	PlatformCACommonName string
+	// RetainLegacyProvisioningCA keeps the provisioning CA chain the platform intermediate CA is
+	// taking over from in the desired inventory, so that the ApplySet does not prune it out from
+	// under a migration that still needs it. It is set for as long as the CA Secret of that chain
+	// exists, which the migration deletes last, and is false on every cluster installed since.
+	RetainLegacyProvisioningCA bool
+	// LegacyProvisioningIssuerCASecretName is the Secret the retained legacy provisioning Issuer
+	// signs with, when a CA rotation has it pinned to one other than its own. Empty leaves the
+	// Secret of its own chain, which is every cluster not in the middle of a rotation.
+	LegacyProvisioningIssuerCASecretName string
 	// CATrustBundleConfigMapName is the effective name of the CA trust bundle ConfigMap, resolved
 	// from spec.security.certManagement. Components that validate peers are pointed at it.
 	CATrustBundleConfigMapName string
@@ -192,7 +205,6 @@ type DPFProvisioningVariables struct {
 	DMSTimeout                         *int
 	BFCFGTemplateConfig                *string
 	CustomCASecretName                 *string
-	ProvisioningIssuerCASecretName     *string
 	InstallInterface                   *operatorv1.ProvisioningInstallInterface
 	MaxDPUParallelInstallations        *int32
 	DPUMaxConcurrentReconciles         int32
@@ -371,7 +383,6 @@ func setBasicConfig(variables Variables, config *operatorv1.DPFOperatorConfig) V
 		//nolint:staticcheck // Intentionally using deprecated field for backward compatibility
 		BFCFGTemplateConfig:                config.Spec.ProvisioningController.BFCFGTemplateConfigMap,
 		CustomCASecretName:                 config.Spec.ProvisioningController.CustomCASecretName,
-		ProvisioningIssuerCASecretName:     nil,
 		InstallInterface:                   config.Spec.ProvisioningController.InstallInterface,
 		MaxDPUParallelInstallations:        config.Spec.ProvisioningController.MaxDPUParallelInstallations,
 		DPUMaxConcurrentReconciles:         config.Spec.ProvisioningController.DPUMaxConcurrentReconciles,
@@ -387,16 +398,14 @@ func setBasicConfig(variables Variables, config *operatorv1.DPFOperatorConfig) V
 		HostAgentDNSPolicy:                 config.Spec.ProvisioningController.HostAgentDNSPolicy,
 		DeploymentMode:                     config.Spec.DeploymentMode,
 	}
-	if config.Spec.Overrides != nil {
-		variables.DPFProvisioningController.ProvisioningIssuerCASecretName = config.Spec.Overrides.ProvisioningIssuerCASecretName
-	}
 	if config.Spec.ProvisioningController.MultiDPUOperationsSyncWaitTime != nil {
 		variables.DPFProvisioningController.MultiDPUOperationsSyncWaitTime = config.Spec.ProvisioningController.MultiDPUOperationsSyncWaitTime.Duration
 	}
 	variables.ImagePullSecrets = config.Spec.ImagePullSecrets
 	variables.ArgoCDNamespace = config.Namespace
-	// PlatformCAIssuerRef is deliberately not set here: the authority anchoring the PKI is read from
-	// the cluster, not from the DPFOperatorConfig, so the caller resolves it and sets it.
+	// PlatformCAIssuerRef and PlatformCACommonName are deliberately not set here: the authority
+	// anchoring the PKI and the identity the platform CA carries are both read from the cluster
+	// rather than from the DPFOperatorConfig, so the caller resolves them and sets them.
 	variables.CATrustBundleConfigMapName = config.GetCATrustBundleConfigMapName()
 	return variables
 }
@@ -461,6 +470,11 @@ func setOverrideConfigs(variables Variables, config *operatorv1.DPFOperatorConfi
 	}
 	if config.Spec.Overrides.KubernetesAPIServerPort != nil {
 		variables.KubernetesAPIServerPort = config.Spec.Overrides.KubernetesAPIServerPort
+	}
+	//nolint:staticcheck // The field is deprecated, and still the only thing a rotation of the
+	// retained legacy provisioning CA is driven by until that chain is retired.
+	if v := config.Spec.Overrides.ProvisioningIssuerCASecretName; v != nil && *v != "" {
+		variables.LegacyProvisioningIssuerCASecretName = *v
 	}
 	variables.ArgoCDNamespace = config.GetArgoCDNamespace()
 

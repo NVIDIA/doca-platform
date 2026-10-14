@@ -138,11 +138,21 @@ Left alone, each of them creates a self-signed issuer of its own, which is the d
 
 # Scope
 
-The provisioning CA (`dpf-provisioning-ca-cert` and the certificates it signs) is **not** part of the
-chain above and stays self-signed. It signs the certificates that DPU BMCs and DPU operating systems
-are provisioned to trust, so re-rooting it is a CA rotation rather than a configuration change. See
-[Provisioning CA Certificate Rotation](ca-certificate-rotation.md). Only the provisioning webhook
-serving certificate is part of the DPF Operator chain.
+What the provisioning certificates chain to depends on whether the cluster still carries the legacy
+provisioning CA.
+
+On a fresh install there is none, and the certificates that provision a DPU are signed by
+`dpf-platform-issuer` over `dpf-platform-intermediate-ca`, which is requested from the issuer in
+`certificateAuthority.issuerRef` like every other intermediate above. They are part of the chain,
+and pointing DPF at your authority is all that is needed to re-root them.
+
+On a cluster upgraded from a release that provisioned its DPUs under the self-signed provisioning CA,
+`dpf-provisioning-ca-cert` and the chain over it are retained and stay self-signed. DPF collapses
+them into the platform intermediate CA only where it owns the authority at the top of the chain;
+under an issuer of your own it owns no keys, and the trust material below that issuer is yours to
+curate rather than DPF's to publish. The DPU BMCs and DPU operating systems already provisioned were
+given that self-signed CA to trust, so re-rooting it is a CA rotation rather than a configuration
+change. See [Provisioning CA Certificate Rotation](ca-certificate-rotation.md).
 
 The webhook serving certificates are safe to re-root at any time, including on upgrade. Their trust
 is distributed inside the cluster through the `cert-manager.io/inject-ca-from` annotation, so

@@ -236,10 +236,10 @@ func setRotationRequired(config *operatorv1.DPFOperatorConfig, issuerRef certman
 // unexpected API failure is reported on the condition as well, and returned on top of it, since it
 // is worth retrying.
 //
-// rotationRequired comes from detectRotationRequired, which has to run before the system components
-// are applied. The caller reports it as soon as it observes it, so this only has to leave the
-// condition alone rather than report it again.
-func Reconcile(ctx context.Context, c client.Client, config *operatorv1.DPFOperatorConfig, issuerRef certmanager.IssuerReference, rotationRequired bool) error {
+// rotationRequired and migrationBlocked both come from steps that have to run before the system
+// components are applied, and both are reported by the caller as soon as it observes them, so this
+// only has to leave the condition alone rather than report it again.
+func Reconcile(ctx context.Context, c client.Client, config *operatorv1.DPFOperatorConfig, issuerRef certmanager.IssuerReference, rotationRequired, migrationBlocked bool) error {
 	// The anchor is a prerequisite in either mode rather than something DPF creates, so a missing one
 	// is called out separately from a chain that is merely still being issued. Checking it for the
 	// self-signed root as well is what distinguishes a chart that was never told to bring a root from
@@ -272,13 +272,19 @@ func Reconcile(ctx context.Context, c client.Client, config *operatorv1.DPFOpera
 	// new anchor on its own, so it goes ready again within the same rotation and reporting it would
 	// only mask the more actionable state with a transient one.
 	//
+	// A migration held back by a rotation of the CA it carries over is masked for a stronger reason:
+	// that rotation leaves the chain entirely ready, so the chain has nothing to report and would
+	// overwrite the block with success on the same reconcile that observed it. The block would then
+	// never be visible, and the one state saying why the two authorities are still published would
+	// be the one state nobody could see.
+	//
 	// The anchor itself is checked first, above, rather than masked the same way. A rotation reported
 	// on its own reads as a procedure waiting to be run, but an anchor that does not exist or is not
 	// ready is one the chain can never be reissued under, so the rotation would never complete and
 	// the condition would sit on CARotationRequired indefinitely with nothing pointing at the reason.
 	// That is the state a re-anchor to a misspelled issuer lands in, and it is the anchor that has to
 	// be reported for it to be diagnosable at all.
-	if rotationRequired {
+	if rotationRequired || migrationBlocked {
 		return nil
 	}
 

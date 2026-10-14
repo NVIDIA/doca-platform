@@ -1597,8 +1597,14 @@ spec:
                     type: boolean
                   provisioningIssuerCASecretName:
                     description: |-
-                      ProvisioningIssuerCASecretName overrides the CA secret used by the provisioning Issuer during
-                      controlled CA rotation workflows. When unset, the default issuer secret is used.
+                      ProvisioningIssuerCASecretName overrides the CA secret of the provisioning Issuer during a
+                      rotation. The provisioning certificates are signed by the platform intermediate CA now, and a
+                      rotation of it is driven by cert-manager rather than by repointing an Issuer, so this only
+                      still pins the provisioning Issuer of the CA chain the platform intermediate CA is taking
+                      over from, on a cluster the upgrade has not finished migrating. It has no effect once that
+                      chain is gone, which is every cluster installed since.
+
+                      Deprecated: This field is deprecated and will be removed with v27.1.0.
                     minLength: 1
                     type: string
                 type: object
@@ -2036,13 +2042,12 @@ spec:
                           The name is fixed once the config exists. It reaches each DPU in the provisioning configuration
                           it is installed with, so renaming it later would leave the DPUs already provisioned reading a
                           ConfigMap DPF no longer maintains, holding trust material that silently stops being updated.
+                          That is enforced on the spec rather than here, because leaving this field out falls back to a
+                          name too, and a rule on the field cannot see a rename that adds or removes it.
                         maxLength: 253
                         minLength: 1
                         pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                         type: string
-                        x-kubernetes-validations:
-                        - message: trustBundleConfigMapName is immutable
-                          rule: self == oldSelf
                     type: object
                   kata:
                     description: |-
@@ -3100,6 +3105,16 @@ spec:
                 || self.kamajiClusterManager.etcdEncryptionAtRest.provider != ''vaultKMS''
                 || (has(self.security) && has(self.security.vaultKMS) && (!has(self.security.vaultKMS.disable)
                 || self.security.vaultKMS.disable == false))'
+            - message: 'spec.security.certManagement.trustBundleConfigMapName is immutable,
+                including the default it falls back to when the certManagement block
+                is absent: the name reaches each DPU in the provisioning configuration
+                it is installed with, so changing it leaves the DPUs already provisioned
+                reading a ConfigMap DPF no longer maintains'
+              rule: '(has(self.security) && has(self.security.certManagement) && has(self.security.certManagement.trustBundleConfigMapName)
+                ? self.security.certManagement.trustBundleConfigMapName : ''dpf-ca-trust-bundle'')
+                == (has(oldSelf.security) && has(oldSelf.security.certManagement)
+                && has(oldSelf.security.certManagement.trustBundleConfigMapName) ?
+                oldSelf.security.certManagement.trustBundleConfigMapName : ''dpf-ca-trust-bundle'')'
           status:
             description: DPFOperatorConfigStatus defines the observed state of DPFOperatorConfig
             properties:

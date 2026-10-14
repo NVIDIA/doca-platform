@@ -291,8 +291,12 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		g.Expect(err).NotTo(HaveOccurred())
 
 		// The platform intermediate CA and the issuer over it are added by GenerateManifests rather
-		// than read from the embedded manifest, so they are not part of the parsed originals.
-		g.Expect(generatedObjs).To(HaveLen(len(originalObjs) + len(originalBFBRegistryObjs) + len(originalPlatformCAObjs)))
+		// than read from the embedded manifest, so they are not part of the parsed originals. The
+		// legacy provisioning CA chain goes the other way: it is in the embedded manifest, and
+		// GenerateManifests drops it unless a migration still needs it.
+		g.Expect(generatedObjs).To(HaveLen(
+			len(originalObjs) - legacyProvisioningCAObjectCount +
+				len(originalBFBRegistryObjs) + len(originalPlatformCAObjs)))
 
 		// Expect the namespaces for the namespace scoped objects to equal the namespace in variables.
 		for _, obj := range generatedObjs {
@@ -445,93 +449,133 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		g.Expect(issuerNames).NotTo(HaveKey("dpf-provisioning-client-cert"))
 	})
 
-	t.Run("test overriding provisioning issuer ca secret name", func(t *testing.T) {
+	t.Run("test the platform CA is requested with the subject it carries", func(t *testing.T) {
 		g := NewGomegaWithT(t)
-		expectedSecretName := "dpf-ca-secret-old"
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
-			BFBPersistentVolumeClaimName:   ptr.To("pvc"),
-			DeploymentMode:                 operatorv1.DeploymentModeHostTrusted,
-			ProvisioningIssuerCASecretName: &expectedSecretName,
+			BFBPersistentVolumeClaimName: ptr.To("pvc"),
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 		}
+		// A cluster the upgrade migration carried a provisioning CA into: the platform CA has to be
+		// requested under that CA's subject, since a certificate over the adopted key with a subject
+		// of its own validates none of the certificates the peers hold.
+		vars.PlatformCACommonName = "dpf-provisioning-ca-cert"
 
 		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
 
-		var provisioningIssuer *unstructured.Unstructured
-		for _, obj := range generatedObjs {
-			if obj.GetObjectKind().GroupVersionKind().Kind == string(IssuerKind) && obj.GetName() == provisioningIssuerName {
-				uns, ok := obj.(*unstructured.Unstructured)
-				g.Expect(ok).To(BeTrue())
-				provisioningIssuer = uns
-				break
-			}
-		}
-
-		g.Expect(provisioningIssuer).NotTo(BeNil())
-		gotSecretName, found, err := unstructured.NestedString(provisioningIssuer.UnstructuredContent(), "spec", "ca", "secretName")
+		platformCA := findCertificate(g, generatedObjs, operatorv1.PlatformIntermediateCAName)
+		commonName, found, err := unstructured.NestedString(platformCA.UnstructuredContent(), "spec", "commonName")
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(found).To(BeTrue())
-		g.Expect(gotSecretName).To(Equal(expectedSecretName))
+		g.Expect(commonName).To(Equal("dpf-provisioning-ca-cert"))
 	})
 
-	t.Run("test provisioning issuer ca secret name uses default when unset", func(t *testing.T) {
+	t.Run("test the platform CA keeps the subject of the manifest when nothing was migrated", func(t *testing.T) {
 		g := NewGomegaWithT(t)
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
-			BFBPersistentVolumeClaimName:   ptr.To("pvc"),
-			DeploymentMode:                 operatorv1.DeploymentModeHostTrusted,
-			ProvisioningIssuerCASecretName: nil,
+			BFBPersistentVolumeClaimName: ptr.To("pvc"),
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 		}
 
 		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
 
-		var provisioningIssuer *unstructured.Unstructured
-		for _, obj := range generatedObjs {
-			if obj.GetObjectKind().GroupVersionKind().Kind == string(IssuerKind) && obj.GetName() == provisioningIssuerName {
-				uns, ok := obj.(*unstructured.Unstructured)
-				g.Expect(ok).To(BeTrue())
-				provisioningIssuer = uns
-				break
-			}
-		}
-
-		g.Expect(provisioningIssuer).NotTo(BeNil())
-		gotSecretName, found, err := unstructured.NestedString(provisioningIssuer.UnstructuredContent(), "spec", "ca", "secretName")
+		platformCA := findCertificate(g, generatedObjs, operatorv1.PlatformIntermediateCAName)
+		commonName, found, err := unstructured.NestedString(platformCA.UnstructuredContent(), "spec", "commonName")
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(found).To(BeTrue())
-		g.Expect(gotSecretName).To(Equal(defaultProvisioningIssuerCASecret))
+		g.Expect(commonName).To(Equal(operatorv1.PlatformIntermediateCAName))
 	})
 
-	t.Run("test provisioning issuer ca secret name falls back on empty value", func(t *testing.T) {
+	t.Run("test the legacy provisioning CA chain is not generated once the migration has retired it", func(t *testing.T) {
 		g := NewGomegaWithT(t)
-		emptySecretName := ""
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
-			BFBPersistentVolumeClaimName:   ptr.To("pvc"),
-			DeploymentMode:                 operatorv1.DeploymentModeHostTrusted,
-			ProvisioningIssuerCASecretName: &emptySecretName,
+			BFBPersistentVolumeClaimName: ptr.To("pvc"),
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 		}
 
 		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
 
-		var provisioningIssuer *unstructured.Unstructured
+		// The upgrade migration carries the keypair of this chain into the platform intermediate CA
+		// and deletes its Secret. Not generating the chain over that Secret is what has the ApplySet
+		// prune it; generating it again would recreate what the migration removed, and have
+		// cert-manager issue a fresh keypair into the Secret it deleted.
+		names := map[string]struct{}{}
 		for _, obj := range generatedObjs {
-			if obj.GetObjectKind().GroupVersionKind().Kind == string(IssuerKind) && obj.GetName() == provisioningIssuerName {
-				uns, ok := obj.(*unstructured.Unstructured)
-				g.Expect(ok).To(BeTrue())
-				provisioningIssuer = uns
-				break
-			}
+			names[obj.GetName()] = struct{}{}
 		}
+		g.Expect(names).NotTo(HaveKey(operatorv1.LegacyProvisioningCACertificateName))
+		g.Expect(names).NotTo(HaveKey(operatorv1.LegacyProvisioningIssuerName))
+		g.Expect(names).NotTo(HaveKey(operatorv1.LegacyProvisioningSelfSignedIssuerName))
+	})
 
-		g.Expect(provisioningIssuer).NotTo(BeNil())
-		gotSecretName, found, err := unstructured.NestedString(provisioningIssuer.UnstructuredContent(), "spec", "ca", "secretName")
+	t.Run("test the legacy provisioning CA chain is generated while the migration still needs it", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: ptr.To("pvc"),
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
+		}
+		// An upgraded cluster whose legacy CA Secret is still there. Leaving the chain out of the
+		// desired inventory here would have the ApplySet prune it: the keypair the migration is
+		// carrying over, the pin that tells it a CA rotation is in flight, and the certificate the
+		// trust bundle publishes for every leaf not yet reissued.
+		vars.RetainLegacyProvisioningCA = true
+
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(found).To(BeTrue())
-		g.Expect(gotSecretName).To(Equal(defaultProvisioningIssuerCASecret))
+
+		names := map[string]struct{}{}
+		for _, obj := range generatedObjs {
+			names[obj.GetName()] = struct{}{}
+		}
+		g.Expect(names).To(HaveKey(operatorv1.LegacyProvisioningCACertificateName))
+		g.Expect(names).To(HaveKey(operatorv1.LegacyProvisioningIssuerName))
+		g.Expect(names).To(HaveKey(operatorv1.LegacyProvisioningSelfSignedIssuerName))
+
+		// The leaves stay on the platform issuer regardless: the chain is retained so the migration
+		// can finish, not so anything goes back to being signed by it.
+		issuerNames := map[string]string{}
+		for _, obj := range generatedObjs {
+			if ObjectKind(obj.GetObjectKind().GroupVersionKind().Kind) != CertificateKind {
+				continue
+			}
+			u, ok := obj.(*unstructured.Unstructured)
+			if !ok {
+				continue
+			}
+			name, _, _ := unstructured.NestedString(u.UnstructuredContent(), "spec", "issuerRef", "name")
+			issuerNames[obj.GetName()] = name
+		}
+		g.Expect(issuerNames).To(HaveKeyWithValue("dpf-provisioning-redfish-client-cert", operatorv1.PlatformIssuerName))
+		g.Expect(issuerNames).To(HaveKeyWithValue("dpf-provisioning-redfish-client-cert-bf4", operatorv1.PlatformIssuerName))
+
+		// Unpinned, the Issuer signs with the Secret of its own chain.
+		g.Expect(legacyProvisioningIssuerCASecret(g, generatedObjs)).To(Equal(operatorv1.LegacyProvisioningCASecretName))
+	})
+
+	t.Run("test the retained legacy provisioning Issuer keeps the Secret a CA rotation pinned it to", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: ptr.To("pvc"),
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
+		}
+		vars.RetainLegacyProvisioningCA = true
+		// A cluster upgraded in the middle of a rotation of the legacy CA. The apply forces
+		// ownership of what it sets, so emitting the Secret of the chain here would take the pin
+		// away from that rotation, and with it the only thing that tells the migration one is in
+		// flight: it would decline to migrate this reconcile and then migrate on the next.
+		vars.LegacyProvisioningIssuerCASecretName = "dpf-provisioning-ca-secret-old"
+
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		g.Expect(legacyProvisioningIssuerCASecret(g, generatedObjs)).To(Equal("dpf-provisioning-ca-secret-old"))
 	})
 
 	t.Run("test hostPath BFB and init container when no PVC", func(t *testing.T) {
@@ -1513,4 +1557,38 @@ func TestProvisioningControllerObjects_PlatformCA(t *testing.T) {
 		_, err := provCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).To(MatchError(ContainSubstring("PlatformCAIssuerRef")))
 	})
+}
+
+// findCertificate returns the generated cert-manager Certificate of that name, failing when the
+// manifests carry none.
+func findCertificate(g *WithT, objs []client.Object, name string) *unstructured.Unstructured {
+	for _, obj := range objs {
+		if obj.GetObjectKind().GroupVersionKind().Kind != string(CertificateKind) || obj.GetName() != name {
+			continue
+		}
+		uns, ok := obj.(*unstructured.Unstructured)
+		g.Expect(ok).To(BeTrue())
+		return uns
+	}
+	g.Expect(fmt.Sprintf("Certificate %q", name)).To(BeEmpty(), "the generated manifests carry no such Certificate")
+	return nil
+}
+
+// legacyProvisioningIssuerCASecret returns the Secret the generated legacy provisioning Issuer
+// signs with, failing when the manifests carry no such Issuer.
+func legacyProvisioningIssuerCASecret(g Gomega, objs []client.Object) string {
+	for _, obj := range objs {
+		if obj.GetObjectKind().GroupVersionKind().Kind != string(IssuerKind) ||
+			obj.GetName() != operatorv1.LegacyProvisioningIssuerName {
+			continue
+		}
+		uns, ok := obj.(*unstructured.Unstructured)
+		g.Expect(ok).To(BeTrue())
+		secretName, found, err := unstructured.NestedString(uns.UnstructuredContent(), "spec", "ca", "secretName")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(found).To(BeTrue())
+		return secretName
+	}
+	g.Expect(operatorv1.LegacyProvisioningIssuerName).To(BeEmpty(), "the generated manifests carry no such Issuer")
+	return ""
 }

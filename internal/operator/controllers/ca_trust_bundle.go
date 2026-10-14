@@ -27,6 +27,7 @@ import (
 	"strings"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/operator/certmanagement"
 	"github.com/nvidia/doca-platform/pkg/certmanager"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
@@ -39,10 +40,10 @@ import (
 )
 
 const (
-	// ProvisioningCASecretName is the cert-manager managed Secret holding the DPF provisioning CA
-	// (certificate and private key). It is defined locally to avoid importing internal provisioning packages.
-	// It is exported so the manager's cache can be scoped to only this Secret (see cmd/operator/main.go).
-	ProvisioningCASecretName = "dpf-provisioning-ca-secret"
+	// ProvisioningCASecretName is the Secret that holds the legacy provisioning CA on a cluster the
+	// upgrade migration has not run on yet. It is exported so the manager's cache can be scoped to
+	// only this Secret (see cmd/operator/main.go), which is what lets the migration read it.
+	ProvisioningCASecretName = operatorv1.LegacyProvisioningCASecretName
 	certificatePEMBlockType  = "CERTIFICATE"
 	// dpfOperatorComponentLabelValue marks the trust bundle as one DPF filled in, which is what
 	// tells a bundle it may delete on teardown from one the operator provided.
@@ -82,11 +83,11 @@ func (e *caTrustBundlePendingError) Error() string {
 //
 // It returns a *caTrustBundlePendingError when the bundle cannot be assembled yet, so the caller
 // can report it and requeue instead of treating it as a fatal error.
-func (r *DPFOperatorConfigReconciler) reconcileCATrustBundle(ctx context.Context, config *operatorv1.DPFOperatorConfig, anchor certmanager.IssuerReference) error {
+func (r *DPFOperatorConfigReconciler) reconcileCATrustBundle(ctx context.Context, config *operatorv1.DPFOperatorConfig, anchor certmanager.IssuerReference, migration certmanagement.MigrationState) error {
 	if anchor.IsExternalIssuer() {
 		return r.reconcileOperatorOwnedCATrustBundle(ctx, config)
 	}
-	return r.reconcileSelfSignedCATrustBundle(ctx, config)
+	return r.reconcileSelfSignedCATrustBundle(ctx, config, migration)
 }
 
 // reconcileOperatorOwnedCATrustBundle refreshes bundle-hash over a bundle DPF does not write.
@@ -159,19 +160,21 @@ func (r *DPFOperatorConfigReconciler) reconcileOperatorOwnedCATrustBundle(ctx co
 // ensure-present, non-pruning merge so that additional certificates (e.g. during a dual-CA rotation)
 // are preserved.
 //
-// The bundle carries two authorities rather than one. The provisioning CA validates the certificates
-// issued under it before the platform CA existed, which the BMC truststores still hold and the
-// certificates below it keep presenting until they are reissued. The platform CA validates
-// everything signed since: the Redfish client certificates and, through the issuer flag, the DPU BMC
-// and bfb-registry server certificates. Publishing only one of the two would leave peers rejecting
-// certificates on the other side of that line.
-func (r *DPFOperatorConfigReconciler) reconcileSelfSignedCATrustBundle(ctx context.Context, config *operatorv1.DPFOperatorConfig) error {
+// The bundle carries the provisioning CA alongside the platform chain on a cluster the upgrade
+// migration has not collapsed yet. That CA validates the certificates issued under it before the
+// platform CA existed, which the BMC truststores still hold and the certificates below it keep
+// presenting until they are reissued, while the platform CA validates everything signed since:
+// the Redfish client certificates and, through the issuer flag, the DPU BMC and bfb-registry server
+// certificates. Publishing only one of the two would leave peers rejecting certificates on the
+// other side of that line.
+//
+// Once the migration has carried the keypair of that CA into the platform intermediate, the two
+// authorities are the same one, and the legacy certificate is pruned rather than left to age out.
+// Pruning is safe precisely because the identity was preserved: the intermediate now published
+// validates every certificate the pruned one did, so this is not a change of trust the peers have
+// to converge on before it is taken away from them.
+func (r *DPFOperatorConfigReconciler) reconcileSelfSignedCATrustBundle(ctx context.Context, config *operatorv1.DPFOperatorConfig, migration certmanagement.MigrationState) error {
 	bundleName := config.GetCATrustBundleConfigMapName()
-
-	caCert, err := r.readProvisioningCACertificate(ctx, config.Namespace)
-	if err != nil {
-		return err
-	}
 
 	platformChain, err := r.readPlatformCACertificates(ctx, config.Namespace)
 	if err != nil {
@@ -191,47 +194,27 @@ func (r *DPFOperatorConfigReconciler) reconcileSelfSignedCATrustBundle(ctx conte
 		existingBundle = []byte(existing.Data[operatorv1.CATrustBundleKey])
 	}
 
-	merged, err := mergeCABundle(existingBundle, caCert, platformChain)
+	additions := make([][]byte, 0, 2)
+	if len(migration.LegacyAuthority) > 0 && !migration.LegacyAuthorityRetired {
+		additions = append(additions, migration.LegacyAuthority)
+	}
+	additions = append(additions, platformChain)
+
+	merged, err := mergeCABundle(existingBundle, additions...)
 	if err != nil {
 		return fmt.Errorf("failed to merge CA trust bundle: %w", err)
+	}
+	if migration.LegacyAuthorityRetired {
+		merged, err = pruneCABundle(merged, migration.LegacyAuthority)
+		if err != nil {
+			return fmt.Errorf("failed to prune the migrated authority from the CA trust bundle: %w", err)
+		}
 	}
 
 	if !found {
 		return r.createCATrustBundle(ctx, config.Namespace, bundleName, merged)
 	}
 	return r.updateCATrustBundle(ctx, existing, merged)
-}
-
-// readProvisioningCACertificate returns the certificate held by the provisioning CA Secret.
-//
-// cert-manager issues that Secret asynchronously, so neither a missing Secret nor one without
-// tls.crt yet is a fatal error: both return a *caTrustBundlePendingError for the caller to surface
-// and requeue on.
-func (r *DPFOperatorConfigReconciler) readProvisioningCACertificate(ctx context.Context, namespace string) ([]byte, error) {
-	log := ctrllog.FromContext(ctx)
-
-	caSecret := &corev1.Secret{}
-	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: ProvisioningCASecretName}, caSecret); err != nil {
-		if apierrors.IsNotFound(err) {
-			log.Info("Provisioning CA secret not found yet, requeuing", logKeySecret, ProvisioningCASecretName)
-			return nil, &caTrustBundlePendingError{
-				reason:  conditions.ReasonPending,
-				message: "Waiting for the provisioning CA secret to be issued by cert-manager",
-			}
-		}
-		return nil, fmt.Errorf("failed to get provisioning CA secret %s/%s: %w", namespace, ProvisioningCASecretName, err)
-	}
-
-	caCert := caSecret.Data[corev1.TLSCertKey]
-	if len(caCert) == 0 {
-		log.Info("Provisioning CA secret has no certificate yet, requeuing", logKeySecret, ProvisioningCASecretName)
-		return nil, &caTrustBundlePendingError{
-			reason:  conditions.ReasonPending,
-			message: "Waiting for the provisioning CA secret to contain a certificate",
-		}
-	}
-
-	return caCert, nil
 }
 
 // readPlatformCACertificates returns what a peer needs in order to validate a certificate signed by
@@ -436,8 +419,30 @@ func mergeCABundle(existing []byte, additions ...[]byte) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
+// pruneCABundle returns a PEM bundle that contains every certificate from bundle except the ones in
+// removals, de-duplicating by certificate content as the merge above does.
+//
+// It is the one place a certificate leaves the bundle. Everything else about the bundle is
+// ensure-present, so that trust material DPF did not put there survives, and taking something away
+// means having established that nothing still validates through it.
+func pruneCABundle(bundle []byte, removals ...[]byte) ([]byte, error) {
+	removed := map[[sha256.Size]byte]bool{}
+	for _, removal := range removals {
+		if err := appendCertBlocks(nil, removed, removal); err != nil {
+			return nil, err
+		}
+	}
+
+	var out bytes.Buffer
+	if err := appendCertBlocks(&out, removed, bundle); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
 // appendCertBlocks decodes PEM certificate blocks from data and writes any not already
-// recorded in seen to out, de-duplicating by certificate content.
+// recorded in seen to out, de-duplicating by certificate content. A nil out records the
+// certificates in seen without writing them, which is how the prune above collects what to drop.
 func appendCertBlocks(out *bytes.Buffer, seen map[[sha256.Size]byte]bool, data []byte) error {
 	rest := data
 	for {
@@ -454,6 +459,9 @@ func appendCertBlocks(out *bytes.Buffer, seen map[[sha256.Size]byte]bool, data [
 			continue
 		}
 		seen[fingerprint] = true
+		if out == nil {
+			continue
+		}
 		if err := pem.Encode(out, &pem.Block{Type: certificatePEMBlockType, Bytes: block.Bytes}); err != nil {
 			return err
 		}
@@ -461,8 +469,9 @@ func appendCertBlocks(out *bytes.Buffer, seen map[[sha256.Size]byte]bool, data [
 	return nil
 }
 
-// ProvisioningCASecretToDPFOperatorConfig enqueues a reconcile when the provisioning CA Secret changes
-// so the CA trust bundle is kept in sync with the CA certificate (e.g. after a CA renewal/rotation).
+// ProvisioningCASecretToDPFOperatorConfig enqueues a reconcile when the legacy provisioning CA Secret
+// changes, so the upgrade migration runs against what the Secret holds and the trust bundle follows
+// the authority it publishes out of it.
 func (r *DPFOperatorConfigReconciler) ProvisioningCASecretToDPFOperatorConfig(_ context.Context, o client.Object) []ctrl.Request {
 	result := make([]ctrl.Request, 0, 1)
 	// Ignore this enqueue function if the singletonNamespaceName is not set. This is done to enable easier testing.

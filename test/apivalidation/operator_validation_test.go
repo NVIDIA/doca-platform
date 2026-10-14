@@ -610,6 +610,10 @@ var _ = Describe("Operator API Validation", func() {
 			// The name reaches a DPU in the configuration it is provisioned with, so a rename can
 			// only leave the DPUs already provisioned reading a ConfigMap DPF no longer maintains.
 			// Rejecting it here is what keeps that from being a silent change.
+			//
+			// What is held immutable is the name in effect, not the field: a config without a
+			// certManagement block is served by the default name, so adding the block or removing
+			// it renames the bundle just as much as editing the field does.
 			It("rejects a rename of the trust bundle", func() {
 				config := getMinimalDPFOperatorConfig(testNs.Name)
 				config.Spec.Security = &operatorv1.SecurityConfiguration{
@@ -622,6 +626,54 @@ var _ = Describe("Operator API Validation", func() {
 				config.Spec.Security.CertManagement.TrustBundleConfigMapName = "other-ca-bundle"
 				Expect(testClient.Patch(ctx, config, patch)).
 					To(MatchError(ContainSubstring("trustBundleConfigMapName is immutable")))
+			})
+
+			It("rejects naming a bundle on a config that was served by the default", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				Expect(testClient.Create(ctx, config)).To(Succeed())
+				cleanupObjs = append(cleanupObjs, config)
+
+				patch := client.MergeFrom(config.DeepCopy())
+				config.Spec.Security = &operatorv1.SecurityConfiguration{
+					CertManagement: &operatorv1.CertManagementConfiguration{TrustBundleConfigMapName: "enterprise-ca-bundle"},
+				}
+				Expect(testClient.Patch(ctx, config, patch)).
+					To(MatchError(ContainSubstring("trustBundleConfigMapName is immutable")))
+			})
+
+			It("rejects removing the block that named a bundle, which falls back to the default", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				config.Spec.Security = &operatorv1.SecurityConfiguration{
+					CertManagement: &operatorv1.CertManagementConfiguration{TrustBundleConfigMapName: "enterprise-ca-bundle"},
+				}
+				Expect(testClient.Create(ctx, config)).To(Succeed())
+				cleanupObjs = append(cleanupObjs, config)
+
+				patch := client.MergeFrom(config.DeepCopy())
+				config.Spec.Security = nil
+				Expect(testClient.Patch(ctx, config, patch)).
+					To(MatchError(ContainSubstring("trustBundleConfigMapName is immutable")))
+			})
+
+			// The counterpart of the two above: a block that appears or goes without moving the name
+			// off the default is not a rename, and holding the name immutable must not freeze the
+			// rest of the block along with it.
+			It("accepts adding and removing a certManagement block that keeps the default name", func() {
+				config := getMinimalDPFOperatorConfig(testNs.Name)
+				Expect(testClient.Create(ctx, config)).To(Succeed())
+				cleanupObjs = append(cleanupObjs, config)
+
+				patch := client.MergeFrom(config.DeepCopy())
+				config.Spec.Security = &operatorv1.SecurityConfiguration{
+					CertManagement: &operatorv1.CertManagementConfiguration{},
+				}
+				Expect(testClient.Patch(ctx, config, patch)).To(Succeed())
+				Expect(config.Spec.Security.CertManagement.TrustBundleConfigMapName).
+					To(Equal(operatorv1.DefaultCATrustBundleConfigMapName))
+
+				patch = client.MergeFrom(config.DeepCopy())
+				config.Spec.Security = nil
+				Expect(testClient.Patch(ctx, config, patch)).To(Succeed())
 			})
 		})
 

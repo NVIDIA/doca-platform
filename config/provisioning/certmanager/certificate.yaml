@@ -2,10 +2,19 @@
 # The webhook serving certificate is signed by dpf-webhook-issuer, the shared DPF intermediate CA
 # for webhook serving certificates, which the dpf-operator helm chart creates in the DPF namespace.
 # The Redfish client certificates are signed by dpf-platform-issuer, the shared DPF intermediate CA
-# for the provisioning certificates, which the DPF Operator creates in the DPF namespace. The
-# self-signed provisioning CA below signs no leaf any more. It stays because the certificates it
-# signed are presented until they have been reissued, and the CA trust bundle publishes it for as
-# long as peers have to validate them.
+# for the provisioning certificates, which the DPF Operator creates in the DPF namespace.
+#
+# The self-signed provisioning CA below signs no leaf any more, and the upgrade migration carries
+# its keypair into the platform intermediate CA and then removes it. It is still rendered here
+# because the migration needs all three objects until it completes: the keypair in the Secret is
+# what it carries over, the pin on the issuer is how an in-flight CA rotation is recognized, and
+# the certificate is what the trust bundle publishes to validate the leaves not yet reissued.
+#
+# Which of them reach the cluster is therefore decided when the component is generated, not here:
+# the operator stops emitting these three once the migration has deleted the CA Secret, and the
+# ApplySet prunes them on that reconcile. The spec has to stay exactly as the releases that created
+# them applied it, or the apply would have cert-manager reissue the CA and generate a new keypair,
+# changing the identity the migration is in the middle of carrying over.
 # More document can be found at https://docs.cert-manager.io
 # WARNING: Targets CertManager v1.0. Check https://cert-manager.io/docs/installation/upgrading/ for breaking changes.
 apiVersion: cert-manager.io/v1

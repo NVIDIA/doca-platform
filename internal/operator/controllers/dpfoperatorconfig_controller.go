@@ -73,6 +73,12 @@ const (
 
 const (
 	dpfOperatorConfigControllerName = "dpfoperatorconfig-controller"
+
+	// migrationRequeueInterval paces the reconciles that carry the keypair of the provisioning CA
+	// into the platform intermediate CA. Short, because it only runs while that migration is in
+	// flight, which is a handful of reconciles once in the life of a cluster, and every one of them
+	// is a cheap read of what cert-manager has issued so far.
+	migrationRequeueInterval = 10 * time.Second
 )
 
 var (
@@ -400,7 +406,18 @@ func (r *DPFOperatorConfigReconciler) reconcile(ctx context.Context, dpfOperator
 		return ctrl.Result{}, nil
 	}
 
-	if err := r.reconcileSystemComponents(ctx, dpfOperatorConfig, dpuClusters, anchorState.IssuerRef); err != nil {
+	// The keypair of the provisioning CA that signed the leaves before they moved onto the platform
+	// issuer, carried into the platform CA so that the two authorities the trust bundle publishes
+	// collapse back into one without a rotation on every peer. It runs ahead of the apply below,
+	// which is what asks cert-manager for the certificate over the keypair it seeds, and a failure
+	// stops the reconcile there: applying with the identity unresolved would request the platform CA
+	// under a subject of its own over an adopted key, which is an authority that validates nothing.
+	migration, err := certmanagement.MigrateProvisioningCA(ctx, r.Client, dpfOperatorConfig, anchorState.IssuerRef)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if err := r.reconcileSystemComponents(ctx, dpfOperatorConfig, dpuClusters, anchorState.IssuerRef, migration); err != nil {
 		message := fmt.Sprintf("System components must be reconciled for DPF Operator to continue:\n%v",
 			conditions.JoinErrors(err, 1))
 		conditions.AddFalse(
@@ -423,9 +440,10 @@ func (r *DPFOperatorConfigReconciler) reconcile(ctx context.Context, dpfOperator
 	// held rather than returned right away: nothing below depends on the chain being ready, so
 	// aborting would let a failed read of the PKI hold back the trust bundle, which is the one step
 	// that keeps existing peers validating.
-	certErr := certmanagement.Reconcile(ctx, r.Client, dpfOperatorConfig, anchorState.IssuerRef, anchorState.RotationRequired())
+	certErr := certmanagement.Reconcile(ctx, r.Client, dpfOperatorConfig, anchorState.IssuerRef,
+		anchorState.RotationRequired(), migration.Blocked)
 
-	if err := r.reconcileCATrustBundle(ctx, dpfOperatorConfig, anchorState.IssuerRef); err != nil {
+	if err := r.reconcileCATrustBundle(ctx, dpfOperatorConfig, anchorState.IssuerRef, migration); err != nil {
 		// The bundle depends on material that arrives on someone else's schedule: cert-manager issuing
 		// the provisioning CA, or the operator supplying their own trust bundle. Neither is fatal, so
 		// the error carries the reason to surface and the reconcile returns without failing.
@@ -465,6 +483,15 @@ func (r *DPFOperatorConfigReconciler) reconcile(ctx context.Context, dpfOperator
 
 	// Update the DPF version in the status of the DPFOperatorConfig after a successful reconciliation.
 	dpfOperatorConfig.Status.Version = ptr.To(release.DPFVersion())
+
+	// Each step of the migration hands off to cert-manager and reads the result back on a later
+	// reconcile, and nothing on the cluster wakes this one when that result lands: the Secret
+	// informer is scoped to the Secret of the legacy CA and the Certificate of the platform CA is
+	// not watched. Left to the resync period the handful of steps would take as many sync periods,
+	// with the trust bundle publishing two authorities throughout.
+	if migration.Pending {
+		return ctrl.Result{RequeueAfter: migrationRequeueInterval}, nil
+	}
 
 	return ctrl.Result{}, nil
 }
@@ -608,10 +635,12 @@ func (r *DPFOperatorConfigReconciler) reconcileImagePullSecrets(ctx context.Cont
 // 8. OVS CNI
 // 9. SFC Controller
 // 10. CNI Installer
-func (r *DPFOperatorConfigReconciler) reconcileSystemComponents(ctx context.Context, config *operatorv1.DPFOperatorConfig, dpuClusters []*dpucluster.Config, caIssuerRef certmanager.IssuerReference) error {
+func (r *DPFOperatorConfigReconciler) reconcileSystemComponents(ctx context.Context, config *operatorv1.DPFOperatorConfig, dpuClusters []*dpucluster.Config, caIssuerRef certmanager.IssuerReference, migration certmanagement.MigrationState) error {
 	var errs []error
 	vars := inventory.VariablesFromDPFOperatorConfig(r.Defaults, config, dpuClusters)
 	vars.PlatformCAIssuerRef = caIssuerRef
+	vars.PlatformCACommonName = migration.CACommonName
+	vars.RetainLegacyProvisioningCA = migration.LegacyChainRetained
 	caErr := r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)
 	if caErr != nil {
 		errs = append(errs, caErr)

@@ -45,11 +45,12 @@ const (
 	bfbHostPathPath                      = "/var/lib/nvidia/dpf/bfb"
 	prepareLocalStorageInitContainerName = "prepare-local-storage"
 	webhookServiceName                   = "dpf-provisioning-webhook-service"
-	provisioningIssuerName               = "dpf-provisioning-issuer"
-	defaultProvisioningIssuerCASecret    = "dpf-provisioning-ca-secret"
 	customBFConfigFileName               = "bf.cfg.template"
 	customBFConfigVolumeName             = "bf-cfg-template"
 	errManagerContainerNotFoundFmt       = "container %q not found in Provisioning Controller deployment"
+	// legacyProvisioningCAObjectCount is how many objects isLegacyProvisioningCAObject matches: the
+	// self-signed issuer, the CA certificate under it, and the issuer over that certificate.
+	legacyProvisioningCAObjectCount = 3
 )
 
 var _ Component = &provisioningControllerObjects{}
@@ -169,6 +170,9 @@ func (p *provisioningControllerObjects) GenerateManifests(_ context.Context, var
 	// make a copy of the objects
 	objsCopy := make([]*unstructured.Unstructured, 0, len(p.objects))
 	for i := range p.objects {
+		if !vars.RetainLegacyProvisioningCA && isLegacyProvisioningCAObject(p.objects[i]) {
+			continue
+		}
 		objsCopy = append(objsCopy, p.objects[i].DeepCopy())
 	}
 	// Added before the edits below so they pick up the namespace and the component labels like every
@@ -196,8 +200,8 @@ func (p *provisioningControllerObjects) GenerateManifests(_ context.Context, var
 	if err := NewEdits().
 		AddForAll(NamespaceEdit(vars.Namespace),
 			LabelsEdit(labelsToAdd)).
-		AddForKind(IssuerKind, p.setProvisioningIssuerCASecretEdit(vars)).
-		AddForKind(CertificateKind, p.setPlatformCAIssuerRefEdit(vars)).
+		AddForKind(CertificateKind, p.setPlatformCAEdit(vars)).
+		AddForKind(IssuerKind, p.setLegacyProvisioningIssuerCAEdit(vars)).
 		AddForKindS(DeploymentKind, ImagePullSecretsEditForDeploymentEdit(vars.ImagePullSecrets...)).
 		AddForKindS(DeploymentKind, p.dpfProvisioningDeploymentEdit(vars)).
 		AddForKindS(DeploymentKind, NodeAffinityEdit(&controlPlaneNodeAffinity)).
@@ -216,39 +220,79 @@ func (p *provisioningControllerObjects) GenerateManifests(_ context.Context, var
 	return ret, nil
 }
 
-// setPlatformCAIssuerRefEdit points the platform intermediate CA at whatever anchors it.
+// isLegacyProvisioningCAObject reports whether obj belongs to the provisioning CA chain that the
+// platform intermediate CA takes over from.
+//
+// The chain is rendered from the kustomize overlay like everything else, rather than kept in a
+// manifest of its own, so that what is applied while the migration runs is exactly what the
+// releases that created these objects applied. An apply that differed in any field would have
+// cert-manager reissue the CA, generating a new keypair and changing the identity the migration is
+// carrying over. Which of them are emitted is decided here instead.
+func isLegacyProvisioningCAObject(obj *unstructured.Unstructured) bool {
+	switch ObjectKind(obj.GetKind()) {
+	case CertificateKind:
+		return obj.GetName() == operatorv1.LegacyProvisioningCACertificateName
+	case IssuerKind:
+		return obj.GetName() == operatorv1.LegacyProvisioningIssuerName ||
+			obj.GetName() == operatorv1.LegacyProvisioningSelfSignedIssuerName
+	default:
+		return false
+	}
+}
+
+// setLegacyProvisioningIssuerCAEdit keeps the retained legacy provisioning Issuer signing with the
+// Secret a CA rotation has it pinned to.
+//
+// The pin is what the rotation of that CA is driven by, and the apply forces ownership of every
+// field it sets, so emitting the Issuer with the Secret of its own chain would take the pin away
+// from a rotation in flight. The migration refuses to run while one is, since what is in that
+// Secret during a rotation is not necessarily what signed the certificates the peers hold, and it
+// reads the pin from this Issuer: erasing it here would have the migration proceed on the next
+// reconcile, in the middle of the rotation it just declined to migrate under.
+//
+// It does nothing on a cluster not in the middle of one, which is where the manifest's own Secret
+// is already the right answer, and nothing at all once the chain is retired and the Issuer with it.
+func (p *provisioningControllerObjects) setLegacyProvisioningIssuerCAEdit(vars Variables) UnstructuredEdit {
+	return func(obj *unstructured.Unstructured) error {
+		if obj.GetName() != operatorv1.LegacyProvisioningIssuerName || vars.LegacyProvisioningIssuerCASecretName == "" {
+			return nil
+		}
+		return unstructured.SetNestedField(obj.Object,
+			vars.LegacyProvisioningIssuerCASecretName, "spec", "ca", "secretName")
+	}
+}
+
+// setPlatformCAEdit points the platform intermediate CA at whatever anchors it, and requests it
+// under the identity it carries.
 //
 // The provisioning certificates reference the issuer over that CA and never the CA that signs it,
 // which makes this issuerRef the single place where the choice of certificate authority takes
 // effect: the self-signed root the dpf-operator chart creates, or the authority its
 // certificateAuthority.issuerRef value names. Everything below the intermediate is identical in
 // both modes, so this is the only object the mode edit touches.
-func (p *provisioningControllerObjects) setPlatformCAIssuerRefEdit(vars Variables) UnstructuredEdit {
+//
+// The subject is replaced only on a cluster the upgrade migration carried a provisioning CA into.
+// A CA is a subject as much as a key: requesting the one whose keypair was adopted is what lets the
+// intermediate validate the certificates that CA signed, and requesting the subject of the manifest
+// over an adopted key would produce an authority that can validate none of them.
+func (p *provisioningControllerObjects) setPlatformCAEdit(vars Variables) UnstructuredEdit {
 	return func(obj *unstructured.Unstructured) error {
 		if obj.GetName() != operatorv1.PlatformIntermediateCAName {
 			return nil
 		}
 
-		return unstructured.SetNestedStringMap(obj.Object, map[string]string{
+		if err := unstructured.SetNestedStringMap(obj.Object, map[string]string{
 			"name":  vars.PlatformCAIssuerRef.Name,
 			"kind":  vars.PlatformCAIssuerRef.Kind,
 			"group": vars.PlatformCAIssuerRef.Group,
-		}, "spec", "issuerRef")
-	}
-}
+		}, "spec", "issuerRef"); err != nil {
+			return err
+		}
 
-func (p *provisioningControllerObjects) setProvisioningIssuerCASecretEdit(vars Variables) UnstructuredEdit {
-	return func(obj *unstructured.Unstructured) error {
-		if obj.GetName() != provisioningIssuerName {
+		if vars.PlatformCACommonName == "" {
 			return nil
 		}
-
-		secretName := defaultProvisioningIssuerCASecret
-		if v := vars.DPFProvisioningController.ProvisioningIssuerCASecretName; v != nil && *v != "" {
-			secretName = *v
-		}
-
-		return unstructured.SetNestedField(obj.Object, secretName, "spec", "ca", "secretName")
+		return unstructured.SetNestedField(obj.Object, vars.PlatformCACommonName, "spec", "commonName")
 	}
 }
 
