@@ -28,6 +28,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -75,8 +76,29 @@ func (st *blueFieldSoftwareDeletingState) blockedByDPUSet(ctx context.Context, c
 	return nil
 }
 
+// blockedByDPU returns a non-nil error while any DPU in the namespace still names this
+// BlueFieldSoftware, including a DPU that is itself being deleted. The DPUSet finalizer
+// alone is not enough: it can be missing on objects from older releases or after a
+// manual edit, and deleting the software would remove host files a DPU still uses.
+func (st *blueFieldSoftwareDeletingState) blockedByDPU(ctx context.Context, c client.Client) error {
+	dpuList := &provisioningv1.DPUList{}
+	if err := c.List(ctx, dpuList, client.InNamespace(st.bfs.Namespace)); err != nil {
+		return st.blockDeletion(fmt.Errorf("failed to list DPUs for reference checking: %w", err).Error())
+	}
+	for _, dpu := range dpuList.Items {
+		if ptr.Deref(dpu.Spec.BlueFieldSoftware, "") == st.bfs.Name {
+			return st.blockDeletion(fmt.Sprintf("Cannot delete BlueFieldSoftware %s/%s: still referenced by DPU %s",
+				st.bfs.Namespace, st.bfs.Name, dpu.Name))
+		}
+	}
+	return nil
+}
+
 func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.Client) error {
 	if err := st.blockedByDPUSet(ctx, c); err != nil {
+		return err
+	}
+	if err := st.blockedByDPU(ctx, c); err != nil {
 		return err
 	}
 

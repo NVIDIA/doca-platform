@@ -39,7 +39,7 @@ type BlueFieldSoftwarePhase string
 // These are the valid statuses of BlueFieldSoftware.
 const (
 	// BlueFieldSoftwareFinalizerPrefix is the prefix for per-DPUSet protection finalizers
-	// placed on a BlueFieldSoftware while that DPUSet references it.
+	// placed on a BlueFieldSoftware while that DPUSet's template or any of its DPUs references it.
 	// Full format: provisioning.dpu.nvidia.com/bfs-dpuset-<dpuSetName>
 	BlueFieldSoftwareFinalizerPrefix = DPUProvisioningPrefix + "bfs-dpuset-"
 

@@ -799,6 +799,106 @@ var _ = Describe("DPUSetReconciler BlueFieldSoftware finalizer", func() {
 			Expect(updatedNew.Finalizers).To(ContainElement(provisioningv1.BlueFieldSoftwareFinalizerForDPUSet(dpuSet.Name)))
 		})
 
+		It("should keep the old BlueFieldSoftware finalizer while an owned DPU still references it", func() {
+			dpuSet := newDPUSet()
+			oldBFS := &provisioningv1.BlueFieldSoftware{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "old-bfs",
+					Namespace:  testNamespace,
+					Finalizers: []string{provisioningv1.BlueFieldSoftwareFinalizerForDPUSet(dpuSet.Name)},
+				},
+			}
+			newBFS := &provisioningv1.BlueFieldSoftware{
+				ObjectMeta: metav1.ObjectMeta{Name: bfsName, Namespace: testNamespace},
+			}
+			liveDPU := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpu-live",
+					Namespace: testNamespace,
+					Labels: map[string]string{
+						cutil.DPUSetNameLabel:      dpuSet.Name,
+						cutil.DPUSetNamespaceLabel: dpuSet.Namespace,
+					},
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName:       "worker1",
+					DPUDeviceName:     "device-1",
+					SerialNumber:      "MT250660056F",
+					BlueFieldSoftware: ptr.To("old-bfs"),
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(oldBFS, newBFS, liveDPU, dpuSet).
+				WithStatusSubresource(&provisioningv1.DPU{}).
+				Build()
+			reconciler := &DPUSetReconciler{
+				Client:   fakeClient,
+				Scheme:   scheme,
+				Recorder: record.NewFakeRecorder(10),
+			}
+
+			_, err := reconciler.Handle(ctx, dpuSet)
+			Expect(err).NotTo(HaveOccurred())
+
+			updatedOld := &provisioningv1.BlueFieldSoftware{}
+			Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(oldBFS), updatedOld)).To(Succeed())
+			Expect(updatedOld.Finalizers).To(ContainElement(
+				provisioningv1.BlueFieldSoftwareFinalizerForDPUSet(dpuSet.Name)))
+
+			updatedNew := &provisioningv1.BlueFieldSoftware{}
+			Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(newBFS), updatedNew)).To(Succeed())
+			Expect(updatedNew.Finalizers).To(ContainElement(
+				provisioningv1.BlueFieldSoftwareFinalizerForDPUSet(dpuSet.Name)))
+		})
+
+		It("should keep the finalizer when the reference is cleared but an owned DPU still uses the BlueFieldSoftware", func() {
+			dpuSet := newDPUSet()
+			dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware = nil
+			bfs := &provisioningv1.BlueFieldSoftware{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       bfsName,
+					Namespace:  testNamespace,
+					Finalizers: []string{provisioningv1.BlueFieldSoftwareFinalizerForDPUSet(dpuSet.Name)},
+				},
+			}
+			liveDPU := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpu-live",
+					Namespace: testNamespace,
+					Labels: map[string]string{
+						cutil.DPUSetNameLabel:      dpuSet.Name,
+						cutil.DPUSetNamespaceLabel: dpuSet.Namespace,
+					},
+				},
+				Spec: provisioningv1.DPUSpec{
+					DPUNodeName:       "worker1",
+					DPUDeviceName:     "device-1",
+					SerialNumber:      "MT250660056F",
+					BlueFieldSoftware: ptr.To(bfsName),
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(bfs, liveDPU, dpuSet).
+				WithStatusSubresource(&provisioningv1.DPU{}).
+				Build()
+			reconciler := &DPUSetReconciler{
+				Client:   fakeClient,
+				Scheme:   scheme,
+				Recorder: record.NewFakeRecorder(10),
+			}
+
+			_, err := reconciler.Handle(ctx, dpuSet)
+			Expect(err).NotTo(HaveOccurred())
+
+			updatedBFS := &provisioningv1.BlueFieldSoftware{}
+			Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(bfs), updatedBFS)).To(Succeed())
+			Expect(updatedBFS.Finalizers).To(ContainElement(provisioningv1.BlueFieldSoftwareFinalizerForDPUSet(dpuSet.Name)))
+		})
+
 		It("should remove the finalizer when the BlueFieldSoftware reference is cleared", func() {
 			dpuSet := newDPUSet()
 			dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware = nil

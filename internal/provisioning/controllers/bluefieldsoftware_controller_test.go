@@ -800,5 +800,81 @@ var _ = Describe("BlueFieldSoftware", func() {
 				return apierrors.IsNotFound(k8sClient.Get(ctx, getObjKey(obj), objFetched))
 			}).WithTimeout(60 * time.Second).WithPolling(1 * time.Second).Should(BeTrue())
 		})
+
+		It("BlueFieldSoftware: should block deletion when DPU references it", func() {
+			By("creating the BlueFieldSoftware")
+			obj := createObj("bfs-dpu-ref")
+			obj.Spec.PldmFwBundle = defaultPldmBundle(bfbServerURL + BFB512KBPath)
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+			objFetched := &provisioningv1.BlueFieldSoftware{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.BlueFieldSoftwareReady))
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			newDPU := func(namespace string) *provisioningv1.DPU {
+				return &provisioningv1.DPU{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-dpu-" + utilrand.String(5),
+						Namespace: namespace,
+					},
+					Spec: provisioningv1.DPUSpec{
+						BlueFieldSoftware: ptr.To(obj.Name),
+						DPUFlavor:         "dummy-flavor",
+						SerialNumber:      "SN-" + utilrand.String(5),
+						DPUDeviceName:     "device-" + utilrand.String(5),
+						DPUNodeName:       "node-" + utilrand.String(5),
+						NodeEffect:        provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}},
+					},
+				}
+			}
+
+			By("creating DPU in different namespace (should NOT block deletion)")
+			otherNS := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "other-" + utilrand.String(5),
+				},
+			}
+			Expect(k8sClient.Create(ctx, otherNS)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(k8sClient.Delete(ctx, otherNS)).To(Succeed())
+			})
+			Expect(k8sClient.Create(ctx, newDPU(otherNS.Name))).To(Succeed())
+
+			By("creating DPU in same namespace that references the BlueFieldSoftware")
+			dpu := newDPU(testNS.Name)
+			Expect(k8sClient.Create(ctx, dpu)).To(Succeed())
+
+			By("verifying deletion is blocked by the same-namespace DPU")
+			Expect(k8sClient.Delete(ctx, obj)).To(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				cond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BlueFieldSoftwareCondDeleted))
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(Equal(string(conditions.ReasonPending)))
+				g.Expect(cond.Message).To(ContainSubstring("still referenced by DPU " + dpu.Name))
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			Consistently(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.BlueFieldSoftwareDeleting))
+			}).WithTimeout(5 * time.Second).Should(Succeed())
+
+			By("deleting same-namespace DPU and waiting for it to be gone")
+			Expect(k8sClient.Delete(ctx, dpu)).To(Succeed())
+			Eventually(func() bool {
+				return apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{
+					Name:      dpu.Name,
+					Namespace: dpu.Namespace,
+				}, &provisioningv1.DPU{}))
+			}).WithTimeout(30*time.Second).Should(BeTrue(), "DPU should be deleted")
+
+			By("verifying BlueFieldSoftware is deleted despite DPU in different namespace")
+			Eventually(func() bool {
+				return apierrors.IsNotFound(k8sClient.Get(ctx, getObjKey(obj), objFetched))
+			}).WithTimeout(60*time.Second).WithPolling(1*time.Second).Should(BeTrue(), "BlueFieldSoftware should be deleted (other namespace DPU should not block)")
+		})
 	})
 })
