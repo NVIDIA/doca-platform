@@ -33,6 +33,9 @@ spec:
     - expression: "!has(object.spec.nvipam) || !has(object.spec.nvipam.image)"
       message: >-
         spec.nvipam.image is deprecated. This field is deprecated and will be removed with v27.1.0. Use the new field `controller` instead.
+    - expression: "!has(object.spec.overrides) || !has(object.spec.overrides.provisioningIssuerCASecretName)"
+      message: >-
+        spec.overrides.provisioningIssuerCASecretName is deprecated. This field is deprecated and will be removed with v27.1.0.
     - expression: "!has(object.spec.ovsCNI)"
       message: >-
         spec.ovsCNI is deprecated. OVS CNI is installed by CNIInstaller. Remove in 27.1.

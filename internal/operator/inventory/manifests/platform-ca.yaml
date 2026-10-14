@@ -31,6 +31,13 @@ spec:
     # this CA keeps its key and its subject, so everything it has already issued still validates.
     # cert-manager defaults this to Always as of v1.18, which would generate a new key on every
     # reissue and make both a re-anchor and an ordinary renewal a fleet wide CA rotation.
+    #
+    # The migration carried out below depends on the same property from the other direction:
+    # cert-manager keeps the key it finds in the Secret rather than generating one, which is what
+    # lets the operator hand it the keypair of the provisioning CA that preceded this one, seeding
+    # the Secret with that key so the identity the peers were provisioned with survives. The
+    # algorithm above has to keep matching that keypair, or cert-manager replaces it and the
+    # identity is lost.
     rotationPolicy: Never
   # The self-signed default. Replaced per CA mode, see the note above.
   issuerRef:

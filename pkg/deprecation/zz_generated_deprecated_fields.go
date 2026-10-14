@@ -51,6 +51,10 @@ var KnownDeprecations = []GVKDeprecations{
 				Description: "Image overrides the container image used by the NVIPAM controller.\n\nDeprecated: This field is deprecated and will be removed with v27.1.0.\nUse the new field `controller` instead.",
 			},
 			{
+				Segments:    []PathSegment{{Name: "spec"}, {Name: "overrides"}, {Name: "provisioningIssuerCASecretName"}},
+				Description: "ProvisioningIssuerCASecretName overrides the CA secret of the provisioning Issuer during a\nrotation. The provisioning certificates are signed by the platform intermediate CA now, and a\nrotation of it is driven by cert-manager rather than by repointing an Issuer, so this only\nstill pins the provisioning Issuer of the CA chain the platform intermediate CA is taking\nover from, on a cluster the upgrade has not finished migrating. It has no effect once that\nchain is gone, which is every cluster installed since.\n\nDeprecated: This field is deprecated and will be removed with v27.1.0.",
+			},
+			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "ovsCNI"}},
 				Description: "OVSCNI is the configuration for OVSCNI\n\nDeprecated: OVS CNI is installed by CNIInstaller. Remove in 27.1.",
 			},

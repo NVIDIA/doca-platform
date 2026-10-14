@@ -52,6 +52,14 @@ const (
 	// CertManagementReasonCARotationRequired is reported when the issuer anchoring the PKI changed on
 	// a cluster that already has provisioned DPUs, whose BMCs still trust the previous chain.
 	CertManagementReasonCARotationRequired conditions.ConditionReason = "CARotationRequired"
+	// CertManagementReasonCAMigrationBlocked is reported when the keypair of the legacy provisioning
+	// CA cannot be carried into the platform intermediate CA because a CA rotation has the issuer of
+	// that legacy CA pinned to a Secret of its own.
+	CertManagementReasonCAMigrationBlocked conditions.ConditionReason = "CAMigrationBlocked"
+	// CertManagementReasonCAMigrationRefused is reported when the platform intermediate CA already
+	// stands in for the legacy provisioning CA and the Secret of that legacy chain holds a different
+	// keypair, which is a state only an administrator can resolve.
+	CertManagementReasonCAMigrationRefused conditions.ConditionReason = "CAMigrationRefused"
 )
 
 const (
@@ -119,6 +127,16 @@ const (
 	// PlatformIssuerName is the issuer over PlatformIntermediateCAName. Every provisioning
 	// certificate references it, in both CA modes, so a leaf never has to know what anchors the PKI.
 	PlatformIssuerName = "dpf-platform-issuer"
+
+	// The provisioning CA chain that signed the provisioning certificates before they moved onto the
+	// platform issuer. It is no longer created: the upgrade migration carries the keypair of the CA
+	// into PlatformIntermediateCAName, so that the certificates already issued under it keep
+	// validating, and then removes these objects. They are named here because that migration is the
+	// only thing left that reads them.
+	LegacyProvisioningCASecretName         = "dpf-provisioning-ca-secret"
+	LegacyProvisioningCACertificateName    = "dpf-provisioning-ca-cert"
+	LegacyProvisioningIssuerName           = "dpf-provisioning-issuer"
+	LegacyProvisioningSelfSignedIssuerName = "dpf-provisioning-selfsigned-issuer"
 
 	// CertManagerGroup is the API group of the cert-manager issuer kinds.
 	CertManagerGroup = "cert-manager.io"
@@ -224,8 +242,14 @@ type Overrides struct {
 	// +kubebuilder:validation:MaxLength=63
 	ArgoCDNamespace *string `json:"argoCDNamespace,omitempty"`
 
-	// ProvisioningIssuerCASecretName overrides the CA secret used by the provisioning Issuer during
-	// controlled CA rotation workflows. When unset, the default issuer secret is used.
+	// ProvisioningIssuerCASecretName overrides the CA secret of the provisioning Issuer during a
+	// rotation. The provisioning certificates are signed by the platform intermediate CA now, and a
+	// rotation of it is driven by cert-manager rather than by repointing an Issuer, so this only
+	// still pins the provisioning Issuer of the CA chain the platform intermediate CA is taking
+	// over from, on a cluster the upgrade has not finished migrating. It has no effect once that
+	// chain is gone, which is every cluster installed since.
+	//
+	// Deprecated: This field is deprecated and will be removed with v27.1.0.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	ProvisioningIssuerCASecretName *string `json:"provisioningIssuerCASecretName,omitempty"`
@@ -291,6 +315,13 @@ const (
 // run on status-subresource writes too, and stored objects from releases predating the field would
 // otherwise fail rule evaluation with "no such key", blocking all status updates.
 
+// The trust bundle rule below compares the name in effect rather than the field, and the literal in
+// it is DefaultCATrustBundleConfigMapName, which it has to be kept in step with. A rule on the field
+// itself only runs where the field is on both sides of the update, which leaves the two ways of
+// changing the name in effect without touching it: naming a bundle on a config that had no
+// certManagement block, and removing the block from one that named a bundle. Either moves the name
+// between the default and a named one, which is the rename this forbids.
+
 // DPFOperatorConfigSpec defines the desired state of DPFOperatorConfig
 // +kubebuilder:validation:XValidation:rule="!has(self.deploymentMode) || self.deploymentMode != 'zero-trust' || (has(self.provisioningController.installInterface) && has(self.provisioningController.installInterface.installViaRedfish))",message="deploymentMode zero-trust requires provisioningController.installInterface.installViaRedfish"
 // +kubebuilder:validation:XValidation:rule="!has(self.deploymentMode) || self.deploymentMode != 'host-trusted' || !has(self.provisioningController.installInterface) || !has(self.provisioningController.installInterface.installViaRedfish)",message="deploymentMode host-trusted does not support provisioningController.installInterface.installViaRedfish"
@@ -300,6 +331,7 @@ const (
 // +kubebuilder:validation:XValidation:rule="!has(self.security) || !has(self.security.spiffe) || self.deploymentMode == 'zero-trust'",message="spiffe configuration requires deploymentMode=zero-trust"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.security) || !has(oldSelf.security.spiffe) || (has(self.security) && has(self.security.spiffe))",message="spec.security.spiffe cannot be removed once set; SPIFFE-mode DPUs depend on this configuration. Disable SPIFFE for the cluster by deleting and recreating DPFOperatorConfig (DR escape hatch); existing SPIFFE-mode DPUs require re-provisioning."
 // +kubebuilder:validation:XValidation:rule="!has(self.kamajiClusterManager) || !has(self.kamajiClusterManager.etcdEncryptionAtRest) || self.kamajiClusterManager.etcdEncryptionAtRest.provider != 'vaultKMS' || (has(self.security) && has(self.security.vaultKMS) && (!has(self.security.vaultKMS.disable) || self.security.vaultKMS.disable == false))",message="kamajiClusterManager.etcdEncryptionAtRest.provider vaultKMS requires spec.security.vaultKMS to be enabled"
+// +kubebuilder:validation:XValidation:rule="(has(self.security) && has(self.security.certManagement) && has(self.security.certManagement.trustBundleConfigMapName) ? self.security.certManagement.trustBundleConfigMapName : 'dpf-ca-trust-bundle') == (has(oldSelf.security) && has(oldSelf.security.certManagement) && has(oldSelf.security.certManagement.trustBundleConfigMapName) ? oldSelf.security.certManagement.trustBundleConfigMapName : 'dpf-ca-trust-bundle')",message="spec.security.certManagement.trustBundleConfigMapName is immutable, including the default it falls back to when the certManagement block is absent: the name reaches each DPU in the provisioning configuration it is installed with, so changing it leaves the DPUs already provisioned reading a ConfigMap DPF no longer maintains"
 type DPFOperatorConfigSpec struct {
 	// +optional
 	Overrides *Overrides `json:"overrides,omitempty"`
@@ -467,11 +499,12 @@ type CertManagementConfiguration struct {
 	// The name is fixed once the config exists. It reaches each DPU in the provisioning configuration
 	// it is installed with, so renaming it later would leave the DPUs already provisioned reading a
 	// ConfigMap DPF no longer maintains, holding trust material that silently stops being updated.
+	// That is enforced on the spec rather than here, because leaving this field out falls back to a
+	// name too, and a rule on the field cannot see a rename that adds or removes it.
 	// +kubebuilder:default=dpf-ca-trust-bundle
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="trustBundleConfigMapName is immutable"
 	// +optional
 	TrustBundleConfigMapName string `json:"trustBundleConfigMapName,omitempty"`
 }

@@ -157,6 +157,7 @@ func TestReconcile(t *testing.T) {
 		anchor           certmanager.IssuerReference
 		objs             []client.Object
 		rotationRequired bool
+		migrationBlocked bool
 		wantStatus       metav1.ConditionStatus
 		wantReason       conditions.ConditionReason
 		wantMessage      string
@@ -309,6 +310,28 @@ func TestReconcile(t *testing.T) {
 			wantReason:       conditions.ReasonPending,
 			wantMessage:      "Failed to initialize the Vault client",
 		},
+		{
+			// A rotation of the CA the migration carries over leaves this chain untouched, so it is
+			// ready throughout: reporting it would overwrite the block with success on the very
+			// reconcile that observed it, and nothing would ever say why the trust bundle still
+			// publishes two authorities.
+			name:             "a migration held back by a CA rotation outranks a chain that is ready",
+			objs:             []client.Object{selfSignedRootIssuer(), newPlatformCACertificate(selfSignedRef(), readyStatus(true, ""))},
+			migrationBlocked: true,
+			wantStatus:       metav1.ConditionFalse,
+			wantReason:       operatorv1.CertManagementReasonCAMigrationBlocked,
+			wantMessage:      "is pinned to Secret",
+		},
+		{
+			// Same reasoning as the missing anchor under a rotation: a chain that cannot be issued
+			// at all is what has to be acted on, and the migration is not the part to report.
+			name:             "an anchor that is not ready is reported even while a migration is blocked",
+			objs:             []client.Object{newIssuer(IssuerGVK, operatorv1.GlobalRootIssuerName, readyStatus(false, "Secret does not have a field named tls.key"))},
+			migrationBlocked: true,
+			wantStatus:       metav1.ConditionFalse,
+			wantReason:       conditions.ReasonPending,
+			wantMessage:      "Secret does not have a field named tls.key",
+		},
 	}
 
 	for _, tt := range tests {
@@ -324,13 +347,16 @@ func TestReconcile(t *testing.T) {
 				WithObjects(tt.objs...).
 				Build()
 
-			// Mirrors the caller, which reports the rotation as soon as it observes it rather than
-			// after the apply that makes it unobservable.
+			// Mirrors the caller, which reports both of these as soon as it observes them rather
+			// than after the apply that makes them unobservable.
 			if tt.rotationRequired {
 				setRotationRequired(config, anchor)
 			}
+			if tt.migrationBlocked {
+				SetMigrationBlocked(config, "dpf-provisioning-ca-secret-old")
+			}
 
-			g.Expect(Reconcile(context.Background(), c, config, anchor, tt.rotationRequired)).To(Succeed())
+			g.Expect(Reconcile(context.Background(), c, config, anchor, tt.rotationRequired, tt.migrationBlocked)).To(Succeed())
 
 			condition := conditions.Get(config, operatorv1.CertManagementReadyCondition)
 			g.Expect(condition).NotTo(BeNil())

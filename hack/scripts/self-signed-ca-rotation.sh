@@ -243,7 +243,14 @@ precheck() {
 	need_cmd openssl
 
 	"$KUBECTL" get ns "$NS" > /dev/null
-	k get secret "$CA_SECRET" > /dev/null
+
+	# The chain this script rotates is carried into dpf-platform-intermediate-ca when a cluster is
+	# upgraded and removed once it has been, and a fresh install never has one, so on most clusters
+	# none of it is here. Said plainly rather than left to a NotFound on the get below, which reads
+	# like a broken cluster rather than a procedure that no longer applies to this one.
+	if ! k get secret "$CA_SECRET" > /dev/null 2>&1; then
+		die "Secret/$CA_SECRET does not exist in namespace $NS, so this cluster has no legacy provisioning CA to rotate. The procedure applies only for as long as that chain is present: see docs/public/advanced-configuration/ca-certificate-rotation.md."
+	fi
 	k get configmap "$TRUST_BUNDLE_CM" > /dev/null
 	k get certificate "$CA_CERT_NAME" > /dev/null
 	k get issuer "$ISSUER_NAME" > /dev/null

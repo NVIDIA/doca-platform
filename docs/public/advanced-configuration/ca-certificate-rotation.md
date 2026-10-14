@@ -8,6 +8,19 @@ This guide explains how to rotate the current self-signed provisioning CA used b
 bfb-registry, provisioning-controller, DPU BMC mTLS, hostagent and DPU OS trust healthy during the
 transition.
 
+> **This procedure applies only to a cluster that still has the legacy provisioning CA.** It rotates
+> `dpf-provisioning-ca-cert` through `dpf-provisioning-issuer` and `dpf-provisioning-ca-secret`. DPF
+> now carries the keypair of that CA into `dpf-platform-intermediate-ca` when a cluster is upgraded,
+> and removes the legacy chain once it has, so none of those objects exist on a fresh install or on a
+> cluster the migration has already run on. A cluster anchored to a certificate authority of your own
+> keeps the legacy chain and is still rotated this way, see
+> [External Certificate Authority](external-certificate-authority.md). The replacement procedure for
+> the platform intermediate CA is published separately. To tell which case you are in:
+>
+> ```bash
+> kubectl -n dpf-operator-system get secret dpf-provisioning-ca-secret
+> ```
+
 # Overview
 
 The provisioning CA establishes trust between DPF components. Replacing it in a single operation could break mTLS while some components still use certificates signed by the old CA. DPF therefore uses a dual-trust rotation:
