@@ -173,7 +173,7 @@ func (r *DPUSetReconciler) reconcileDelete(ctx context.Context, dpuSet *provisio
 
 	// All owned DPUs are gone, so release this DPUSet's protection finalizer from
 	// any BlueFieldSoftware that still carries it.
-	if err := r.removeBlueFieldSoftwareFinalizer(ctx, dpuSet, ""); err != nil {
+	if err := r.removeBlueFieldSoftwareFinalizer(ctx, dpuSet, nil); err != nil {
 		return err
 	}
 
@@ -211,10 +211,10 @@ func (r *DPUSetReconciler) addBlueFieldSoftwareFinalizer(ctx context.Context, dp
 }
 
 // removeBlueFieldSoftwareFinalizer releases this DPUSet's protection finalizer from
-// BlueFieldSoftware objects in the namespace, skipping keepBFSName when non-empty.
+// BlueFieldSoftware objects in the namespace, skipping every name in keep.
 // NotFound on an individual update is ignored so callers are not blocked when an
 // object is already gone.
-func (r *DPUSetReconciler) removeBlueFieldSoftwareFinalizer(ctx context.Context, dpuSet *provisioningv1.DPUSet, keepBFSName string) error {
+func (r *DPUSetReconciler) removeBlueFieldSoftwareFinalizer(ctx context.Context, dpuSet *provisioningv1.DPUSet, keep map[string]struct{}) error {
 	finalizer := provisioningv1.BlueFieldSoftwareFinalizerForDPUSet(dpuSet.Name)
 
 	bfsList := &provisioningv1.BlueFieldSoftwareList{}
@@ -223,7 +223,7 @@ func (r *DPUSetReconciler) removeBlueFieldSoftwareFinalizer(ctx context.Context,
 	}
 	for i := range bfsList.Items {
 		bfs := &bfsList.Items[i]
-		if bfs.Name == keepBFSName {
+		if _, ok := keep[bfs.Name]; ok {
 			continue
 		}
 		if controllerutil.RemoveFinalizer(bfs, finalizer) {
@@ -320,13 +320,20 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 		return ctrl.Result{}, fmt.Errorf("failed to get DPU map %w", err)
 	}
 
-	keepBFSName := ""
-	if dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware != nil {
-		keepBFSName = dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware.Name
-	}
 	// Drop stale finalizers left on a previously referenced BlueFieldSoftware after an edit.
 	// The current reference was protected above, before steps that can return early.
-	if err := r.removeBlueFieldSoftwareFinalizer(ctx, dpuSet, keepBFSName); err != nil {
+	// Software still named by an owned DPU stays protected: OnDelete keeps old DPUs
+	// indefinitely, and RollingUpdate keeps them until each one is replaced.
+	keepBFS := make(map[string]struct{}, len(dpuMap)+1)
+	if dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware != nil {
+		keepBFS[dpuSet.Spec.DPUTemplate.Spec.BlueFieldSoftware.Name] = struct{}{}
+	}
+	for _, dpu := range dpuMap {
+		if name := ptr.Deref(dpu.Spec.BlueFieldSoftware, ""); name != "" {
+			keepBFS[name] = struct{}{}
+		}
+	}
+	if err := r.removeBlueFieldSoftwareFinalizer(ctx, dpuSet, keepBFS); err != nil {
 		return ctrl.Result{}, err
 	}
 
