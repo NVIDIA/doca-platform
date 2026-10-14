@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -2151,9 +2152,15 @@ func (r *DPUDeviceReconciler) removeCredentialFinalizer(ctx context.Context, nam
 	return r.Client.Patch(ctx, secret, patch)
 }
 
-// moveCredentialFinalizer removes the finalizer from the old secret and adds it to the new one.
+// moveCredentialFinalizer adds the finalizer to the new secret and then removes it from the old one.
+// The new secret is protected first so a failure never leaves both secrets unprotected.
 func (r *DPUDeviceReconciler) moveCredentialFinalizer(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, oldSecretName, newSecretName string) error {
 	// Skip finalizer operations for the shared secret
+	if newSecretName != rfclient.BMCPasswordSecret {
+		if err := r.ensureCredentialFinalizer(ctx, dpuDevice.Namespace, newSecretName); err != nil {
+			return fmt.Errorf("failed to add finalizer to new secret %q: %w", newSecretName, err)
+		}
+	}
 	if oldSecretName != rfclient.BMCPasswordSecret {
 		// Keep the finalizer if another device still references the old secret (for example a
 		// legacy share that predates the uniqueness check).
@@ -2167,39 +2174,34 @@ func (r *DPUDeviceReconciler) moveCredentialFinalizer(ctx context.Context, dpuDe
 			}
 		}
 	}
-	if newSecretName != rfclient.BMCPasswordSecret {
-		if err := r.ensureCredentialFinalizer(ctx, dpuDevice.Namespace, newSecretName); err != nil {
-			return fmt.Errorf("failed to add finalizer to new secret %q: %w", newSecretName, err)
-		}
-	}
 	return nil
 }
 
-// cleanupCredentialFinalizer removes the BMC credential finalizer from the current credential secret
-// during DPUDevice deletion.
+// cleanupCredentialFinalizer removes the BMC credential finalizer from the device's credential
+// secrets during DPUDevice deletion. Both the status and spec secrets are released: an interrupted
+// rotation can leave the new (spec) secret protected while status still names the old one.
 func (r *DPUDeviceReconciler) cleanupCredentialFinalizer(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) error {
-	secretName := ""
-	if dpuDevice.Status.BMCCredentialSecretName != nil {
-		secretName = *dpuDevice.Status.BMCCredentialSecretName
-	} else if dpuDevice.Spec.BMCCredentialSecretName != nil {
-		secretName = *dpuDevice.Spec.BMCCredentialSecretName
+	for _, secretName := range slices.Compact([]string{
+		ptr.Deref(dpuDevice.Status.BMCCredentialSecretName, ""),
+		ptr.Deref(dpuDevice.Spec.BMCCredentialSecretName, ""),
+	}) {
+		if secretName == "" || secretName == rfclient.BMCPasswordSecret {
+			continue
+		}
+		// Keep the finalizer while another device still references the secret so it is not left
+		// unprotected if sharing was introduced before the uniqueness check ran.
+		inUse, err := r.isCredentialSecretInUseByOtherDevice(ctx, dpuDevice, secretName)
+		if err != nil {
+			return err
+		}
+		if inUse {
+			continue
+		}
+		if err := r.removeCredentialFinalizer(ctx, dpuDevice.Namespace, secretName); err != nil {
+			return err
+		}
 	}
-
-	if secretName == "" || secretName == rfclient.BMCPasswordSecret {
-		return nil
-	}
-
-	// Keep the finalizer while another device still references the secret so it is not left
-	// unprotected if sharing was introduced before the uniqueness check ran.
-	inUse, err := r.isCredentialSecretInUseByOtherDevice(ctx, dpuDevice, secretName)
-	if err != nil {
-		return err
-	}
-	if inUse {
-		return nil
-	}
-
-	return r.removeCredentialFinalizer(ctx, dpuDevice.Namespace, secretName)
+	return nil
 }
 
 // isCredentialSecretInUseByOtherDevice reports whether a DPUDevice other than the one being deleted
