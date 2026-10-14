@@ -336,6 +336,7 @@ type ServiceInterfaceStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced
 // +kubebuilder:metadata:annotations=helm.sh/resource-policy=keep
+// +kubebuilder:selectablefield:JSONPath=`.spec.node`
 // +kubebuilder:printcolumn:name="IfType",type=string,JSONPath=`.spec.interfaceType`
 // +kubebuilder:printcolumn:name="IfName",type=string,JSONPath=`.spec.interfaceName`
 // +kubebuilder:printcolumn:name="Node",type=string,JSONPath=`.spec.node`

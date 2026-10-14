@@ -17,12 +17,19 @@ package controller
 
 import (
 	"context"
+	"reflect"
+
+	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -107,4 +114,117 @@ var _ = Describe("manager test", func() {
 		options := GetMgrCache(testNodeName)
 		Expect(options.SyncPeriod).To(BeNil())
 	})
+
+	It("selects service chains, service interfaces, and node service interfaces for this node", func() {
+		options := GetMgrCache(testNodeName)
+		Expect(fieldSelectorFor(options, &dpuservicev1.ServiceChain{})).To(Equal("spec.node=" + testNodeName))
+		Expect(fieldSelectorFor(options, &dpuservicev1.ServiceInterface{})).To(Equal("spec.node=" + testNodeName))
+
+		nsiConfig, ok := byObjectFor(options, &dpuservicev1.NodeServiceInterfaces{})
+		Expect(ok).To(BeTrue())
+		Expect(nsiConfig.Field.String()).To(Equal("spec.node=" + testNodeName))
+		Expect(nsiConfig.Namespaces).To(HaveKey(utils.NSIObjectsNamespace))
+	})
+
+	It("caches only this node's service chains, service interfaces, and node service interfaces", func() {
+		localChain := newTestServiceChain("local-chain", ns.Name, &testNodeName)
+		otherChain := newTestServiceChain("other-chain", ns.Name, ptr.To("other-node"))
+		unsetChain := newTestServiceChain("unset-chain", ns.Name, nil)
+		localSI := newTestServiceInterface("local-si", ns.Name, &testNodeName)
+		otherSI := newTestServiceInterface("other-si", ns.Name, ptr.To("other-node"))
+		localNSI := newTestNSI("local-nsi", utils.NSIObjectsNamespace, testNodeName)
+		otherNSI := newTestNSI("other-nsi", utils.NSIObjectsNamespace, "other-node")
+		strayNSI := newTestNSI("stray-nsi", ns.Name, testNodeName)
+
+		for _, obj := range []client.Object{localChain, otherChain, unsetChain, localSI, otherSI, localNSI, otherNSI, strayNSI} {
+			Expect(testClient.Create(ctx, obj)).To(Succeed())
+		}
+		DeferCleanup(func() {
+			for _, obj := range []client.Object{localNSI, otherNSI} {
+				Expect(client.IgnoreNotFound(testClient.Delete(ctx, obj))).To(Succeed())
+			}
+		})
+
+		Eventually(func(g Gomega) {
+			chains := &dpuservicev1.ServiceChainList{}
+			g.Expect(mgrClient.List(ctx, chains, client.InNamespace(ns.Name))).To(Succeed())
+			g.Expect(namesOf(chains.Items)).To(ConsistOf("local-chain"))
+
+			sis := &dpuservicev1.ServiceInterfaceList{}
+			g.Expect(mgrClient.List(ctx, sis, client.InNamespace(ns.Name))).To(Succeed())
+			g.Expect(namesOf(sis.Items)).To(ConsistOf("local-si"))
+
+			nsis := &dpuservicev1.NodeServiceInterfacesList{}
+			g.Expect(mgrClient.List(ctx, nsis)).To(Succeed())
+			g.Expect(namesOf(nsis.Items)).To(ConsistOf("local-nsi"))
+		}).Should(Succeed())
+
+		Expect(apierrors.IsNotFound(mgrClient.Get(ctx, client.ObjectKeyFromObject(otherChain), &dpuservicev1.ServiceChain{}))).To(BeTrue())
+		Expect(apierrors.IsNotFound(mgrClient.Get(ctx, client.ObjectKeyFromObject(unsetChain), &dpuservicev1.ServiceChain{}))).To(BeTrue())
+		Expect(apierrors.IsNotFound(mgrClient.Get(ctx, client.ObjectKeyFromObject(otherSI), &dpuservicev1.ServiceInterface{}))).To(BeTrue())
+		Expect(apierrors.IsNotFound(mgrClient.Get(ctx, client.ObjectKeyFromObject(otherNSI), &dpuservicev1.NodeServiceInterfaces{}))).To(BeTrue())
+		// A namespace outside the NSI cache is not watched. Get fails closed instead of reading the API server.
+		Expect(mgrClient.Get(ctx, client.ObjectKeyFromObject(strayNSI), &dpuservicev1.NodeServiceInterfaces{})).To(MatchError(ContainSubstring("unknown namespace for the cache")))
+		Expect(mgrClient.Get(ctx, client.ObjectKeyFromObject(localChain), &dpuservicev1.ServiceChain{})).To(Succeed())
+	})
 })
+
+func fieldSelectorFor(options cache.Options, obj client.Object) string {
+	by, ok := byObjectFor(options, obj)
+	Expect(ok).To(BeTrue())
+	Expect(by.Field).NotTo(BeNil())
+	return by.Field.String()
+}
+
+func byObjectFor(options cache.Options, sample client.Object) (cache.ByObject, bool) {
+	sampleType := reflect.TypeOf(sample)
+	for obj, by := range options.ByObject {
+		if reflect.TypeOf(obj) == sampleType {
+			return by, true
+		}
+	}
+	return cache.ByObject{}, false
+}
+
+func namesOf[T any](items []T) []string {
+	names := make([]string, len(items))
+	for i := range items {
+		names[i] = any(&items[i]).(interface{ GetName() string }).GetName()
+	}
+	return names
+}
+
+func newTestServiceChain(name, namespace string, node *string) *dpuservicev1.ServiceChain {
+	return &dpuservicev1.ServiceChain{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec: dpuservicev1.ServiceChainSpec{
+			Node: node,
+			Switches: []dpuservicev1.Switch{{
+				Ports: []dpuservicev1.Port{{
+					ServiceInterface: dpuservicev1.ServiceIfc{MatchLabels: map[string]string{"app": "firewall"}},
+				}},
+			}},
+		},
+	}
+}
+
+func newTestServiceInterface(name, namespace string, node *string) *dpuservicev1.ServiceInterface {
+	return &dpuservicev1.ServiceInterface{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec: dpuservicev1.ServiceInterfaceSpec{
+			Node:          node,
+			InterfaceType: dpuservicev1.InterfaceTypePhysical,
+			Physical:      &dpuservicev1.Physical{InterfaceName: "p0"},
+		},
+	}
+}
+
+func newTestNSI(name, namespace, node string) *dpuservicev1.NodeServiceInterfaces {
+	return &dpuservicev1.NodeServiceInterfaces{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec: dpuservicev1.NodeServiceInterfacesSpec{
+			Node: node,
+			Type: dpuservicev1.NSITypeSFC,
+		},
+	}
+}

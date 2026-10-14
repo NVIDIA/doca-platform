@@ -505,6 +505,8 @@ spec:
                 type: integer
             type: object
         type: object
+    selectableFields:
+    - jsonPath: .spec.node
     served: true
     storage: true
     subresources:
