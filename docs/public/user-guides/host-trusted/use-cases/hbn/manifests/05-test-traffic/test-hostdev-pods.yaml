@@ -1,0 +1,191 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sriov-hostdev-pf0vf10-test-worker1
+  labels:
+    app: sriov-hostdev-pf0vf10-test-worker1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sriov-hostdev-pf0vf10-test-worker1
+  template:
+    metadata:
+      labels:
+        app: sriov-hostdev-pf0vf10-test-worker1
+      annotations:
+        k8s.v1.cni.cncf.io/networks: hostdev-pf0vf10-worker1
+    spec:
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: sriov-test-worker
+      nodeSelector:
+        feature.node.kubernetes.io/dpu-enabled: "true"
+        kubernetes.io/hostname: "worker1"
+      containers:
+      - name: nginx
+        securityContext:
+          privileged: true
+          capabilities:
+            add:
+            - NET_ADMIN
+        image: nicolaka/netshoot
+        command: ["nc", "-kl", "5000"]
+        ports:
+        - containerPort: 5000
+          name: tcp-server
+        resources:
+          requests:
+            cpu: 16
+            memory: 6Gi
+          limits:
+            cpu: 16
+            memory: 6Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sriov-hostdev-pf1vf10-test-worker1
+  labels:
+    app: sriov-hostdev-pf1vf10-test-worker1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sriov-hostdev-pf1vf10-test-worker1
+  template:
+    metadata:
+      labels:
+        app: sriov-hostdev-pf1vf10-test-worker1
+      annotations:
+        k8s.v1.cni.cncf.io/networks: hostdev-pf1vf10-worker1
+    spec:
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: sriov-test-worker
+      nodeSelector:
+        feature.node.kubernetes.io/dpu-enabled: "true"
+        kubernetes.io/hostname: "worker1"
+      containers:
+      - name: nginx
+        securityContext:
+          privileged: true
+          capabilities:
+            add:
+            - NET_ADMIN
+        image: nicolaka/netshoot
+        command: ["nc", "-kl", "5000"]
+        ports:
+        - containerPort: 5000
+          name: tcp-server
+        resources:
+          requests:
+            cpu: 16
+            memory: 6Gi
+          limits:
+            cpu: 16
+            memory: 6Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sriov-hostdev-pf0vf10-test-worker2
+  labels:
+    app: sriov-hostdev-pf0vf10-test-worker2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sriov-hostdev-pf0vf10-test-worker2
+  template:
+    metadata:
+      labels:
+        app: sriov-hostdev-pf0vf10-test-worker2
+      annotations:
+        k8s.v1.cni.cncf.io/networks: hostdev-pf0vf10-worker2
+    spec:
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: sriov-test-worker
+      nodeSelector:
+        feature.node.kubernetes.io/dpu-enabled: "true"
+        kubernetes.io/hostname: "worker2"
+      containers:
+      - name: nginx
+        securityContext:
+          privileged: true
+          capabilities:
+            add:
+            - NET_ADMIN
+        image: nicolaka/netshoot
+        command: ["nc", "-kl", "5000"]
+        ports:
+        - containerPort: 5000
+          name: tcp-server
+        resources:
+          requests:
+            cpu: 16
+            memory: 6Gi
+          limits:
+            cpu: 16
+            memory: 6Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sriov-hostdev-pf1vf10-test-worker2
+  labels:
+    app: sriov-hostdev-pf1vf10-test-worker2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sriov-hostdev-pf1vf10-test-worker2
+  template:
+    metadata:
+      labels:
+        app: sriov-hostdev-pf1vf10-test-worker2
+      annotations:
+        k8s.v1.cni.cncf.io/networks: hostdev-pf1vf10-worker2
+    spec:
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: sriov-test-worker
+      nodeSelector:
+        feature.node.kubernetes.io/dpu-enabled: "true"
+        kubernetes.io/hostname: "worker2"
+      containers:
+      - name: nginx
+        securityContext:
+          privileged: true
+          capabilities:
+            add:
+            - NET_ADMIN
+        image: nicolaka/netshoot
+        command: ["nc", "-kl", "5000"]
+        ports:
+        - containerPort: 5000
+          name: tcp-server
+        resources:
+          requests:
+            cpu: 16
+            memory: 6Gi
+          limits:
+            cpu: 16
+            memory: 6Gi

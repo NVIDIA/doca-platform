@@ -1,0 +1,20 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: snap-configuration
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: snap-configuration
+  serviceConfiguration:
+    helmChart:
+      values:
+        dpu:
+          deployCrds: true
+          configuration:
+            enabled: true
+            # RBAC roles for clients from host cluster
+            # serviceAccount names must be aligned with the serviceAccount names from DPUServiceCredentialRequest
+            rbacRoles:
+              snapController:
+                serviceAccount: snap-controller-sa

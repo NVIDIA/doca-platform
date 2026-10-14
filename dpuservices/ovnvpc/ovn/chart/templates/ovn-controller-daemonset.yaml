@@ -1,0 +1,53 @@
+{{- if .Values.dpu.ovnController.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "ovn-controller.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ovn-controller.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: ovn-controller
+      {{- include "ovn-controller.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: ovn-controller
+        {{- include "ovn-controller.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with toYaml .Values.serviceDaemonSet.nodeSelector }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+              {{- . | nindent 12 }}
+      {{- end }}
+      containers:
+      - name: {{ .Chart.Name }}
+        image: {{ .Values.dpu.ovnController.image.repository }}:{{ .Values.dpu.ovnController.image.tag | default .Chart.AppVersion }}
+        imagePullPolicy: {{ .Values.dpu.ovnController.image.pullPolicy }}
+        command: {{ .Values.dpu.ovnController.command | default "['/bin/bash']" }}
+        args: {{- toYaml .Values.dpu.ovnController.args | nindent 8 }}
+        volumeMounts:
+        - mountPath: /var/run/openvswitch
+          name: host-openvswitch
+        - mountPath: /var/run/ovn
+          name: host-run-ovn
+        - mountPath: /var/log/ovn
+          name: host-log-ovn
+      {{- with .Values.dpu.ovnController.imagePullSecrets | default .Values.imagePullSecrets}}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+      - name: host-openvswitch
+        hostPath:
+          path: {{ .Values.dpu.ovnController.hostOpenVSwitchDir }}
+      - name: host-run-ovn
+        hostPath:
+          path: {{ .Values.dpu.ovnController.hostOvnRunDir }}
+      - name: host-log-ovn
+        hostPath:
+          path: {{ .Values.dpu.ovnController.hostOvnLogDir }}
+{{- end }}

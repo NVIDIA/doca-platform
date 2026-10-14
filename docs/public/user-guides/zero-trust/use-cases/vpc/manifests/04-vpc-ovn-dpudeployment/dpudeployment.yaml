@@ -1,0 +1,39 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUDeployment
+metadata:
+  name: vpc-ovn
+  namespace: dpf-operator-system
+spec:
+  dpus:
+    bfb: bf-bundle
+    flavor: vpc-flavor
+    nodeEffect:
+      noEffect: true
+    dpuSets:
+    - nameSuffix: "dpuset1"
+      nodeSelector:
+        matchLabels:
+          feature.node.kubernetes.io/dpu-enabled: "true"
+  services:
+    ovn-central:
+      serviceTemplate: ovn-central
+      serviceConfiguration: ovn-central
+    ovn-controller:
+      serviceTemplate: ovn-controller
+      serviceConfiguration: ovn-controller
+    vpc-ovn-controller:
+      serviceTemplate: vpc-ovn-controller
+      serviceConfiguration: vpc-ovn-controller
+    vpc-ovn-node:
+      serviceTemplate: vpc-ovn-node
+      serviceConfiguration: vpc-ovn-node
+  serviceChains:
+    switches:
+      - ports:
+        - serviceInterface:
+            matchLabels:
+              ovn.vpc.dpu.nvidia.com/interface: p0
+        - serviceInterface:
+            matchLabels:
+              ovn.vpc.dpu.nvidia.com/interface: ovn-ext-patch

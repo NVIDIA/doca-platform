@@ -1,0 +1,14 @@
+{{- if .Values.dpu.enabled }}
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: "{{ .Values.dpu.storageClass.name }}"
+  labels:
+    {{- include "spdk-csi-controller.labels" . | nindent 4 }}
+provisioner: csi.spdk.io
+parameters:
+  csi.storage.k8s.io/provisioner-secret-name: "{{ .Values.dpu.storageClass.secretName }}"
+  csi.storage.k8s.io/provisioner-secret-namespace: "{{ .Values.dpu.storageClass.secretNamespace }}"
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+{{- end }}

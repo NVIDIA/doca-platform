@@ -1,0 +1,252 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - events
+  - serviceaccounts
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  - serviceaccounts/token
+  verbs:
+  - create
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - argoproj.io
+  resources:
+  - applications
+  - appprojects
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kamaji.clastix.io
+  resources:
+  - tenantcontrolplanes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - nv-ipam.nvidia.com
+  resources:
+  - ippools
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - operator.dpu.nvidia.com
+  resources:
+  - dpfoperatorconfigs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - operator.dpu.nvidia.com
+  resources:
+  - dpfoperatorconfigs/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
+  - bfbs
+  - dpuflavors
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
+  - bfbs/finalizers
+  - dpuflavors/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
+  - dpuclusters
+  - dpus
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
+  - dpusets
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - svc.dpu.nvidia.com
+  resources:
+  - dpudeployments
+  - dpuserviceconfigurations
+  - dpuservicetemplates
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - svc.dpu.nvidia.com
+  resources:
+  - dpudeployments/finalizers
+  - dpuservicechains/finalizers
+  - dpuservicecredentialrequests/finalizers
+  - dpuserviceinterfaces/finalizers
+  - dpuserviceipams/finalizers
+  - dpuservicenads/finalizers
+  - dpuservices/finalizers
+  - dpuservicetemplates/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - svc.dpu.nvidia.com
+  resources:
+  - dpudeployments/status
+  - dpuservicechains/status
+  - dpuservicecredentialrequests/status
+  - dpuserviceinterfaces/status
+  - dpuserviceipams/status
+  - dpuservicenads/status
+  - dpuservices/status
+  - dpuservicetemplates/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - svc.dpu.nvidia.com
+  resources:
+  - dpuservicechains
+  - dpuserviceinterfaces
+  - dpuservices
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - svc.dpu.nvidia.com
+  resources:
+  - dpuservicecredentialrequests
+  - dpuserviceipams
+  - dpuservicenads
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - vpc.dpu.nvidia.com
+  resources:
+  - dpuvirtualnetworks
+  - dpuvpcs
+  - isolationclasses
+  verbs:
+  - get
+  - list
+  - watch

@@ -1,0 +1,12 @@
+---
+apiVersion: mellanox.com/v1alpha1
+kind: NicClusterPolicy
+metadata:
+  name: nic-cluster-policy
+spec:
+  secondaryNetwork:
+    multus:
+      image: multus-cni
+      imagePullSecrets: []
+      repository: ghcr.io/k8snetworkplumbingwg
+      version: v3.9.3

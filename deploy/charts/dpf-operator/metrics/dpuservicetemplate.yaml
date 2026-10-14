@@ -1,0 +1,79 @@
+- groupVersionKind:
+    group: svc.dpu.nvidia.com
+    kind: DPUServiceTemplate
+    version: v1alpha1
+  labelsFromPath:
+    name:
+      - metadata
+      - name
+    namespace:
+      - metadata
+      - namespace
+    uid:
+      - metadata
+      - uid
+  metricNamePrefix: dpuservicetemplate
+  metrics:
+    - name: created
+      help: Unix creation timestamp.
+      each:
+        gauge:
+          path:
+            - metadata
+            - creationTimestamp
+        type: Gauge
+    - name: info
+      help: Information about a DPUServiceTemplate.
+      each:
+        type: Info
+        info:
+          labelsFromPath:
+            chart_name:
+              - spec
+              - helmChart
+              - source
+              - chart
+            chart_repo:
+              - spec
+              - helmChart
+              - source
+              - repoURL
+            chart_version:
+              - spec
+              - helmChart
+              - source
+              - version
+    - name: status_conditions
+      help: The condition of a DPUServiceTemplate.
+      each:
+        stateSet:
+          labelName: status
+          labelsFromPath:
+            type:
+              - type
+          list:
+            - 'True'
+            - 'False'
+            - Unknown
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - status
+        type: StateSet
+    - name: status_condition_last_transition_time
+      help: The condition last transition time of a DPUServiceTemplate.
+      each:
+        gauge:
+          nilIsZero: true
+          labelsFromPath:
+            type:
+              - type
+            status:
+              - status
+          path:
+            - status
+            - conditions
+          valueFrom:
+            - lastTransitionTime
+        type: Gauge

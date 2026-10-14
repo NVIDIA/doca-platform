@@ -1,0 +1,22 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceIPAM
+metadata:
+  name: pool1
+spec:
+  metadata:
+    labels:
+      svc.dpu.nvidia.com/pool: pool1
+  ipv4Subnet:
+    subnet: "192.168.0.0/20"
+    gateway: "192.168.0.1"
+    perNodeIPCount: 256
+  clusterSelector:
+    matchLabels:
+      dpu-cluster-label: "one"
+  nodeSelector:
+    nodeSelectorTerms:
+    - matchExpressions:
+      - key: "dpu-node-label"
+        operator: In
+        values:
+        - "some"

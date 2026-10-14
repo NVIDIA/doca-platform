@@ -1,0 +1,93 @@
+{{ include "validate" . }}
+{{- if .Values.dpu.blockStorageVendorDpuPlugin.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "block-storage-vendor-dpu-plugin.fullname" . }}
+  labels:
+    {{- include "block-storage-vendor-dpu-plugin.labels" . | nindent 4 }}
+    {{- with .Values.serviceDaemonSet.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    {{- with .Values.serviceDaemonSet.annotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "block-storage-vendor-dpu-plugin.selectorLabels" . | nindent 6 }}
+  {{- with .Values.serviceDaemonSet.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "block-storage-vendor-dpu-plugin.selectorLabels" . | nindent 8 }}
+        {{- with .Values.serviceDaemonSet.labels }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- with .Values.serviceDaemonSet.annotations }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.dpu.blockStorageVendorDpuPlugin.imagePullSecrets | default .Values.imagePullSecrets | default list }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.dpu.blockStorageVendorDpuPlugin.podSecurityContext | nindent 8 }}
+      {{- with toYaml .Values.serviceDaemonSet.nodeSelector }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+              {{- . | nindent 12 }}
+      {{- end }}
+      {{- with .Values.dpu.blockStorageVendorDpuPlugin.tolerations | default list }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: storage-plugin
+          image: "{{ .Values.dpu.blockStorageVendorDpuPlugin.image.repository }}:{{ .Values.dpu.blockStorageVendorDpuPlugin.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.dpu.blockStorageVendorDpuPlugin.pullPolicy }}
+          command:
+            - /block-storage-vendor-dpu-plugin
+          env:
+            - name: "PLUGIN_NAME"
+              value: "{{ .Values.dpu.blockStorageVendorDpuPlugin.config.pluginName }}"
+            - name: "PROVIDER_NAME"
+              value: "{{ .Values.dpu.blockStorageVendorDpuPlugin.config.providerName }}"
+            {{- range .Values.dpu.blockStorageVendorDpuPlugin.env }}
+            {{- if and (ne .name "PLUGIN_NAME") (ne .name "PROVIDER_NAME") }}
+            - name: "{{ .name }}"
+              value: "{{ .value }}"
+            {{- end }}
+            {{- end }}
+          {{- with toYaml .Values.serviceDaemonSet.resources }}
+          resources:
+            limits:
+              {{- . | nindent 14 }}
+            requests:
+              {{- . | nindent 14 }}
+          {{- end }}
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /var/lib/nvidia/storage/snap/plugins/{{ .Values.dpu.blockStorageVendorDpuPlugin.config.pluginName }}
+            - name: providers
+              mountPath: /var/lib/nvidia/storage/snap/providers
+              mountPropagation: "HostToContainer"
+          securityContext:
+            {{- toYaml .Values.dpu.blockStorageVendorDpuPlugin.securityContext | nindent 12 }}
+      volumes:
+        - name: socket-dir
+          hostPath:
+            path: /var/lib/nvidia/storage/snap/plugins/{{ .Values.dpu.blockStorageVendorDpuPlugin.config.pluginName }}
+            type: DirectoryOrCreate
+        - name: providers
+          hostPath:
+            path: /var/lib/nvidia/storage/snap/providers
+            type: DirectoryOrCreate
+{{- end }}

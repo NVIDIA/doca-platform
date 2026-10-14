@@ -1,0 +1,150 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+    helm.sh/resource-policy: keep
+  name: volumeattachments.storage.dpu.nvidia.com
+spec:
+  group: storage.dpu.nvidia.com
+  names:
+    kind: VolumeAttachment
+    listKind: VolumeAttachmentList
+    plural: volumeattachments
+    singular: volumeattachment
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          VolumeAttachment captures the intent to attach/detach the specified NV-Volume to/from the specified node.
+          VolumeAttachment is an internal API, it is not intended to be used by users.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: VolumeAttachmentSpec defines the desired state of VolumeAttachment
+            properties:
+              functionType:
+                description: FunctionType is the type of the emulated function that
+                  should be used to attach the volume
+                enum:
+                - pf
+                - vf
+                type: string
+              hotplugFunction:
+                description: HotplugFunction is a boolean flag that indicates if the
+                  emulated function should be hotplugged
+                type: boolean
+              nodeName:
+                description: The name of the node that the volume should be attached
+                  to
+                type: string
+              parameters:
+                additionalProperties:
+                  type: string
+                description: Opaque static publish properties of the volume returned
+                  by the plugin
+                type: object
+              source:
+                description: Reference to the NV-Volume object
+                properties:
+                  volumeRef:
+                    description: Reference to the NV-Volume object
+                    properties:
+                      apiVersion:
+                        type: string
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    type: object
+                type: object
+              volumeAttachmentRef:
+                description: Reference to the SV-VolumeAttachment object
+                properties:
+                  apiVersion:
+                    type: string
+                  kind:
+                    type: string
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                type: object
+            required:
+            - functionType
+            - hotplugFunction
+            type: object
+          status:
+            description: VolumeAttachmentStatus defines the observed state of VolumeAttachment
+            properties:
+              dpu:
+                description: Details about the DPU attachment
+                properties:
+                  attached:
+                    description: Indicates the volume is successfully attached to
+                      the DPU node
+                    type: boolean
+                  bdevAttrs:
+                    description: The attributes of the underlying block device
+                    properties:
+                      nvmeNsID:
+                        description: The namespace ID within the NVME controller
+                        format: int64
+                        type: integer
+                      nvmeUUID:
+                        description: The nvme namespace UUID
+                        type: string
+                    type: object
+                  deviceName:
+                    description: The name of the device that was created by the storage
+                      vendor plugin
+                    type: string
+                  fsdevAttrs:
+                    description: The attributes of the underlying filesystem device
+                    properties:
+                      filesystemTag:
+                        description: Filesystem tag identified by SNAP on the host
+                          (used for the mount). Relevant for volume of type filesystem
+                        type: string
+                    type: object
+                  pciDeviceAddress:
+                    description: 'PCI device address in the following format: (bus:device.function)'
+                    type: string
+                type: object
+              message:
+                description: The last error encountered during the attach operation,
+                  if any
+                type: string
+              storageAttached:
+                description: Indicates the volume is successfully attached to the
+                  target storage system
+                type: boolean
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

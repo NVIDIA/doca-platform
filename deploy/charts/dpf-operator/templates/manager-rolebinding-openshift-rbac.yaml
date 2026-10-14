@@ -1,0 +1,20 @@
+{{ if .Values.templateOperatorBundle }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dpf-operator-manager-rolebinding-openshift
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: dpf-operator
+    app.kubernetes.io/part-of: dpf-operator
+    dpu.nvidia.com/component: dpf-operator-controller-manager
+  {{- include "dpf-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:privileged
+subjects:
+- kind: ServiceAccount
+  name: 'dpf-operator-controller-manager'
+  namespace: '{{ .Release.Namespace }}'
+{{ end }}

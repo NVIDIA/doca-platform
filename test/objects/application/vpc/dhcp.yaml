@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: dpf-dhcp
+  namespace: dpf-operator-system
+  labels:
+    app: dpf-dhcp
+    vpc-after-all-cleanup: "true"
+spec:
+  selector:
+    matchLabels:
+      app: dpf-dhcp
+  template:
+    metadata:
+      labels:
+        app: dpf-dhcp
+    spec:
+      hostNetwork: true
+      containers:
+        - name: dpf-dhcp
+          image: busybox
+          command:
+            - /bin/sh
+            - -c
+            - rm -f /run/cni/dhcp.sock && exec /host-cni/dhcp daemon
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: host-cni
+              mountPath: /host-cni
+            - name: cnirun
+              mountPath: /run/cni
+            - name: netns
+              mountPath: /var/run/netns
+              mountPropagation: Bidirectional
+      volumes:
+        - name: host-cni
+          hostPath:
+            path: /opt/cni/bin
+        - name: cnirun
+          hostPath:
+            path: /run/cni
+            type: DirectoryOrCreate
+        - name: netns
+          hostPath:
+            path: /var/run/netns
+            type: DirectoryOrCreate

@@ -1,0 +1,13 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: kwok-stage-fast
+  namespace: dpf-operator-system
+spec:
+  helmChart:
+    values:
+      enableDeployment: false
+    source:
+      repoURL: https://kwok.sigs.k8s.io/charts
+      chart: stage-fast
+      version: v0.1.1

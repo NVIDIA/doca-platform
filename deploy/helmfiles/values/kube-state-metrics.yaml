@@ -1,0 +1,63 @@
+# Kube State Metrics configuration
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: "node-role.kubernetes.io/master"
+              operator: Exists
+        - matchExpressions:
+            - key: "node-role.kubernetes.io/control-plane"
+              operator: Exists
+tolerations:
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+extraArgs:
+  - --custom-resource-state-config-file=/etc/customresourcestate/config.yaml
+volumes:
+  - configMap:
+      defaultMode: 420
+      name: dpf-operator-customresourcestate-config
+    name: customresourcestate-config
+volumeMounts:
+  - mountPath: /etc/customresourcestate
+    name: customresourcestate-config
+    readOnly: true
+rbac:
+  extraRules:
+    - apiGroups:
+        - svc.dpu.nvidia.com
+        - operator.dpu.nvidia.com
+        - svc.dpu.nvidia.com
+        - provisioning.dpu.nvidia.com
+      resources:
+        - dpuclusters
+        - dpuclusters/status
+        - dpudeployments
+        - dpudeployments/status
+        - dpuservicecredentialrequests
+        - dpuservicecredentialrequests/status
+        - dpuservices
+        - dpuservices/status
+        - dpuservicetemplates
+        - dpuservicetemplates/status
+        - dpfoperatorconfigs
+        - dpfoperatorconfigs/status
+        - dpuservicechains
+        - dpuservicechains/status
+        - dpuserviceinterfaces
+        - dpuserviceinterfaces/status
+        - dpuserviceipams
+        - dpuserviceipams/status
+        - dpus
+        - dpus/status
+        - bfbs
+        - bfbs/status
+      verbs: ["list", "watch"]
+    - apiGroups: ["apiextensions.k8s.io"]
+      resources: ["customresourcedefinitions"]
+      verbs: ["list", "watch"]

@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sriovdp-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+  {{- include "sriov-device-plugin.labels" . | nindent 4 }}
+data:
+  config.json: {{ .Values.sriovdpConfig.configJson | toYaml | indent 1 }}

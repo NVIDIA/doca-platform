@@ -1,0 +1,18 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: example
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: example
+  interfaces:
+    - name: app-iface
+      network: mynad
+  serviceConfiguration:
+    serviceDaemonSet:
+      annotations:
+        annKey: annVal
+      labels:
+        labelKey: labelVal
+  upgradePolicy:
+    applyNodeEffect: true

@@ -1,0 +1,13 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app.kubernetes.io/component: mock-dms
+    app.kubernetes.io/part-of: mock-dms
+  name: mock-dms-serving-cert
+spec:
+  ipAddresses: {{ .Values.certIPAddresses }}
+  issuerRef:
+    kind: Issuer
+    name: dpf-provisioning-issuer
+  secretName: mock-dms-serving-cert # this secret will not be prefixed, since it's not managed by kustomize

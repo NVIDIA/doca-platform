@@ -1,0 +1,74 @@
+ARG builder_image
+ARG base_image
+
+# 1) dependency stage to create a dependency layer with go vendor folder and other dependencies
+FROM --platform=${BUILDPLATFORM} ${builder_image} AS dependency
+WORKDIR /workspace
+
+# Copy source files needed for proper vendoring
+COPY go.mod go.sum ./
+COPY third_party/ third_party/
+COPY api/ api/
+COPY cmd/ cmd/
+COPY test/ test/
+COPY internal/ internal/
+COPY pkg/ pkg/
+
+# Vendor all dependencies
+RUN go mod vendor
+
+# Download the bf3 firmware package
+RUN curl --proto "=https" --tlsv1.2 -L https://linux.mellanox.com/public/repo/bluefield/BMC/BF3/bmc/24.10-17/bf3-bmc-24.10-17_opn.fwpkg -o /tmp/bf3-bmc.fwpkg
+
+# 2) Builder stage builds go binaries (no emulation).
+FROM --platform=${BUILDPLATFORM} ${builder_image} AS builder
+WORKDIR /workspace
+
+ARG gcflags
+ARG ldflags
+ARG TARGETARCH
+ARG TAG
+
+ENV GO_LDFLAGS=\"${ldflags}\"
+ENV GO_GCFLAGS=\"${gcflags}\"
+ENV ARCH=${TARGETARCH}
+# The TAG variable is necessary for the dpfctl versioning.
+ENV TAG=${TAG}
+
+# Copy the source code from the dependency image
+COPY --from=dependency /workspace .
+
+# Copy additional files requires for the docker build.
+
+## Makefile and modules needed to call the make target
+COPY Makefile ./
+COPY hack/tools/tools.mk hack/tools/tools.mk
+
+# Build binaries with explicit vendor flag
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    GOFLAGS="-mod=vendor" make binaries-dpf-system
+
+# Copy the go source code so it can be distributed in the final image.
+RUN mkdir src && \
+    find . -name '*.go' -not -path "./hack/*" -not -path "./.gocache/*" \
+    -not -path "./internal/vpc/*" -exec cp --parents \{\}  src/ \; && \
+    tar -czf source-code.tar.gz src
+
+# 3) Final stage copies artefacts from the builder and dependency stages.
+FROM ${base_image}
+ARG TARGETARCH
+
+WORKDIR /
+
+# Ensure all files are copied with the correct user.
+ENV uid=65532
+USER ${uid}:${uid}
+
+# Add the source code.
+COPY --chown=${uid} --from=builder /workspace/source-code.tar.gz source-code.tar.gz
+
+# Add the DPF system binaries
+COPY --chown=${uid} --from=builder /workspace/bin/ .
+
+# Copy the bf3 firmware
+COPY --chown=root:root --chmod=755 --from=dependency /tmp/bf3-bmc.fwpkg .

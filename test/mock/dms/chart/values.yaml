@@ -1,0 +1,33 @@
+controllerManager:
+  manager:
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+    image:
+      repository: example.com/dpf-system
+      tag: v0.1.0
+  replicas: 1
+  serviceAccount:
+    annotations: {}
+kubernetesClusterDomain: cluster.local
+imagePullSecrets: []
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: "node-role.kubernetes.io/master"
+              operator: Exists
+        - matchExpressions:
+            - key: "node-role.kubernetes.io/control-plane"
+              operator: Exists
+tolerations:
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+certIPAddresses: []

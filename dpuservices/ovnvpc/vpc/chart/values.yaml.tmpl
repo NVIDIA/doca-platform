@@ -1,0 +1,133 @@
+####################
+### DPF contract ###
+####################
+
+# configuration for the service
+serviceDaemonSet:
+  # selects nodes on which this service will run by label. Can be set in DPUService `.spec.serviceDaemonSet.nodeSelector`
+  # nodeSelector:
+  #   nodeSelectorTerms:
+  #   - matchExpressions:
+  #       - key: dpu
+  #         operator: In
+  #         values:
+  #           - dpu
+  # labels on the DaemonSet and pod template. Can be set in DPUService `.spec.serviceDaemonSet.labels`
+  labels: {}
+  # annotations on the DaemonSet and pod template. Can be set in DPUService `.spec.serviceDaemonSet.annotations`
+  annotations: {}
+  # updateStrategy on the DaemonSet. Can be set in DPUService `.spec.serviceDaemonSet.updateStrategy.`
+  updateStrategy: {}
+  #  type: RollingUpdate
+  #  rollingUpdate:
+  #    maxUnavailable: 1
+  # resources on the DaemonSet and pod template. Can be set in DPUService `.spec.serviceDaemonSet.resources`
+  resources: {}
+
+# default imagePullSecrets
+imagePullSecrets: []
+
+
+# Note: This chart includes multiple components but is designed to deploy only one at a time.
+# By default, all components are disabled.
+# To deploy a specific component, explicitly set the "enabled" flag to true.
+
+#######################################
+### Components for the host cluster ###
+#######################################
+host:
+  ### vpc-ovn-controller ###
+  vpcOVNController:
+    # enable deployment of the vpc-ovn-controller component
+    # Note: Only one component can be enabled at a time.
+    enabled: false
+    # image settings
+    image:
+      repository: ${VPC_SYSTEM_UPSTREAM_IMAGE}
+      tag: ${TAG}
+    imagePullPolicy: IfNotPresent
+    imagePullSecrets: []
+    # count of replicas for controller pod
+    replicas: 1
+    # podAnnotations to add to the Pod spec
+    podAnnotations: {}
+    # podLabels to add to the Pod spec
+    podLabels: {}
+    # podSecurityContext to add to the Pod spec
+    podSecurityContext: {}
+    # security context for the container
+    securityContext: {}
+    # nodeSelector to add to the Pod spec
+    nodeSelector: {}
+    # tolerations to add to the Pod spec
+    tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+        operator: Exists
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+        operator: Exists
+    # affinity to add to the Pod spec
+    affinity: {}
+
+
+#######################################
+### Components for the DPU cluster ###
+#######################################
+dpu:
+  ### vpc-ovn-node ###
+  vpcOVNNode:
+    # enable deployment of the vpc-ovn-controller component
+    # Note: Only one component can be enabled at a time.
+    enabled: false
+    containers:
+      vpcOVNNodeController:
+        # image settings
+        image:
+          repository: ${VPC_SYSTEM_UPSTREAM_IMAGE}
+          tag: ${TAG}
+          pullPolicy: IfNotPresent
+        # security context for the container
+        securityContext: {}
+      dhcpCNIDaemon:
+        enabled: true
+        image:
+          repository: ${VPC_SYSTEM_UPSTREAM_IMAGE}
+          tag: ${TAG}
+          pullPolicy: IfNotPresent
+    initContainers:
+      allocator:
+        image:
+          repository: ${VPC_SYSTEM_UPSTREAM_IMAGE}
+          tag: ${TAG}
+          pullPolicy: IfNotPresent
+      vpcOVNDpuProvisioner:
+        image:
+          repository: ${VPC_SYSTEM_UPSTREAM_IMAGE}
+          tag: ${TAG}
+          pullPolicy: IfNotPresent
+        env:
+          ovnSbEndpoint: "tcp:control_plane_ip_address:30642"
+    imagePullSecrets: []
+    # podSecurityContext to add to the Pod spec
+    podSecurityContext: {}
+    # tolerations to add to the Pod spec
+    tolerations: []
+    ipRequests:
+      - name: "vtep"
+        poolName: ""
+      - name: "gateway"
+        poolName: ""
+    volumes:
+      hostOpenvswitch:
+        path: /var/run/openvswitch
+      hostOpenvswitchEtc:
+        path: /etc/openvswitch
+      cniBinDir:
+        path: /opt/cni/bin
+      nvipamDaemonSocketDir:
+        path: /var/lib/cni/nv-ipam
+      dhcpCNIBinDir:
+        path: /opt/cni/bin
+      dhcpDaemonSocketDir:
+        path: /run/vpc/cni

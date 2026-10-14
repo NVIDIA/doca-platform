@@ -1,0 +1,6 @@
+{{- if hasKey .Values "nodePathMap" }}
+nodePathMap: {{ toYaml .Values.nodePathMap | nindent 2 }}
+{{- end }}
+{{- if hasKey .Values "sharedFileSystemPath" }}
+sharedFileSystemPath: {{ .Values.sharedFileSystemPath | quote }}
+{{- end }}

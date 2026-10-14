@@ -1,0 +1,26 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceChain
+metadata:
+  name: passthrough
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      template:
+        spec:
+          switches:
+            - ports:
+              - serviceInterface:
+                  matchLabels:
+                    interface: p0
+              - serviceInterface:
+                  matchLabels:
+                    interface: pf0hpf
+            - ports:
+              - serviceInterface:
+                  matchLabels:
+                    interface: p1
+              - serviceInterface:
+                  matchLabels:
+                    interface: pf1hpf

@@ -1,0 +1,38 @@
+### DPF contract ###
+serviceDaemonSet:
+  # selects nodes on which this service will run by label. Can be set in DPUService `.spec.serviceDaemonSet.nodeSelector`
+  nodeSelector:
+  #   nodeSelectorTerms:
+  #   - matchExpressions:
+  #       - key: dpu
+  #         operator: In
+  #         values:
+  #           - dpu
+  # labels on the DaemonSet and pod template. Can be set in DPUService `.spec.serviceDaemonSet.labels`
+  labels: {}
+  # annotations on the DaemonSet and pod template. Can be set in DPUService `.spec.serviceDaemonSet.annotations`
+  annotations: {}
+  # updateStrategy on the DaemonSet. Can be set in DPUService `.spec.serviceDaemonSet.updateStrategy.`
+  updateStrategy: {}
+  #  type: RollingUpdate
+  #  rollingUpdate:
+  #    maxUnavailable: 1
+  # resources on the DaemonSet and pod template. Can be set in DPUService `.spec.serviceDaemonSet.resources`
+  resources: {}
+exposedPorts:
+  labels: {}
+  ports: {}
+#  labels: {}           # custom labels for the doca-platform
+#  ports:
+#    exampletcp: false  # name of the port inside the service
+#    exampleudp: false  # name of the port inside the service
+
+### Service specific values ###
+image:
+  repository: ""
+  pullPolicy: IfNotPresent
+  tag: ""
+imagePullSecrets: []
+podSecurityContext: {}
+securityContext: {}
+tolerations: []

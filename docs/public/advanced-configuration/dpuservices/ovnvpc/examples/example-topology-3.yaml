@@ -1,0 +1,104 @@
+---
+apiVersion: vpc.dpu.nvidia.com/v1alpha1
+kind: DPUVPC
+metadata:
+  name: redvpc
+  namespace: default
+spec:
+  tenant: red
+  isolationClassName: ovn.vpc.dpu.nvidia.com
+  interNetworkAccess: true
+  nodeSelector:
+    matchLabels:
+      vpc.dpu.nvidia.com/tenant: red
+---
+apiVersion: vpc.dpu.nvidia.com/v1alpha1
+kind: DPUVPC
+metadata:
+  name: bluevpc
+  namespace: default
+spec:
+  tenant: blue
+  isolationClassName: ovn.vpc.dpu.nvidia.com
+  interNetworkAccess: true
+  nodeSelector:
+    matchLabels:
+      vpc.dpu.nvidia.com/tenant: blue
+---
+apiVersion: vpc.dpu.nvidia.com/v1alpha1
+kind: DPUVirtualNetwork
+metadata:
+  name: bluenet
+  namespace: default
+spec:
+  vpcName: bluevpc
+  nodeSelector:
+    matchLabels:
+      vpc.dpu.nvidia.com/tenant: blue
+  type: Bridged
+  externallyRouted: true
+  masquerade: true
+  bridgedNetwork:
+    ipam:
+      ipv4:
+        dhcp: true
+        subnet: 192.178.0.0/16
+---
+apiVersion: vpc.dpu.nvidia.com/v1alpha1
+kind: DPUVirtualNetwork
+metadata:
+  name: rednet
+  namespace: default
+spec:
+  vpcName: redvpc
+  nodeSelector:
+    matchLabels:
+      vpc.dpu.nvidia.com/tenant: red
+  type: Bridged
+  externallyRouted: true
+  masquerade: true
+  bridgedNetwork:
+    ipam:
+      ipv4:
+        dhcp: true
+        subnet: 192.178.0.0/16
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: rednet-vf2
+  namespace: default
+spec:
+  template:
+    spec:
+      nodeSelector:
+        matchLabels:
+          vpc.dpu.nvidia.com/tenant: red
+      template:
+        spec:
+          interfaceType: vf
+          vf:
+            pfID: 0
+            vfID: 2
+            parentInterfaceRef: ""
+            virtualNetwork: rednet
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: bluenet-vf2
+  namespace: default
+spec:
+  template:
+    spec:
+      nodeSelector:
+        matchLabels:
+          vpc.dpu.nvidia.com/tenant: blue
+      template:
+        spec:
+          interfaceType: vf
+          vf:
+            pfID: 0
+            vfID: 2
+            parentInterfaceRef: ""
+            virtualNetwork: bluenet

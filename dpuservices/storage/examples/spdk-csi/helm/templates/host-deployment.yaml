@@ -1,0 +1,150 @@
+{{- if .Values.host.enabled }}
+{{- $_ := required "host.config.dpuClusterSecret must be set" .Values.host.config.dpuClusterSecret }}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "spdk-csi-controller.fullname" . }}
+  labels:
+    {{- include "spdk-csi-controller.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "spdk-csi-controller.selectorLabels" . | nindent 6 }}
+  replicas: {{ .Values.host.replicas }}
+  template:
+    metadata:
+      labels:
+        {{- include "spdk-csi-controller.selectorLabels" . | nindent 8 }}
+        {{- with .Values.host.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- toYaml .Values.host.podAnnotations | nindent 8 }}
+    spec:
+      {{- with .Values.host.imagePullSecrets | default .Values.host.imagePullSecrets | default list }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.host.podSecurityContext | nindent 8 }}
+      containers:
+      - name: plugin
+        image: "{{ .Values.host.plugin.image.repository }}:{{ .Values.host.plugin.image.tag }}"
+        imagePullPolicy: {{ .Values.host.plugin.image.pullPolicy }}
+        args:
+        - "--v=5"
+        - "--endpoint=unix:///csi/csi.sock"
+        - "--nodeid=$(NODE_ID)"
+        - "--controller"
+        env:
+        - name: NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        volumeMounts:
+        - name: socket-dir
+          mountPath: /csi
+        - name: spdkcsi-config
+          mountPath: /etc/spdkcsi-config/
+          readOnly: true
+        securityContext:
+          {{- toYaml .Values.host.plugin.securityContext | nindent 12 }}
+        resources:
+          {{- toYaml .Values.host.plugin.resources | nindent 12 }}
+      - name: external-provisioner
+        image: "{{ .Values.host.externalProvisioner.image.repository }}:{{ .Values.host.externalProvisioner.image.tag }}"
+        imagePullPolicy: {{ .Values.host.externalProvisioner.image.pullPolicy }}
+        args:
+        - "--v=5"
+        - "--csi-address=unix:///csi/csi.sock"
+        - "--timeout=30s"
+        - "--retry-interval-start=500ms"
+        - "--leader-election=true"
+        - "--leader-election-namespace={{ .Release.Namespace }}"
+        env:
+        - name: KUBERNETES_SERVICE_HOST
+          valueFrom:
+            secretKeyRef:
+              name: "{{ .Values.host.config.dpuClusterSecret }}"
+              key: KUBERNETES_SERVICE_HOST
+        - name: KUBERNETES_SERVICE_PORT
+          valueFrom:
+            secretKeyRef:
+              name: "{{ .Values.host.config.dpuClusterSecret }}"
+              key: KUBERNETES_SERVICE_PORT
+        volumeMounts:
+        - name: socket-dir
+          mountPath: /csi
+        - name: tokenfile
+          mountPath: "/var/run/secrets/kubernetes.io/serviceaccount"
+          readOnly: true
+        securityContext:
+          {{- toYaml .Values.host.externalProvisioner.securityContext | nindent 12 }}
+        resources:
+          {{- toYaml .Values.host.externalProvisioner.resources | nindent 12 }}
+      - name: external-snapshotter
+        image: "{{ .Values.host.externalSnapshotter.image.repository }}:{{ .Values.host.externalSnapshotter.image.tag }}"
+        args:
+          - "--csi-address=unix:///csi/csi.sock"
+          - "--v=5"
+          - "--timeout=150s"
+          - "--leader-election=true"
+          - "--leader-election-namespace=dpf-operator-system"
+        imagePullPolicy: {{ .Values.host.externalSnapshotter.image.pullPolicy }}
+        env:
+        - name: KUBERNETES_SERVICE_HOST
+          valueFrom:
+            secretKeyRef:
+              name: "{{ .Values.host.config.dpuClusterSecret }}"
+              key: KUBERNETES_SERVICE_HOST
+        - name: KUBERNETES_SERVICE_PORT
+          valueFrom:
+            secretKeyRef:
+              name: "{{ .Values.host.config.dpuClusterSecret }}"
+              key: KUBERNETES_SERVICE_PORT
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: socket-dir
+          mountPath: /csi
+        - name: tokenfile
+          mountPath: "/var/run/secrets/kubernetes.io/serviceaccount"
+          readOnly: true
+        securityContext:
+          {{- toYaml .Values.host.externalSnapshotter.securityContext | nindent 12 }}
+        resources:
+          {{- toYaml .Values.host.externalSnapshotter.resources | nindent 12 }}
+      volumes:
+      - name: socket-dir
+        emptyDir:
+          medium: "Memory"
+      - name: spdkcsi-config
+        configMap:
+          name: {{ include "spdk-csi-controller.fullname" . }}-config
+      - name: tokenfile
+        projected:
+          sources:
+          - secret:
+              name: "{{ .Values.host.config.dpuClusterSecret }}"
+              items:
+              - key: TOKEN_FILE
+                path: token
+          - secret:
+              name: "{{ .Values.host.config.dpuClusterSecret }}"
+              items:
+              - key: KUBERNETES_CA_DATA
+                path: ca.crt
+      {{- with .Values.host.nodeSelector | default dict }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.host.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.host.tolerations | default list }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

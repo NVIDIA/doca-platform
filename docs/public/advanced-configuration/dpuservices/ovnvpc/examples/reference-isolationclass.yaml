@@ -1,0 +1,14 @@
+apiVersion: vpc.dpu.nvidia.com/v1alpha1
+kind: IsolationClass
+metadata:
+  name: ovn.vpc.dpu.nvidia.com
+spec:
+  # Provisioner type
+  provisioner: "ovn.vpc.dpu.nvidia.com"
+  
+  # OVN-specific parameters
+  parameters:
+    # OVN northbound database endpoint
+    ovn-nb-endpoint: "tcp:10.1.1.100:30641"
+    # Connection retry interval (Default: 5 seconds)
+    ovn-nb-reconnect-time: "5"

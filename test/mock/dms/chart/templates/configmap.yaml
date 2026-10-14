@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mock-dms
+data:
+  config.yaml: |
+    install:
+      meanDelaySeconds: 1
+      delayJitter: 0.2
+      errorRate: 0.01
+    activate:
+      meanDelaySeconds: 1
+      delayJitter: 0.2
+      errorRate: 0.01
+    set:
+      meanDelaySeconds: 1
+      delayJitter: 0.2
+      errorRate: 0.01
+    reboot:
+      meanDelaySeconds: 1
+      delayJitter: 0.2
+      errorRate: 0.01

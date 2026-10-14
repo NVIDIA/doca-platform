@@ -1,0 +1,17 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: example
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: example
+  helmChart:
+    source:
+      chart: hello-world
+      path: ""
+      repoURL: https://helm.github.io/examples
+      version: 0.1.0
+    values:
+      image:
+        repository: mirror.gcr.io/nginx
+        tag: 1.27.4-alpine3.21-slim

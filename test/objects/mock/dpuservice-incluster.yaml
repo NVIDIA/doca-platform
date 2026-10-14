@@ -1,0 +1,59 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: kwok-dpu
+  namespace: dpf-operator-system
+spec:
+  deployInCluster: true
+  helmChart:
+    values:
+      env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: HOST_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
+        - name: KUBERNETES_SERVICE_HOST
+          valueFrom:
+            secretKeyRef:
+              name: kwok-credentials
+              key: KUBERNETES_SERVICE_HOST
+        - name: KUBERNETES_SERVICE_PORT
+          valueFrom:
+            secretKeyRef:
+              name: kwok-credentials
+              key: KUBERNETES_SERVICE_PORT
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+        - operator: Exists
+          effect: NoSchedule
+          key: node-role.kubernetes.io/master
+      volumes:
+        - name: tokenfile
+          projected:
+            sources:
+              - secret:
+                  name: kwok-credentials
+                  items:
+                    - key: TOKEN_FILE
+                      path: token
+              - secret:
+                  name: kwok-credentials
+                  items:
+                    - key: KUBERNETES_CA_DATA
+                      path: ca.crt
+      volumeMounts:
+        - name: tokenfile
+          mountPath: "/var/run/secrets/kubernetes.io/serviceaccount"
+          readOnly: true
+    source:
+      repoURL: https://kwok.sigs.k8s.io/charts
+      chart: kwok
+      version: v0.1.2

@@ -1,0 +1,28 @@
+{{- $issuerName := include "ovn-kubernetes-resource-injector.fullname" . -}}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  labels:
+    dpu.nvidia.com/component: ovn-kubernetes-resource-injector
+    {{- include "ovn-kubernetes-resource-injector.labels" . | nindent 4 }}
+  name: {{ $issuerName }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    dpu.nvidia.com/component: ovn-kubernetes-resource-injector
+    {{- include "ovn-kubernetes-resource-injector.labels" . | nindent 4 }}
+  name: {{ include "ovn-kubernetes-resource-injector.webhook.certificateName" . }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  dnsNames:
+  - {{ include "ovn-kubernetes-resource-injector.webhook.serviceName" . }}.{{ .Release.Namespace }}.svc
+  - {{ include "ovn-kubernetes-resource-injector.webhook.serviceName" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: {{ $issuerName }}
+  secretName: {{ include "ovn-kubernetes-resource-injector.webhook.secretName" . }}

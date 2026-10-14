@@ -1,0 +1,15 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: dpu-01
+  namespace: "default"
+spec:
+  helmChart:
+    source:
+      repoURL: https://helm.github.io/examples
+      chart: hello-world
+      version: 0.1.0
+    values:
+      image:
+        repository: mirror.gcr.io/nginx
+        tag: 1.27.4-alpine3.21-slim

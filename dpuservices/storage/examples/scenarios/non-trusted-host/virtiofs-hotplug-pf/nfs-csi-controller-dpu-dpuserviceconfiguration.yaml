@@ -1,0 +1,25 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: nfs-csi-controller-dpu
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: nfs-csi-controller-dpu
+  serviceConfiguration:
+    helmChart:
+      values:
+        dpu:
+          enabled: true
+          storageClasses:
+            # List of storage classes to be created for nfs-csi
+            # These StorageClass names should be used in the StorageVendor settings
+            - name: nfs-csi
+              parameters:
+                server: 10.44.44.100
+                share: /srv/nfs/share
+          rbacRoles:
+            nfsCsiController:
+              # the name of the service account for nfs-csi-controller
+              # this value must be aligned with the value from the DPUServiceCredentialRequest
+              serviceAccount: nfs-csi-controller-sa

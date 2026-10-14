@@ -1,0 +1,18 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: block-storage-dpu-plugin
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: block-storage-dpu-plugin
+  serviceConfiguration:
+    helmChart:
+      values:
+        imagePullSecrets: $DPF_IMAGE_PULL_SECRET
+        dpu:
+          blockStorageVendorDpuPlugin:
+            enabled: true
+            image:
+              repository: $DPF_IMAGE_REGISTRY/storage-system
+              tag: $DPF_IMAGE_TAG

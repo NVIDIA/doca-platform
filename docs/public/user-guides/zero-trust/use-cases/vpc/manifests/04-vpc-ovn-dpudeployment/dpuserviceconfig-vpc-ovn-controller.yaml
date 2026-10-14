@@ -1,0 +1,28 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: vpc-ovn-controller
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: vpc-ovn-controller
+  upgradePolicy:
+    applyNodeEffect: false
+  serviceConfiguration:
+    deployInCluster: true
+    helmChart:
+      values:
+        host:
+          vpcOVNController:
+            enabled: true
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                  - matchExpressions:
+                    - key: "node-role.kubernetes.io/master"
+                      operator: Exists
+                  - matchExpressions:
+                    - key: "node-role.kubernetes.io/control-plane"
+                      operator: Exists
+

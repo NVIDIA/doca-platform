@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "chart.name" . }}-controller-manager
+  labels:
+    app.kubernetes.io/component: manager
+  {{- include "chart.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.controllerManager.replicas }}
+  selector:
+      matchLabels:
+      {{- include "chart.labels" . | nindent 8 }}
+  template:
+    metadata:
+      labels:
+      {{- include "chart.labels" . | nindent 8 }}
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+    spec:
+      hostNetwork: true
+      volumes:
+        - name: config
+          configMap:
+            name: mock-dms
+        - name: certs
+          secret:
+            defaultMode: 420
+            secretName: mock-dms-serving-cert
+      affinity:
+        {{- toYaml .Values.affinity | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      containers:
+      - command:
+        - /manager
+        - --leader-elect
+        - --config=/etc/config/config.yaml
+        - --host-ip=$(POD_IP)
+        env:
+        - name: KUBERNETES_CLUSTER_DOMAIN
+          value: {{ quote .Values.kubernetesClusterDomain }}
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        image: {{ .Values.controllerManager.manager.image.repository }}:{{ .Values.controllerManager.manager.image.tag
+          | default .Chart.AppVersion }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 35001
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: dms
+        volumeMounts:
+          - name: config
+            mountPath: /etc/config
+          - mountPath: /mock-dms-serving-certs
+            name: certs
+            readOnly: true
+        ports:
+        - containerPort: 35769
+          name: metrics
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 35001
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources: {}
+        securityContext: {{- toYaml .Values.controllerManager.manager.containerSecurityContext
+          | nindent 10 }}
+      serviceAccountName: {{ include "chart.name" . }}-controller-manager
+      terminationGracePeriodSeconds: 10
+      imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}

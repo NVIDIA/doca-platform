@@ -1,0 +1,17 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: vf2-example-network
+  namespace: default
+spec:
+  template:
+    spec:
+      template:
+        spec:
+          interfaceType: vf
+          vf:
+            pfID: 0
+            vfID: 2
+            parentInterfaceRef: ""
+            # DPUVirtualNetwork reference by name in the same namespace
+            virtualNetwork: example-network

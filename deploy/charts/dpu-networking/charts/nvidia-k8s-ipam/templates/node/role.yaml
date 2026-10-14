@@ -1,0 +1,22 @@
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "nvidia-k8s-ipam.fullname" . }}-node
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - nv-ipam.nvidia.com
+    resources:
+      - ippools
+      - cidrpools
+    verbs:
+      - get
+      - list
+      - watch
