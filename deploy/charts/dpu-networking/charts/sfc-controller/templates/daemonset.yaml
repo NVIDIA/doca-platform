@@ -98,7 +98,9 @@ spec:
             path: /healthz
             port: health
           initialDelaySeconds: 15
-          periodSeconds: 20
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 5
         name: sfc-controller
         readinessProbe:
           httpGet:
@@ -106,6 +108,16 @@ spec:
             port: health
           initialDelaySeconds: 5
           periodSeconds: 10
+          timeoutSeconds: 5
+        # /healthz is not served until the manager has reached the API server, so startup gets its own
+        # budget instead of being judged by liveness.
+        startupProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
         resources: {{- toYaml .Values.controllerManager.manager.resources | nindent 10
           }}
         securityContext: {{- toYaml .Values.controllerManager.manager.containerSecurityContext
