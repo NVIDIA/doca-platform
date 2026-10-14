@@ -590,3 +590,35 @@ func TestReadReusesAndClosesConnections(t *testing.T) {
 		t.Fatalf("idle connection was not disposed: %d connections", opened.Load())
 	}
 }
+
+// A cancel that races the response must surface as a cancel, whether the race
+// shows up as a truncated body (decode error) or as a non-context transport error.
+func TestReadCancelRacingResponseReportsCancellation(t *testing.T) {
+	for name, body := range map[string]func(cancel context.CancelFunc) io.ReadCloser{
+		"empty body":   func(cancel context.CancelFunc) io.ReadCloser { cancel(); return io.NopCloser(strings.NewReader("")) },
+		"read failure": func(cancel context.CancelFunc) io.ReadCloser { cancel(); return io.NopCloser(iotestErrReader{}) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			c := testReadClient(t, func(http.ResponseWriter, *http.Request) {})
+			c.readClient().GetClient().Transport = readTransportFunc(func(r *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       body(cancel),
+					Header:     http.Header{},
+					Request:    r,
+				}, nil
+			})
+			if _, _, err := c.GetManagers(ctx); !errors.Is(err, context.Canceled) {
+				t.Fatalf("want context.Canceled, got %T %v", err, err)
+			}
+		})
+	}
+}
+
+// iotestErrReader is a body that fails every read with a non-context error.
+type iotestErrReader struct{}
+
+// Read always returns a connection error.
+func (iotestErrReader) Read([]byte) (int, error) { return 0, errors.New("connection reset") }
