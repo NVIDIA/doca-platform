@@ -28,7 +28,8 @@ A Helm chart for mock-dpuagent, N simulated BlueField DPUs (Redfish BMC + dpu-ag
 | rebootController.image.tag | string | `"v0.1.0"` | rebootController.image.tag is the reboot controller image tag. Defaults to the chart appVersion when empty. |
 | rebootController.resources | object | `{"requests":{"cpu":"10m","memory":"64Mi"}}` | rebootController.resources are the container resources of the reboot controller pod. |
 | rebootController.serviceAccount.annotations | object | `{}` | rebootController.serviceAccount.annotations are added to the reboot controller ServiceAccount. |
+| rebootController.tolerations | list | `[{"effect":"NoSchedule","key":"node-role.kubernetes.io/master","operator":"Exists"},{"effect":"NoSchedule","key":"node-role.kubernetes.io/control-plane","operator":"Exists"}]` | rebootController.tolerations of the reboot controller pod; same defaults as the mock DPU pods. |
 | replicas | int | `1` | replicas is the number of simulated DPUs. Every pod is one DPU with its own pod IP as BMC IP. |
 | resources | object | `{"requests":{"cpu":"100m","memory":"64Mi"}}` | resources are the container resources of every mock DPU pod. The CPU request is sized for the short peaks between OS Installing and DPU Config rather than the idle average, see "Measured resource usage" in the README. |
-| tolerations | list | `[]` | tolerations of the mock DPU pods. |
+| tolerations | list | `[{"effect":"NoSchedule","key":"node-role.kubernetes.io/master","operator":"Exists"},{"effect":"NoSchedule","key":"node-role.kubernetes.io/control-plane","operator":"Exists"}]` | tolerations of the mock DPU pods. The defaults let them run on a kind control-plane node, which the e2e environment taints (ADD_CONTROL_PLANE_TAINTS); mock-dms carries the same two. |
 

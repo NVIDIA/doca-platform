@@ -347,7 +347,11 @@ script option below work unchanged.
 
 A DPU that reports `SLR` or `PowerCycle` waits for its host to reboot. The mock has no host: the
 reboot is simulated by `POST /reboot` on port 80 of the pod (hostctl), after which the mock
-behaves as if the Arm had booted again and runs the agent once more. Two ways to drive it:
+behaves as if the Arm had booted again and runs the agent once more. Firmware the BMC activated
+takes effect first. When the BF4 install flow left a seed.iso staged (ISO and config transferred,
+virtual media inserted), the controller counts on this reboot to boot the freshly installed OS
+instead of issuing its own ArmReset, and the mock boots it exactly as ArmReset would. Two ways to
+drive it:
 
 - **Mock reboot controller** (chart default, `rebootController.enabled: true`) with
   `nodeRebootMethod: external` on the DPUNodes. It reacts to the `dpunode-external-reboot-required`

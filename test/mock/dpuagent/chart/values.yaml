@@ -50,8 +50,15 @@ resources:
 
 # -- nodeSelector places the mock DPU pods, for example on a dedicated pool so they do not compete with the DPF controllers under test.
 nodeSelector: {}
-# -- tolerations of the mock DPU pods.
-tolerations: []
+# -- tolerations of the mock DPU pods. The defaults let them run on a kind control-plane node, which the
+# e2e environment taints (ADD_CONTROL_PLANE_TAINTS); mock-dms carries the same two.
+tolerations:
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
 # -- affinity of the mock DPU pods.
 affinity: {}
 
@@ -72,3 +79,11 @@ rebootController:
     requests:
       cpu: 10m
       memory: 64Mi
+  # -- rebootController.tolerations of the reboot controller pod; same defaults as the mock DPU pods.
+  tolerations:
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule

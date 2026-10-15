@@ -728,7 +728,7 @@ MOCK_DPUAGENT_REPLICAS ?= 2
 # The suite enables UEFI Secure Boot on the DPUSet so the Perform ARM Force Restart phase is covered;
 # that costs two Arm restarts at least 90 s apart per DPU. Set to true to skip it.
 MOCK_DPUAGENT_SKIP_SECURE_BOOT ?= false
-MOCK_DPUAGENT_E2E_TEST_ARGS ?= -ginkgo.label-filter="MockDPU && !SDN && !DPFVPCOVN && !Weave" -e2e.config=./config-mock-dpuagent.yaml
+MOCK_DPUAGENT_E2E_TEST_ARGS ?= -ginkgo.label-filter="MockDPU && !SDN && !DPFVPCOVN && !WeaveBF3" -e2e.config=./config-mock-dpuagent.yaml
 .PHONY: test-e2e-mock-dpuagent
 test-e2e-mock-dpuagent: kind helm docker-build-mock-dpuagent ## Build and deploy mock-dpuagent into the kind test cluster, create the DPU kind cluster and run the mock-dpuagent e2e tests.
 	@# Two kind clusters plus one inotify-hungry pod per mock DPU exhaust the Linux defaults (128 instances,
