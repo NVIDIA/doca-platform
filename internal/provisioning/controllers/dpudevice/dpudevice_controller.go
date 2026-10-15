@@ -933,26 +933,14 @@ func (r *DPUDeviceReconciler) reconcileCATrustBundle(ctx context.Context, dpuDev
 		"installed_cert_count", len(installedByFingerprint),
 	)
 
-	installedCount := 0
-	for fingerprint, cert := range desiredByFingerprint {
-		if _, found := installedByFingerprint[fingerprint]; found {
-			continue
-		}
-		resp, _, err := tlsClient.InstallCert(ctx, cert.pem)
-		if err != nil {
-			log.Error(err, "Failed to install truststore certificate", "dpudevice", dpuDevice.Name, "fingerprint", fingerprint)
-			setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleSyncFailed, fmt.Sprintf("failed to install truststore cert %s: %v", fingerprint, err))
-			return ctrl.Result{}, fmt.Errorf("install truststore cert %s: %w", fingerprint, err)
-		}
-		if resp.StatusCode() != http.StatusOK {
-			log.Info("Unexpected status while installing truststore certificate", "dpudevice", dpuDevice.Name, "fingerprint", fingerprint, "status", resp.Status())
-			setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleSyncFailed, fmt.Sprintf("install truststore cert %s: unexpected status %s", fingerprint, resp.Status()))
-			return ctrl.Result{}, fmt.Errorf("install truststore cert %s: unexpected status %s", fingerprint, resp.Status())
-		}
-		log.Info("Installed missing truststore certificate", "fingerprint", fingerprint)
-		installedCount++
-	}
-
+	// Stale certs go first, as they do in installBootstrapCA: the truststore holds at most 10
+	// certificates, so a store that is full of certs the bundle no longer names can only be made
+	// to accept the ones it does name by freeing the slots first. Installing first instead leaves
+	// the deletions below unreachable, and nothing else ever removes a truststore cert, so the
+	// device would stay on its old trust until an operator cleared a slot over Redfish by hand.
+	// Only certs absent from the bundle are removed, and the bundle carries both the retired and
+	// the current authority through a rotation, so this cannot remove the one authenticating the
+	// connection it travels over.
 	removedCount := 0
 	for fingerprint, cert := range installedByFingerprint {
 		if _, keep := desiredByFingerprint[fingerprint]; keep {
@@ -974,6 +962,26 @@ func (r *DPUDeviceReconciler) reconcileCATrustBundle(ctx context.Context, dpuDev
 		}
 		log.Info("Removed stale truststore certificate", "fingerprint", fingerprint, "uri", cert.URI)
 		removedCount++
+	}
+
+	installedCount := 0
+	for fingerprint, cert := range desiredByFingerprint {
+		if _, found := installedByFingerprint[fingerprint]; found {
+			continue
+		}
+		resp, _, err := tlsClient.InstallCert(ctx, cert.pem)
+		if err != nil {
+			log.Error(err, "Failed to install truststore certificate", "dpudevice", dpuDevice.Name, "fingerprint", fingerprint)
+			setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleSyncFailed, fmt.Sprintf("failed to install truststore cert %s: %v", fingerprint, err))
+			return ctrl.Result{}, fmt.Errorf("install truststore cert %s: %w", fingerprint, err)
+		}
+		if resp.StatusCode() != http.StatusOK {
+			log.Info("Unexpected status while installing truststore certificate", "dpudevice", dpuDevice.Name, "fingerprint", fingerprint, "status", resp.Status())
+			setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleSyncFailed, fmt.Sprintf("install truststore cert %s: unexpected status %s", fingerprint, resp.Status()))
+			return ctrl.Result{}, fmt.Errorf("install truststore cert %s: unexpected status %s", fingerprint, resp.Status())
+		}
+		log.Info("Installed missing truststore certificate", "fingerprint", fingerprint)
+		installedCount++
 	}
 
 	if bundleHash != "" {

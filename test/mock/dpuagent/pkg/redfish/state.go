@@ -422,14 +422,22 @@ func (s *State) SetVirtualMediaInserted(id string, inserted bool) {
 	s.virtualMedia[id] = inserted
 }
 
-// AddTruststoreCert stores a CA certificate and returns its member index.
-func (s *State) AddTruststoreCert(pem string) int {
+// TruststoreCapacity is how many certificates the truststore holds, as the BMC does: a BlueField
+// BMC rejects the install of an eleventh rather than making room for it.
+const TruststoreCapacity = 10
+
+// AddTruststoreCert stores a CA certificate and returns its member index. The second return is
+// false when the truststore is full, which is the BMC's answer too.
+func (s *State) AddTruststoreCert(pem string) (int, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if len(s.truststore) >= TruststoreCapacity {
+		return 0, false
+	}
 	id := s.nextTrust
 	s.nextTrust++
 	s.truststore[id] = pem
-	return id
+	return id, true
 }
 
 // TruststoreCert returns a stored CA certificate.

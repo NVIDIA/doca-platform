@@ -110,7 +110,13 @@ func (s *Server) handleTruststoreCollection(w http.ResponseWriter, r *http.Reque
 			writeError(w, http.StatusBadRequest, "Base.1.18.1.PropertyMissing", "CertificateString is required")
 			return
 		}
-		id := s.state.AddTruststoreCert(body.CertificateString)
+		id, ok := s.state.AddTruststoreCert(body.CertificateString)
+		if !ok {
+			klog.InfoS("Redfish truststore certificate install refused, truststore full", "capacity", TruststoreCapacity)
+			writeError(w, http.StatusInternalServerError, "Base.1.18.1.InternalError",
+				fmt.Sprintf("the truststore already holds %d certificates", TruststoreCapacity))
+			return
+		}
 		klog.InfoS("Redfish truststore certificate installed", "id", id)
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"@odata.id":       truststorePath(id),

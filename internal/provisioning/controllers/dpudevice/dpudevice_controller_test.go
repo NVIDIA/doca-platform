@@ -1602,6 +1602,102 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 		})
 	})
 
+	Context("CA trust bundle sync against a truststore at capacity", func() {
+		// A BMC truststore holds ten certificates and refuses an eleventh rather than making room,
+		// and nothing but this sync ever removes one. So a store filled with certificates the
+		// bundle no longer names is the state the sync has to be able to leave, which it can only
+		// do by deleting before it installs.
+		It("frees the slots the bundle no longer names before installing into them", func() {
+			ctx := context.Background()
+
+			mockServer, err := mock.CreateMockRedfishServer("BF-24.10", "testpassword")
+			Expect(err).NotTo(HaveOccurred())
+			defer mockServer.Stop()
+
+			staleCerts := make([]string, 0, mock.TruststoreCapacity)
+			for i := 0; i < mock.TruststoreCapacity; i++ {
+				staleCerts = append(staleCerts, string(generateUnrelatedServerCertPEM()))
+			}
+			mockServer.SeedTruststoreCerts(staleCerts...)
+			Expect(mockServer.TruststoreCerts()).To(HaveLen(mock.TruststoreCapacity))
+
+			scheme := runtime.NewScheme()
+			Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+			Expect(corev1.AddToScheme(scheme)).To(Succeed())
+
+			bmcIP := mockServer.GetIPAddress()
+			bmcPort := uint32(mockServer.GetPort())
+			_, clientCrt, clientKey, _, _ := testutils.CreateMTLSCerts(bmcIP)
+
+			desiredBundle := caTrustBundleWithClientCA(mockServer.GetServerCertPEM())
+			caTrustBundle := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      operatorv1.DefaultCATrustBundleConfigMapName,
+					Namespace: testNamespace,
+				},
+				Data: map[string]string{
+					CATrustBundleDataKey: desiredBundle,
+					BundleHashDataKey:    "desired-hash",
+				},
+			}
+			clientSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpf-provisioning-redfish-client-secret",
+					Namespace: testNamespace,
+				},
+				Type: corev1.SecretTypeTLS,
+				Data: map[string][]byte{
+					"tls.crt": clientCrt,
+					"tls.key": clientKey,
+				},
+			}
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpudevice-truststore-full",
+					Namespace: testNamespace,
+				},
+				Status: provisioningv1.DPUDeviceStatus{
+					BMCIP:   &bmcIP,
+					BMCPort: &bmcPort,
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(dpuDevice, caTrustBundle, clientSecret).
+				Build()
+			reconciler := &DPUDeviceReconciler{
+				Client:         fakeClient,
+				RedfishClients: rfclient.NewProvider(fakeClient),
+			}
+
+			_, err = reconciler.reconcileCATrustBundle(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+
+			condition := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceCATrustBundleReady))
+			Expect(condition).NotTo(BeNil())
+			Expect(condition.Status).To(Equal(metav1.ConditionTrue))
+			Expect(condition.Reason).To(Equal(provisioningv1.ReasonCATrustBundleSynced))
+			Expect(dpuDevice.Status.CATrustBundle.ObservedBundleHash).To(HaveValue(Equal("desired-hash")))
+
+			// What the BMC ends up holding is the bundle and nothing besides it.
+			desiredFingerprints := map[string]struct{}{}
+			desired, err := parseDesiredCATrustBundle(desiredBundle)
+			Expect(err).NotTo(HaveOccurred())
+			for _, cert := range desired {
+				desiredFingerprints[cert.fingerprint] = struct{}{}
+			}
+
+			installed := mockServer.TruststoreCerts()
+			Expect(installed).To(HaveLen(len(desiredFingerprints)))
+			for _, certPEM := range installed {
+				parsed, err := parseDesiredCATrustBundle(certPEM)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(desiredFingerprints).To(HaveKey(parsed[0].fingerprint))
+			}
+		})
+	})
+
 	Context("reconcile credential lifecycle", func() {
 		const (
 			testDeviceName    = "test-dpudevice"
