@@ -19,10 +19,13 @@ package mock
 import (
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"path"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -117,7 +120,16 @@ type RedfishMockServer struct {
 	// password authenticates, but every Redfish resource except the root and account PATCH
 	// returns 403 PasswordChangeRequired until the password is changed.
 	passwordChangeRequired bool
+	// truststore holds the installed CA certificates by member index, so that a caller sees what
+	// it installed and has to delete to make room. A BlueField BMC never makes room on its own.
+	truststore       map[int]string
+	nextTruststoreID int
 }
+
+// TruststoreCapacity is how many certificates the truststore holds. A BlueField BMC refuses the
+// install of one beyond this with HTTP 500 instead of evicting anything, so a caller that installs
+// before it deletes cannot converge a store this full.
+const TruststoreCapacity = 10
 
 type DpuVersion int
 
@@ -146,6 +158,8 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 		bootSourceOverrideEnabled:       "Disabled",                 // Default boot override state
 		virtualMediaInserted:            map[string]bool{},          // Default: nothing inserted
 		serviceAccountPassword:          defaultBMCPassword,         // Out of the box, like a real BMC
+		truststore:                      map[int]string{},           // Empty, like a BMC before bootstrap
+		nextTruststoreID:                1,                          // Member indexes start at 1
 	}
 
 	mux := http.NewServeMux()
@@ -190,6 +204,7 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	// Server certificate management (mTLS server cert rotation)
 	mux.HandleFunc("/redfish/v1/Managers/Bluefield_BMC/NetworkProtocol/HTTPS/Certificates/1", mock.handleGetServerCert)
 	mux.HandleFunc("/redfish/v1/Managers/Bluefield_BMC/Truststore/Certificates", mock.handleInstallTruststoreCert)
+	mux.HandleFunc("/redfish/v1/Managers/Bluefield_BMC/Truststore/Certificates/", mock.handleTruststoreCert)
 	mux.HandleFunc("/"+client.APIReplaceCert, mock.handleReplaceCert)
 	mux.HandleFunc("/"+client.APIEnableMTLS, mock.handleEnableMTLS)
 
@@ -857,22 +872,118 @@ func (r *RedfishMockServer) handleGetServerCert(w http.ResponseWriter, req *http
 }
 
 // handleInstallTruststoreCert serves the BMC truststore certificate collection (setUpMTLS step 1).
-// GET returns the installed CA truststore collection (empty by default, so installBootstrapCA
-// installs the desired DPF CA); POST acknowledges a CA truststore certificate install.
+// GET lists what is installed, which is nothing until something installs it; POST installs one, or
+// refuses with HTTP 500 once the store holds TruststoreCapacity of them, as the BMC does.
 func (r *RedfishMockServer) handleInstallTruststoreCert(w http.ResponseWriter, req *http.Request) {
 	switch req.Method {
 	case http.MethodGet:
-		// An empty collection makes ListTruststoreCerts return no installed certs, so the
-		// bootstrap CA reconcile installs the desired CA via POST instead of diffing/deleting.
+		r.mu.RLock()
+		ids := make([]int, 0, len(r.truststore))
+		for id := range r.truststore {
+			ids = append(ids, id)
+		}
+		r.mu.RUnlock()
+		sort.Ints(ids)
+
+		members := make([]interface{}, 0, len(ids))
+		for _, id := range ids {
+			members = append(members, map[string]interface{}{"@odata.id": truststoreCertURI(id)})
+		}
 		writeJSONResponse(w, map[string]interface{}{
-			"Members":             []interface{}{},
-			"Members@odata.count": 0,
+			"Members":             members,
+			"Members@odata.count": len(members),
 		})
 	case http.MethodPost:
-		writeJSONResponse(w, map[string]interface{}{})
+		var body struct {
+			CertificateString string `json:"CertificateString"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			http.Error(w, "Malformed JSON", http.StatusBadRequest)
+			return
+		}
+
+		r.mu.Lock()
+		if len(r.truststore) >= TruststoreCapacity {
+			r.mu.Unlock()
+			klog.InfoS("Mock BMC refused truststore install, store is full", "capacity", TruststoreCapacity)
+			http.Error(w, "The truststore is full", http.StatusInternalServerError)
+			return
+		}
+		id := r.nextTruststoreID
+		r.nextTruststoreID++
+		r.truststore[id] = body.CertificateString
+		r.mu.Unlock()
+
+		writeJSONResponse(w, map[string]interface{}{"@odata.id": truststoreCertURI(id)})
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// handleTruststoreCert serves one member of the truststore collection: GET returns the certificate
+// so a caller can fingerprint what is installed, DELETE frees the slot.
+func (r *RedfishMockServer) handleTruststoreCert(w http.ResponseWriter, req *http.Request) {
+	id, err := strconv.Atoi(path.Base(req.URL.Path))
+	if err != nil {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+
+	switch req.Method {
+	case http.MethodGet:
+		r.mu.RLock()
+		certPEM, found := r.truststore[id]
+		r.mu.RUnlock()
+		if !found {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		writeJSONResponse(w, map[string]interface{}{
+			"@odata.id":         truststoreCertURI(id),
+			"Id":                strconv.Itoa(id),
+			"CertificateString": certPEM,
+			"CertificateType":   "PEM",
+		})
+	case http.MethodDelete:
+		r.mu.Lock()
+		_, found := r.truststore[id]
+		delete(r.truststore, id)
+		r.mu.Unlock()
+		if !found {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// truststoreCertURI returns the Redfish URL of the truststore certificate member with the given index.
+func truststoreCertURI(id int) string {
+	return fmt.Sprintf("/redfish/v1/Managers/Bluefield_BMC/Truststore/Certificates/%d", id)
+}
+
+// SeedTruststoreCerts installs certificates without going through Redfish, for tests that need the
+// store to already hold something, a full one included.
+func (r *RedfishMockServer) SeedTruststoreCerts(certPEMs ...string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, certPEM := range certPEMs {
+		r.truststore[r.nextTruststoreID] = certPEM
+		r.nextTruststoreID++
+	}
+}
+
+// TruststoreCerts returns the installed certificates by member index.
+func (r *RedfishMockServer) TruststoreCerts() map[int]string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	installed := make(map[int]string, len(r.truststore))
+	for id, certPEM := range r.truststore {
+		installed[id] = certPEM
+	}
+	return installed
 }
 
 // handleEnableMTLS acknowledges enabling mTLS on the BMC (setUpMTLS step 3).
