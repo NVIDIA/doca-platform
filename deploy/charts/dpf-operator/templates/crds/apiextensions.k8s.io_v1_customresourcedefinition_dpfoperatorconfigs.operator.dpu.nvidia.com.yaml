@@ -288,7 +288,7 @@ spec:
                     description: |-
                       Image overrides the container image used by the DPUDetector Container.
 
-                      Deprecated: This field is deprecated and will be removed with v27.1.0.
+                      Deprecated: This field is deprecated and will be removed with v31.0.0.
                       Use the new field `daemon` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
@@ -392,7 +392,7 @@ spec:
                     description: |-
                       Image overrides the container image used by the DPUService controller.
 
-                      Deprecated: This field is deprecated and will be removed with v27.1.0.
+                      Deprecated: This field is deprecated and will be removed with v31.0.0.
                       Use the new field `controller` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
@@ -501,7 +501,7 @@ spec:
                     description: |-
                       Images overrides the container images used by flannel
 
-                      Deprecated: This field is deprecated and will be removed with v27.1.0.
+                      Deprecated: This field is deprecated and will be removed with v31.0.0.
                       Use the new fields `cni` and `daemon` instead.
                     properties:
                       flannelCNI:
@@ -681,7 +681,7 @@ spec:
                     description: |-
                       Image overrides the container image used by the Kamaji Cluster Manager.
 
-                      Deprecated: This field is deprecated and will be removed with v27.1.0.
+                      Deprecated: This field is deprecated and will be removed with v31.0.0.
                       Use the new field `controller` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
@@ -1198,7 +1198,7 @@ spec:
                     description: |-
                       Image overrides the container image used by the Multus Container.
 
-                      Deprecated: This field is deprecated and will be removed with v27.1.0.
+                      Deprecated: This field is deprecated and will be removed with v31.0.0.
                       Use the new field `cni` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
@@ -1425,7 +1425,7 @@ spec:
                     description: |-
                       Image overrides the container image used by the NVIPAM controller.
 
-                      Deprecated: This field is deprecated and will be removed with v27.1.0.
+                      Deprecated: This field is deprecated and will be removed with v31.0.0.
                       Use the new field `controller` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
@@ -1604,7 +1604,7 @@ spec:
                       over from, on a cluster the upgrade has not finished migrating. It has no effect once that
                       chain is gone, which is every cluster installed since.
 
-                      Deprecated: This field is deprecated and will be removed with v27.1.0.
+                      Deprecated: This field is deprecated and will be removed with v31.0.0.
                     minLength: 1
                     type: string
                 type: object
@@ -1689,7 +1689,7 @@ spec:
                     description: |-
                       Image overrides the container image used by the OVS CNI.
 
-                      Deprecated: This field is deprecated and will be removed with v27.1.0.
+                      Deprecated: This field is deprecated and will be removed with v31.0.0.
                       Use the new field `cni` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
@@ -1837,7 +1837,7 @@ spec:
                     description: |-
                       Image overrides the container image used by the Provisioning controller.
 
-                      Deprecated: This field is deprecated and will be removed with v27.1.0.
+                      Deprecated: This field is deprecated and will be removed with v31.0.0.
                       Use the new field `controller` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
@@ -1982,6 +1982,7 @@ spec:
                           By default, the BFB Registry can be accessed via its Service.
                           For non-kubernetes environments, this must be set due to the lack of kubelet on worker nodes.
                           For zero-trust environments, this must be set so that the BFB Registry can be accessed from DPU BMC.
+
                           Deprecated: Address is deprecated and will be removed in a future release.
                         pattern: ^https?://
                         type: string
@@ -1995,7 +1996,8 @@ spec:
                       port:
                         description: |-
                           Port is the port on which the registry instances will listen
-                          Deprecated: Address is deprecated and will be removed in a future release.
+
+                          Deprecated: Port is deprecated and will be removed in a future release.
                         maximum: 65535
                         minimum: 1
                         type: integer
@@ -2716,7 +2718,7 @@ spec:
                     description: |-
                       Image overrides the container image used by the ServiceChainSet Controller.
 
-                      Deprecated: This field is deprecated and will be removed with v27.1.0.
+                      Deprecated: This field is deprecated and will be removed with v31.0.0.
                       Use the new field `controller` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
@@ -2812,7 +2814,7 @@ spec:
                     description: |-
                       Image overrides the container image used by the SFC controller.
 
-                      Deprecated: This field is deprecated and will be removed with v27.1.0.
+                      Deprecated: This field is deprecated and will be removed with v31.0.0.
                       Use the new field `controller` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
@@ -2965,7 +2967,7 @@ spec:
                     description: |-
                       Image overrides the container image used by the SRIOV Device Plugin container.
 
-                      Deprecated: This field is deprecated and will be removed with v27.1.0.
+                      Deprecated: This field is deprecated and will be removed with v31.0.0.
                       Use the new field `deviceplugin` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
@@ -3045,7 +3047,7 @@ spec:
                     description: |-
                       Image overrides the container image used by the Static Cluster Manager.
 
-                      Deprecated: This field is deprecated and will be removed with v27.1.0.
+                      Deprecated: This field is deprecated and will be removed with v31.0.0.
                       Use the new field `controller` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string

@@ -28,31 +28,31 @@ var KnownDeprecations = []GVKDeprecations{
 		Fields: []DeprecatedField{
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "dpuDetector"}, {Name: "image"}},
-				Description: "Image overrides the container image used by the DPUDetector Container.\n\nDeprecated: This field is deprecated and will be removed with v27.1.0.\nUse the new field `daemon` instead.",
+				Description: "Image overrides the container image used by the DPUDetector Container.\n\nDeprecated: This field is deprecated and will be removed with v31.0.0.\nUse the new field `daemon` instead.",
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "dpuServiceController"}, {Name: "image"}},
-				Description: "Image overrides the container image used by the DPUService controller.\n\nDeprecated: This field is deprecated and will be removed with v27.1.0.\nUse the new field `controller` instead.",
+				Description: "Image overrides the container image used by the DPUService controller.\n\nDeprecated: This field is deprecated and will be removed with v31.0.0.\nUse the new field `controller` instead.",
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "flannel"}, {Name: "image"}},
-				Description: "Images overrides the container images used by flannel\n\nDeprecated: This field is deprecated and will be removed with v27.1.0.\nUse the new fields `cni` and `daemon` instead.",
+				Description: "Images overrides the container images used by flannel\n\nDeprecated: This field is deprecated and will be removed with v31.0.0.\nUse the new fields `cni` and `daemon` instead.",
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "kamajiClusterManager"}, {Name: "image"}},
-				Description: "Image overrides the container image used by the Kamaji Cluster Manager.\n\nDeprecated: This field is deprecated and will be removed with v27.1.0.\nUse the new field `controller` instead.",
+				Description: "Image overrides the container image used by the Kamaji Cluster Manager.\n\nDeprecated: This field is deprecated and will be removed with v31.0.0.\nUse the new field `controller` instead.",
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "multus"}, {Name: "image"}},
-				Description: "Image overrides the container image used by the Multus Container.\n\nDeprecated: This field is deprecated and will be removed with v27.1.0.\nUse the new field `cni` instead.",
+				Description: "Image overrides the container image used by the Multus Container.\n\nDeprecated: This field is deprecated and will be removed with v31.0.0.\nUse the new field `cni` instead.",
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "nvipam"}, {Name: "image"}},
-				Description: "Image overrides the container image used by the NVIPAM controller.\n\nDeprecated: This field is deprecated and will be removed with v27.1.0.\nUse the new field `controller` instead.",
+				Description: "Image overrides the container image used by the NVIPAM controller.\n\nDeprecated: This field is deprecated and will be removed with v31.0.0.\nUse the new field `controller` instead.",
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "overrides"}, {Name: "provisioningIssuerCASecretName"}},
-				Description: "ProvisioningIssuerCASecretName overrides the CA secret of the provisioning Issuer during a\nrotation. The provisioning certificates are signed by the platform intermediate CA now, and a\nrotation of it is driven by cert-manager rather than by repointing an Issuer, so this only\nstill pins the provisioning Issuer of the CA chain the platform intermediate CA is taking\nover from, on a cluster the upgrade has not finished migrating. It has no effect once that\nchain is gone, which is every cluster installed since.\n\nDeprecated: This field is deprecated and will be removed with v27.1.0.",
+				Description: "ProvisioningIssuerCASecretName overrides the CA secret of the provisioning Issuer during a\nrotation. The provisioning certificates are signed by the platform intermediate CA now, and a\nrotation of it is driven by cert-manager rather than by repointing an Issuer, so this only\nstill pins the provisioning Issuer of the CA chain the platform intermediate CA is taking\nover from, on a cluster the upgrade has not finished migrating. It has no effect once that\nchain is gone, which is every cluster installed since.\n\nDeprecated: This field is deprecated and will be removed with v31.0.0.",
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "ovsCNI"}},
@@ -64,7 +64,7 @@ var KnownDeprecations = []GVKDeprecations{
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "provisioningController"}, {Name: "image"}},
-				Description: "Image overrides the container image used by the Provisioning controller.\n\nDeprecated: This field is deprecated and will be removed with v27.1.0.\nUse the new field `controller` instead.",
+				Description: "Image overrides the container image used by the Provisioning controller.\n\nDeprecated: This field is deprecated and will be removed with v31.0.0.\nUse the new field `controller` instead.",
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "provisioningController"}, {Name: "installInterface"}, {Name: "installViaGNOI"}},
@@ -80,27 +80,27 @@ var KnownDeprecations = []GVKDeprecations{
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "provisioningController"}, {Name: "registry"}, {Name: "address"}},
-				Description: "Address is the address used to access the BFB Registry. The address must start with \"http://\" or \"https://\".\nBy default, the BFB Registry can be accessed via its Service.\nFor non-kubernetes environments, this must be set due to the lack of kubelet on worker nodes.\nFor zero-trust environments, this must be set so that the BFB Registry can be accessed from DPU BMC.\nDeprecated: Address is deprecated and will be removed in a future release.",
+				Description: "Address is the address used to access the BFB Registry. The address must start with \"http://\" or \"https://\".\nBy default, the BFB Registry can be accessed via its Service.\nFor non-kubernetes environments, this must be set due to the lack of kubelet on worker nodes.\nFor zero-trust environments, this must be set so that the BFB Registry can be accessed from DPU BMC.\n\nDeprecated: Address is deprecated and will be removed in a future release.",
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "provisioningController"}, {Name: "registry"}, {Name: "port"}},
-				Description: "Port is the port on which the registry instances will listen\nDeprecated: Address is deprecated and will be removed in a future release.",
+				Description: "Port is the port on which the registry instances will listen\n\nDeprecated: Port is deprecated and will be removed in a future release.",
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "serviceSetController"}, {Name: "image"}},
-				Description: "Image overrides the container image used by the ServiceChainSet Controller.\n\nDeprecated: This field is deprecated and will be removed with v27.1.0.\nUse the new field `controller` instead.",
+				Description: "Image overrides the container image used by the ServiceChainSet Controller.\n\nDeprecated: This field is deprecated and will be removed with v31.0.0.\nUse the new field `controller` instead.",
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "sfcController"}, {Name: "image"}},
-				Description: "Image overrides the container image used by the SFC controller.\n\nDeprecated: This field is deprecated and will be removed with v27.1.0.\nUse the new field `controller` instead.",
+				Description: "Image overrides the container image used by the SFC controller.\n\nDeprecated: This field is deprecated and will be removed with v31.0.0.\nUse the new field `controller` instead.",
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "sriovDevicePlugin"}, {Name: "image"}},
-				Description: "Image overrides the container image used by the SRIOV Device Plugin container.\n\nDeprecated: This field is deprecated and will be removed with v27.1.0.\nUse the new field `deviceplugin` instead.",
+				Description: "Image overrides the container image used by the SRIOV Device Plugin container.\n\nDeprecated: This field is deprecated and will be removed with v31.0.0.\nUse the new field `deviceplugin` instead.",
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "staticClusterManager"}, {Name: "image"}},
-				Description: "Image overrides the container image used by the Static Cluster Manager.\n\nDeprecated: This field is deprecated and will be removed with v27.1.0.\nUse the new field `controller` instead.",
+				Description: "Image overrides the container image used by the Static Cluster Manager.\n\nDeprecated: This field is deprecated and will be removed with v31.0.0.\nUse the new field `controller` instead.",
 			},
 		},
 	},
@@ -110,15 +110,15 @@ var KnownDeprecations = []GVKDeprecations{
 		Fields: []DeprecatedField{
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "dpus"}, {Name: "dpuSetStrategy"}, {Name: "rollingUpdate"}, {Name: "maxUnavailable"}},
-				Description: "MaxUnavailable is the maximum number of DPUs that can be unavailable during the update.\n\nDeprecated: This field is deprecated and will be removed with v27.1.0.",
+				Description: "MaxUnavailable is the maximum number of DPUs that can be unavailable during the update.\n\nDeprecated: This field is deprecated and will be removed with v31.0.0.",
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "dpus"}, {Name: "dpuSets", IsArray: true}, {Name: "dpuSelector"}},
-				Description: "DPUSelector defines the DPUs that the DPUSet should target\n\nDeprecated: This field is deprecated and will be removed with v27.1.0. Use DPUDeviceSelector instead.",
+				Description: "DPUSelector defines the DPUs that the DPUSet should target\n\nDeprecated: This field is deprecated and will be removed with v31.0.0. Use DPUDeviceSelector instead.",
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "dpus"}, {Name: "dpuSets", IsArray: true}, {Name: "nodeSelector"}},
-				Description: "NodeSelector defines the nodes that the DPUSet should target\n\nDeprecated: This field is deprecated and will be removed with v27.1.0. Use DPUNodeSelector instead.",
+				Description: "NodeSelector defines the nodes that the DPUSet should target\n\nDeprecated: This field is deprecated and will be removed with v31.0.0. Use DPUNodeSelector instead.",
 			},
 		},
 	},
@@ -170,7 +170,7 @@ var KnownDeprecations = []GVKDeprecations{
 		Fields: []DeprecatedField{
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "clusterSelector"}},
-				Description: "Select the Clusters with specific labels, ServiceChainSet CRs will be created only for these Clusters\n\nDeprecated: This field is deprecated and will be removed with v27.1.0. Use DPUClusterSelector instead.",
+				Description: "Select the Clusters with specific labels, ServiceChainSet CRs will be created only for these Clusters\n\nDeprecated: This field is deprecated and will be removed with v31.0.0. Use DPUClusterSelector instead.",
 			},
 		},
 	},
@@ -180,11 +180,11 @@ var KnownDeprecations = []GVKDeprecations{
 		Fields: []DeprecatedField{
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "clusterSelector"}},
-				Description: "Select the Clusters with specific labels, ServiceInterfaceSet CRs will be created only for these Clusters\n\nDeprecated: This field is deprecated and will be removed with v27.1.0. Use DPUClusterSelector instead.",
+				Description: "Select the Clusters with specific labels, ServiceInterfaceSet CRs will be created only for these Clusters\n\nDeprecated: This field is deprecated and will be removed with v31.0.0. Use DPUClusterSelector instead.",
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "template"}, {Name: "spec"}, {Name: "template"}, {Name: "spec"}, {Name: "ovn"}},
-				Description: "The OVN definition\nDeprecated: This field is deprecated and will be removed with v26.10.0.\nMigrate to interfaceType=\"patch\" with spec.patch.peerBridge and spec.patch.peerPatchName instead.",
+				Description: "The OVN definition\n\nDeprecated: This field is deprecated and will be removed with v31.0.0.\nMigrate to interfaceType=\"patch\" with spec.patch.peerBridge and spec.patch.peerPatchName instead.",
 			},
 		},
 	},
@@ -194,7 +194,7 @@ var KnownDeprecations = []GVKDeprecations{
 		Fields: []DeprecatedField{
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "clusterSelector"}},
-				Description: "ClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration.\n\nDeprecated: This field is deprecated and will be removed with v27.1.0. Use DPUClusterSelector instead.",
+				Description: "ClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration.\n\nDeprecated: This field is deprecated and will be removed with v31.0.0. Use DPUClusterSelector instead.",
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "ipv4Network"}},
@@ -206,7 +206,7 @@ var KnownDeprecations = []GVKDeprecations{
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "network"}, {Name: "exclusions"}},
-				Description: "Exclusions is a list of IPs that should be excluded when splitting the CIDR into subnets per node.\n\nDeprecated: This field is deprecated and will be removed with v26.10.0. Use ExcludeRanges instead.",
+				Description: "Exclusions is a list of IPs that should be excluded when splitting the CIDR into subnets per node.\n\nDeprecated: This field is deprecated and will be removed with v31.0.0. Use ExcludeRanges instead.",
 			},
 		},
 	},
@@ -216,11 +216,11 @@ var KnownDeprecations = []GVKDeprecations{
 		Fields: []DeprecatedField{
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "dpuSelector"}},
-				Description: "Select the DPU with specific labels\n\nDeprecated: This field is deprecated and will be removed with v27.1.0. Use DPUDeviceSelector instead.",
+				Description: "Select the DPU with specific labels\n\nDeprecated: This field is deprecated and will be removed with v31.0.0. Use DPUDeviceSelector instead.",
 			},
 			{
 				Segments:    []PathSegment{{Name: "spec"}, {Name: "strategy"}, {Name: "rollingUpdate"}, {Name: "maxUnavailable"}},
-				Description: "MaxUnavailable is the maximum number of DPUs that can be unavailable during the update.\n\nDeprecated: This field is deprecated and will be removed with v27.1.0.",
+				Description: "MaxUnavailable is the maximum number of DPUs that can be unavailable during the update.\n\nDeprecated: This field is deprecated and will be removed with v31.0.0.",
 			},
 		},
 	},

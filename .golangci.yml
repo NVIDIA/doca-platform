@@ -138,8 +138,12 @@ linters:
         text: "SA1019: .*\\.DPUSelector is deprecated"
       - linters:
           - staticcheck
-        # Exclusions field is deprecated in favor of ExcludeRanges but still supported until v26.10.0.
+        # Exclusions field is deprecated in favor of ExcludeRanges but still supported until v31.0.0.
         text: "SA1019: .*\\.Exclusions is deprecated"
+      - linters:
+          - staticcheck
+        # ServiceInterfaceSpec.OVN is deprecated in favor of the patch interface type but still supported until v31.0.0.
+        text: "SA1019: .*\\.OVN is deprecated"
       - linters:
           - staticcheck
         # BFBRegistryAddress is deprecated in favor of RegistryConfiguration but still supported until configs migrate.

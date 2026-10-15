@@ -38,8 +38,8 @@ func Test_imageWithDefaultTag(t *testing.T) {
 		{
 			name:         "inject tag from default",
 			img:          "nvcr.io/nvstaging/doca/dpf-system",
-			defaultImage: "nvcr.io/nvidia/doca/dpf-system:v26.10.0",
-			want:         "nvcr.io/nvstaging/doca/dpf-system:v26.10.0",
+			defaultImage: "nvcr.io/nvidia/doca/dpf-system:v30.0.0",
+			want:         "nvcr.io/nvstaging/doca/dpf-system:v30.0.0",
 		},
 		{
 			name:         "inject tag and digest from default",

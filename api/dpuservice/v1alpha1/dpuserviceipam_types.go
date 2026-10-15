@@ -89,7 +89,7 @@ type DPUServiceIPAMSpec struct {
 
 	// ClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration.
 	//
-	// Deprecated: This field is deprecated and will be removed with v27.1.0. Use DPUClusterSelector instead.
+	// Deprecated: This field is deprecated and will be removed with v31.0.0. Use DPUClusterSelector instead.
 	// +optional
 	ClusterSelector *metav1.LabelSelector `json:"clusterSelector,omitempty"`
 	// DPUClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration.
@@ -110,7 +110,7 @@ type Network struct {
 	PrefixSize int32 `json:"prefixSize"`
 	// Exclusions is a list of IPs that should be excluded when splitting the CIDR into subnets per node.
 	//
-	// Deprecated: This field is deprecated and will be removed with v26.10.0. Use ExcludeRanges instead.
+	// Deprecated: This field is deprecated and will be removed with v31.0.0. Use ExcludeRanges instead.
 	Exclusions []string `json:"exclusions,omitempty"`
 	// ExcludeRanges is a list of IP ranges that should be excluded from the allocation.
 	// startIP and endIP are part of the Excluded range.

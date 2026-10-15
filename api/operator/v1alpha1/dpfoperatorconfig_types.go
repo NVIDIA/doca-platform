@@ -249,7 +249,7 @@ type Overrides struct {
 	// over from, on a cluster the upgrade has not finished migrating. It has no effect once that
 	// chain is gone, which is every cluster installed since.
 	//
-	// Deprecated: This field is deprecated and will be removed with v27.1.0.
+	// Deprecated: This field is deprecated and will be removed with v31.0.0.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	ProvisioningIssuerCASecretName *string `json:"provisioningIssuerCASecretName,omitempty"`
@@ -310,7 +310,7 @@ const (
 	DeploymentModeHostTrusted DeploymentMode = "host-trusted"
 )
 
-// TODO: remove after v26.10.
+// TODO: remove after v30.0.
 // Rules referencing deploymentMode must guard with !has(self.deploymentMode): x-kubernetes-validations
 // run on status-subresource writes too, and stored objects from releases predating the field would
 // otherwise fail rule evaluation with "no such key", blocking all status updates.
