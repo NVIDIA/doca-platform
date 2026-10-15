@@ -40,7 +40,7 @@ const (
 // Zero-trust provisioning of simulated DPUs. `make test-e2e-mock-dpuagent` builds and deploys the
 // mock (Deployment and ConfigMap), creates the second kind cluster that plays the DPU cluster
 // (kubeconfig in MOCK_DPU_CLUSTER_KUBECONFIG) and runs this suite with
-// -ginkgo.label-filter="MockDPU && !SDN && !DPFVPCOVN && !Weave" -e2e.config=./config-mock-dpuagent.yaml
+// -ginkgo.label-filter="MockDPU && !SDN && !DPFVPCOVN && !WeaveBF3" -e2e.config=./config-mock-dpuagent.yaml
 var _ = Describe("Zero-trust provisioning with mock DPUs", Labels{Domain.MockDPU}, Ordered, Serial, func() {
 	var env *mockDPUEnv
 

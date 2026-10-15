@@ -141,10 +141,18 @@ func (s *Supervisor) Reboot(ctx context.Context) {
 }
 
 // HostReboot is the external host power cycle or reboot: firmware the BMC activated takes effect,
-// then the DPU reboots.
+// then the Arm comes up on whatever is staged. When the BF4 install flow left a seed.iso behind
+// (ISO and config transferred, virtual media inserted) the controller relies on this reboot to
+// boot the freshly installed OS instead of issuing its own ArmReset, so the reboot consumes the
+// seed exactly like ArmReset would. Otherwise the already installed OS restarts.
 func (s *Supervisor) HostReboot(ctx context.Context, method string) {
 	if s.bmc.ApplyActivatedBundle() {
 		klog.InfoS("host reboot applied the activated PLDM bundle")
+	}
+	if iso := s.bmc.TakePendingSeedISO(); iso != nil {
+		klog.InfoS("host reboot boots the installed OS", "method", method, "seedISOBytes", len(iso))
+		go s.Boot(ctx, iso)
+		return
 	}
 	klog.InfoS("host reboot", "method", method)
 	go s.Reboot(ctx)

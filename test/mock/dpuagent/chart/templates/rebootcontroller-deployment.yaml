@@ -24,6 +24,10 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.rebootController.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
       - name: reboot-controller
         image: {{ .Values.rebootController.image.repository }}:{{ .Values.rebootController.image.tag | default .Chart.AppVersion }}

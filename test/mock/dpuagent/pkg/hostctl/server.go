@@ -41,7 +41,8 @@ type RebootRequest struct {
 // HostRebooter is implemented by the agent supervisor.
 type HostRebooter interface {
 	// HostReboot is a host power cycle or reboot as seen from the DPU: firmware activated by the
-	// BMC takes effect and the DPU OS restarts.
+	// BMC takes effect and the DPU boots, into a freshly installed OS when the install flow left
+	// one staged, otherwise back into the running one.
 	HostReboot(ctx context.Context, method string)
 }
 
