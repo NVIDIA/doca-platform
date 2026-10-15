@@ -60,6 +60,9 @@ const (
 	DPUSetNameLabel = DPUProvisioningPrefix + "dpuset-name"
 	// DPUSetNamespaceLabel is the label that indicates the namespace of the DPUSet.
 	DPUSetNamespaceLabel = DPUProvisioningPrefix + "dpuset-namespace"
+	// DPUSetInPlaceReconfigAnnotation starts one in-place reconfig round when its
+	// value is exactly "true". Any other value is ignored and left in place.
+	DPUSetInPlaceReconfigAnnotation = DPUProvisioningPrefix + "inplace-reconfig"
 	// DPUSetCollisionLabelPrefix is the label that indicates that the DPU has a collision with another DPUSet.
 	// Full key format: provisioning.dpu.nvidia.com/collision-dpuset-<dpuSetName>
 	DPUSetCollisionLabelPrefix = DPUProvisioningPrefix + "collision-dpuset-"

@@ -1245,6 +1245,44 @@ var _ = Describe("DPUSetReconciler rolloutRolling", func() {
 		Expect(remaining).To(HaveLen(2))
 	})
 
+	It("should count an in-place Ready DPU against maxUnavailableDPUNodes", func() {
+		inPlace := newDPU("dpu-inplace", true)
+		inPlace.Spec.BFB = ptr.To("bfb-v2")
+		inPlace.Status.Phase = provisioningv1.DPUReady
+		inPlace.Status.DPUReconfig = &provisioningv1.DPUReconfigStatus{InProgress: ptr.To(true)}
+
+		remaining := runRollout(1, 2, inPlace, newDPU("dpu-drift", true))
+		Expect(remaining).To(ConsistOf(
+			HaveField("Name", "dpu-inplace"),
+			HaveField("Name", "dpu-drift"),
+		))
+	})
+
+	It("should replace in-place with a delete when that DPU has disruptive drift", func() {
+		inPlace := newDPU("dpu-inplace", true)
+		inPlace.Status.Phase = provisioningv1.DPUReady
+		inPlace.Status.DPUReconfig = &provisioningv1.DPUReconfigStatus{InProgress: ptr.To(true)}
+
+		remaining := runRollout(1, 2, inPlace, newDPU("dpu-drift", true))
+		Expect(remaining).To(ConsistOf(HaveField("Name", "dpu-drift")))
+	})
+
+	It("should not treat extra owned DPUs as free slots", func() {
+		remaining := runRollout(1, 1,
+			newDPU("dpu-1", true),
+			newDPU("dpu-2", true),
+		)
+		Expect(remaining).To(HaveLen(1))
+	})
+
+	It("should not delete a Ready DPU when an extra owned DPU is already not ready", func() {
+		remaining := runRollout(1, 1,
+			newDPU("dpu-not-ready", false),
+			newDPU("dpu-ready", true),
+		)
+		Expect(remaining).To(ConsistOf(HaveField("Name", "dpu-ready")))
+	})
+
 	It("should count missing and not-ready DPUs against maxUnavailableDPUNodes", func() {
 		remaining := runRollout(2, 4,
 			newDPU("dpu-not-ready", false),
@@ -1280,6 +1318,44 @@ var _ = Describe("DPUSetReconciler rolloutRolling", func() {
 			newDPU("dpu-2", true),
 		)
 		Expect(remaining).To(BeEmpty())
+	})
+})
+
+var _ = Describe("provisionableDPUCount", func() {
+	device := func(dpuType provisioningv1.DPUType) provisioningv1.DPUDevice {
+		return provisioningv1.DPUDevice{Status: provisioningv1.DPUDeviceStatus{DPUType: dpuType}}
+	}
+
+	It("keeps every selected device when none are excluded", func() {
+		dpuSet := &provisioningv1.DPUSet{}
+		devices := map[string]provisioningv1.DPUDevice{
+			"bf3": device(provisioningv1.DPUTypeBlueField3),
+			"bf4": device(provisioningv1.DPUTypeBlueField4),
+		}
+
+		Expect(provisionableDPUCount(dpuSet, devices, 0)).To(Equal(2))
+	})
+
+	It("excludes an Astra-incompatible device and a device owned by another DPUSet", func() {
+		dpuSet := &provisioningv1.DPUSet{
+			Spec: provisioningv1.DPUSetSpec{
+				DPUTemplate: provisioningv1.DPUTemplate{
+					Spec: provisioningv1.DPUTemplateSpec{AstraEnabled: ptr.To(true)},
+				},
+			},
+		}
+		devices := map[string]provisioningv1.DPUDevice{
+			"bf3":       device(provisioningv1.DPUTypeBlueField3),
+			"bf4":       device(provisioningv1.DPUTypeBlueField4),
+			"bf4-other": device(provisioningv1.DPUTypeBlueField4),
+		}
+
+		Expect(provisionableDPUCount(dpuSet, devices, 1)).To(Equal(1))
+	})
+
+	It("does not go below zero", func() {
+		dpuSet := &provisioningv1.DPUSet{}
+		Expect(provisionableDPUCount(dpuSet, map[string]provisioningv1.DPUDevice{}, 1)).To(Equal(0))
 	})
 })
 

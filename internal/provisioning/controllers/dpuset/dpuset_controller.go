@@ -374,13 +374,17 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 		return ctrl.Result{}, fmt.Errorf("failed to reconcile template DPUs %w", err)
 	}
 
+	// Devices this DPUSet will not own a DPU for are not missing CRs. Counting them
+	// would fill MaxUnavailableDPUNodes and block both deletes and in-place marks.
+	provisionableDPUs := provisionableDPUCount(dpuSet, dpuDeviceMap, dpusOwnedByOtherDPUSet)
+
 	switch dpuSet.Spec.Strategy.Type {
 	case provisioningv1.OnDeleteStrategyType:
 		if err := r.onDelete(ctx, dpuSet, dpuMap, dpuClusterList.Items); err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to on delete DPUs %w", err)
 		}
 	case provisioningv1.RollingUpdateStrategyType:
-		if err := r.rolloutRolling(ctx, dpuSet, dpuMap, len(dpuDeviceMap), dpuClusterList.Items, templateEvals); err != nil {
+		if err := r.rolloutRolling(ctx, dpuSet, dpuMap, provisionableDPUs, dpuClusterList.Items, templateEvals); err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to rollout DPU %w", err)
 		}
 	default:
@@ -394,6 +398,12 @@ func (r *DPUSetReconciler) Handle(ctx context.Context, dpuSet *provisioningv1.DP
 
 	if err := r.reconcileDPUOutdatedStatus(ctx, dpuSet, dpuMap, dpuClusterList.Items, templateEvals); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to reconcile DPU Outdated status: %w", err)
+	}
+
+	// After strategy deletes and outdated writes, so a disruptive DPU is not also
+	// marked in-place and the unavailable count includes DPUs removed this pass.
+	if err := r.reconcileInPlaceReconfig(ctx, dpuSet, provisionableDPUs); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to reconcile in-place reconfig: %w", err)
 	}
 
 	// Check if any DPU changes were made (created or updated)
@@ -764,8 +774,11 @@ func (r *DPUSetReconciler) onDelete(ctx context.Context, dpuSet *provisioningv1.
 
 // rolloutRolling deletes drifted DPUs so they can be recreated from the DPUSet
 // template. Concurrency is MaxUnavailableDPUNodes (minimum 1, capped at
-// totalDPUDevices). Unavailable slots are devices with no CR plus CRs that
-// are not Ready or already deleting.
+// totalDPUDevices). totalDPUDevices counts only devices this DPUSet is expected
+// to own. Unavailable slots are those devices with no CR, CRs that are not Ready
+// or already deleting, and Ready CRs already marked inProgress. That mark still
+// shows Ready until the DPU controller leaves the phase, and it shares this
+// budget with deletes. Disruptive drift on that DPU reuses its slot.
 func (r *DPUSetReconciler) rolloutRolling(ctx context.Context, dpuSet *provisioningv1.DPUSet,
 	dpuMap map[string]provisioningv1.DPU, totalDPUDevices int, dpuClusters []provisioningv1.DPUCluster,
 	templateEvals map[string]templateEval) error {
@@ -776,11 +789,18 @@ func (r *DPUSetReconciler) rolloutRolling(ctx context.Context, dpuSet *provision
 		maxUnavailable = totalDPUDevices
 	}
 
-	// The DPUs that have deleted should be considered as unavailable DPUs
+	// The DPUs that have deleted should be considered as unavailable DPUs.
+	// A Ready DPU marked inProgress occupies a slot as well: its Ready condition
+	// stays True until the DPU controller takes it out of service.
+	// The count can exceed totalDPUDevices when an excluded device, such as an
+	// Astra-incompatible one, still has an owned DPU. Those extra DPUs are not
+	// free slots.
 	unavailable := totalDPUDevices - len(dpuMap)
+	if unavailable < 0 {
+		unavailable = 0
+	}
 	for _, dpu := range dpuMap {
-		if isUnavailable(&dpu) {
-			// A DPU which is not ready should be considered an unavailable DPU. Skip this one
+		if isUnavailable(&dpu) || inProgressStillReady(&dpu) {
 			unavailable++
 		}
 	}
@@ -790,20 +810,21 @@ func (r *DPUSetReconciler) rolloutRolling(ctx context.Context, dpuSet *provision
 			continue
 		}
 
+		// inProgressStillReady already contributes to unavailable, so deleting it
+		// does not take a second slot.
+		alreadyUnavailable := isUnavailable(&dpu) || inProgressStillReady(&dpu)
+		if !alreadyUnavailable && unavailable >= maxUnavailable {
+			continue
+		}
+
 		failedMsg := fmt.Sprintf("Failed to Delete DPU: (%s/%s) from DPUNode %s", dpu.Namespace, dpu.Name, dpu.Spec.DPUNodeName)
 		successMsg := fmt.Sprintf("Delete DPU: (%s/%s) from DPUNode %s", dpu.Namespace, dpu.Name, dpu.Spec.DPUNodeName)
-		if isUnavailable(&dpu) {
-			if err := r.Delete(ctx, &dpu); err != nil {
-				r.Recorder.Eventf(dpuSet, corev1.EventTypeNormal, events.EventFailedDeleteDPUReason, failedMsg)
-				return err
-			}
-			r.Recorder.Eventf(dpuSet, corev1.EventTypeNormal, events.EventSuccessfulDeleteDPUReason, successMsg)
-		} else if unavailable < maxUnavailable {
-			if err := r.Delete(ctx, &dpu); err != nil {
-				r.Recorder.Eventf(dpuSet, corev1.EventTypeNormal, events.EventFailedDeleteDPUReason, failedMsg)
-				return err
-			}
-			r.Recorder.Eventf(dpuSet, corev1.EventTypeNormal, events.EventSuccessfulDeleteDPUReason, successMsg)
+		if err := r.Delete(ctx, &dpu); err != nil {
+			r.Recorder.Eventf(dpuSet, corev1.EventTypeNormal, events.EventFailedDeleteDPUReason, failedMsg)
+			return err
+		}
+		r.Recorder.Eventf(dpuSet, corev1.EventTypeNormal, events.EventSuccessfulDeleteDPUReason, successMsg)
+		if !alreadyUnavailable {
 			unavailable++
 		}
 	}
@@ -894,6 +915,24 @@ func (r *DPUSetReconciler) UpdateDPUSetStatus(ctx context.Context, dpuSet *provi
 	}
 
 	return nil
+}
+
+// provisionableDPUCount is the number of selected devices this DPUSet is expected
+// to own a DPU for. Astra-incompatible devices and devices whose DPU belongs to
+// another DPUSet are excluded. A selected device that should have a CR but does
+// not, including one whose DPU was deleted, still counts.
+func provisionableDPUCount(dpuSet *provisioningv1.DPUSet, dpuDeviceMap map[string]provisioningv1.DPUDevice, dpusOwnedByOtherDPUSet int) int {
+	excluded := dpusOwnedByOtherDPUSet
+	for _, device := range dpuDeviceMap {
+		if dpuSet.IsAstraEnabledForNonBlueField4(device) {
+			excluded++
+		}
+	}
+	total := len(dpuDeviceMap) - excluded
+	if total < 0 {
+		return 0
+	}
+	return total
 }
 
 func (r *DPUSetReconciler) createMissingDPUs(ctx context.Context, dpuSet *provisioningv1.DPUSet, dpuDeviceMap map[string]provisioningv1.DPUDevice, dpuMap map[string]provisioningv1.DPU) (bool, int, error) {
