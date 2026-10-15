@@ -37,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -84,6 +85,32 @@ const (
 	bfbRegistryPodDeletePollInterval = 200 * time.Millisecond
 	bfbRegistryPodDeleteMaxWait      = 15 * time.Second
 )
+
+// ensureGCRaceBackoff bounds how long ensure* retries transient API errors caused by
+// racing the garbage collector at leader handover. The bfb-registry Pod, Service and
+// server Certificate are owned by the leader Pod (leaderControllerRef), so when a
+// rolling update deletes the old leader, the GC deletes them while the new leader's
+// ensure* recreates them; CreateOrUpdate then fails with Conflict (UID precondition),
+// NotFound or AlreadyExists until the old object is gone. That GC window is typically
+// sub-second, and on exhaustion we defer to the bfb-registry watch anyway, so keep the
+// window short: 5 attempts (1 + 4 retries) with sleeps of 0.1s, 0.2s, 0.4s, 0.8s
+// (plus up to 10% jitter), ~1.5s in total. A longer window would stall the
+// single-worker (default MaxConcurrentReconciles=1) DPU reconciler when the race is
+// hit from reconcileBFBRegistry. Note: with k8s.io/apimachinery v0.35 a Cap would end
+// the backoff as soon as an interval exceeds it (delay() zeroes the remaining steps),
+// so no Cap is set.
+var ensureGCRaceBackoff = wait.Backoff{
+	Duration: 100 * time.Millisecond,
+	Factor:   2,
+	Jitter:   0.1,
+	Steps:    5,
+}
+
+// isTransientGCRaceError reports whether err is a transient API error from racing the
+// garbage collector's deletion of objects owned by the previous leader Pod.
+func isTransientGCRaceError(err error) bool {
+	return apierrors.IsConflict(err) || apierrors.IsNotFound(err) || apierrors.IsAlreadyExists(err)
+}
 
 // BFBRegistryRunnable creates the bfb-registry Pod and Service when the provisioning controller.
 type BFBRegistryRunnable struct {
@@ -364,12 +391,8 @@ func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace strin
 	if err != nil {
 		return err
 	}
-	svc := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: namespace,
-			Name:      PodName,
-		},
-	}
+	var svc *corev1.Service
+	//nolint:unparam // CreateOrUpdate's MutateFn must return error; this mutation cannot fail.
 	mutateFn := func() error {
 		ownerRef := leaderControllerRef(leaderPod)
 		svc.OwnerReferences = []metav1.OwnerReference{*ownerRef}
@@ -392,19 +415,32 @@ func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace strin
 		}
 		return nil
 	}
-	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, mutateFn); err != nil {
-		// In HA/restart windows, a stale cache read can race with another writer:
-		// Get returns NotFound, then Create returns AlreadyExists. Treat this as
-		// idempotent success to avoid crashing the manager; later reconciles keep
-		// converging Service spec/ownership via CreateOrUpdate.
-		if apierrors.IsAlreadyExists(err) {
-			log.FromContext(ctx).Info("bfb-registry service already exists during ensure; continuing", "service", PodName)
+	// The Service is owned by the leader Pod, so at leader handover the garbage
+	// collector deletes it while the new leader ensures it here. CreateOrUpdate then
+	// races the deletion and can fail with Conflict (UID precondition), NotFound or
+	// AlreadyExists until the old object is gone. These errors are transient: retry
+	// until the Service is recreated with the new leader as owner.
+	op := func() error {
+		// Start from a fresh object on every attempt: a failed try can leave a stale
+		// ResourceVersion/UID that would make the next Create invalid.
+		svc = &corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: PodName}}
+		if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, mutateFn); err != nil {
+			return err
+		}
+		// Read the Service back to learn the allocated NodePort and to verify it
+		// survived; the GC can still delete it right after our write if the delete
+		// was already in flight, in which case the NotFound triggers a retry.
+		return r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: PodName}, svc)
+	}
+	if err := retry.OnError(ensureGCRaceBackoff, isTransientGCRaceError, op); err != nil {
+		if isTransientGCRaceError(err) {
+			// Never fail the manager on this race: the DPU controller's bfb-registry
+			// Service watch re-runs EnsureBFBRegistry and converges.
+			log.FromContext(ctx).Info("bfb-registry service ensure still racing leader-handover GC; deferring to the Service watch",
+				"service", PodName, "error", err.Error())
 			return nil
 		}
 		return err
-	}
-	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: PodName}, svc); err != nil {
-		return fmt.Errorf("get bfb-registry service after ensure: %w", err)
 	}
 	return r.persistHTTPSNodePort(ctx, namespace, existingHTTPSNodePort(svc))
 }
@@ -540,11 +576,7 @@ func (r *BFBRegistryRunnable) ensureServerCertificate(ctx context.Context, names
 	dnsNames, ipAddresses := serverCertSANs(namespace, nodeIP, r.KubernetesAPIServerVIP)
 	issuerRef := r.CAIssuerRef.WithPlatformLeafDefaults()
 
-	cert := &unstructured.Unstructured{}
-	cert.SetGroupVersionKind(certificateGVK)
-	cert.SetNamespace(namespace)
-	cert.SetName(ServerCertSecretName)
-
+	var cert *unstructured.Unstructured
 	mutateFn := func() error {
 		cert.SetOwnerReferences([]metav1.OwnerReference{*leaderControllerRef(leaderPod)})
 		spec := map[string]interface{}{
@@ -568,8 +600,20 @@ func (r *BFBRegistryRunnable) ensureServerCertificate(ctx context.Context, names
 		return unstructured.SetNestedMap(cert.Object, spec, "spec")
 	}
 
-	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, cert, mutateFn); err != nil {
-		if apierrors.IsAlreadyExists(err) {
+	// The Certificate is owned by the leader Pod, so it is exposed to the same
+	// leader-handover GC race as the Service; see ensureService.
+	op := func() error {
+		cert = &unstructured.Unstructured{}
+		cert.SetGroupVersionKind(certificateGVK)
+		cert.SetNamespace(namespace)
+		cert.SetName(ServerCertSecretName)
+		_, err := controllerutil.CreateOrUpdate(ctx, r.Client, cert, mutateFn)
+		return err
+	}
+	if err := retry.OnError(ensureGCRaceBackoff, isTransientGCRaceError, op); err != nil {
+		if isTransientGCRaceError(err) {
+			log.FromContext(ctx).Info("bfb-registry server certificate ensure still racing leader-handover GC; will be re-ensured from the bfb-registry reconcile",
+				"certificate", ServerCertSecretName, "error", err.Error())
 			return nil
 		}
 		return fmt.Errorf("ensure bfb-registry server certificate: %w", err)

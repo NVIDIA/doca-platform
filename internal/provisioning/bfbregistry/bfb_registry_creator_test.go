@@ -18,8 +18,10 @@ package bfbregistry
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/certmanager"
@@ -32,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -271,6 +274,98 @@ var _ = Describe("EnsureBFBRegistry", func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 
+	It("recreates the Service when the update races with leader-handover GC deletion", func() {
+		const pinnedNodePort int32 = 31213
+		oldLeader := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "leader-old", Namespace: testNamespace, UID: "old-uid"},
+		}
+		newLeader := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "leader-new", Namespace: testNamespace, UID: "new-uid"},
+		}
+		existingSvc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            PodName,
+				Namespace:       testNamespace,
+				OwnerReferences: []metav1.OwnerReference{*leaderControllerRef(oldLeader)},
+			},
+			Spec: corev1.ServiceSpec{
+				Type: corev1.ServiceTypeNodePort,
+				Ports: []corev1.ServicePort{{
+					Name:     "https",
+					Port:     int32(HTTPSContainerPort),
+					NodePort: pinnedNodePort,
+				}},
+			},
+		}
+		pinned := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: NodePortConfigMapName, Namespace: testNamespace},
+			Data:       map[string]string{nodePortConfigMapKey: "31213"},
+		}
+
+		var conflictInjected atomic.Bool
+		c := fake.NewClientBuilder().WithScheme(scheme).
+			WithObjects(oldLeader, newLeader, existingSvc, pinned).
+			WithInterceptorFuncs(interceptor.Funcs{
+				Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					svc, ok := obj.(*corev1.Service)
+					if !ok || svc.Namespace != testNamespace || svc.Name != PodName || conflictInjected.Load() {
+						return cl.Update(ctx, obj, opts...)
+					}
+					conflictInjected.Store(true)
+					// The GC deletes the old leader-owned Service between our Get and
+					// Update; the API server then rejects the Update with a
+					// UID-precondition Conflict (StorageError), as in the 27-Sep nightly.
+					Expect(cl.Delete(ctx, svc)).To(Succeed())
+					return apierrors.NewConflict(schema.GroupResource{Resource: "services"}, svc.Name,
+						errors.New("StorageError: invalid object, Code: 4, Precondition failed: UID in precondition: old-uid, UID in object meta: "))
+				},
+			}).Build()
+
+		run := &BFBRegistryRunnable{Client: c}
+		Expect(run.ensureService(ctx, testNamespace, newLeader)).To(Succeed())
+		Expect(conflictInjected.Load()).To(BeTrue())
+
+		svc := &corev1.Service{}
+		Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: PodName}, svc)).To(Succeed())
+		Expect(serviceOwnedByLeaderPod(svc, newLeader)).To(BeTrue())
+		Expect(svc.Spec.Ports[0].NodePort).To(Equal(pinnedNodePort))
+	})
+
+	It("does not fail when the leader-handover GC race outlasts the retry window", func() {
+		leaderPod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "leader-pod", Namespace: testNamespace, UID: "leader-uid"},
+		}
+		existingSvc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            PodName,
+				Namespace:       testNamespace,
+				OwnerReferences: []metav1.OwnerReference{*leaderControllerRef(leaderPod)},
+			},
+			Spec: corev1.ServiceSpec{Type: corev1.ServiceTypeNodePort},
+		}
+
+		c := fake.NewClientBuilder().WithScheme(scheme).
+			WithObjects(leaderPod, existingSvc).
+			WithInterceptorFuncs(interceptor.Funcs{
+				Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					if svc, ok := obj.(*corev1.Service); ok && svc.Namespace == testNamespace && svc.Name == PodName {
+						return apierrors.NewConflict(schema.GroupResource{Resource: "services"}, svc.Name,
+							errors.New("StorageError: invalid object, Code: 4, Precondition failed"))
+					}
+					return cl.Update(ctx, obj, opts...)
+				},
+			}).Build()
+
+		origBackoff := ensureGCRaceBackoff
+		ensureGCRaceBackoff = wait.Backoff{Duration: time.Millisecond, Steps: 2}
+		DeferCleanup(func() { ensureGCRaceBackoff = origBackoff })
+
+		run := &BFBRegistryRunnable{Client: c}
+		// The race is transient by definition, so exhausting the retry window must not
+		// fail the manager; the bfb-registry Service watch re-runs the ensure.
+		Expect(run.ensureService(ctx, testNamespace, leaderPod)).To(Succeed())
+	})
+
 })
 
 var _ = Describe("desiredPod HTTPS wiring", func() {
@@ -415,6 +510,40 @@ var _ = Describe("ensureServerCertificate", func() {
 		err := r.ensureServerCertificate(ctx, ns, "", leader)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("NODE_IP is empty"))
+	})
+
+	It("recreates the Certificate when the update races with leader-handover GC deletion", func() {
+		oldLeader := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "leader-old", Namespace: ns, UID: "old-uid"}}
+		existingCert := &unstructured.Unstructured{}
+		existingCert.SetGroupVersionKind(certificateGVK)
+		existingCert.SetNamespace(ns)
+		existingCert.SetName(ServerCertSecretName)
+		existingCert.SetOwnerReferences([]metav1.OwnerReference{*leaderControllerRef(oldLeader)})
+
+		var conflictInjected atomic.Bool
+		c := fake.NewClientBuilder().WithScheme(scheme).
+			WithObjects(leader, oldLeader, existingCert).
+			WithInterceptorFuncs(interceptor.Funcs{
+				Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					if obj.GetObjectKind().GroupVersionKind() != certificateGVK || conflictInjected.Load() {
+						return cl.Update(ctx, obj, opts...)
+					}
+					conflictInjected.Store(true)
+					// The GC deletes the old leader-owned Certificate between our Get
+					// and Update; the Update then fails with a UID-precondition Conflict.
+					Expect(cl.Delete(ctx, obj)).To(Succeed())
+					return apierrors.NewConflict(schema.GroupResource{Group: "cert-manager.io", Resource: "certificates"}, obj.GetName(),
+						errors.New("StorageError: invalid object, Code: 4, Precondition failed: UID in precondition: old-uid, UID in object meta: "))
+				},
+			}).Build()
+
+		r := &BFBRegistryRunnable{Client: c}
+		Expect(r.ensureServerCertificate(ctx, ns, "10.0.0.5", leader)).To(Succeed())
+		Expect(conflictInjected.Load()).To(BeTrue())
+
+		u := getCert(c)
+		Expect(u.GetOwnerReferences()).To(HaveLen(1))
+		Expect(u.GetOwnerReferences()[0].Name).To(Equal("leader"))
 	})
 })
 
