@@ -66,7 +66,7 @@ type DPUDeploymentNodeReconciler struct {
 func (r *DPUDeploymentNodeReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(dpuDeploymentNodeControllerName).
-		For(&corev1.Node{}).
+		For(&corev1.Node{}, builder.WithPredicates(predicate.LabelChangedPredicate{})).
 		Watches(&provisioningv1.DPUNodeMaintenance{}, handler.EnqueueRequestsFromMapFunc(r.DPUNodeMaintenanceToNode)).
 		Watches(&dpuservicev1.DPUDeployment{}, handler.EnqueueRequestsFromMapFunc(r.DPUDeploymentToNode)).
 		Watches(&provisioningv1.DPUNode{}, handler.EnqueueRequestsFromMapFunc(r.DPUNodeToNode),
