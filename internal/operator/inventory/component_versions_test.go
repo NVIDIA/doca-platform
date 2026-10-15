@@ -63,7 +63,7 @@ func TestShouldSkipUpgradeCheck(t *testing.T) {
 		{
 			name:               "vault-kms upgrading from same version should not skip",
 			componentName:      operatorv1.VaultKMSName,
-			upgradeFromVersion: "v26.10.0",
+			upgradeFromVersion: "v30.0.0",
 			wantSkip:           false,
 			wantErr:            false,
 		},

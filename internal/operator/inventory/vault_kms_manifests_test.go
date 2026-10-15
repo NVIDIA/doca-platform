@@ -432,7 +432,7 @@ func TestVaultKMSObjects_IsReadyForUpgrade(t *testing.T) {
 
 	g.Expect(p.IsReadyForUpgrade(context.Background(), testClient, config)).To(Succeed())
 
-	config.Status.Version = ptr.To("v26.10.0")
+	config.Status.Version = ptr.To("v30.0.0")
 	g.Expect(p.IsReadyForUpgrade(context.Background(), testClient, config)).To(HaveOccurred())
 }
 

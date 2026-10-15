@@ -75,7 +75,8 @@ type ServiceInterfaceSpec struct {
 	// +optional
 	Service *ServiceDef `json:"service,omitempty"`
 	// The OVN definition
-	// Deprecated: This field is deprecated and will be removed with v26.10.0.
+	//
+	// Deprecated: This field is deprecated and will be removed with v31.0.0.
 	// Migrate to interfaceType="patch" with spec.patch.peerBridge and spec.patch.peerPatchName instead.
 	// +optional
 	OVN *OVN `json:"ovn,omitempty"`

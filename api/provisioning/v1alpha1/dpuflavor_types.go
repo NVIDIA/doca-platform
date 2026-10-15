@@ -396,6 +396,7 @@ const (
 	DpuMode DpuModeType = "dpu"
 	NicMode DpuModeType = "nic"
 	// ZeroTrustMode is deprecated and kept for backward compatibility with DPUFlavor.spec.dpuMode.
+	//
 	// Deprecated: DPUFlavor.spec.dpuMode is deprecated; use DPFOperatorConfig.spec.deploymentMode.
 	ZeroTrustMode DpuModeType = "zero-trust"
 )
