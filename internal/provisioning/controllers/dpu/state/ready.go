@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strconv"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
@@ -39,6 +40,17 @@ func Ready(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Controll
 	if !dpu.DeletionTimestamp.IsZero() {
 		state.Phase = provisioningv1.DPUDeleting
 		return *state, nil
+	}
+
+	// Coming back to Ready ends DPUReconfiguring for this round. The round in the
+	// message stops a following reconcile from jumping while inProgress is still true.
+	if _, cond := cutil.GetDPUCondition(state, provisioningv1.DPUCondReconfiguring.String()); cond != nil && cond.Status == metav1.ConditionTrue {
+		cutil.SetDPUCondition(state, &metav1.Condition{
+			Type:    provisioningv1.DPUCondReconfiguring.String(),
+			Status:  metav1.ConditionFalse,
+			Reason:  reconfigCompletedReason,
+			Message: strconv.FormatInt(int64(reconfigRound(dpu)), 10),
+		})
 	}
 
 	node, err := cutil.GetNodeFromDPUCluster(ctx, ctrlCtx.Client, dpu)
@@ -72,6 +84,20 @@ func Ready(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Controll
 	cond := cutil.DPUCondition(provisioningv1.DPUCondReady, "DPUReady", "")
 	cutil.SetDPUCondition(state, cond)
 
+	// An in-place round still has inProgress set. Cluster metadata stays where it
+	// is until DPUSet clears that flag, so this reconcile does not start another
+	// Node Effect before the round is done.
+	if !reconfigInProgress(dpu) {
+		return reconcileReadyClusterMetadata(ctx, dpu, state, node)
+	}
+	return *state, nil
+}
+
+// reconcileReadyClusterMetadata starts Node Effect or Cluster Config when the
+// DPU cluster node labels or annotations differ from the DPU spec. Ready calls
+// it only when no in-place round is in progress.
+func reconcileReadyClusterMetadata(ctx context.Context, dpu *provisioningv1.DPU, state *provisioningv1.DPUStatus, node *corev1.Node) (provisioningv1.DPUStatus, error) {
+	logger := log.FromContext(ctx)
 	ann := dpu.Spec.Cluster.NodeAnnotations
 	if ann == nil {
 		ann = map[string]string{}

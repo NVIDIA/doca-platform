@@ -503,6 +503,108 @@ var _ = Describe("DPU: Node Effect", func() {
 		})
 	})
 
+	Context("in-place reconfig", func() {
+		It("keeps Node Effect and sets the DPU Config exit when inProgress is true", func() {
+			dpu := dpuObj("dpu-inplace-node-effect")
+			dpu.Spec.DPUNodeName = "missing-inplace-node"
+			dpu.Status.Phase = provisioningv1.DPUNodeEffect
+			dpu.Status.PostProvisioningNodeEffect = ptr.To(true)
+			dpu.Status.DPUReconfig = &provisioningv1.DPUReconfigStatus{
+				InProgress: ptr.To(true),
+				Round:      4,
+			}
+
+			status, err := state.NodeEffect(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+					},
+				},
+			)
+			Expect(err).To(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUNodeEffect))
+			Expect(status.PostProvisioningDPUConfig).To(Equal(ptr.To(true)))
+			Expect(status.PostProvisioningNodeEffect).To(BeNil())
+			Expect(status.Conditions).To(ContainElement(
+				And(
+					HaveField("Type", provisioningv1.DPUCondReconfiguring.String()),
+					HaveField("Status", metav1.ConditionTrue),
+					HaveField("Reason", "ReconfigPending"),
+					HaveField("Message", "4"),
+				),
+			))
+		})
+
+		It("transitions to DPUConfig when PostProvisioningDPUConfig is set, including when the label flag is also set", func() {
+			node := nodeObj(defaultNodeName)
+			createObject(node)
+
+			dpuNode := dpuNodeObj(node.Name)
+			createObject(dpuNode)
+			patch := client.MergeFrom(dpuNode.DeepCopy())
+			dpuNode.Status.KubeNodeRef = ptr.To(node.Name)
+			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
+
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.DPUDeviceName = "not-used"
+			dpu.Spec.DPUNodeName = dpuNode.Name
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{
+					NoEffect: ptr.To(true),
+				},
+			}
+			dpu.Status.Phase = provisioningv1.DPUNodeEffect
+			dpu.Status.PostProvisioningDPUConfig = ptr.To(true)
+			dpu.Status.PostProvisioningNodeEffect = ptr.To(true)
+
+			By("first run, should create dpunodemaintenance CR")
+			status, err := state.NodeEffect(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+					},
+				},
+			)
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUNodeEffect))
+
+			dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{}
+			dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
+			Expect(err).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Namespace: dpu.Namespace,
+				Name:      dpunodemaintenanceName,
+			}, dpunodemaintenance)).To(Succeed())
+
+			patch = client.MergeFrom(dpunodemaintenance.DeepCopy())
+			dpunodemaintenance.Status.Conditions = []metav1.Condition{
+				{
+					Type:               string(provisioningv1.ConditionNodeEffectApplied),
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "NodeEffectApplied",
+					ObservedGeneration: dpunodemaintenance.Generation,
+				},
+			}
+			Expect(k8sClient.Status().Patch(ctx, dpunodemaintenance, patch)).To(Succeed())
+
+			status, err = state.NodeEffect(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+					},
+				},
+			)
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
+			Expect(status.PostProvisioningDPUConfig).To(BeNil())
+			Expect(status.PostProvisioningNodeEffect).To(BeNil())
+		})
+	})
+
 	Context("Post-Provisioning Node Effect", func() {
 		It("should transition to DPUClusterConfig when PostProvisioningNodeEffect is true and NoEffect completes", func() {
 			node := nodeObj(defaultNodeName)
