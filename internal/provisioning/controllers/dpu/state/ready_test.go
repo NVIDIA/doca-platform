@@ -674,5 +674,55 @@ var _ = Describe("DPU: Ready", func() {
 				Expect(status.PostProvisioningNodeEffect).To(Equal(ptr.To(true)))
 			})
 		})
+
+		Context("in-place reconfig", func() {
+			It("clears DPUReconfiguring when the DPU is Ready again and does not start another Node Effect", func() {
+				dpu := createBasicDPU(
+					map[string]string{"new": "label"},
+					provisioningv1.NodeEffect{Action: provisioningv1.Action{NoEffect: ptr.To(true)}, UpgradePolicy: provisioningv1.UpgradePolicy{ApplyOnLabelChange: ptr.To(true)}},
+				)
+				dpu.Status.DPUReconfig = &provisioningv1.DPUReconfigStatus{
+					InProgress: ptr.To(true),
+					Round:      2,
+				}
+				cutil.SetDPUCondition(&dpu.Status, &metav1.Condition{
+					Type:    provisioningv1.DPUCondReconfiguring.String(),
+					Status:  metav1.ConditionTrue,
+					Reason:  "ReconfigPending",
+					Message: "2",
+				})
+
+				By("creating a Node in the DPUCluster whose labels differ")
+				createNodeInDPUCluster(dpu,
+					map[string]string{cutil.LastAppliedLabelsOnDPUKey: `{"old":"label"}`},
+					nil,
+				)
+
+				status, err := state.Ready(ctx, dpu,
+					&dutil.ControllerContext{
+						Client: k8sClient,
+						Options: dutil.DPUOptions{
+							DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+						},
+					},
+				)
+				Expect(err).To(Succeed())
+				Expect(status.Phase).To(Equal(provisioningv1.DPUReady))
+				Expect(status.PostProvisioningNodeEffect).To(BeNil())
+				Expect(status.PostProvisioningDPUConfig).To(BeNil())
+				Expect(status.Conditions).To(ContainElements(
+					And(
+						HaveField("Type", provisioningv1.DPUCondReady.String()),
+						HaveField("Status", metav1.ConditionTrue),
+					),
+					And(
+						HaveField("Type", provisioningv1.DPUCondReconfiguring.String()),
+						HaveField("Status", metav1.ConditionFalse),
+						HaveField("Reason", "ReconfigCompleted"),
+						HaveField("Message", "2"),
+					),
+				))
+			})
+		})
 	})
 })

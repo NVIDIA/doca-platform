@@ -260,9 +260,17 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 	ctrlCtx := *r.ctrlCtx
 	ctrlCtx.DPFOperatorConfig = dpfOperatorConfig
 
-	nextState, err := h(ctx, dpu, &ctrlCtx)
-	if err != nil {
-		logger.Error(err, "State handle error")
+	// inProgress on a jumpable phase goes to Node Effect before the phase handler.
+	// Node Effect, DPU Config, Rebooting, and install phases fall through.
+	var nextState provisioningv1.DPUStatus
+	var err error
+	if jumped, ok := state.StartInPlaceReconfig(dpu); ok {
+		nextState = jumped
+	} else {
+		nextState, err = h(ctx, dpu, &ctrlCtx)
+		if err != nil {
+			logger.Error(err, "State handle error")
+		}
 	}
 
 	// Mirror the render-failed annotation (set by the DPUSet controller) into the

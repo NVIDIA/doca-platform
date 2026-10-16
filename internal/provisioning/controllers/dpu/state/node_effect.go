@@ -19,6 +19,7 @@ package state
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
@@ -41,6 +42,19 @@ func NodeEffect(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 	if !dpu.DeletionTimestamp.IsZero() {
 		state.Phase = provisioningv1.DPUDeleting
 		return *state, nil
+	}
+
+	// An in-place mark while already in Node Effect stays here. The flag makes
+	// completion exit to DPU Config. A label-driven postProvisioningNodeEffect
+	// is dropped so the two exits are not both set.
+	if reconfigInProgress(dpu) {
+		armInPlaceNodeEffect(state)
+		cutil.SetDPUCondition(state, &metav1.Condition{
+			Type:    provisioningv1.DPUCondReconfiguring.String(),
+			Status:  metav1.ConditionTrue,
+			Reason:  reconfigPendingReason,
+			Message: strconv.FormatInt(int64(reconfigRound(dpu)), 10),
+		})
 	}
 
 	nodeEffect := dpu.Spec.NodeEffect
@@ -131,6 +145,16 @@ func handleNodeEffectCompletion(ctx context.Context, state *provisioningv1.DPUSt
 
 	// Set the condition to ready with the specific reason
 	cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondNodeEffectReady, reason, ""))
+
+	// In-place reconfig wins when both exit flags are set. Clear the label-driven
+	// flag as well so a later Node Effect does not follow it to Cluster Config.
+	if state.PostProvisioningDPUConfig != nil && *state.PostProvisioningDPUConfig {
+		state.PostProvisioningDPUConfig = nil
+		state.PostProvisioningNodeEffect = nil
+		state.Phase = provisioningv1.DPUConfig
+		logger.V(3).Info("In-place reconfig node effect completed, transitioning to DPUConfig")
+		return *state, nil
+	}
 
 	// Check for post-provisioning node effect status field
 	if state.PostProvisioningNodeEffect != nil && *state.PostProvisioningNodeEffect {
