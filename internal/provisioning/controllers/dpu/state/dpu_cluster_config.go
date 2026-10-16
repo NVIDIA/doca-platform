@@ -73,8 +73,13 @@ func ClusterConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.
 	node := &corev1.Node{}
 	if err := newClient.Get(ctx, types.NamespacedName{Namespace: tenantNamespace, Name: dpuName}, node); err != nil {
 		if apierrors.IsNotFound(err) {
-			err = fmt.Errorf("node %s not found", dpuName)
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUClusterReady.String(), err, "NodeNotFound", err.Error()))
+			err = fmt.Errorf(
+				"the DPU %s has not joined DPUCluster %s/%s; verify OOB connectivity and kubeadm/kubelet status",
+				dpuName,
+				tenantNamespace,
+				tenantName,
+			)
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUClusterReady.String(), err, "DPUClusterNodeNotFound", err.Error()))
 			return *state, err
 		}
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUClusterReady.String(), err, "GetNodeError", err.Error()))
