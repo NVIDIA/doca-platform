@@ -17,6 +17,8 @@ limitations under the License.
 package state_test
 
 import (
+	"fmt"
+
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
@@ -208,6 +210,42 @@ var _ = Describe("DPU: cluster config", func() {
 				Expect(nodeInDPUCluster.Labels).To(HaveKeyWithValue("key2", "value2"))
 			}
 			runForEachInterface(removeLabelsRun)
+		})
+	})
+
+	Context("unsuccessful cases", func() {
+		It("reports that the DPUCluster Kubernetes Node is missing", func() {
+			By("preparing a DPUCluster without a Node for the DPU")
+			dpuCluster := dpuClusterObj(defaultDPUClusterName, "kamaji")
+			kamajiSecret, err := testutils.GetFakeKamajiClusterSecretFromEnvtest(*dpuCluster, cfg)
+			Expect(err).ToNot(HaveOccurred())
+			createObject(kamajiSecret)
+			createObject(dpuCluster)
+
+			By("preparing a Zero Trust DPU in the cluster configuration phase")
+			dpu := dpuObj(defaultDPUName)
+			dpu.Spec.Cluster.Namespace = dpuCluster.Namespace
+			dpu.Spec.Cluster.Name = dpuCluster.Name
+			dpu.Status.Phase = provisioningv1.DPUClusterConfig
+			dpu.Status.DPUInstallInterface = ptr.To(string(provisioningv1.InstallViaRedFish))
+			dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+
+			expectedMessage := fmt.Sprintf(
+				"the DPU %s has not joined DPUCluster %s/%s; verify OOB connectivity and kubeadm/kubelet status",
+				dpu.Name,
+				dpuCluster.Namespace,
+				dpuCluster.Name,
+			)
+			status, err := state.ClusterConfig(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+
+			Expect(err).To(MatchError(expectedMessage))
+			Expect(status.Phase).To(Equal(provisioningv1.DPUClusterConfig))
+			Expect(status.Conditions).To(ContainElement(And(
+				HaveField("Type", provisioningv1.DPUCondDPUClusterReady.String()),
+				HaveField("Status", metav1.ConditionFalse),
+				HaveField("Reason", "DPUClusterNodeNotFound"),
+				HaveField("Message", expectedMessage),
+			)))
 		})
 	})
 })
