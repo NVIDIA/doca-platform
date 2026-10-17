@@ -94,6 +94,14 @@ func DPUConfig(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Cont
 		if ctrlCtx.Options.ZeroTrustProvisioningFlow() {
 			state.Phase = provisioningv1.DPUClusterConfig
 		} else {
+			// An in-place round arrives with HostNetworkReady still True from the
+			// previous cycle, and SetupNetwork would advance without the host agent
+			// re-converging host networking. Clear it so the phase waits for the
+			// host network manager to re-apply (driver bind, NUM_OF_VFS from the
+			// current flavor, VF bridge membership, port configs) and report again.
+			if reconfigInProgress(dpu) {
+				meta.RemoveStatusCondition(&state.Conditions, string(provisioningv1.DPUCondHostNetworkReady))
+			}
 			state.Phase = provisioningv1.DPUHostNetworkConfiguration
 		}
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondDPUConfig.String(), nil,

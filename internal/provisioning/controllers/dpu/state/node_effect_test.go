@@ -19,6 +19,7 @@ package state_test
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
@@ -557,6 +558,13 @@ var _ = Describe("DPU: Node Effect", func() {
 			dpu.Status.Phase = provisioningv1.DPUNodeEffect
 			dpu.Status.PostProvisioningDPUConfig = ptr.To(true)
 			dpu.Status.PostProvisioningNodeEffect = ptr.To(true)
+			// A restart while Ready moves lastStartupTime ahead of the time DPU Config last consumed.
+			restartedAt := metav1.Now()
+			dpu.Status.AgentLastStartupTime = &metav1.Time{Time: restartedAt.Add(-time.Hour)}
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				LastStartupTime: &restartedAt,
+				RebootMethod:    ptr.To(provisioningv1.RebootMethodNoAction),
+			}
 
 			By("first run, should create dpunodemaintenance CR")
 			status, err := state.NodeEffect(ctx, dpu,
@@ -602,6 +610,8 @@ var _ = Describe("DPU: Node Effect", func() {
 			Expect(status.Phase).To(Equal(provisioningv1.DPUConfig))
 			Expect(status.PostProvisioningDPUConfig).To(BeNil())
 			Expect(status.PostProvisioningNodeEffect).To(BeNil())
+			Expect(status.AgentLastStartupTime).ToNot(BeNil())
+			Expect(status.AgentLastStartupTime.Equal(&restartedAt)).To(BeTrue())
 		})
 	})
 

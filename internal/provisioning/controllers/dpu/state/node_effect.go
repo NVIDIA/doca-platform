@@ -152,6 +152,13 @@ func handleNodeEffectCompletion(ctx context.Context, state *provisioningv1.DPUSt
 		state.PostProvisioningDPUConfig = nil
 		state.PostProvisioningNodeEffect = nil
 		state.Phase = provisioningv1.DPUConfig
+		// An agent restart while Ready runs Run() and advances lastStartupTime
+		// without passing through DPU Config, so agentLastStartupTime stays behind.
+		// Copy the current startup time here. DPU Config then waits until this
+		// in-place Run reports a newer one, instead of accepting the previous NoAction.
+		if state.AgentStatus != nil && state.AgentStatus.LastStartupTime != nil {
+			state.AgentLastStartupTime = state.AgentStatus.LastStartupTime.DeepCopy()
+		}
 		logger.V(3).Info("In-place reconfig node effect completed, transitioning to DPUConfig")
 		return *state, nil
 	}

@@ -258,6 +258,76 @@ var _ = Describe("Phase DPUConfig", func() {
 			Expect(status.Phase).To(Equal(provisioningv1.DPUClusterConfig))
 			expectDPUConfigCondition(status, metav1.ConditionTrue, string(provisioningv1.RebootMethodNoAction), "RebootMethod is NoAction; transitioning to DPU Cluster Config phase")
 		})
+
+		It("should clear a stale HostNetworkReady condition on an in-place round", func() {
+			oldTime := metav1.NewTime(metav1.Now().Add(-time.Hour))
+			dpu := dpuObj(defaultDPUName)
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			dpu.Status.AgentLastStartupTime = &oldTime
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				LastStartupTime: ptr.To(metav1.Now()),
+				RebootMethod:    ptr.To(provisioningv1.RebootMethodNoAction),
+			}
+			dpu.Status.DPUReconfig = &provisioningv1.DPUReconfigStatus{InProgress: ptr.To(true), Round: 1}
+			meta.SetStatusCondition(&dpu.Status.Conditions, metav1.Condition{
+				Type:   provisioningv1.DPUCondHostNetworkReady.String(),
+				Status: metav1.ConditionTrue,
+				Reason: "PreviousCycle",
+			})
+
+			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUHostNetworkConfiguration))
+			Expect(meta.FindStatusCondition(status.Conditions, provisioningv1.DPUCondHostNetworkReady.String())).To(BeNil(),
+				"Host Network Configuration must wait for the host agent to re-converge, not reuse the previous condition")
+		})
+
+		It("should keep HostNetworkReady when no in-place round is in progress", func() {
+			oldTime := metav1.NewTime(metav1.Now().Add(-time.Hour))
+			dpu := dpuObj(defaultDPUName)
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			dpu.Status.AgentLastStartupTime = &oldTime
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				LastStartupTime: ptr.To(metav1.Now()),
+				RebootMethod:    ptr.To(provisioningv1.RebootMethodNoAction),
+			}
+			meta.SetStatusCondition(&dpu.Status.Conditions, metav1.Condition{
+				Type:   provisioningv1.DPUCondHostNetworkReady.String(),
+				Status: metav1.ConditionTrue,
+				Reason: "PreviousCycle",
+			})
+
+			status, err := state.DPUConfig(ctx, dpu, &dutil.ControllerContext{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUHostNetworkConfiguration))
+			Expect(meta.FindStatusCondition(status.Conditions, provisioningv1.DPUCondHostNetworkReady.String())).NotTo(BeNil())
+		})
+
+		It("should keep HostNetworkReady on a zero-trust in-place round", func() {
+			oldTime := metav1.NewTime(metav1.Now().Add(-time.Hour))
+			dpu := dpuObj(defaultDPUName)
+			dpu.Status.Phase = provisioningv1.DPUConfig
+			dpu.Status.AgentLastStartupTime = &oldTime
+			dpu.Status.AgentStatus = &provisioningv1.AgentStatus{
+				LastStartupTime: ptr.To(metav1.Now()),
+				RebootMethod:    ptr.To(provisioningv1.RebootMethodNoAction),
+			}
+			dpu.Status.DPUReconfig = &provisioningv1.DPUReconfigStatus{InProgress: ptr.To(true), Round: 1}
+			meta.SetStatusCondition(&dpu.Status.Conditions, metav1.Condition{
+				Type:   provisioningv1.DPUCondHostNetworkReady.String(),
+				Status: metav1.ConditionTrue,
+				Reason: "PreviousCycle",
+			})
+			ctrlCtx := &dutil.ControllerContext{
+				Options: dutil.DPUOptions{DeploymentMode: string(provisioningv1.DeploymentModeZeroTrust)},
+			}
+
+			status, err := state.DPUConfig(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUClusterConfig))
+			Expect(meta.FindStatusCondition(status.Conditions, provisioningv1.DPUCondHostNetworkReady.String())).NotTo(BeNil(),
+				"zero-trust has no Host Network Configuration phase; the condition is untouched")
+		})
 	})
 
 	Context("DPUWarmReboot", func() {
