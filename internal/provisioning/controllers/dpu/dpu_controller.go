@@ -260,6 +260,13 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 	ctrlCtx := *r.ctrlCtx
 	ctrlCtx.DPFOperatorConfig = dpfOperatorConfig
 
+	// The per-DPU Role is built from the flavor at install time. An in-place edit can
+	// add agent-applied ConfigMaps. Refresh the Role before the phase handler so the
+	// names are granted before phase becomes DPU Config and the agent Run starts.
+	if err := r.ensureInPlaceAgentRole(ctx, dpu); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// inProgress on a jumpable phase goes to Node Effect before the phase handler.
 	// Node Effect, DPU Config, Rebooting, and install phases fall through.
 	var nextState provisioningv1.DPUStatus
@@ -373,6 +380,27 @@ func UpdateDPUStatus(dpu *provisioningv1.DPU, next provisioningv1.DPUStatus) boo
 	}
 	dpu.Status = next
 	return phaseChanged
+}
+
+// ensureInPlaceAgentRole updates the per-DPU Role from the current DPUFlavor while
+// an in-place round is in progress. CreateOrUpdate leaves the Role unchanged when
+// the rules already match. A DPU that is not in a round is left alone.
+func (r *DPUReconciler) ensureInPlaceAgentRole(ctx context.Context, dpu *provisioningv1.DPU) error {
+	if !dpu.DeletionTimestamp.IsZero() {
+		return nil
+	}
+	reconfig := dpu.Status.DPUReconfig
+	if reconfig == nil || reconfig.InProgress == nil || !*reconfig.InProgress {
+		return nil
+	}
+	device := &provisioningv1.DPUDevice{}
+	if err := r.ctrlCtx.Client.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUDeviceName}, device); err != nil {
+		return fmt.Errorf("get DPUDevice %s for in-place agent RBAC: %w", dpu.Spec.DPUDeviceName, err)
+	}
+	if err := cutil.EnsureDPUAgentRole(ctx, r.ctrlCtx.Client, dpu, device, r.ctrlCtx.Options.CATrustBundleConfigMapName); err != nil {
+		return fmt.Errorf("ensure in-place agent RBAC: %w", err)
+	}
+	return nil
 }
 
 // claimReferencedResources adds the finalizers/ownership the DPU holds on objects it references
