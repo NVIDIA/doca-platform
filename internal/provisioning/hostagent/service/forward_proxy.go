@@ -22,14 +22,38 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"k8s.io/klog/v2"
 )
 
-const defaultProxyDialTimeout = 30 * time.Second
+const (
+	defaultProxyDialTimeout = 30 * time.Second
+	// proxyFallbackDelay matches net.Dialer's default Happy Eyeballs fallback delay.
+	proxyFallbackDelay = 300 * time.Millisecond
+)
+
+// allowProxyDestination rejects loopback and link-scoped destinations such as cloud metadata, which trust local callers.
+// Routable addresses stay allowed, including ones assigned to the host: the DPU reaches the Kubernetes API server and
+// package mirrors through this proxy, and with kube-proxy in IPVS mode service ClusterIPs are bound to a host interface.
+var allowProxyDestination = func(addr netip.Addr) bool {
+	addr = addr.Unmap()
+	return !addr.IsUnspecified() && !addr.IsLoopback() && !addr.IsLinkLocalUnicast() && !addr.IsMulticast()
+}
+
+// checkProxyDestination runs after DNS resolution for every connection attempt, so it also covers DNS rebinding.
+func checkProxyDestination(_, address string, _ syscall.RawConn) error {
+	addrPort, err := netip.ParseAddrPort(address)
+	if err != nil || !allowProxyDestination(addrPort.Addr()) {
+		return fmt.Errorf("destination %s is not allowed", address)
+	}
+	return nil
+}
 
 type forwardProxyHandler struct {
 	dialer    *net.Dialer
@@ -40,6 +64,7 @@ func newForwardProxyHandler() http.Handler {
 	dialer := &net.Dialer{
 		Timeout:   defaultProxyDialTimeout,
 		KeepAlive: defaultProxyDialTimeout,
+		Control:   checkProxyDestination,
 	}
 	return &forwardProxyHandler{
 		dialer: dialer,
@@ -137,8 +162,68 @@ func (h *forwardProxyHandler) handleHTTP(resp http.ResponseWriter, req *http.Req
 	}
 }
 
-func (h *forwardProxyHandler) dial(ctx context.Context, address string) (net.Conn, error) {
-	return h.dialer.DialContext(ctx, "tcp", address)
+// dial resolves target itself so the dialed address is built from resolved IPs, not the client-supplied string.
+func (h *forwardProxyHandler) dial(ctx context.Context, target string) (net.Conn, error) {
+	host, portStr, err := net.SplitHostPort(target)
+	if err != nil {
+		return nil, err
+	}
+	port, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil {
+		return nil, err
+	}
+	addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+	if err != nil {
+		return nil, err
+	}
+	return h.dialFirst(ctx, addrs, uint16(port))
+}
+
+type dialResult struct {
+	conn net.Conn
+	err  error
+}
+
+// dialFirst races connections to addrs Happy Eyeballs style: each address starts proxyFallbackDelay after the previous
+// one, the first successful connection wins, and the rest are closed.
+func (h *forwardProxyHandler) dialFirst(ctx context.Context, addrs []netip.Addr, port uint16) (net.Conn, error) {
+	if len(addrs) == 0 {
+		return nil, fmt.Errorf("no addresses to dial")
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	results := make(chan dialResult, len(addrs))
+	for i, addr := range addrs {
+		go func() {
+			select {
+			case <-time.After(time.Duration(i) * proxyFallbackDelay):
+			case <-ctx.Done():
+				results <- dialResult{err: ctx.Err()}
+				return
+			}
+			conn, err := h.dialer.DialContext(ctx, "tcp", netip.AddrPortFrom(addr, port).String())
+			results <- dialResult{conn: conn, err: err}
+		}()
+	}
+
+	var err error
+	for remaining := len(addrs); remaining > 0; remaining-- {
+		result := <-results
+		if result.err != nil {
+			err = result.err
+			continue
+		}
+		go func(remaining int) {
+			for ; remaining > 0; remaining-- {
+				if late := <-results; late.conn != nil {
+					_ = late.conn.Close()
+				}
+			}
+		}(remaining - 1)
+		return result.conn, nil
+	}
+	return nil, err
 }
 
 func proxyTunnel(client net.Conn, upstream net.Conn) {
