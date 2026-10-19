@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/mock"
@@ -29,6 +30,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -569,4 +571,178 @@ var _ = Describe("reconcileBMCFactoryReset", func() {
 			Expect(mockServer.GetFactoryResetRequests()).To(Equal(1))
 		})
 	})
+})
+
+var _ = Describe("BMC factory reset with a non-Redfish install interface", func() {
+	const deviceName = "reset-host-agent"
+
+	// reconcileUnderHostAgent runs a full reconcile with installViaHostAgent, which returns before
+	// initializeDPUDevice and so never reaches reconcileBMCFactoryReset.
+	reconcileUnderHostAgent := func(dpuDevice *provisioningv1.DPUDevice) {
+		scheme := runtime.NewScheme()
+		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+		Expect(operatorv1.AddToScheme(scheme)).To(Succeed())
+
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(
+				dpuDevice,
+				&operatorv1.DPFOperatorConfig{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "dpfoperatorconfig",
+						Namespace: testNamespace,
+					},
+					Spec: operatorv1.DPFOperatorConfigSpec{
+						ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
+							InstallInterface: &operatorv1.ProvisioningInstallInterface{
+								InstallViaHostAgent: &operatorv1.InstallViaHostAgent{},
+							},
+						},
+					},
+				},
+				&provisioningv1.DPUNode{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "reset-host-agent-node",
+						Namespace: testNamespace,
+					},
+					Spec: provisioningv1.DPUNodeSpec{
+						DPUs: []provisioningv1.DPURef{
+							{Name: deviceName},
+						},
+					},
+				},
+			).
+			WithStatusSubresource(dpuDevice).
+			Build()
+
+		_, err := (&DPUDeviceReconciler{Client: fakeClient}).reconcile(context.Background(), dpuDevice)
+		Expect(err).NotTo(HaveOccurred())
+	}
+
+	newDevice := func() *provisioningv1.DPUDevice {
+		return &provisioningv1.DPUDevice{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       deviceName,
+				Namespace:  testNamespace,
+				Generation: 1,
+			},
+			Spec: provisioningv1.DPUDeviceSpec{
+				SerialNumber:          mock.DpuSerialNumber,
+				BMCFactoryResetPolicy: provisioningv1.BMCFactoryResetPolicyOnInitialization,
+			},
+		}
+	}
+
+	It("reports the reset as skipped even though the policy is OnInitialization", func() {
+		dpuDevice := newDevice()
+
+		reconcileUnderHostAgent(dpuDevice)
+
+		Expect(dpuDevice.Status.BMCFactoryResetRequestTime).To(BeNil())
+		condition := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceBMCFactoryResetReady))
+		Expect(condition).NotTo(BeNil())
+		Expect(condition.Status).To(Equal(metav1.ConditionTrue))
+		Expect(condition.Reason).To(Equal(provisioningv1.ReasonFactoryResetSkipped))
+		Expect(condition.Message).To(ContainSubstring("install interface is not Redfish"))
+	})
+
+	It("keeps a reset that already finished", func() {
+		dpuDevice := newDevice()
+		dpuDevice.Status.BMCFactoryResetRequestTime = ptr.To(metav1.NewTime(time.Now().Add(-time.Hour)))
+		dpuDevice.Status.Conditions = []metav1.Condition{{
+			Type:               string(provisioningv1.ConditionDpuDeviceBMCFactoryResetReady),
+			Status:             metav1.ConditionTrue,
+			Reason:             provisioningv1.ReasonFactoryResetCompleted,
+			Message:            "BMC was reset to factory defaults and is reachable again",
+			ObservedGeneration: 1,
+			LastTransitionTime: metav1.Now(),
+		}}
+
+		reconcileUnderHostAgent(dpuDevice)
+
+		condition := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceBMCFactoryResetReady))
+		Expect(condition.Status).To(Equal(metav1.ConditionTrue))
+		Expect(condition.Reason).To(Equal(provisioningv1.ReasonFactoryResetCompleted))
+	})
+
+	It("keeps a reset that is still in progress", func() {
+		dpuDevice := newDevice()
+		requestTime := metav1.NewTime(time.Now().Add(-time.Minute))
+		dpuDevice.Status.BMCFactoryResetRequestTime = &requestTime
+		dpuDevice.Status.Conditions = []metav1.Condition{{
+			Type:               string(provisioningv1.ConditionDpuDeviceBMCFactoryResetReady),
+			Status:             metav1.ConditionFalse,
+			Reason:             provisioningv1.ReasonFactoryResetInProgress,
+			Message:            "ResetToDefaults accepted by the BMC; waiting for it to come back",
+			ObservedGeneration: 1,
+			LastTransitionTime: metav1.Now(),
+		}}
+
+		reconcileUnderHostAgent(dpuDevice)
+
+		// A True skipped condition here would stop a later Redfish pass from ever checking whether
+		// the submitted reset landed.
+		Expect(dpuDevice.Status.BMCFactoryResetRequestTime).NotTo(BeNil())
+		Expect(dpuDevice.Status.BMCFactoryResetRequestTime.Time).To(BeTemporally("==", requestTime.Rfc3339Copy().Time))
+		condition := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceBMCFactoryResetReady))
+		Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+		Expect(condition.Reason).To(Equal(provisioningv1.ReasonFactoryResetInProgress))
+	})
+
+	// A device onboarded through another install interface is already provisioned by DPF, so
+	// switching it to Redfish must not wipe its BMC. The Discovered=True that the non-Redfish path
+	// records is what the upgrade-safety marker reads, independently of BMCFactoryResetReady.
+	DescribeTable("does not reset the BMC after the install interface switches to Redfish",
+		func(dropSkippedCondition bool, expectedMessage string) {
+			dpuDevice := newDevice()
+			reconcileUnderHostAgent(dpuDevice)
+			Expect(findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceDiscovered)).Status).To(Equal(metav1.ConditionTrue))
+			if dropSkippedCondition {
+				conditionsList := dpuDevice.GetConditions()
+				meta.RemoveStatusCondition(&conditionsList, string(provisioningv1.ConditionDpuDeviceBMCFactoryResetReady))
+				dpuDevice.SetConditions(conditionsList)
+			}
+
+			mockServer, err := mock.CreateMockRedfishServer("BF-24.10", factoryResetTestPassword)
+			Expect(err).NotTo(HaveOccurred())
+			defer mockServer.Stop()
+			mockServer.SetEnforceBasicAuth(true)
+			bmcIP := mockServer.GetIPAddress()
+			bmcPort := uint32(mockServer.GetPort())
+			dpuDevice.Status.BMCIP = &bmcIP
+			dpuDevice.Status.BMCPort = &bmcPort
+
+			scheme := runtime.NewScheme()
+			Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+			Expect(corev1.AddToScheme(scheme)).To(Succeed())
+			// The credential Secret lets the Redfish pass submit a reset, so only the skip logic
+			// stands between this device and a wiped BMC.
+			redfishReconciler := &DPUDeviceReconciler{Client: fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(&provisioningv1.DPUDevice{}).
+				WithObjects(&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      rfclient.BMCPasswordSecret,
+						Namespace: testNamespace,
+					},
+					Data: map[string][]byte{
+						rfclient.BMCSharedPasswordKey: []byte(factoryResetTestPassword),
+					},
+				}).
+				Build()}
+
+			stop, err := redfishReconciler.reconcileBMCFactoryReset(context.Background(), dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeFalse())
+
+			Expect(mockServer.GetFactoryResetRequests()).To(BeZero())
+			Expect(dpuDevice.Status.BMCFactoryResetRequestTime).To(BeNil())
+			condition := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceBMCFactoryResetReady))
+			Expect(condition.Status).To(Equal(metav1.ConditionTrue))
+			Expect(condition.Reason).To(Equal(provisioningv1.ReasonFactoryResetSkipped))
+			Expect(condition.Message).To(ContainSubstring(expectedMessage))
+		},
+		Entry("with the skipped condition the non-Redfish path recorded", false, "install interface is not Redfish"),
+		Entry("without it, as before BMCFactoryResetReady was set off Redfish", true, "Discovered is True"),
+	)
 })

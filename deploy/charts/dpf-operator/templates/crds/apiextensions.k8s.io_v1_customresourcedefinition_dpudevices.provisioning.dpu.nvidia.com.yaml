@@ -71,6 +71,9 @@ spec:
                   - Never: never reset.
                   The value is honored only until the factory reset step finishes; changing it
                   after BMCFactoryResetReady is True has no effect.
+                  The policy applies only when the install interface is Redfish. Other install interfaces
+                  never reset the BMC; BMCFactoryResetReady reports FactoryResetSkipped unless a reset was
+                  already recorded under Redfish.
                 enum:
                 - OnInitialization
                 - Never

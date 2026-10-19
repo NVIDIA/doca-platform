@@ -20,6 +20,16 @@ The reset happens at most once per DPUDevice, and only while the device is being
 before DPF has provisioned anything on the DPU. Upgrading DPF never resets a BMC that DPF already
 manages.
 
+> [!NOTE]
+> The reset is a Redfish operation, so it only applies when the DPFOperatorConfig install interface
+> is `installViaRedfish`. With any other install interface, such as `installViaHostAgent`, DPF never
+> resets the BMC, whatever `spec.bmcFactoryResetPolicy` says, and reports
+> `BMCFactoryResetReady=True` with reason `FactoryResetSkipped`. A reset that was already submitted
+> or completed under `installViaRedfish` keeps the condition it recorded.
+>
+> Switching an existing DPUDevice to `installViaRedfish` does not reset its BMC either: DPF already
+> manages that device. To reset it, delete and recreate the DPUDevice.
+
 # Opting out
 
 `DPUDevice.spec.bmcFactoryResetPolicy` controls the reset for a single device:
@@ -91,7 +101,7 @@ step is finished, not that a reset is running:
 | Condition | Reason | Meaning |
 |-----------|--------|---------|
 | `BMCFactoryResetReady=True` | `FactoryResetCompleted` | The BMC was reset and is reachable again |
-| `BMCFactoryResetReady=True` | `FactoryResetSkipped` | No reset was performed, because the policy is `Never` or because DPF already managed the device before this feature existed |
+| `BMCFactoryResetReady=True` | `FactoryResetSkipped` | No reset was performed, because the policy is `Never`, because DPF already managed the device before this feature existed, or because the install interface is not Redfish |
 | `BMCFactoryResetReady=False` | `FactoryResetInProgress` | The BMC accepted the reset and DPF is waiting for it to come back |
 | `BMCFactoryResetReady=False` | `FactoryResetFailed` | DPF could not submit the reset. This is retried, not terminal |
 
