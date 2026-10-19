@@ -12,14 +12,17 @@ you own.
 
 # The certificates in a DPF deployment
 
-DPF has two sets of certificates:
+DPF has two sets of certificates, and `certificateAuthority.issuerRef` in the `dpf-operator` chart
+anchors both:
 
 * **DPF Operator certificates** - the serving certificates of the validating and mutating webhooks
-  that DPF deploys. These are covered by `certificateAuthority.issuerRef` in the `dpf-operator` chart,
-  described below.
+  that DPF deploys.
 * **Provisioning certificates** - the certificates used to provision a DPU, including the mTLS
-  identities of the DPU BMC and the DPU operating system. These are signed by the provisioning CA and
-  are not covered by this guide, see [Scope](#scope).
+  identities of the DPU BMC and the DPU operating system.
+
+Each set derives from an intermediate CA of its own, so the two can be rotated and reasoned about
+separately while chaining to the same authority. Re-anchoring on a cluster that already has
+provisioned DPUs is a CA rotation rather than a configuration change, see [Scope](#scope).
 
 The components DPF depends on, such as Kamaji or the maintenance operator, run their own PKI. They
 are not signed by DPF. Each of their charts accepts an issuer of your own, see
@@ -27,28 +30,34 @@ are not signed by DPF. Each of their charts accepts an issuer of your own, see
 
 # The DPF Operator certificate chain
 
-The `dpf-operator` chart creates a root and one intermediate CA per purpose, and the webhook
-certificates of the DPF components chain up to the intermediate:
+The `dpf-operator` chart creates a root and one intermediate CA per purpose, and the certificates of
+the DPF components chain up to the intermediate of their purpose:
 
 ```
 dpf-global-bootstrapper (selfSigned)
   └── dpf-global-root-ca (isCA)
         └── dpf-global-root-issuer
-              └── dpf-webhook-intermediate-ca (isCA)
-                    └── dpf-webhook-issuer
-                          ├── dpuservice-serving-cert
-                          ├── dpf-nodesriovdeviceplugin-serving-cert
-                          └── dpf-provisioning-serving-cert
+              ├── dpf-webhook-intermediate-ca (isCA)
+              │     └── dpf-webhook-issuer
+              │           ├── dpuservice-serving-cert
+              │           ├── dpf-nodesriovdeviceplugin-serving-cert
+              │           └── dpf-provisioning-serving-cert
+              └── dpf-platform-intermediate-ca (isCA)
+                    └── dpf-platform-issuer
+                          ├── dpf-provisioning-redfish-client-cert
+                          ├── dpf-provisioning-redfish-client-cert-bf4
+                          ├── bfb-registry-server-cert
+                          └── the DPU BMC server certificates
 ```
 
 Because the components reference the intermediate issuer and never the root, replacing the root does
-not change anything below it.
+not change which identity signs them.
 
 ## Using your own certificate authority
 
 Set `certificateAuthority.issuerRef` in the values of the `dpf-operator` chart to an existing
 cert-manager issuer. The chart then skips `dpf-global-bootstrapper` and `dpf-global-root-ca` and
-requests the intermediate CA from your issuer instead:
+requests both intermediate CAs from your issuer instead:
 
 ```yaml
 certificateAuthority:
@@ -138,21 +147,29 @@ Left alone, each of them creates a self-signed issuer of its own, which is the d
 
 # Scope
 
-What the provisioning certificates chain to depends on whether the cluster still carries the legacy
-provisioning CA.
+Set `certificateAuthority.issuerRef` before the first DPU is provisioned. On a cluster that has
+none, the choice of authority is a configuration change and takes effect as the chain is issued. The
+certificates that provision a DPU are signed by `dpf-platform-issuer` over
+`dpf-platform-intermediate-ca`, which is requested from the issuer in
+`certificateAuthority.issuerRef` like every other intermediate above, so pointing DPF at your
+authority is all that is needed to re-root them.
 
-On a fresh install there is none, and the certificates that provision a DPU are signed by
-`dpf-platform-issuer` over `dpf-platform-intermediate-ca`, which is requested from the issuer in
-`certificateAuthority.issuerRef` like every other intermediate above. They are part of the chain,
-and pointing DPF at your authority is all that is needed to re-root them.
+Afterwards it is a CA rotation. The certificates below `dpf-platform-intermediate-ca` are the ones
+DPU BMCs and DPU operating systems are provisioned to trust, and their truststores are reached
+through `dpf-ca-trust-bundle` rather than rewritten by the chart. DPF reports this on the
+`CertManagementReady` condition as `CARotationRequired` and keeps reporting it until the rotation has
+been carried out. See [CA Certificate Rotation](ca-certificate-rotation.md).
+
+The rotation is less disruptive than it sounds, because `dpf-platform-intermediate-ca` is declared
+with `privateKey.rotationPolicy: Never`: it keeps its key and subject DN when the new authority
+re-signs it, so the certificates it has already issued stay valid throughout. What the rotation
+distributes is the new authority, not a new signing identity.
 
 On a cluster upgraded from a release that provisioned its DPUs under the self-signed provisioning CA,
 `dpf-provisioning-ca-cert` and the chain over it are retained and stay self-signed. DPF collapses
 them into the platform intermediate CA only where it owns the authority at the top of the chain;
 under an issuer of your own it owns no keys, and the trust material below that issuer is yours to
-curate rather than DPF's to publish. The DPU BMCs and DPU operating systems already provisioned were
-given that self-signed CA to trust, so re-rooting it is a CA rotation rather than a configuration
-change. See [Provisioning CA Certificate Rotation](ca-certificate-rotation.md).
+curate rather than DPF's to publish.
 
 The webhook serving certificates are safe to re-root at any time, including on upgrade. Their trust
 is distributed inside the cluster through the `cert-manager.io/inject-ca-from` annotation, so
@@ -160,3 +177,8 @@ cert-manager reissues the certificate and re-injects the matching `caBundle` int
 configuration with no manual action. The webhooks use `failurePolicy: Fail`, so admission of the
 affected custom resources can be rejected for the short period between the new CA bundle reaching the
 API server and the reissued certificate reaching the webhook pod.
+
+With an external issuer the trust bundle is yours. DPF cannot derive the certificates peers have to
+trust from an authority it has no access to, so it does not write `dpf-ca-trust-bundle` and only
+maintains the `bundle-hash` that convergence is tracked against. Populating it, and adding a second
+authority to it across a rotation, is part of running your own PKI.

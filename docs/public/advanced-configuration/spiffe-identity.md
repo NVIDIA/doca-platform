@@ -522,5 +522,5 @@ kubectl get clusterstaticentry dpu-agent-$SERIAL -o jsonpath='{.metadata.finaliz
 # Related topics
 
 * [Zero Trust Advanced Configuration](zero-trust-advanced-configuration.md)
-* [Provisioning CA Certificate Rotation](ca-certificate-rotation.md)
+* [CA Certificate Rotation](ca-certificate-rotation.md)
 * [Generated API reference](../developer-guides/api/api.md) - `DPFOperatorConfig.spec.security.spiffe`, `DPUService.spec.security.spiffe`, `DPU.status.identityMode` and `DPU.status.agentStatus.spiffe` field definitions
