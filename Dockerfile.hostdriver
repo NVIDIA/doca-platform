@@ -113,7 +113,6 @@ ENV SYSTEMD_OFFLINE=0
 ENV SYSTEMD_IGNORE_CHROOT=1
 
 ARG TARGETARCH
-ARG MFT_VERSION=4.29.0-131
 ARG PACKAGES="dpkg-dev \
 libusb-1.0-0 \
 ipmitool \
@@ -126,6 +125,10 @@ iptables \
 iproute2 \
 netplan.io \
 createrepo-c"
+# TODO(DMS, January 2027, doca-installer FR 5311865): once dmsd switches to the final doca-installer flow, which runs
+# aarch64 binaries from the BFB on the host, add qemu-user-static to PACKAGES and keep only its aarch64 emulator:
+#   find /usr/bin -name 'qemu-*-static' ! -name 'qemu-aarch64-static' -delete
+# The interim dpu-deployment-tool path used by doca-dms 3.6.0068 does not need it.
 
 ARG ubuntu_mirror=http://archive.ubuntu.com/ubuntu/
 RUN find /etc/apt/sources.list* -type f -exec sed -i \
@@ -133,9 +136,18 @@ RUN find /etc/apt/sources.list* -type f -exec sed -i \
       -e "s|http://ports.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" \
       -e "s|http://security.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" '{}' \;
 
-# Remove broken DOCA repository to prevent apt-get update failures as the repo might not be available publicly
-# there is currently a bug where the repo is not available publicly. in any case we dont use packages from this repo ATM.
-RUN rm -f /etc/apt/sources.list.d/doca.list
+# dmsd shells out to doca-installer's dpu-deployment-tool to install BFBs (rshim >= 2.9.1 no longer ships
+# bfb-install), but no DOCA package or meta-package depends on doca-installer, so it has to be requested by name.
+# mft ships flint and mlxfwreset, which both doca-installer and the host agent need. Both come from the DOCA
+# repository, which is dropped right after: it might not be available publicly, and it outranks Ubuntu, so
+# leaving it enabled would let it override packages installed below.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update -qq \
+      -o Dir::Etc::sourcelist=sources.list.d/doca.list \
+      -o Dir::Etc::sourceparts=/dev/null && \
+    apt-get install -y -qq --no-install-recommends doca-installer mft && \
+    rm -f /etc/apt/sources.list.d/doca.list
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
@@ -147,15 +159,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # It depends on doca-sdk-mgmt >= 99.99.9999-9 (development placeholder version), which the DOCA 3.5 packages in the base image do not satisfy.
 RUN --mount=type=bind,from=doca-dms,source=/debs,target=/tmp/doca-dms \
     if ls /tmp/doca-dms/*.deb >/dev/null 2>&1; then dpkg -i --ignore-depends=doca-sdk-mgmt /tmp/doca-dms/*.deb; fi
-
-RUN case ${TARGETARCH} in \
-        amd64) ARCH=x86_64 ;; \
-        arm64) ARCH=arm64 ;; \
-        *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
-    esac && \
-    curl -fsSL https://www.mellanox.com/downloads/MFT/mft-${MFT_VERSION}-${ARCH}-deb.tgz | tar -xz -C /tmp && \
-    cd /tmp/mft-${MFT_VERSION}-${ARCH}-deb && \
-    ./install.sh --without-kernel
 
 RUN mkdir -p /bfb-folder
 
