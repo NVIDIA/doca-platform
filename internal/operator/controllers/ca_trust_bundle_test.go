@@ -18,10 +18,17 @@ package controller
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
+	"math/big"
 	"testing"
+	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/operator/certmanagement"
@@ -58,6 +65,46 @@ func countCerts(b []byte) int {
 		}
 	}
 	return n
+}
+
+// testCAKey returns a key for the certificates below. Those are real, unlike the blocks testCertPEM
+// produces, because the prune of superseded certificates reads the public key out of them.
+func testCAKey(t *testing.T) *ecdsa.PrivateKey {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate a key: %v", err)
+	}
+	return key
+}
+
+// testCACert mints a CA certificate over key, self-signed when issuer is nil. Twice over one key it
+// produces what a re-signed intermediate is: two certificates of the same identity.
+func testCACert(t *testing.T, commonName string, serial int64, key *ecdsa.PrivateKey,
+	issuer *x509.Certificate, issuerKey *ecdsa.PrivateKey) ([]byte, *x509.Certificate) {
+	t.Helper()
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(serial),
+		Subject:               pkix.Name{CommonName: commonName},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign,
+	}
+	parent, parentKey := template, key
+	if issuer != nil {
+		parent, parentKey = issuer, issuerKey
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, parent, &key.PublicKey, parentKey)
+	if err != nil {
+		t.Fatalf("failed to create a certificate: %v", err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("failed to parse the certificate just created: %v", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), cert
 }
 
 func TestMergeCABundle(t *testing.T) {
@@ -148,6 +195,102 @@ func TestAppendCertBlocks(t *testing.T) {
 		seen := map[[sha256.Size]byte]bool{}
 		g.Expect(appendCertBlocks(&out, seen, []byte("not pem at all"))).To(Succeed())
 		g.Expect(out.Len()).To(BeZero())
+	})
+}
+
+// TestPruneSupersededCertificates covers what a CA rotation leaves in the bundle: another
+// certificate of the intermediate, whose key and subject the rotation preserves.
+func TestPruneSupersededCertificates(t *testing.T) {
+	rootKey, newRootKey, goneRootKey := testCAKey(t), testCAKey(t), testCAKey(t)
+	intermediateKey := testCAKey(t)
+
+	// Two roots under one subject, as a rotation produces: it re-keys the root in place.
+	retiredRootPEM, retiredRoot := testCACert(t, "dpf-global-root-ca", 1, rootKey, nil, nil)
+	currentRootPEM, currentRoot := testCACert(t, "dpf-global-root-ca", 2, newRootKey, nil, nil)
+	_, goneRoot := testCACert(t, "dpf-global-root-ca", 3, goneRootKey, nil, nil)
+
+	// One identity, three certificates: the one in effect, the one the last rotation retired, and
+	// one orphaned earlier, whose root the bundle no longer carries at all.
+	currentPEM, _ := testCACert(t, operatorv1.PlatformIntermediateCAName, 4, intermediateKey, currentRoot, newRootKey)
+	retiredPEM, _ := testCACert(t, operatorv1.PlatformIntermediateCAName, 5, intermediateKey, retiredRoot, rootKey)
+	orphanedPEM, _ := testCACert(t, operatorv1.PlatformIntermediateCAName, 6, intermediateKey, goneRoot, goneRootKey)
+
+	unrelatedPEM, _ := testCACert(t, "someone-elses-ca", 7, testCAKey(t), nil, nil)
+
+	published := [][]byte{append(append([]byte{}, currentRootPEM...), currentPEM...)}
+
+	t.Run("drops every earlier certificate of the published identity", func(t *testing.T) {
+		g := NewWithT(t)
+		bundle, err := mergeCABundle(nil, retiredRootPEM, retiredPEM, orphanedPEM, currentRootPEM, currentPEM)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		out, pruned, err := pruneSupersededCertificates(bundle, published...)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(string(out)).NotTo(ContainSubstring(string(retiredPEM)))
+		g.Expect(string(out)).NotTo(ContainSubstring(string(orphanedPEM)))
+		g.Expect(string(out)).To(ContainSubstring(string(currentPEM)))
+
+		// What the log line reports, which is the only record of a certificate leaving the bundle.
+		g.Expect(pruned).To(HaveLen(2))
+		for _, certificate := range pruned {
+			g.Expect(certificate.Subject).To(ContainSubstring(operatorv1.PlatformIntermediateCAName))
+			g.Expect(certificate.Fingerprint).To(HaveLen(sha256.Size * 2))
+		}
+	})
+
+	t.Run("keeps the retired root the rotation is still carrying", func(t *testing.T) {
+		g := NewWithT(t)
+		bundle, err := mergeCABundle(nil, retiredRootPEM, currentRootPEM, currentPEM)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		out, _, err := pruneSupersededCertificates(bundle, published...)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(string(out)).To(ContainSubstring(string(retiredRootPEM)))
+		g.Expect(countCerts(out)).To(Equal(3))
+	})
+
+	t.Run("leaves trust material DPF does not publish alone", func(t *testing.T) {
+		g := NewWithT(t)
+		bundle, err := mergeCABundle(nil, unrelatedPEM, currentRootPEM, currentPEM)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		out, _, err := pruneSupersededCertificates(bundle, published...)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(string(out)).To(Equal(string(bundle)))
+	})
+
+	// Leaves naming that subject verify against it alone, so the published chain cannot stand in.
+	t.Run("keeps a certificate that shares a key under another name", func(t *testing.T) {
+		g := NewWithT(t)
+		renamedPEM, _ := testCACert(t, "someone-elses-ca", 8, intermediateKey, currentRoot, newRootKey)
+		bundle, err := mergeCABundle(nil, renamedPEM, currentRootPEM, currentPEM)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		out, _, err := pruneSupersededCertificates(bundle, published...)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(string(out)).To(Equal(string(bundle)))
+	})
+
+	t.Run("leaves blocks it cannot parse alone", func(t *testing.T) {
+		g := NewWithT(t)
+		opaque := testCertPEM("not-a-real-certificate")
+		bundle, err := mergeCABundle(nil, opaque, retiredPEM, currentRootPEM, currentPEM)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		out, _, err := pruneSupersededCertificates(bundle, published...)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(string(out)).To(ContainSubstring(string(opaque)))
+		g.Expect(string(out)).NotTo(ContainSubstring(string(retiredPEM)))
+	})
+
+	t.Run("returns the bundle untouched when nothing is superseded", func(t *testing.T) {
+		g := NewWithT(t)
+		bundle, err := mergeCABundle(nil, currentRootPEM, currentPEM)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		out, _, err := pruneSupersededCertificates(bundle, published...)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(string(out)).To(Equal(string(bundle)))
 	})
 }
 
@@ -370,6 +513,77 @@ func TestReconcileCATrustBundle(t *testing.T) {
 		g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName}, cm)).To(Succeed())
 		// The same three the first reconcile wrote: repeating it must not duplicate either authority.
 		g.Expect(countCerts([]byte(cm.Data[operatorv1.CATrustBundleKey]))).To(Equal(3))
+	})
+
+	// Staged with real certificates, because that is what the sweep reads keys out of.
+	t.Run("drops the certificate a rotation left behind over the live identity", func(t *testing.T) {
+		g := NewWithT(t)
+		ns := "ca-bundle-rotation-leftover"
+		createNamespace(g, ns)
+		rootKey, intermediateKey := testCAKey(t), testCAKey(t)
+		rootPEM, root := testCACert(t, "dpf-global-root-ca", 1, rootKey, nil, nil)
+		currentPEM, _ := testCACert(t, operatorv1.PlatformIntermediateCAName, 2, intermediateKey, root, rootKey)
+		supersededPEM, _ := testCACert(t, operatorv1.PlatformIntermediateCAName, 3, intermediateKey, root, rootKey)
+		g.Expect(testClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: operatorv1.PlatformIntermediateCAName},
+			Data: map[string][]byte{
+				caCertSecretKey:   rootPEM,
+				corev1.TLSCertKey: currentPEM,
+			},
+		})).To(Succeed())
+		g.Expect(testClient.Create(ctx, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName},
+			Data:       map[string]string{operatorv1.CATrustBundleKey: string(supersededPEM)},
+		})).To(Succeed())
+		r := newReconciler()
+
+		err := r.reconcileCATrustBundle(ctx, newConfig(ns), selfSignedAnchor, certmanagement.MigrationState{})
+		g.Expect(err).NotTo(HaveOccurred())
+
+		cm := &corev1.ConfigMap{}
+		g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName}, cm)).To(Succeed())
+		bundle := cm.Data[operatorv1.CATrustBundleKey]
+		g.Expect(countCerts([]byte(bundle))).To(Equal(2))
+		g.Expect(bundle).To(ContainSubstring(string(rootPEM)))
+		g.Expect(bundle).To(ContainSubstring(string(currentPEM)))
+		g.Expect(bundle).NotTo(ContainSubstring(string(supersededPEM)))
+	})
+
+	// The window between the migration carrying the keypair over and retiring the certificate it came
+	// from: the two share a subject and a key, so the sweep sees one identity carrying two
+	// certificates and would drop one of them if the migration did not publish both.
+	t.Run("keeps the migrated authority while it is still published", func(t *testing.T) {
+		g := NewWithT(t)
+		ns := "ca-bundle-migration-window"
+		createNamespace(g, ns)
+		rootKey, carriedKey := testCAKey(t), testCAKey(t)
+		rootPEM, root := testCACert(t, "dpf-global-root-ca", 1, rootKey, nil, nil)
+		// The platform intermediate as the migration leaves it: the legacy keypair, re-signed by the
+		// root, under the subject the legacy certificate attests.
+		legacyPEM, _ := testCACert(t, "dpf-provisioning-ca-cert", 2, carriedKey, nil, nil)
+		currentPEM, _ := testCACert(t, "dpf-provisioning-ca-cert", 3, carriedKey, root, rootKey)
+		g.Expect(testClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: operatorv1.PlatformIntermediateCAName},
+			Data: map[string][]byte{
+				caCertSecretKey:   rootPEM,
+				corev1.TLSCertKey: currentPEM,
+			},
+		})).To(Succeed())
+		r := newReconciler()
+
+		g.Expect(r.reconcileCATrustBundle(ctx, newConfig(ns), selfSignedAnchor, certmanagement.MigrationState{
+			LegacyAuthority:        legacyPEM,
+			LegacyAuthorityRetired: false,
+		})).To(Succeed())
+
+		cm := &corev1.ConfigMap{}
+		g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: operatorv1.DefaultCATrustBundleConfigMapName}, cm)).To(Succeed())
+		bundle := cm.Data[operatorv1.CATrustBundleKey]
+		// Both certificates of the identity, because the peers holding the legacy one have not been
+		// reissued yet: taking it away here is what the retirement is for.
+		g.Expect(countCerts([]byte(bundle))).To(Equal(3))
+		g.Expect(bundle).To(ContainSubstring(string(legacyPEM)))
+		g.Expect(bundle).To(ContainSubstring(string(currentPEM)))
 	})
 
 	t.Run("requeues when the platform CA has not been issued yet", func(t *testing.T) {

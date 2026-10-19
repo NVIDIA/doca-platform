@@ -646,9 +646,11 @@ step 4 first."
 		[[ -s "$cert" ]] || continue
 		fp="$(cert_fingerprint "$cert")"
 		# The retired authority and everything underneath it, rather than only the two certificates
-		# step 1 recorded. The bundle is appended to and never trimmed, so an intermediate renewed
-		# before the backup was taken is still in it under neither recorded fingerprint, and it
-		# outlives a prune that goes by those alone. What is left behind is a certificate whose
+		# step 1 recorded. The operator sweeps the earlier certificates of its own intermediate out
+		# of the bundle when step 3 re-signs it, so in a rotation that ran in order this matches
+		# little beyond the root. What it still answers for is everything that sweep leaves alone: a
+		# certificate under the retired root carrying a subject or key DPF does not publish, and a
+		# bundle the operator has not rewritten yet. What is left behind is a certificate whose
 		# issuer has just been taken away: nothing can validate it, and it occupies one of the ten
 		# slots a BlueField BMC truststore has.
 		if [[ "$fp" == "$old_root_fp" || "$fp" == "$old_intermediate_fp" ]] || signed_by "$cert" "$old_root_file"; then

@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
@@ -156,9 +157,10 @@ func (r *DPFOperatorConfigReconciler) reconcileOperatorOwnedCATrustBundle(ctx co
 }
 
 // reconcileSelfSignedCATrustBundle ensures a ConfigMap exists with the public CA certificate(s) used
-// for DPU provisioning. It copies the tls.crt of the provisioning CA Secret into the bundle using an
-// ensure-present, non-pruning merge so that additional certificates (e.g. during a dual-CA rotation)
-// are preserved.
+// for DPU provisioning. It merges the platform chain into the bundle without pruning, so that
+// certificates it did not add survive, and then takes away the two kinds of certificate that nothing
+// validates through any more: the authority the upgrade migration retired, and the certificates a
+// published identity has superseded.
 //
 // The bundle carries the provisioning CA alongside the platform chain on a cluster the upgrade
 // migration has not collapsed yet. That CA validates the certificates issued under it before the
@@ -173,6 +175,13 @@ func (r *DPFOperatorConfigReconciler) reconcileOperatorOwnedCATrustBundle(ctx co
 // Pruning is safe precisely because the identity was preserved: the intermediate now published
 // validates every certificate the pruned one did, so this is not a change of trust the peers have
 // to converge on before it is taken away from them.
+//
+// A CA rotation leaves the same thing behind, and it is safe to take away for the same reason: the
+// intermediate keeps its subject and key when a new root re-signs it, so the certificate the
+// re-signing replaced validates nothing the published one does not. Leaving it to age out is not an
+// option, because a BMC handed two certificates of one identity rejects the client certificate
+// naming it, and because each certificate in the bundle occupies one of the ten slots a BlueField
+// BMC truststore has.
 func (r *DPFOperatorConfigReconciler) reconcileSelfSignedCATrustBundle(ctx context.Context, config *operatorv1.DPFOperatorConfig, migration certmanagement.MigrationState) error {
 	bundleName := config.GetCATrustBundleConfigMapName()
 
@@ -209,6 +218,17 @@ func (r *DPFOperatorConfigReconciler) reconcileSelfSignedCATrustBundle(ctx conte
 		if err != nil {
 			return fmt.Errorf("failed to prune the migrated authority from the CA trust bundle: %w", err)
 		}
+	}
+	merged, superseded, err := pruneSupersededCertificates(merged, additions...)
+	if err != nil {
+		return fmt.Errorf("failed to prune superseded certificates from the CA trust bundle: %w", err)
+	}
+	if len(superseded) > 0 {
+		// What was taken away, so that a peer rejecting a certificate afterwards can be read against
+		// it. The write below logs that the bundle changed, not which certificates left it.
+		ctrllog.FromContext(ctx).V(2).Info("Pruned superseded certificates from the CA trust bundle",
+			logKeyConfigMap, client.ObjectKey{Namespace: config.Namespace, Name: bundleName},
+			"certificates", superseded)
 	}
 
 	if !found {
@@ -432,12 +452,105 @@ func pruneCABundle(bundle []byte, removals ...[]byte) ([]byte, error) {
 			return nil, err
 		}
 	}
+	return pruneCABundleByFingerprint(bundle, removed)
+}
 
+// pruneCABundleByFingerprint is pruneCABundle for a caller that has already identified what to drop,
+// which saves re-encoding a certificate to PEM only for the decode above to read it back. It takes
+// the map over, since the append below records what it writes in it.
+func pruneCABundleByFingerprint(bundle []byte, removals map[[sha256.Size]byte]bool) ([]byte, error) {
+	// appendCertBlocks writes only what it has not already recorded, so seeding it with the
+	// certificates to drop writes out exactly the rest.
 	var out bytes.Buffer
-	if err := appendCertBlocks(&out, removed, bundle); err != nil {
+	if err := appendCertBlocks(&out, removals, bundle); err != nil {
 		return nil, err
 	}
 	return out.Bytes(), nil
+}
+
+// certificateIdentity is the name a certificate attests and the key that answers for it. Two
+// certificates sharing one validate the same leaves, whoever signed them.
+type certificateIdentity struct {
+	subject   string
+	publicKey string
+}
+
+// identityOf reads the subject and public key out of cert, as the DER the certificate holds them in.
+func identityOf(cert *x509.Certificate) certificateIdentity {
+	return certificateIdentity{subject: string(cert.RawSubject), publicKey: string(cert.RawSubjectPublicKeyInfo)}
+}
+
+// pruneSupersededCertificates drops the certificates in bundle that a published one has already
+// replaced: the same identity carrying a newer signature. What accumulates is the platform
+// intermediate, which keeps its key and subject when a new authority re-signs it, and a BMC handed
+// more than one certificate of an identity rejects the client certificate naming it with HTTP 401.
+// Matching the whole identity confines the sweep: a retired root is a different key, so a rotation
+// keeps carrying it, and a certificate under a name DPF does not publish is left alone.
+func pruneSupersededCertificates(bundle []byte, published ...[]byte) ([]byte, []prunedCertificate, error) {
+	publishedIdentities := map[certificateIdentity]struct{}{}
+	publishedCertificates := map[[sha256.Size]byte]struct{}{}
+	for _, data := range published {
+		eachCertificate(data, func(fingerprint [sha256.Size]byte, cert *x509.Certificate) {
+			publishedIdentities[identityOf(cert)] = struct{}{}
+			publishedCertificates[fingerprint] = struct{}{}
+		})
+	}
+
+	superseded := map[[sha256.Size]byte]bool{}
+	pruned := make([]prunedCertificate, 0)
+	eachCertificate(bundle, func(fingerprint [sha256.Size]byte, cert *x509.Certificate) {
+		if _, published := publishedIdentities[identityOf(cert)]; !published {
+			return
+		}
+		if _, keep := publishedCertificates[fingerprint]; keep {
+			return
+		}
+		superseded[fingerprint] = true
+		pruned = append(pruned, prunedCertificate{
+			Subject:     cert.Subject.String(),
+			Fingerprint: hex.EncodeToString(fingerprint[:]),
+		})
+	})
+	if len(superseded) == 0 {
+		return bundle, nil, nil
+	}
+
+	out, err := pruneCABundleByFingerprint(bundle, superseded)
+	if err != nil {
+		return nil, nil, err
+	}
+	return out, pruned, nil
+}
+
+// prunedCertificate names a certificate the sweep took away, for the log line that records it. The
+// fields are exported so that the logger renders them rather than an opaque struct.
+type prunedCertificate struct {
+	Subject     string `json:"subject"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+// eachCertificate calls fn for every certificate in data, keyed by the fingerprint the merge and
+// the prune identify it by. A block that does not parse is passed over: the merge copies such a
+// block as it found it, and DPF may not take away a certificate it cannot read. That is also why
+// this does not use certutil.ParseCertsPEM, which fails the whole bundle over one such block, and
+// would make a certificate a user pasted in badly take the platform chain down with it.
+func eachCertificate(data []byte, fn func([sha256.Size]byte, *x509.Certificate)) {
+	rest := data
+	for {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			return
+		}
+		if block.Type != certificatePEMBlockType {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			continue
+		}
+		fn(sha256.Sum256(block.Bytes), cert)
+	}
 }
 
 // appendCertBlocks decodes PEM certificate blocks from data and writes any not already
