@@ -2123,6 +2123,7 @@ docker-build-bfb-registry: docker-buildx-setup $(ARTIFACTS_DIR)
 		--build-arg builder_image=$(BUILD_IMAGE) \
 		--build-arg bfb_registry_base_image=$(BFB_REGISTRY_BASE_IMAGE) \
 		--build-arg doca_dms_url="$(DOCA_DMS_URL)" \
+		--build-arg TAG=$(TAG) \
 		--provenance=false \
 		--platform=$(call build_platforms,$(DPF_SYSTEM_ARCH)) \
 		--progress=plain \
