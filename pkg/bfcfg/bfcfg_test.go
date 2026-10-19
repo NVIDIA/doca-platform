@@ -258,15 +258,6 @@ write_files:
 {{indent 6 .Content}}
 {{end}}
 
-{{- if .OVSRawScript}}
-  - path: /opt/dpf/ovs.sh
-    permissions: '0700'
-    content: |
-      #! /bin/bash
-      set -e
-{{indent 6 .OVSRawScript}}
-{{end}}
-
   - path: /opt/dpf/dpuagent.conf
     permissions: '0600'
     content: |
@@ -392,6 +383,19 @@ chroot /mnt env PATH="$CHROOT_PATH" /usr/sbin/update-grub
 
 				Expect(string(customOut)).To(Equal(string(defaultOut)))
 			})
+
+			// The default user-data no longer writes /opt/dpf/ovs.sh (the dpu-agent
+			// writes it from the flavor at execution time), but Params.OVSRawScript
+			// stays populated so existing custom bf.cfg templates keep rendering.
+			It("custom templates can still render the flavor OVS script", func() {
+				flavor := &provisioningv1.DPUFlavor{}
+				Expect(yaml.Unmarshal([]byte(testDPUFlavorYAML), flavor)).To(Succeed())
+				params := cloudinit.Params{}
+				Expect(params.ApplyFlavor(flavor)).To(Succeed())
+				got, err := Generate(flavor, params, []byte("{{.OVSRawScript}}"))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(string(got)).To(ContainSubstring("ovs-vsctl add-br br-test"))
+			})
 		})
 
 		Describe("cloud-init YAML with default template", func() {
@@ -464,16 +468,10 @@ network:
 				configFile := getWriteFile(parsed, "/etc/test.conf")
 				Expect(configFile.Content).To(Equal("key=value\n"))
 
-				ovsFile := getWriteFile(parsed, "/opt/dpf/ovs.sh")
-				Expect(ovsFile.Permissions).To(Equal("0700"))
-				expectedOvs := skipFirstEmptyLine(`
-#! /bin/bash
-set -e
-ovs-vsctl add-br br-test
-`)
-				Expect(ovsFile.Content).To(Equal(expectedOvs))
-
+				// The OVS script is written by the dpu-agent from the current flavor
+				// at execution time, never through cloud-init.
 				for _, f := range parsed.WriteFiles {
+					Expect(f.Path).NotTo(Equal("/opt/dpf/ovs.sh"))
 					Expect(f.Path).NotTo(Equal("/opt/dpf/dpuflavor.yaml"))
 				}
 

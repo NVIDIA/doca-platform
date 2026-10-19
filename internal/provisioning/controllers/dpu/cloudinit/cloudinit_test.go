@@ -233,16 +233,10 @@ network:
 			Expect(f.Path).NotTo(Equal("/etc/from-configmap.conf"))
 		}
 
-		ovsFile := getWriteFile(parsed, "/opt/dpf/ovs.sh")
-		Expect(ovsFile.Permissions).To(Equal("0700"))
-		expectedOvs := skipFirstEmptyLine(`
-#! /bin/bash
-set -e
-ovs-vsctl add-br br-test
-`)
-		Expect(ovsFile.Content).To(Equal(expectedOvs))
-
+		// The OVS script is written by the dpu-agent from the current flavor at
+		// execution time, never through cloud-init.
 		for _, f := range parsed.WriteFiles {
+			Expect(f.Path).NotTo(Equal("/opt/dpf/ovs.sh"))
 			Expect(f.Path).NotTo(Equal("/opt/dpf/dpuflavor.yaml"))
 		}
 
@@ -442,8 +436,7 @@ users:
 		Expect(content).NotTo(ContainSubstring("chpasswd"))
 	})
 
-	It("should omit OVS script when not configured", func() {
-		flavor.Spec.OVS.RawConfigScript = ""
+	It("should not write the OVS script through cloud-init", func() {
 		_, parsed := generateAndParse(Params{
 			DPUHostName:            "test-dpu",
 			KubeadmSecretName:      "s",

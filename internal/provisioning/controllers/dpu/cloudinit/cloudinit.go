@@ -98,9 +98,12 @@ type Params struct {
 	// DPUFlavorYAML is the marshaled DPUFlavor for custom bf.cfg templates.
 	// Default user-data does not write it; dpu-agent loads DPUFlavor from the API.
 	// DPUFlavorYAML is deprecated because DPUFlavor is loaded from the API instead.
-	DPUFlavorYAML    string
-	UbuntuPassword   string
-	ConfigFiles      []WriteFile
+	DPUFlavorYAML  string
+	UbuntuPassword string
+	ConfigFiles    []WriteFile
+	// OVSRawScript is only used by custom bf.cfg templates. The default user-data
+	// does not write /opt/dpf/ovs.sh: the dpu-agent writes the script from the
+	// current flavor before executing it, so an in-place flavor edit takes effect.
 	OVSRawScript     string
 	OOBNetwork       bool
 	RedfishInterface bool
