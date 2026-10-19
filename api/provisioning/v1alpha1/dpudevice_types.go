@@ -139,8 +139,9 @@ const (
 	// ReasonFactoryResetCompleted indicates the BMC came back from the factory reset and
 	// initialization may continue.
 	ReasonFactoryResetCompleted = "FactoryResetCompleted"
-	// ReasonFactoryResetSkipped indicates no reset was performed, either because the policy is
-	// Never or because the device was already managed by DPF before this feature existed.
+	// ReasonFactoryResetSkipped indicates no reset was performed, because the policy is Never,
+	// because the device was already managed by DPF before this feature existed, or because the
+	// install interface is not Redfish.
 	ReasonFactoryResetSkipped = "FactoryResetSkipped"
 )
 
@@ -275,6 +276,9 @@ type DPUDeviceSpec struct {
 	// - Never: never reset.
 	// The value is honored only until the factory reset step finishes; changing it
 	// after BMCFactoryResetReady is True has no effect.
+	// The policy applies only when the install interface is Redfish. Other install interfaces
+	// never reset the BMC; BMCFactoryResetReady reports FactoryResetSkipped unless a reset was
+	// already recorded under Redfish.
 	// +kubebuilder:validation:Enum=OnInitialization;Never
 	// +kubebuilder:default=OnInitialization
 	// +optional

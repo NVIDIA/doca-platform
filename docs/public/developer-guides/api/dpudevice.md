@@ -50,7 +50,7 @@ The `status` section contains the observed state of the DPU device:
 The DPUDevice resource uses several condition types to track its state:
 
 - **DpuDeviceDiscovered**: Indicates that the DPU has been discovered
-- **BMCFactoryResetReady**: Indicates that the [BMC factory reset](../../advanced-configuration/bmc-factory-reset.md) step of initialization has finished, either because the BMC was reset or because the policy said not to reset it
+- **BMCFactoryResetReady**: Indicates that the [BMC factory reset](../../advanced-configuration/bmc-factory-reset.md) step of initialization has finished, either because the BMC was reset or because no reset applies (the policy is `Never`, or the install interface is not Redfish)
 - **DpuDeviceNodeAttached**: Indicates that the DPU is attached to a node
 - **DpuDeviceInitialized**: Indicates that the DPU interface has been initialized
 - **DpuDeviceError**: Indicates that the DPUDevice has an error

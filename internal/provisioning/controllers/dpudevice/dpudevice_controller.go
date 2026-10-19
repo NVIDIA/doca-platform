@@ -261,9 +261,7 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 	syncObservedBMCAddress(dpuDevice, usesRedfish && !skipHWProvisioning)
 
 	if !usesRedfish {
-		conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceDiscovered)
-		conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceReady)
-		setDPUDeviceLabels(dpuDevice)
+		reconcileNonRedfish(dpuDevice)
 		return ctrl.Result{}, nil
 	}
 
@@ -372,6 +370,27 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 
 	log.Info("DPUDevice reconciled successfully", "dpuDevice", dpuDevice.Name)
 	return result, nil
+}
+
+// reconcileNonRedfish handles a DPUDevice whose install interface is not Redfish, where DPF does not
+// initialize or discover the device over its BMC.
+//
+// ResetToDefaults is a Redfish operation, so spec.bmcFactoryResetPolicy has nothing to act on here;
+// an unset condition would let OnInitialization read as a reset still to come. A reset already
+// submitted or finished under Redfish keeps its condition, so a return to Redfish still verifies it
+// rather than reading it as never having happened.
+func reconcileNonRedfish(dpuDevice *provisioningv1.DPUDevice) {
+	resetCondition := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceBMCFactoryResetReady)
+	switch {
+	case resetCondition != nil && resetCondition.Status == metav1.ConditionTrue:
+		setBMCFactoryResetCondition(dpuDevice, metav1.ConditionTrue, resetCondition.Reason, resetCondition.Message)
+	case dpuDevice.Status.BMCFactoryResetRequestTime == nil:
+		setBMCFactoryResetCondition(dpuDevice, metav1.ConditionTrue, provisioningv1.ReasonFactoryResetSkipped,
+			"install interface is not Redfish; factory reset does not apply")
+	}
+	conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceDiscovered)
+	conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceReady)
+	setDPUDeviceLabels(dpuDevice)
 }
 
 // ensureDPUDeviceInitialized initializes the BMC, or only recovers its IP-bound certificate when an
