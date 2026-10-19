@@ -323,10 +323,11 @@ Proceed only when all target devices show `BMCServerCertificateReady=True` and
 > Skip this step in external CA deployments and prune your own bundle instead.
 
 Remove the retired root, which nothing chains to any more, and everything it signed, which are
-paths that now end nowhere. Expect more than the two certificates recorded in step 1: a rotation
-leaves the earlier certificates of the intermediate in the bundle as well, and those go with the
-root that signed them. Removing them takes no trust away, because the intermediate still in the
-bundle carries the same key and subject as the ones being removed.
+paths that now end nowhere. Expect the retired root itself and, usually, nothing else: DPF takes
+away the earlier certificates of its own intermediate as soon as step 3 re-signs it, because they
+carry the same subject and key as the one it publishes and so validate nothing it does not. What
+is left for this step is the root, which the re-key gave a new key and which therefore no published
+certificate supersedes.
 
 Perform this only after step 4 convergence is complete, otherwise components still presenting the
 old chain may lose trust.
@@ -338,6 +339,10 @@ one that replaced it carry the same subject.
 The retired root answers yes about itself, so it is marked `PRUNE` along with everything it signed,
 which is what this step is for. The root that replaced it is marked `KEEP`: verifying it takes its
 own key, and only the retired one is in the file being asked.
+
+Asking about every certificate rather than only the root covers what DPF does not sweep: a CA you
+added yourself that the retired root signed is orphaned by this step too, and it would otherwise
+stay in the bundle occupying one of the ten slots a BlueField BMC truststore has.
 
 ```bash
 prune_dir="$(mktemp -d)"
@@ -365,7 +370,8 @@ kubectl -n dpf-operator-system edit configmap dpf-ca-trust-bundle
 ```
 
 Leave every certificate marked `KEEP` in place. DPF re-merges the bundle without pruning, so
-anything else you keep there is preserved.
+anything else you keep there is preserved, unless it is another certificate of an authority DPF
+publishes: those it takes away itself, as the one it publishes already validates everything they do.
 
 Check before moving on:
 
