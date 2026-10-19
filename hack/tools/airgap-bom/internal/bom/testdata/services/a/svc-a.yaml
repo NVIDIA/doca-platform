@@ -1,0 +1,30 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: svc-a
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: svc-a
+  helmChart:
+    source:
+      repoURL: https://charts.example.com
+      chart: app
+      version: 1.0.0
+    values:
+      image:
+        tag: from-template
+      keep: template
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: svc-a
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: svc-a
+  serviceConfiguration:
+    deployInCluster: true
+    helmChart:
+      values:
+        image:
+          tag: from-configuration

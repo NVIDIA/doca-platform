@@ -1,0 +1,16 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: sub
+spec:
+  selector:
+    matchLabels:
+      app: sub
+  template:
+    metadata:
+      labels:
+        app: sub
+    spec:
+      containers:
+        - name: sub
+          image: quay.io/example/sub:{{ .Values.tag | default "2.0.0" }}

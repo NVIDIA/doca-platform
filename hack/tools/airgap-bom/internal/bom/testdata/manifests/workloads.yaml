@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller
+  namespace: system
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: init
+          image: busybox:1.36
+      containers:
+        - name: manager
+          image: example.com/dpf-system:v0.1.0
+          args:
+            - --leader-elect
+            - --dms-image=example.com/hostdriver:v0.1.0
+            - --not-an-image=foo
+          env:
+            - name: BFB_REGISTRY_IMAGE
+              value: example.com/bfb-registry:v0.1.0
+            - name: OTHER
+              value: ghcr.io/not/an-image:v1
+---
+# An empty document and a document without kind are skipped.
+---
+foo: bar
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: defrag
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: defrag
+              image: ghcr.io/ahrtr/etcd-defrag:v0.22.0@sha256:a7424de0a437f54d7565e96f8a50913e0ace05398bb5c10a77d5af5fc9bf9301
+---
+apiVersion: example.com/v1
+kind: Widget
+metadata:
+  name: custom
+spec:
+  image: quay.io/example/widget:2.0
+  sidecarImage: not a reference
+  podTemplate:
+    spec:
+      containers:
+        - name: c
+          image: nginx
+---
+apiVersion: v1
+kind: List
+items:
+  - apiVersion: v1
+    kind: Pod
+    metadata:
+      name: listed
+    spec:
+      containers:
+        - name: c
+          image: registry.k8s.io/pause:3.10

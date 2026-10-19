@@ -1,0 +1,6 @@
+image:
+  repository: ghcr.io/example/app
+  tag: v1.0.0
+hookImage: docker.io/library/busybox:1.36
+sub:
+  enabled: false

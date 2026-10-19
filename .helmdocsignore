@@ -1,2 +1,3 @@
 hack/repos/
 .gocache/
+hack/tools/airgap-bom/internal/bom/testdata/
