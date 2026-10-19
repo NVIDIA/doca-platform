@@ -312,12 +312,15 @@ spec:
                 description: AgentStatus contains the information reported from inside
                   the DPU
                 properties:
-                  appliedFlavorResourceVersion:
+                  appliedFlavorGeneration:
                     description: |-
-                      AppliedFlavorResourceVersion is the resourceVersion of the DPUFlavor this Run() GETed.
-                      Debug only. It is not used to decide whether to start in-place reconfig.
-                    minLength: 1
-                    type: string
+                      AppliedFlavorGeneration is the metadata.generation of the DPUFlavor this Run() applied.
+                      Generation advances only with the spec, so it identifies the applied spec, not
+                      metadata-only writes. Debug only. It is not used to decide whether to start in-place reconfig.
+                      Zero means the agent has not reported an applied flavor yet.
+                    format: int64
+                    minimum: 1
+                    type: integer
                   clock:
                     description: |-
                       Clock is the DPU clock compared against the host clock, recorded while the DPU agent was

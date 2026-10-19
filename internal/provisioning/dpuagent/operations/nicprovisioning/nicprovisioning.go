@@ -104,11 +104,18 @@ type NICProvisioning struct {
 	ccTerminationCh <-chan string
 
 	runtimeConfigWG sync.WaitGroup
+	// runtimeCancel cancels the runtime loop's context. Non-nil only while the
+	// loop is running. Set and read by the goroutine that starts/stops the loop
+	// (main at startup, the owned-DPU reconcile goroutine around a reconfig Run).
+	runtimeCancel context.CancelFunc
 	// dmsMu serializes Execute's DMS work with runtime-config applies.
 	dmsMu sync.Mutex
 	// reapplyCh is created when the runtime loop starts. Execute signals it so
 	// an in-process reconfig reapplies runtime config after NVConfig.
 	reapplyCh chan struct{}
+	// runtimeFlavor is the newest DPUFlavor this loop has applied or fetched.
+	// Only the runtime-config goroutine reads and writes it. It is not the shared context.
+	runtimeFlavor *provisioningv1.DPUFlavor
 }
 
 func (n *NICProvisioning) Name() string {
@@ -935,18 +942,39 @@ func (n *NICProvisioning) Shutdown() error {
 }
 
 // StartRuntimeConfigLoop applies runtime configuration to all devices once, then keeps
-// reapplying until ctx is canceled: to all devices when a DOCA SPC-X CC process
+// reapplying until the loop is stopped: to all devices when a DOCA SPC-X CC process
 // terminates, and every RuntimeConfigRetryInterval to devices whose last apply failed.
-// No-op when the local DMS session was never started. Callers must invoke this at most once per NICProvisioning instance.
+// No-op when the local DMS session was never started or the loop is already running.
+// It may be started again after StopRuntimeConfigLoop returns.
 func (n *NICProvisioning) StartRuntimeConfigLoop(ctx context.Context, optCtx *operations.Context) {
 	if n.dmsServer == nil {
 		klog.Info("NIC provisioning: no local DMS session; skip runtime configuration loop")
 		return
 	}
+	if n.runtimeCancel != nil {
+		klog.Info("NIC provisioning: runtime configuration loop already running, skip start")
+		return
+	}
+	loopCtx, cancel := context.WithCancel(ctx)
+	n.runtimeCancel = cancel
 	n.reapplyCh = make(chan struct{}, 1)
 	n.runtimeConfigWG.Add(1)
 	klog.Info("NIC provisioning: starting runtime configuration loop")
-	go n.runRuntimeConfigLoop(ctx, optCtx)
+	go n.runRuntimeConfigLoop(loopCtx, optCtx)
+}
+
+// StopRuntimeConfigLoop stops the runtime configuration loop and waits for the
+// goroutine to exit, so a following Run() is the only user of the operations
+// context. An in-flight apply finishes (or observes cancellation) before this
+// returns. No-op when the loop is not running.
+func (n *NICProvisioning) StopRuntimeConfigLoop() {
+	if n.runtimeCancel == nil {
+		return
+	}
+	klog.Info("NIC provisioning: stopping runtime configuration loop")
+	n.runtimeCancel()
+	n.runtimeConfigWG.Wait()
+	n.runtimeCancel = nil
 }
 
 // requestRuntimeReapply asks the runtime loop to apply after Execute. No-op
@@ -964,7 +992,7 @@ func (n *NICProvisioning) requestRuntimeReapply() {
 func (n *NICProvisioning) runRuntimeConfigLoop(ctx context.Context, optCtx *operations.Context) {
 	defer n.runtimeConfigWG.Done()
 
-	n.applyRuntimeConfigAndRecordFailures(ctx, optCtx, n.discoveredNICDevices)
+	n.applyRuntimeConfigAndRecordFailures(ctx, n.runtimeFlavorContext(optCtx), n.discoveredNICDevices)
 	klog.InfoS("NIC runtime config first apply finished", "failedDeviceCount", len(n.failedDevices))
 	if err := n.updateRuntimeConfigStatus(optCtx); err != nil {
 		klog.ErrorS(err, "failed to update NIC runtime config status")
@@ -1038,7 +1066,7 @@ func (n *NICProvisioning) runRuntimeConfigLoop(ctx context.Context, optCtx *oper
 			return
 		case <-n.reapplyCh:
 			klog.Info("NIC provisioning: reapplying runtime config after in-process Execute")
-			n.applyRuntimeConfigAndRecordFailures(ctx, optCtx, n.discoveredNICDevices)
+			n.applyRuntimeConfigAndRecordFailures(ctx, n.runtimeFlavorContext(optCtx), n.discoveredNICDevices)
 			if err := n.updateRuntimeConfigStatus(optCtx); err != nil {
 				klog.ErrorS(err, "failed to update NIC runtime config status after in-process Execute")
 			}
@@ -1054,8 +1082,12 @@ func (n *NICProvisioning) runRuntimeConfigLoop(ctx context.Context, optCtx *oper
 			pending := failedDeviceList(n.failedDevices)
 			klog.InfoS("NIC provisioning: retrying runtime config on failed devices",
 				"deviceCount", len(pending))
-			n.applyRuntimeConfigAndRecordFailures(ctx, optCtx, pending)
-			if err := n.updateRuntimeConfigStatus(optCtx); err != nil {
+			// The first apply uses the flavor loaded by the Run that started this loop.
+			// A retry GETs that flavor and keeps it when it is newer than the shared snapshot.
+			// The shared context is not modified.
+			applyCtx := n.runtimeRetryContext(ctx, optCtx)
+			n.applyRuntimeConfigAndRecordFailures(ctx, applyCtx, pending)
+			if err := n.updateRuntimeConfigStatus(applyCtx); err != nil {
 				klog.ErrorS(err, "failed to update NIC runtime config status")
 			}
 			armFailedRetry()
@@ -1089,13 +1121,76 @@ func (n *NICProvisioning) runRuntimeConfigLoop(ctx context.Context, optCtx *oper
 				klog.InfoS("NIC provisioning: coalesced additional CC terminations before reapply",
 					"rdmaInterfaces", ifaces)
 			}
-			n.applyRuntimeConfigAndRecordFailures(ctx, optCtx, n.discoveredNICDevices)
+			n.applyRuntimeConfigAndRecordFailures(ctx, n.runtimeFlavorContext(optCtx), n.discoveredNICDevices)
 			if err := n.updateRuntimeConfigStatus(optCtx); err != nil {
 				klog.ErrorS(err, "failed to update NIC runtime config status")
 			}
 			armFailedRetry()
 		}
 	}
+}
+
+// runtimeFlavorContext returns a context for one apply. Its DPUFlavor is the newer of the
+// shared snapshot and the flavor this loop last fetched. The caller's context is not modified.
+func (n *NICProvisioning) runtimeFlavorContext(optCtx *operations.Context) *operations.Context {
+	if optCtx == nil {
+		return nil
+	}
+	shared := optCtx.DPUFlavor
+	return n.contextWithRuntimeFlavor(optCtx, newerFlavor(&shared, n.runtimeFlavor))
+}
+
+// runtimeRetryContext returns a context for one failed-device retry. A successful GET is
+// kept only when it is newer than the shared snapshot taken after the GET. The caller's
+// context is not modified. A failed GET leaves the loop's flavor unchanged.
+func (n *NICProvisioning) runtimeRetryContext(ctx context.Context, optCtx *operations.Context) *operations.Context {
+	if optCtx == nil {
+		return nil
+	}
+	current := optCtx.DPUFlavor
+	name := current.Name
+	if name == "" && n.runtimeFlavor != nil {
+		name = n.runtimeFlavor.Name
+	}
+	if optCtx.Client == nil || name == "" {
+		return n.runtimeFlavorContext(optCtx)
+	}
+	flavor := &provisioningv1.DPUFlavor{}
+	key := client.ObjectKey{Namespace: optCtx.Options.DPUNamespace, Name: name}
+	if err := optCtx.Client.Get(ctx, key, flavor); err != nil {
+		klog.ErrorS(err, "NIC provisioning: failed to reload DPUFlavor before runtime config retry")
+		return n.runtimeFlavorContext(optCtx)
+	}
+	shared := optCtx.DPUFlavor
+	return n.contextWithRuntimeFlavor(optCtx, newerFlavor(&shared, flavor))
+}
+
+// contextWithRuntimeFlavor remembers flavor for later applies and returns a context that uses it.
+func (n *NICProvisioning) contextWithRuntimeFlavor(optCtx *operations.Context, flavor *provisioningv1.DPUFlavor) *operations.Context {
+	if flavor == nil || flavor.Name == "" {
+		return &operations.Context{Status: optCtx.Status}
+	}
+	n.runtimeFlavor = flavor.DeepCopy()
+	ctx := &operations.Context{Status: optCtx.Status}
+	ctx.DPUFlavor = *n.runtimeFlavor
+	return ctx
+}
+
+// newerFlavor picks the flavor a later apply should use. shared is the Run's snapshot.
+// Both always name the same object: pointing the DPU at a different DPUFlavor goes
+// through disruptive reprovisioning, not an in-place Run. The higher generation wins.
+// Equal generation means the spec is unchanged, so the remembered copy is kept.
+func newerFlavor(shared, remembered *provisioningv1.DPUFlavor) *provisioningv1.DPUFlavor {
+	if remembered == nil || remembered.Name == "" {
+		return shared
+	}
+	if shared == nil || shared.Name == "" {
+		return remembered
+	}
+	if shared.Generation > remembered.Generation {
+		return shared
+	}
+	return remembered
 }
 
 func (n *NICProvisioning) ccTerminationChannel() <-chan string {

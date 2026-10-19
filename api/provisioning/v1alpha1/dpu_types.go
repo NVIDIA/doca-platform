@@ -590,11 +590,13 @@ type AgentStatus struct {
 	// +kubebuilder:validation:MinLength=1
 	Version string `json:"version,omitempty"`
 
-	// AppliedFlavorResourceVersion is the resourceVersion of the DPUFlavor this Run() GETed.
-	// Debug only. It is not used to decide whether to start in-place reconfig.
+	// AppliedFlavorGeneration is the metadata.generation of the DPUFlavor this Run() applied.
+	// Generation advances only with the spec, so it identifies the applied spec, not
+	// metadata-only writes. Debug only. It is not used to decide whether to start in-place reconfig.
+	// Zero means the agent has not reported an applied flavor yet.
 	// +optional
-	// +kubebuilder:validation:MinLength=1
-	AppliedFlavorResourceVersion string `json:"appliedFlavorResourceVersion,omitempty"`
+	// +kubebuilder:validation:Minimum=1
+	AppliedFlavorGeneration int64 `json:"appliedFlavorGeneration,omitempty"`
 
 	// PreInstall holds agent-reported status for work done before OS install in the reprovisioning process.
 	// +optional

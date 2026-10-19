@@ -195,10 +195,19 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 			continue
 		}
 
+		attempt := 0
 		err := wait.PollUntilContextCancel(ctx, d.retryInterval, true, func(execCtx context.Context) (bool, error) {
 			if err := d.checkBootstrapAbort(execCtx); err != nil {
 				return false, err
 			}
+			// The first attempt keeps the flavor loaded at the start of this Run.
+			// A retry GETs the live flavor so a fix is applied while this operation is stuck.
+			if attempt > 0 {
+				if err := d.optCtx.ReloadDPUFlavor(execCtx); err != nil {
+					klog.Errorf("[%s] Failed to reload DPUFlavor before retry: %v", op.Name(), err)
+				}
+			}
+			attempt++
 			d.optCtx.CondMessage = ""
 			err := op.Execute(execCtx, d.optCtx)
 			if err != nil {
@@ -236,9 +245,10 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 	if err := writeMarker(d.runDir); err != nil {
 		return fmt.Errorf("failed to write done marker: %w", err)
 	}
-	if rv := d.optCtx.DPUFlavor.GetResourceVersion(); rv != "" {
+	flavor := d.optCtx.DPUFlavor
+	if gen := flavor.GetGeneration(); gen != 0 {
 		d.optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
-			s.AppliedFlavorResourceVersion = rv
+			s.AppliedFlavorGeneration = gen
 		})
 	}
 	if err := d.optCtx.Status.UpdateRemote(true); err != nil {
@@ -423,6 +433,13 @@ func (d *DPUAgent) maybeReconfigRun(ctx context.Context, dpu *provisioningv1.DPU
 	}()
 
 	klog.Infof("DPU reconcile: in-place reconfig Run() for DPU %s/%s", dpu.Namespace, dpu.Name)
+	// The runtime config loop and Run() must not overlap: both use the operations
+	// context, which is not thread-safe. Stop the loop before Run and restart it
+	// afterwards even on failure, so CC-termination recovery and failed-device
+	// retries keep working. The restarted loop's first apply covers everything
+	// that was paused or signaled while it was down.
+	d.stopNICRuntimeConfigLoop()
+	defer d.StartNICRuntimeConfigLoop(ctx)
 	err = d.Run(ctx)
 	if err != nil {
 		return fmt.Errorf("in-place reconfig Run: %w", err)
@@ -489,6 +506,17 @@ func (d *DPUAgent) StartNICRuntimeConfigLoop(ctx context.Context) {
 	for _, op := range d.operations {
 		if nicProvisioning, ok := op.(*nicprovisioning.NICProvisioning); ok {
 			nicProvisioning.StartRuntimeConfigLoop(ctx, d.optCtx)
+			return
+		}
+	}
+}
+
+// stopNICRuntimeConfigLoop stops the NIC runtime config loop and waits for it to
+// exit. No-op when the loop is not running.
+func (d *DPUAgent) stopNICRuntimeConfigLoop() {
+	for _, op := range d.operations {
+		if nicProvisioning, ok := op.(*nicprovisioning.NICProvisioning); ok {
+			nicProvisioning.StopRuntimeConfigLoop()
 			return
 		}
 	}

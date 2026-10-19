@@ -27,6 +27,7 @@ import (
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -49,7 +50,9 @@ type Operation interface {
 
 // Context is the context for all operations.
 // It is passed to all operations and can be used to pass data between operations.
-// Since the Context is not thread-safe, do not access it from multiple goroutines.
+// It is not thread-safe: operations run sequentially on one goroutine, and the
+// NIC runtime-config loop is stopped while an in-place Run executes, so the
+// flavor is only ever accessed from one goroutine at a time.
 type Context struct {
 	// Options are the options for the DPU agent, loaded at startup (e.g. from command line).
 	Options opts.Options
@@ -71,7 +74,8 @@ type Context struct {
 	K8sClient kubernetes.Interface
 
 	// DPUFlavor is the live DPUFlavor named by LatestDPU.spec.dpuFlavor.
-	// GetLatestDPU loads it from the API on each Run(); operations must not read a disk snapshot.
+	// GetLatestDPU loads it from the API on each Run(). A failed operation reloads
+	// it before the next attempt.
 	DPUFlavor provisioningv1.DPUFlavor
 
 	// LatestDPU is the current DPU resource, populated by GetLatestDPU.
@@ -161,6 +165,35 @@ func (ctx *Context) GetResolvedNVConfig() *ResolvedNVConfig {
 // cache errors (same semantics as NSPorts).
 func (ctx *Context) SetResolvedNVConfig(r *ResolvedNVConfig) {
 	ctx.resolvedNVConfig = r
+}
+
+// ReloadDPUFlavor GETs the DPUFlavor already named on the context. Callers use it
+// before retrying work that failed against the flavor loaded earlier. The DPU
+// object is not read. When metadata.generation changes, the resolved NVConfig
+// cache is dropped: generation advances only with spec, which is what that cache
+// was built from. A metadata-only write changes resourceVersion and leaves the cache.
+// DeferredNVConfigParams is left in place. ConfigureNVConfig rebuilds that list
+// when it applies; clearing it here would let a later HandleReboot retry treat
+// parameters that were never applied as if they had been.
+func (ctx *Context) ReloadDPUFlavor(execCtx context.Context) error {
+	if ctx == nil || ctx.Client == nil {
+		return nil
+	}
+	current := ctx.DPUFlavor
+	if current.Name == "" {
+		return nil
+	}
+	flavor := &provisioningv1.DPUFlavor{}
+	key := client.ObjectKey{Namespace: ctx.Options.DPUNamespace, Name: current.Name}
+	if err := ctx.Client.Get(execCtx, key, flavor); err != nil {
+		return fmt.Errorf("get DPUFlavor %s/%s: %w", key.Namespace, key.Name, err)
+	}
+	if flavor.GetGeneration() != current.GetGeneration() {
+		ctx.SetResolvedNVConfig(nil)
+		klog.InfoS("reloaded DPUFlavor after operation failure", "flavor", klog.KObj(flavor), "generation", flavor.GetGeneration())
+	}
+	ctx.DPUFlavor = *flavor
+	return nil
 }
 
 // ResetPerRunState clears caches that must not leak from a previous Run() into a
