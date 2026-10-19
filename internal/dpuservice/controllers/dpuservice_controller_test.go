@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -32,6 +33,7 @@ import (
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 	argov1 "github.com/nvidia/doca-platform/third_party/forked/argoproj/argo-cd/pkg/apis/application/v1alpha1"
+	argohealth "github.com/nvidia/doca-platform/third_party/forked/argoproj/gitops-engine/pkg/health"
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	. "github.com/onsi/ginkgo/v2"
@@ -53,6 +55,8 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
@@ -3203,4 +3207,331 @@ var _ = Describe("nodeEventHandler", func() {
 			}, 1*time.Second).Should(Equal(0))
 		})
 	})
+})
+
+var _ = Describe("DPUService summary selector", Serial, func() {
+	var namespace *corev1.Namespace
+
+	BeforeEach(func() {
+		Expect(testManager.GetCache().WaitForCacheSync(ctx)).To(BeTrue())
+		previousPause := pauseDPUServiceReconciler.Swap(true)
+		DeferCleanup(func() {
+			pauseDPUServiceReconciler.Store(previousPause)
+		})
+		namespace = &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "summary-selector-",
+			},
+		}
+		Expect(testClient.Create(ctx, namespace)).To(Succeed())
+		DeferCleanup(testClient.Delete, ctx, namespace)
+	})
+
+	// Reuse the suite API server; only cluster and Application counts vary.
+	createFixture := func(clusterCount, applicationCount int, appState string) *dpuservicev1.DPUService {
+		service := getMinimalDPUServices(namespace.Name)[0]
+		service.Name = "summary-test"
+		service.GenerateName = ""
+		for i := 0; i < clusterCount; i++ {
+			cluster := testutils.GetTestDPUCluster(namespace.Name, fmt.Sprintf("tenant-%d", i))
+			cluster.Labels = map[string]string{"tenant": fmt.Sprint(i), "pool": "shared"}
+			Expect(testClient.Create(ctx, &cluster)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, &cluster)
+		}
+		for i := 0; i < applicationCount; i++ {
+			app := &argov1.Application{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("application-%d", i),
+					Namespace: namespace.Name,
+					Labels:    map[string]string(service.MatchLabels()),
+				},
+				Spec: argov1.ApplicationSpec{
+					Project: "default",
+					Destination: argov1.ApplicationDestination{
+						Server:    "https://kubernetes.default.svc",
+						Namespace: namespace.Name,
+					},
+				},
+				Status: argov1.ApplicationStatus{
+					Sync: argov1.SyncStatus{
+						Status: argov1.SyncStatusCodeSynced,
+					},
+					Health: argov1.AppHealthStatus{
+						Status: argohealth.HealthStatusHealthy,
+					},
+				},
+			}
+			if i == 0 {
+				switch appState {
+				case "degraded":
+					app.Status.Health.Status = argohealth.HealthStatusDegraded
+				case "out-of-sync":
+					app.Status.Sync.Status = argov1.SyncStatusCodeOutOfSync
+				case "not-deployed":
+					app.Status = argov1.ApplicationStatus{}
+				}
+			}
+			Expect(testClient.Create(ctx, app)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, app)
+		}
+		return service
+	}
+
+	// Successful prerequisites isolate the Application count and health checks.
+	summarize := func(service *dpuservicev1.DPUService) {
+		for _, condition := range dpuservicev1.Conditions {
+			if condition != conditions.TypeReady && condition != dpuservicev1.ConditionApplicationsReady {
+				conditions.AddTrue(service, condition)
+			}
+		}
+		reconciler := &DPUServiceReconciler{
+			Client: testClient,
+		}
+		Expect(reconciler.summary(ctx, service)).To(Succeed())
+	}
+
+	assertReadiness := func(service *dpuservicev1.DPUService, ready bool) {
+		status, reason := metav1.ConditionFalse, conditions.ReasonPending
+		if ready {
+			status, reason = metav1.ConditionTrue, conditions.ReasonSuccess
+		}
+		for _, kind := range []conditions.ConditionType{dpuservicev1.ConditionApplicationsReady, conditions.TypeReady} {
+			Expect(conditions.Get(service, kind)).To(SatisfyAll(
+				HaveField("Status", status),
+				HaveField("Reason", string(reason)),
+				HaveField("ObservedGeneration", service.Generation),
+			))
+		}
+	}
+
+	one := &metav1.LabelSelector{
+		MatchLabels: map[string]string{"tenant": "0"},
+	}
+	none := &metav1.LabelSelector{
+		MatchLabels: map[string]string{"tenant": "absent"},
+	}
+	subset := &metav1.LabelSelector{
+		MatchLabels: map[string]string{"pool": "shared"},
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      "tenant",
+				Operator: metav1.LabelSelectorOpIn,
+				Values:   []string{"0", "1"},
+			},
+		},
+	}
+	invalid := &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      "tenant",
+				Operator: metav1.LabelSelectorOperator("Invalid"),
+			},
+		},
+	}
+
+	DescribeTable("calculates readiness for the selected deployment targets",
+		func(clusters, applications int, selector *metav1.LabelSelector, inCluster bool, appState string, wantReady bool) {
+			service := createFixture(clusters, applications, appState)
+			service.Spec.DPUClusterSelector = selector
+			service.Spec.DeployInCluster = ptr.To(inCluster)
+			summarize(service)
+			assertReadiness(service, wantReady)
+		},
+		Entry("no selector and no clusters",
+			0,
+			0,
+			nil,
+			false,
+			"",
+			true,
+		),
+		Entry("no selector and one cluster",
+			1,
+			1,
+			nil,
+			false,
+			"",
+			true,
+		),
+		Entry("no selector targets every cluster",
+			3,
+			3,
+			nil,
+			false,
+			"",
+			true,
+		),
+		Entry("empty selector targets every cluster",
+			3,
+			3,
+			&metav1.LabelSelector{},
+			false,
+			"",
+			true,
+		),
+		Entry("no matching clusters and no Applications",
+			3,
+			0,
+			none,
+			false,
+			"",
+			true,
+		),
+		Entry("one selected cluster with a healthy Application",
+			2,
+			1,
+			one,
+			false,
+			"",
+			true,
+		),
+		Entry("combined label and expression selector targets a subset",
+			3,
+			2,
+			subset,
+			false,
+			"",
+			true,
+		),
+		Entry("selected Application is missing",
+			2,
+			0,
+			one,
+			false,
+			"",
+			false,
+		),
+		Entry("extra Application is still present",
+			2,
+			2,
+			one,
+			false,
+			"",
+			false,
+		),
+		Entry("selected Application is degraded",
+			2,
+			1,
+			one,
+			false,
+			"degraded",
+			false,
+		),
+		Entry("selected Application is out of sync",
+			2,
+			1,
+			one,
+			false,
+			"out-of-sync",
+			false,
+		),
+		Entry("selected Application is not deployed",
+			2,
+			1,
+			one,
+			false,
+			"not-deployed",
+			false,
+		),
+		Entry("in-cluster service needs no DPUClusters",
+			0,
+			1,
+			nil,
+			true,
+			"",
+			true,
+		),
+		Entry("in-cluster service ignores the cluster selector and count",
+			3,
+			1,
+			none,
+			true,
+			"",
+			true,
+		),
+		Entry("in-cluster Application is missing",
+			3,
+			0,
+			nil,
+			true,
+			"",
+			false,
+		),
+		Entry("in-cluster service does not parse an unused selector",
+			3,
+			1,
+			invalid,
+			true,
+			"",
+			true,
+		),
+	)
+
+	It("persists readiness and recalculates it after selector and deployment-mode changes", func() {
+		service := createFixture(2, 1, "")
+		service.Spec.DPUClusterSelector = one
+		Expect(testClient.Create(ctx, service)).To(Succeed())
+		DeferCleanup(testClient.Delete, ctx, service)
+
+		// Check both the calculated status and what the API server persisted.
+		summarizeAndPersist := func(ready bool) {
+			original := service.DeepCopy()
+			summarize(service)
+			Expect(testClient.Status().Patch(ctx, service, client.MergeFrom(original))).To(Succeed())
+			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(service), service)).To(Succeed())
+			assertReadiness(service, ready)
+		}
+		summarizeAndPersist(true)
+
+		By("requiring Applications for all clusters after removing the selector")
+		original := service.DeepCopy()
+		service.Spec.DPUClusterSelector = nil
+		Expect(testClient.Patch(ctx, service, client.MergeFrom(original))).To(Succeed())
+		summarizeAndPersist(false)
+
+		By("expecting one Application after switching to management-cluster deployment")
+		original = service.DeepCopy()
+		service.Spec.DeployInCluster = ptr.To(true)
+		service.Spec.ServiceDaemonSet = nil
+		service.Spec.Security = nil
+		Expect(testClient.Patch(ctx, service, client.MergeFrom(original))).To(Succeed())
+		summarizeAndPersist(true)
+	})
+
+	// Fake clients are limited to failures that real API admission cannot reproduce.
+	DescribeTable("propagates listing and selector errors", func(failure string) {
+		listErr := errors.New("API list failed")
+		c := fake.NewClientBuilder().WithScheme(testClient.Scheme()).WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, underlying client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				switch list.(type) {
+				case *provisioningv1.DPUClusterList:
+					if failure == "clusters" {
+						return listErr
+					}
+				case *argov1.ApplicationList:
+					if failure == "applications" {
+						return listErr
+					}
+				}
+				return underlying.List(ctx, list, opts...)
+			},
+		}).Build()
+		service := &dpuservicev1.DPUService{}
+		if failure == "selector" {
+			service.Spec.DPUClusterSelector = invalid
+		}
+		reconciler := &DPUServiceReconciler{
+			Client: c,
+		}
+		err := reconciler.summary(ctx, service)
+		if failure == "selector" {
+			Expect(err).To(MatchError(ContainSubstring("failed to parse label selector")))
+		} else {
+			Expect(errors.Is(err, listErr)).To(BeTrue(), "summary should propagate the original API error")
+		}
+	},
+		Entry("DPUCluster list failure", "clusters"),
+		Entry("Application list failure", "applications"),
+		Entry("invalid cluster selector", "selector"),
+	)
 })
