@@ -1,0 +1,42 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: plain
+  namespace: ns
+spec:
+  helmChart:
+    source:
+      repoURL: oci://ghcr.io/example/charts
+      chart: plain
+      version: 2.0.0
+    values:
+      image:
+        tag: v2
+  serviceDaemonSet:
+    labels:
+      team: x
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: svc-b
+  namespace: ns
+spec:
+  deploymentServiceName: svc-b
+  helmChart:
+    source:
+      repoURL: https://charts.example.com
+      chart: app
+      version: 1.0.0
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: svc-b
+  namespace: ns
+spec:
+  deploymentServiceName: svc-b
+  serviceConfiguration:
+    helmChart:
+      values:
+        peer: svc-c.ns

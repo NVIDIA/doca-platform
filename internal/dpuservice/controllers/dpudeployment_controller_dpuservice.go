@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -488,26 +487,9 @@ func generateDPUService(dpuDeploymentNamespacedName types.NamespacedName,
 	dpuClusterSelector *metav1.LabelSelector,
 ) (*dpuservicev1.DPUService, error) {
 
-	var serviceConfigValues, serviceTemplateValues map[string]interface{}
-	if serviceConfig.Spec.ServiceConfiguration.HelmChart.Values != nil {
-		if err := json.Unmarshal(serviceConfig.Spec.ServiceConfiguration.HelmChart.Values.Raw, &serviceConfigValues); err != nil {
-			return nil, fmt.Errorf("error while unmarshaling serviceConfig values: %w", err)
-		}
-	}
-	if serviceTemplate.Spec.HelmChart.Values != nil {
-		if err := json.Unmarshal(serviceTemplate.Spec.HelmChart.Values.Raw, &serviceTemplateValues); err != nil {
-			return nil, fmt.Errorf("error while unmarshaling serviceTemplate values: %w", err)
-		}
-	}
-
-	mergedValues := utils.MergeMaps(serviceConfigValues, serviceTemplateValues)
-	var mergedValuesRawExtension *runtime.RawExtension
-	if mergedValues != nil {
-		mergedValuesRaw, err := json.Marshal(mergedValues)
-		if err != nil {
-			return nil, fmt.Errorf("error while marshaling merged ServiceTemplate and ServiceConfig values: %w", err)
-		}
-		mergedValuesRawExtension = &runtime.RawExtension{Raw: mergedValuesRaw}
+	mergedValuesRawExtension, err := utils.MergeServiceTemplateAndConfigurationValues(serviceTemplate, serviceConfig)
+	if err != nil {
+		return nil, err
 	}
 
 	dpuService := &dpuservicev1.DPUService{
