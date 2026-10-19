@@ -59,15 +59,6 @@ write_files:
 {{indent 6 .Content}}
 {{end}}
 
-{{- if .OVSRawScript}}
-  - path: /opt/dpf/ovs.sh
-    permissions: '0700'
-    content: |
-      #! /bin/bash
-      set -e
-{{indent 6 .OVSRawScript}}
-{{end}}
-
   - path: /opt/dpf/dpuagent.conf
     permissions: '0600'
     content: |

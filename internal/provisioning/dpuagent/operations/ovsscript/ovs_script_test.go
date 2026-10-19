@@ -18,6 +18,7 @@ package ovsscript
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -85,36 +86,59 @@ var _ = Describe("OVSscriptOperation", func() {
 	})
 
 	Context("Execute", func() {
-		It("should run the script and write a completion marker", func() {
-			mockScript := `
-#!/bin/bash
-set -e
-TEST_FILE=$(dirname "$0")/test
-echo -n "hello world" > "$TEST_FILE"
-`
-			mockScriptPath := filepath.Join(tempDir, "mock.sh")
-			Expect(os.WriteFile(mockScriptPath, []byte(mockScript), 0755)).To(Succeed())
-			operation.scriptPath = mockScriptPath
+		It("writes the flavor script with header and 0700, runs it, and writes a completion marker", func() {
+			operation.scriptPath = filepath.Join(tempDir, "opt", "dpf", "ovs.sh")
+			outFile := filepath.Join(tempDir, "test")
+			raw := fmt.Sprintf("echo -n \"hello world\" > %s", outFile)
 			err := operation.Execute(context.Background(), &operations.Context{
-				Options: opts.Options{
-					SkipOVSRawScript: false,
-				},
+				DPUFlavor: dpuFlavorWithScript(raw),
 			})
 			Expect(err).NotTo(HaveOccurred())
-			data, err := os.ReadFile(filepath.Join(tempDir, "test"))
+
+			data, err := os.ReadFile(operation.scriptPath)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(string(data)).To(Equal("hello world"))
+			Expect(string(data)).To(Equal("#! /bin/bash\nset -e\n" + raw + "\n"))
+			info, err := os.Stat(operation.scriptPath)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(info.Mode().Perm()).To(Equal(os.FileMode(0700)))
+
+			out, err := os.ReadFile(outFile)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(out)).To(Equal("hello world"))
+
 			marker, err := os.ReadFile(operation.doneMarker)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(marker).To(BeEmpty())
 		})
 
+		It("re-writes the script from the current flavor on re-execution", func() {
+			operation.scriptPath = filepath.Join(tempDir, "opt", "dpf", "ovs.sh")
+			outFile := filepath.Join(tempDir, "out")
+			optCtx := &operations.Context{
+				DPUFlavor: dpuFlavorWithScript(fmt.Sprintf("echo -n first > %s", outFile)),
+			}
+			Expect(operation.Execute(context.Background(), optCtx)).To(Succeed())
+			out, err := os.ReadFile(outFile)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(out)).To(Equal("first"))
+
+			// An in-place reconfig deletes the marker and reloads the flavor.
+			Expect(os.Remove(operation.doneMarker)).To(Succeed())
+			optCtx.DPUFlavor.Spec.OVS.RawConfigScript = fmt.Sprintf("echo -n second > %s", outFile)
+			Expect(operation.Execute(context.Background(), optCtx)).To(Succeed())
+
+			out, err = os.ReadFile(outFile)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(out)).To(Equal("second"))
+			data, err := os.ReadFile(operation.scriptPath)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(data)).To(Equal("#! /bin/bash\nset -e\n" + optCtx.DPUFlavor.Spec.OVS.RawConfigScript + "\n"))
+		})
+
 		It("should not write a completion marker if the script fails", func() {
-			mockScriptPath := filepath.Join(tempDir, "fail.sh")
-			Expect(os.WriteFile(mockScriptPath, []byte("#!/bin/bash\nexit 1\n"), 0755)).To(Succeed())
-			operation.scriptPath = mockScriptPath
+			operation.scriptPath = filepath.Join(tempDir, "opt", "dpf", "ovs.sh")
 			err := operation.Execute(context.Background(), &operations.Context{
-				CurrentBootID: "boot-1",
+				DPUFlavor: dpuFlavorWithScript("exit 1"),
 			})
 			Expect(err).To(HaveOccurred())
 			Expect(operation.doneMarker).NotTo(BeAnExistingFile())
@@ -123,10 +147,14 @@ echo -n "hello world" > "$TEST_FILE"
 })
 
 func dpuFlavorWithOVSScript() provisioningv1.DPUFlavor {
+	return dpuFlavorWithScript("ovs-vsctl add-br br-hbn")
+}
+
+func dpuFlavorWithScript(script string) provisioningv1.DPUFlavor {
 	return provisioningv1.DPUFlavor{
 		Spec: provisioningv1.DPUFlavorSpec{
 			OVS: provisioningv1.DPUFlavorOVS{
-				RawConfigScript: "ovs-vsctl add-br br-hbn",
+				RawConfigScript: script,
 			},
 		},
 	}

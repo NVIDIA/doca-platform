@@ -31,6 +31,10 @@ import (
 
 const (
 	defaultScriptPath = "/opt/dpf/ovs.sh"
+	// scriptHeader is the header cloud-init used to prepend to /opt/dpf/ovs.sh.
+	// The agent now writes the file itself and keeps the same header, so flavor
+	// scripts still run with bash and stop on the first error.
+	scriptHeader = "#! /bin/bash\nset -e\n"
 	// DoneMarkerFileName is the OVS completion marker under the agent run directory.
 	// An in-place reconfig Run() deletes it so the script runs again in the same boot.
 	// A process restart keeps the marker and skips until reboot.
@@ -69,6 +73,11 @@ func (o *RunOVSScript) ShouldUpdateStatusBeforeContinue(ctx *operations.Context)
 }
 
 func (o *RunOVSScript) Execute(execCtx context.Context, optCtx *operations.Context) error {
+	// Write the script from the flavor on every execution, so the op runs the
+	// current flavor even when a reconfig Run() picked up an in-place edit.
+	if err := o.writeScript(optCtx.DPUFlavor.Spec.OVS.RawConfigScript); err != nil {
+		return err
+	}
 	script := o.script()
 	stdout, stderr, err := bash.Run(script)
 	if err != nil {
@@ -76,6 +85,40 @@ func (o *RunOVSScript) Execute(execCtx context.Context, optCtx *operations.Conte
 	}
 	if err := o.writeDoneMarker(); err != nil {
 		return err
+	}
+	return nil
+}
+
+// writeScript atomically replaces the OVS script with the flavor's raw script,
+// so a stale script written for an earlier flavor is never executed.
+func (o *RunOVSScript) writeScript(raw string) error {
+	path := o.script()
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create OVS script directory %s: %w", dir, err)
+	}
+	tmp, err := os.CreateTemp(dir, ".ovs-script-*")
+	if err != nil {
+		return fmt.Errorf("create temporary OVS script in %s: %w", dir, err)
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+	content := scriptHeader + raw
+	if !strings.HasSuffix(raw, "\n") {
+		content += "\n"
+	}
+	if _, err := tmp.WriteString(content); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write temporary OVS script %s: %w", tmp.Name(), err)
+	}
+	if err := tmp.Chmod(0700); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("chmod temporary OVS script %s: %w", tmp.Name(), err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temporary OVS script %s: %w", tmp.Name(), err)
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return fmt.Errorf("replace OVS script %s: %w", path, err)
 	}
 	return nil
 }
