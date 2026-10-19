@@ -764,10 +764,18 @@ func (r *DPUServiceReconciler) ensureNamespace(ctx context.Context, dpuClusterCl
 func (r *DPUServiceReconciler) summary(ctx context.Context, dpuService *dpuservicev1.DPUService) error {
 	defer conditions.SetSummary(dpuService)
 
-	// Get the list of clusters this DPUService targets.
+	// Get the DPUClusters targeted by this service.
 	dpuClusterConfigs, err := dpucluster.GetConfigs(ctx, r.Client)
 	if err != nil {
 		return err
+	}
+
+	// Apply the cluster selector only to services deployed to DPUClusters.
+	if !dpuService.ShouldDeployInCluster() {
+		dpuClusterConfigs, err = utils.GetMatchingDPUClusters(dpuClusterConfigs, dpuService.Spec.DPUClusterSelector)
+		if err != nil {
+			return err
+		}
 	}
 
 	applicationList := &argov1.ApplicationList{}
