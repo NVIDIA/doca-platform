@@ -177,7 +177,7 @@ OpenTelemetry Collector (OTEL) forwards observability signals from DPU clusters 
 
 ### Configuration
 
-OTEL Collector is **disabled by default**. It is enabled when at least one of `logging.endpoint` or `metrics.endpoint` is set; each signal is streamed only when its corresponding endpoint is configured.
+OTEL Collector is **disabled by default**. It is enabled when at least one of `logging.endpoint`, `metrics.endpoint` or `tracing.endpoint` is set; each signal is streamed only when its corresponding endpoint is configured.
 
 Stream logs to an OTLP endpoint:
 
@@ -398,7 +398,7 @@ see [Custom Configuration](user-managed-components.md#custom-configuration).
 
 ## Tracing
 
-DPF controllers can export distributed trace spans for their reconcile loops via OpenTelemetry, using the `tracing.k8s.io/traceparent` and `tracing.k8s.io/tracestate` annotations an upstream caller (e.g. carbide) sets on the CRs it creates, so a single request can be followed across DPF's own controllers.
+DPF controllers can export distributed trace spans for their reconcile loops via OpenTelemetry, using the `tracing.dpu.nvidia.com/traceparent` and `tracing.dpu.nvidia.com/tracestate` annotations an upstream caller (e.g. carbide) sets on the CRs it creates, so a single request can be followed across DPF's own controllers.
 
 `tracing.endpoint` is a single destination shared by two independent producers:
 
@@ -444,3 +444,12 @@ DPUService forwards only the pipelines in its own `config`.
 See [Custom Configuration](user-managed-components.md#custom-configuration).
 Disable the packaged collector with `spec.monitoring.openTelemetryCollector.disable: true` when the packaged trace
 forwarding should stop.
+
+### Viewing traces
+
+DPF only exports the spans. The reference monitoring stack deploys [Tempo](https://grafana.com/docs/tempo/latest/) as the trace backend and wires it into Grafana as a datasource named **Tempo**, alongside the **Loki** and **Prometheus** datasources. From Grafana:
+
+* **Explore → Tempo**, search by any span attribute (`controller`, `k8s.resource.kind`, `k8s.namespace.name`, `k8s.object.name`, ...) to find a trace.
+* A span also carries the kind and name of the controller owner of its object (`k8s.owner.kind`, `k8s.owner.name`). Search by them to find the reconciles of everything one owner created, for example `{ span.k8s.owner.kind = "DPUDeployment" && span.k8s.owner.name = "<dpudeployment>" }` for the objects a DPUDeployment created. Follow the chain by using the names that come back as the owner in the next query.
+* From a log line in Loki that contains a `traceID=` field, the **TraceID** derived field jumps straight to the matching trace in Tempo.
+* From a span in Tempo, **trace to logs** jumps to the matching Loki entries and **trace to metrics** jumps to that span's service in Prometheus.

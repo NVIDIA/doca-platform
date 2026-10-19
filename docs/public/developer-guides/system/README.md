@@ -10,6 +10,7 @@ This section provides comprehensive guides for developing and building conforman
 
 * [Developing a Conformant DPF System](integration.md) - Building DPF-compliant systems, including architecture patterns, implementation guidelines, and compliance requirements
 * [Conditions](conditions.md) - Understanding feature flags, system conditions, and how to implement feature-gating mechanisms in DPF systems
+* [Tracing](tracing.md) - Instrumenting a controller with OpenTelemetry trace spans, propagating trace context to objects it creates, and wiring a new binary
 * [Local Development](local-development.md) - Setting up development environments, tooling, and workflows for DPF system development
 * [End-To-End Testing](testing/end-to-end-testing.md) - Comprehensive testing strategies and frameworks for validating complete DPF system functionality
 * [Scale Testing](testing/scale-testing.md) - Performance and scalability testing methodologies for DPF systems under various load conditions
