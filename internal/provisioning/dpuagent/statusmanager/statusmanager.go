@@ -250,8 +250,8 @@ func mergeAgentStatus(dst, s *provisioningv1.AgentStatus) {
 	if s.Version != "" {
 		dst.Version = s.Version
 	}
-	if s.AppliedFlavorResourceVersion != "" {
-		dst.AppliedFlavorResourceVersion = s.AppliedFlavorResourceVersion
+	if s.AppliedFlavorGeneration != 0 {
+		dst.AppliedFlavorGeneration = s.AppliedFlavorGeneration
 	}
 	if s.TrustBundleHash != nil {
 		dst.TrustBundleHash = s.TrustBundleHash

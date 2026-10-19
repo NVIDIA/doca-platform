@@ -599,6 +599,71 @@ func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
 		require.NoError(t, op.Shutdown())
 	})
 
+	t.Run("stop waits for the loop and a restart resumes applies", func(t *testing.T) {
+		ccCh := make(chan string, 8)
+		var calls atomic.Int32
+		var blockFirst atomic.Bool
+		blockFirst.Store(true)
+		applyStarted := make(chan struct{})
+		releaseApply := make(chan struct{})
+		op := &NICProvisioning{
+			dmsServer:       &fakeDMSServer{running: true},
+			ccTerminationCh: ccCh,
+			applyRuntimeConfigFn: func(_ context.Context, _ *operations.Context, _ []nicconfigurationv1alpha1.NicDevice) []runtimeConfigDeviceResult {
+				calls.Add(1)
+				if blockFirst.CompareAndSwap(true, false) {
+					close(applyStarted)
+					<-releaseApply
+				}
+				return nil
+			},
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		optCtx := &operations.Context{
+			Status: newTestStatus(t, nil, provisioningv1.AgentStatus{Conditions: []metav1.Condition{}}),
+		}
+
+		op.StartRuntimeConfigLoop(ctx, optCtx)
+		<-applyStarted
+
+		// Stop must wait for the in-flight apply to finish.
+		stopped := make(chan struct{})
+		go func() {
+			op.StopRuntimeConfigLoop()
+			close(stopped)
+		}()
+		select {
+		case <-stopped:
+			t.Fatal("StopRuntimeConfigLoop returned while an apply was in flight")
+		case <-time.After(50 * time.Millisecond):
+		}
+		close(releaseApply)
+		<-stopped
+
+		// The loop goroutine has exited, so nothing consumes pending signals and
+		// no further apply can happen.
+		op.requestRuntimeReapply()
+		ccCh <- "mlx5_0"
+		assert.Equal(t, int32(1), calls.Load())
+
+		// A restart applies everything again, including what was signaled above.
+		op.StartRuntimeConfigLoop(ctx, optCtx)
+		require.Eventually(t, func() bool { return calls.Load() >= 2 }, time.Second, 10*time.Millisecond)
+
+		op.StopRuntimeConfigLoop()
+		require.NoError(t, op.Shutdown())
+	})
+
+	t.Run("stop is a no-op when the loop is not running", func(t *testing.T) {
+		op := &NICProvisioning{}
+		op.StopRuntimeConfigLoop()
+		// No DMS session: start stays a no-op, and stop after it is safe too.
+		op.StartRuntimeConfigLoop(context.Background(), &operations.Context{})
+		op.StopRuntimeConfigLoop()
+		assert.Nil(t, op.runtimeCancel)
+	})
+
 	t.Run("retries only failed devices until they succeed", func(t *testing.T) {
 		originalInterval := RuntimeConfigInterval
 		originalRetry := RuntimeConfigRetryInterval
@@ -652,6 +717,291 @@ func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
 		assert.Empty(t, op.failedDevices)
 		assert.Equal(t, &provisioningv1.EWNICRuntimeConfigStatus{DiscoveredDevices: ptr.To(int32(2)), ConfiguredDevices: ptr.To(int32(2))}, optCtx.Status.GetLocal().EWNICRuntimeConfig)
 	})
+
+	t.Run("reloads the DPUFlavor before retrying a failed device", func(t *testing.T) {
+		originalRetry := RuntimeConfigRetryInterval
+		RuntimeConfigRetryInterval = 10 * time.Millisecond
+		t.Cleanup(func() { RuntimeConfigRetryInterval = originalRetry })
+
+		scheme := runtime.NewScheme()
+		utilruntime.Must(provisioningv1.AddToScheme(scheme))
+		flavor := &provisioningv1.DPUFlavor{
+			ObjectMeta: metav1.ObjectMeta{Name: "flavor-1", Namespace: "test-ns"},
+			Spec: provisioningv1.DPUFlavorSpec{
+				EWNicConfigurations: []provisioningv1.NicConfiguration{{NumVfs: 1}},
+			},
+		}
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(flavor).Build()
+		stored := &provisioningv1.DPUFlavor{}
+		require.NoError(t, fakeClient.Get(context.Background(), crclient.ObjectKey{Namespace: "test-ns", Name: "flavor-1"}, stored))
+		updated := stored.DeepCopy()
+		updated.Spec.EWNicConfigurations[0].NumVfs = 8
+		// The fake client does not bump generation. The apiserver does on this spec edit.
+		updated.Generation = stored.Generation + 1
+		require.NoError(t, fakeClient.Update(context.Background(), updated))
+
+		var firstVfs, retryVfs atomic.Int32
+		op := &NICProvisioning{
+			dmsServer:            &fakeDMSServer{running: true},
+			discoveredNICDevices: []nicconfigurationv1alpha1.NicDevice{newNicDevice("SN1", "0000:03:00.0")},
+			applyRuntimeConfigFn: func(_ context.Context, optCtx *operations.Context, applied []nicconfigurationv1alpha1.NicDevice) []runtimeConfigDeviceResult {
+				flavor := optCtx.DPUFlavor
+				vfs := int32(flavor.Spec.FirstEWNicConfiguration().NumVfs)
+				if firstVfs.CompareAndSwap(0, vfs) {
+					return failRuntimeConfig(applied, errors.New("apply failed"))
+				}
+				retryVfs.Store(vfs)
+				return nil
+			},
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		optCtx := &operations.Context{
+			Client: fakeClient,
+			Options: opts.Options{
+				DPUNamespace: "test-ns",
+			},
+
+			DeferredNVConfigParams: []operations.DeferredNVConfigParam{{Device: "0000:03:00.0", Params: "FOO=1"}},
+			Status:                 newTestStatus(t, nil, provisioningv1.AgentStatus{}),
+			DPUFlavor:              *stored,
+		}
+
+		optCtx.SetResolvedNVConfig(&operations.ResolvedNVConfig{})
+
+		op.StartRuntimeConfigLoop(ctx, optCtx)
+		require.Eventually(t, func() bool { return retryVfs.Load() != 0 }, time.Second, 10*time.Millisecond)
+		cancel()
+		require.NoError(t, op.Shutdown())
+
+		assert.Equal(t, int32(1), firstVfs.Load())
+		assert.Equal(t, int32(8), retryVfs.Load())
+		sharedFlavor := optCtx.DPUFlavor
+		assert.Equal(t, 1, sharedFlavor.Spec.FirstEWNicConfiguration().NumVfs)
+		assert.Equal(t, []operations.DeferredNVConfigParam{{Device: "0000:03:00.0", Params: "FOO=1"}}, optCtx.DeferredNVConfigParams)
+		assert.NotNil(t, optCtx.GetResolvedNVConfig())
+	})
+
+	t.Run("keeps the fetched DPUFlavor for a later reapply", func(t *testing.T) {
+		originalRetry := RuntimeConfigRetryInterval
+		originalCoalesce := CCTerminationCoalesceWindow
+		RuntimeConfigRetryInterval = 10 * time.Millisecond
+		CCTerminationCoalesceWindow = 20 * time.Millisecond
+		t.Cleanup(func() {
+			RuntimeConfigRetryInterval = originalRetry
+			CCTerminationCoalesceWindow = originalCoalesce
+		})
+
+		scheme := runtime.NewScheme()
+		utilruntime.Must(provisioningv1.AddToScheme(scheme))
+		flavor := &provisioningv1.DPUFlavor{
+			ObjectMeta: metav1.ObjectMeta{Name: "flavor-1", Namespace: "test-ns"},
+			Spec:       provisioningv1.DPUFlavorSpec{EWNicConfigurations: []provisioningv1.NicConfiguration{{NumVfs: 1}}},
+		}
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(flavor).Build()
+		stored := &provisioningv1.DPUFlavor{}
+		require.NoError(t, fakeClient.Get(context.Background(), crclient.ObjectKey{Namespace: "test-ns", Name: "flavor-1"}, stored))
+		updated := stored.DeepCopy()
+		updated.Spec.EWNicConfigurations[0].NumVfs = 8
+		updated.Generation = stored.Generation + 1
+		require.NoError(t, fakeClient.Update(context.Background(), updated))
+
+		ccCh := make(chan string, 1)
+		var firstVfs, retryVfs, reapplyVfs atomic.Int32
+		op := &NICProvisioning{
+			dmsServer:            &fakeDMSServer{running: true},
+			ccTerminationCh:      ccCh,
+			discoveredNICDevices: []nicconfigurationv1alpha1.NicDevice{newNicDevice("SN1", "0000:03:00.0")},
+			applyRuntimeConfigFn: func(_ context.Context, optCtx *operations.Context, applied []nicconfigurationv1alpha1.NicDevice) []runtimeConfigDeviceResult {
+				flavor := optCtx.DPUFlavor
+				vfs := int32(flavor.Spec.FirstEWNicConfiguration().NumVfs)
+				if firstVfs.CompareAndSwap(0, vfs) {
+					return failRuntimeConfig(applied, errors.New("apply failed"))
+				}
+				if retryVfs.CompareAndSwap(0, vfs) {
+					return nil
+				}
+				reapplyVfs.Store(vfs)
+				return nil
+			},
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		optCtx := &operations.Context{
+			Client:  fakeClient,
+			Options: opts.Options{DPUNamespace: "test-ns"},
+
+			Status:    newTestStatus(t, nil, provisioningv1.AgentStatus{}),
+			DPUFlavor: *stored,
+		}
+
+		op.StartRuntimeConfigLoop(ctx, optCtx)
+		require.Eventually(t, func() bool { return retryVfs.Load() != 0 }, time.Second, 10*time.Millisecond)
+		ccCh <- "mlx5_0"
+		require.Eventually(t, func() bool { return reapplyVfs.Load() != 0 }, time.Second, 10*time.Millisecond)
+		cancel()
+		require.NoError(t, op.Shutdown())
+
+		assert.Equal(t, int32(1), firstVfs.Load())
+		assert.Equal(t, int32(8), retryVfs.Load())
+		assert.Equal(t, int32(8), reapplyVfs.Load())
+		sharedFlavor := optCtx.DPUFlavor
+		assert.Equal(t, 1, sharedFlavor.Spec.FirstEWNicConfiguration().NumVfs)
+	})
+
+	t.Run("a newer shared DPUFlavor wins over the fetched one", func(t *testing.T) {
+		originalRetry := RuntimeConfigRetryInterval
+		originalCoalesce := CCTerminationCoalesceWindow
+		RuntimeConfigRetryInterval = 10 * time.Millisecond
+		CCTerminationCoalesceWindow = 20 * time.Millisecond
+		t.Cleanup(func() {
+			RuntimeConfigRetryInterval = originalRetry
+			CCTerminationCoalesceWindow = originalCoalesce
+		})
+
+		scheme := runtime.NewScheme()
+		utilruntime.Must(provisioningv1.AddToScheme(scheme))
+		flavor := &provisioningv1.DPUFlavor{
+			ObjectMeta: metav1.ObjectMeta{Name: "flavor-1", Namespace: "test-ns"},
+			Spec:       provisioningv1.DPUFlavorSpec{EWNicConfigurations: []provisioningv1.NicConfiguration{{NumVfs: 1}}},
+		}
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(flavor).Build()
+		stored := &provisioningv1.DPUFlavor{}
+		require.NoError(t, fakeClient.Get(context.Background(), crclient.ObjectKey{Namespace: "test-ns", Name: "flavor-1"}, stored))
+		updated := stored.DeepCopy()
+		updated.Spec.EWNicConfigurations[0].NumVfs = 8
+		updated.Generation = stored.Generation + 1
+		require.NoError(t, fakeClient.Update(context.Background(), updated))
+
+		ccCh := make(chan string, 1)
+		var calls atomic.Int32
+		var retryVfs, reapplyVfs atomic.Int32
+		op := &NICProvisioning{
+			dmsServer:            &fakeDMSServer{running: true},
+			ccTerminationCh:      ccCh,
+			discoveredNICDevices: []nicconfigurationv1alpha1.NicDevice{newNicDevice("SN1", "0000:03:00.0")},
+			applyRuntimeConfigFn: func(_ context.Context, applyCtx *operations.Context, applied []nicconfigurationv1alpha1.NicDevice) []runtimeConfigDeviceResult {
+				flavor := applyCtx.DPUFlavor
+				vfs := int32(flavor.Spec.FirstEWNicConfiguration().NumVfs)
+				switch calls.Add(1) {
+				case 1:
+					return failRuntimeConfig(applied, errors.New("apply failed"))
+				case 2:
+					retryVfs.Store(vfs)
+					return nil
+				default:
+					reapplyVfs.Store(vfs)
+					return nil
+				}
+			},
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		optCtx := &operations.Context{
+			Client:  fakeClient,
+			Options: opts.Options{DPUNamespace: "test-ns"},
+
+			Status:    newTestStatus(t, nil, provisioningv1.AgentStatus{}),
+			DPUFlavor: *stored,
+		}
+
+		op.StartRuntimeConfigLoop(ctx, optCtx)
+		require.Eventually(t, func() bool { return retryVfs.Load() == 8 }, time.Second, 10*time.Millisecond)
+
+		newer := stored.DeepCopy()
+		newer.Generation = stored.Generation + 2
+		newer.Spec.EWNicConfigurations[0].NumVfs = 16
+		optCtx.DPUFlavor = *newer
+		ccCh <- "mlx5_0"
+		require.Eventually(t, func() bool { return reapplyVfs.Load() != 0 }, time.Second, 10*time.Millisecond)
+		cancel()
+		require.NoError(t, op.Shutdown())
+
+		assert.Equal(t, int32(16), reapplyVfs.Load())
+		shared := optCtx.DPUFlavor
+		assert.Equal(t, 16, shared.Spec.FirstEWNicConfiguration().NumVfs)
+	})
+
+	t.Run("a failed flavor GET keeps the fetched DPUFlavor", func(t *testing.T) {
+		originalRetry := RuntimeConfigRetryInterval
+		RuntimeConfigRetryInterval = 10 * time.Millisecond
+		t.Cleanup(func() { RuntimeConfigRetryInterval = originalRetry })
+
+		scheme := runtime.NewScheme()
+		utilruntime.Must(provisioningv1.AddToScheme(scheme))
+		flavor := &provisioningv1.DPUFlavor{
+			ObjectMeta: metav1.ObjectMeta{Name: "flavor-1", Namespace: "test-ns"},
+			Spec:       provisioningv1.DPUFlavorSpec{EWNicConfigurations: []provisioningv1.NicConfiguration{{NumVfs: 1}}},
+		}
+		var getFail atomic.Bool
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(flavor).WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c crclient.WithWatch, key crclient.ObjectKey, obj crclient.Object, opts ...crclient.GetOption) error {
+				if getFail.Load() {
+					return errors.New("get failed")
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).Build()
+		stored := &provisioningv1.DPUFlavor{}
+		require.NoError(t, fakeClient.Get(context.Background(), crclient.ObjectKey{Namespace: "test-ns", Name: "flavor-1"}, stored))
+		updated := stored.DeepCopy()
+		updated.Spec.EWNicConfigurations[0].NumVfs = 8
+		updated.Generation = stored.Generation + 1
+		require.NoError(t, fakeClient.Update(context.Background(), updated))
+
+		var applies atomic.Int32
+		var secondVfs, thirdVfs atomic.Int32
+		op := &NICProvisioning{
+			dmsServer:            &fakeDMSServer{running: true},
+			discoveredNICDevices: []nicconfigurationv1alpha1.NicDevice{newNicDevice("SN1", "0000:03:00.0")},
+			applyRuntimeConfigFn: func(_ context.Context, applyCtx *operations.Context, applied []nicconfigurationv1alpha1.NicDevice) []runtimeConfigDeviceResult {
+				flavor := applyCtx.DPUFlavor
+				vfs := int32(flavor.Spec.FirstEWNicConfiguration().NumVfs)
+				switch applies.Add(1) {
+				case 1:
+					return failRuntimeConfig(applied, errors.New("apply failed"))
+				case 2:
+					secondVfs.Store(vfs)
+					getFail.Store(true)
+					return failRuntimeConfig(applied, errors.New("apply failed"))
+				default:
+					thirdVfs.Store(vfs)
+					return nil
+				}
+			},
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		optCtx := &operations.Context{
+			Client:  fakeClient,
+			Options: opts.Options{DPUNamespace: "test-ns"},
+
+			Status:    newTestStatus(t, nil, provisioningv1.AgentStatus{}),
+			DPUFlavor: *stored,
+		}
+
+		op.StartRuntimeConfigLoop(ctx, optCtx)
+		require.Eventually(t, func() bool { return thirdVfs.Load() != 0 }, time.Second, 10*time.Millisecond)
+		cancel()
+		require.NoError(t, op.Shutdown())
+
+		assert.Equal(t, int32(8), secondVfs.Load())
+		assert.Equal(t, int32(8), thirdVfs.Load())
+		sharedFlavor := optCtx.DPUFlavor
+		assert.Equal(t, 1, sharedFlavor.Spec.FirstEWNicConfiguration().NumVfs)
+	})
+}
+
+func TestNewerFlavor(t *testing.T) {
+	shared := &provisioningv1.DPUFlavor{ObjectMeta: metav1.ObjectMeta{Name: "flavor-1", Generation: 1, ResourceVersion: "9"}}
+	remembered := shared.DeepCopy()
+	remembered.Generation = 2
+	remembered.ResourceVersion = "1"
+
+	assert.Same(t, remembered, newerFlavor(shared, remembered))
+
+	shared.Generation = 3
+	assert.Same(t, shared, newerFlavor(shared, remembered))
+
+	shared.Generation = 2
+	shared.ResourceVersion = "100"
+	assert.Same(t, remembered, newerFlavor(shared, remembered))
 }
 
 func TestNICProvisioning_applyNVConfigAndUpdateStatus(t *testing.T) {

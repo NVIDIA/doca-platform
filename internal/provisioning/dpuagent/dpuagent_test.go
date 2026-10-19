@@ -381,6 +381,105 @@ var _ = Describe("DPUAgent", func() {
 	Describe("Run", func() {
 		noopMarker := func(_ string) error { return nil }
 
+		It("reloads the DPUFlavor before retrying a failed operation", func() {
+			dpu := newTestDPU()
+			flavor := &provisioningv1.DPUFlavor{
+				ObjectMeta: metav1.ObjectMeta{Name: "flavor-1", Namespace: "test-ns"},
+				Spec: provisioningv1.DPUFlavorSpec{
+					Sysctl: provisioningv1.DPUFLavorSysctl{Parameters: []string{"bad"}},
+				},
+			}
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu, flavor).WithStatusSubresource(dpu).Build()
+			stored := &provisioningv1.DPUFlavor{}
+			Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "flavor-1"}, stored)).To(Succeed())
+
+			var attempts []string
+			agent := &DPUAgent{
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: noopMarker,
+				optCtx:              newTestOptCtx(fakeClient),
+				operations: []operations.Operation{
+					&mockOperation{
+						name:          "nvconfig",
+						conditionType: "NVConfigApplied",
+						executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
+							param := ""
+							if len(optCtx.DPUFlavor.Spec.Sysctl.Parameters) > 0 {
+								param = optCtx.DPUFlavor.Spec.Sysctl.Parameters[0]
+							}
+							attempts = append(attempts, param)
+							if param == "bad" {
+								optCtx.SetResolvedNVConfig(&operations.ResolvedNVConfig{})
+								optCtx.DeferredNVConfigParams = []operations.DeferredNVConfigParam{{Device: "0000:03:00.0", Params: "FOO=1"}}
+								updated := stored.DeepCopy()
+								updated.Spec.Sysctl.Parameters = []string{"good"}
+								// The fake client does not bump generation. The apiserver does on this spec edit.
+								updated.Generation = stored.Generation + 1
+								Expect(fakeClient.Update(execCtx, updated)).To(Succeed())
+								return fmt.Errorf("invalid nvconfig")
+							}
+							Expect(optCtx.GetResolvedNVConfig()).To(BeNil())
+							Expect(optCtx.DeferredNVConfigParams).To(Equal([]operations.DeferredNVConfigParam{{Device: "0000:03:00.0", Params: "FOO=1"}}))
+							return nil
+						},
+					},
+				},
+			}
+			agent.optCtx.DPUFlavor = *stored
+			Expect(agent.Run(ctx)).To(Succeed())
+			Expect(attempts).To(Equal([]string{"bad", "good"}))
+		})
+
+		It("keeps the flavor loaded at the start of the Run while operations succeed", func() {
+			dpu := newTestDPU()
+			flavor := &provisioningv1.DPUFlavor{
+				ObjectMeta: metav1.ObjectMeta{Name: "flavor-1", Namespace: "test-ns"},
+				Spec: provisioningv1.DPUFlavorSpec{
+					Sysctl: provisioningv1.DPUFLavorSysctl{Parameters: []string{"original"}},
+				},
+			}
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu, flavor).WithStatusSubresource(dpu).Build()
+			stored := &provisioningv1.DPUFlavor{}
+			Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "flavor-1"}, stored)).To(Succeed())
+
+			var seen []string
+			readParam := func(optCtx *operations.Context) string {
+				if len(optCtx.DPUFlavor.Spec.Sysctl.Parameters) == 0 {
+					return ""
+				}
+				return optCtx.DPUFlavor.Spec.Sysctl.Parameters[0]
+			}
+			agent := &DPUAgent{
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: noopMarker,
+				optCtx:              newTestOptCtx(fakeClient),
+				operations: []operations.Operation{
+					&mockOperation{
+						name:          "first",
+						conditionType: "First",
+						executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
+							seen = append(seen, readParam(optCtx))
+							updated := stored.DeepCopy()
+							updated.Spec.Sysctl.Parameters = []string{"patched"}
+							Expect(fakeClient.Update(execCtx, updated)).To(Succeed())
+							return nil
+						},
+					},
+					&mockOperation{
+						name:          "second",
+						conditionType: "Second",
+						executeFunc: func(_ context.Context, optCtx *operations.Context) error {
+							seen = append(seen, readParam(optCtx))
+							return nil
+						},
+					},
+				},
+			}
+			agent.optCtx.DPUFlavor = *stored
+			Expect(agent.Run(ctx)).To(Succeed())
+			Expect(seen).To(Equal([]string{"original", "original"}))
+		})
+
 		It("should include package installation after static file verification", func() {
 			agent := NewDPUAgent(&operations.Context{})
 			names := make([]string, 0, len(agent.operations))
@@ -948,11 +1047,13 @@ var _ = Describe("DPUAgent", func() {
 			Expect(agent.optCtx.Status.GetLocal().Version).To(Equal("v30.0.0"))
 		})
 
-		It("writes version on the first status push and the flavor resourceVersion only after success", func() {
+		It("writes version on the first status push and the flavor generation only after success", func() {
 			dpu := newTestDPU()
 			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
 			optCtx := newTestOptCtx(fakeClient)
-			optCtx.DPUFlavor.ResourceVersion = "42"
+			dpuFlavorCopy := optCtx.DPUFlavor
+			dpuFlavorCopy.Generation = 42
+			optCtx.DPUFlavor = dpuFlavorCopy
 			agent := &DPUAgent{
 				retryInterval:        testRetryInterval,
 				removeDoneMarkerFunc: noopMarker,
@@ -972,14 +1073,14 @@ var _ = Describe("DPUAgent", func() {
 			Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "test-dpu"}, latestDPU)).To(Succeed())
 			Expect(latestDPU.Status.AgentStatus).NotTo(BeNil())
 			Expect(latestDPU.Status.AgentStatus.Version).To(Equal(agentStatusVersion()))
-			Expect(latestDPU.Status.AgentStatus.AppliedFlavorResourceVersion).To(BeEmpty())
-			Expect(agent.optCtx.Status.GetLocal().AppliedFlavorResourceVersion).To(BeEmpty())
+			Expect(latestDPU.Status.AgentStatus.AppliedFlavorGeneration).To(BeZero())
+			Expect(agent.optCtx.Status.GetLocal().AppliedFlavorGeneration).To(BeZero())
 
 			agent.writeDoneMarkerFunc = noopMarker
 			Expect(agent.Run(ctx)).To(Succeed())
 			Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "test-dpu"}, latestDPU)).To(Succeed())
 			Expect(latestDPU.Status.AgentStatus.Version).To(Equal(agentStatusVersion()))
-			Expect(latestDPU.Status.AgentStatus.AppliedFlavorResourceVersion).To(Equal("42"))
+			Expect(latestDPU.Status.AgentStatus.AppliedFlavorGeneration).To(Equal(int64(42)))
 		})
 
 		It("does not start a second Run while still in DPU Config", func() {
@@ -1005,7 +1106,9 @@ var _ = Describe("DPUAgent", func() {
 				Expect(optCtx.ReapplyConfig).To(BeTrue())
 				return nil
 			})
-			agent.optCtx.DPUFlavor.ResourceVersion = "99"
+			dpuFlavorCopy := agent.optCtx.DPUFlavor
+			dpuFlavorCopy.Generation = 99
+			agent.optCtx.DPUFlavor = dpuFlavorCopy
 			Expect(reconcile(agent, fakeClient)).To(Succeed())
 			Expect(runs).To(Equal(0))
 
@@ -1018,7 +1121,7 @@ var _ = Describe("DPUAgent", func() {
 			latestDPU := &provisioningv1.DPU{}
 			Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "test-dpu"}, latestDPU)).To(Succeed())
 			Expect(latestDPU.Status.AgentStatus.Version).To(Equal(agentStatusVersion()))
-			Expect(latestDPU.Status.AgentStatus.AppliedFlavorResourceVersion).To(Equal("99"))
+			Expect(latestDPU.Status.AgentStatus.AppliedFlavorGeneration).To(Equal(int64(99)))
 		})
 
 		It("starts one Run when phase returns to DPU Config after Host Network Configuration", func() {
