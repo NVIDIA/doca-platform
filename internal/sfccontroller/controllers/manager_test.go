@@ -21,6 +21,7 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/utils"
+	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -136,14 +137,12 @@ var _ = Describe("manager test", func() {
 		otherNSI := newTestNSI("other-nsi", utils.NSIObjectsNamespace, "other-node")
 		strayNSI := newTestNSI("stray-nsi", ns.Name, testNodeName)
 
+		// Envtest has no namespace garbage collector. Remove every fixture so
+		// later controllers cannot reconcile these objects with unrelated mocks.
 		for _, obj := range []client.Object{localChain, otherChain, unsetChain, localSI, otherSI, localNSI, otherNSI, strayNSI} {
 			Expect(testClient.Create(ctx, obj)).To(Succeed())
+			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, obj)
 		}
-		DeferCleanup(func() {
-			for _, obj := range []client.Object{localNSI, otherNSI} {
-				Expect(client.IgnoreNotFound(testClient.Delete(ctx, obj))).To(Succeed())
-			}
-		})
 
 		Eventually(func(g Gomega) {
 			chains := &dpuservicev1.ServiceChainList{}
