@@ -283,34 +283,6 @@ var _ = Describe("ReleaseHostOSInit", func() {
 		Expect(setPCIs).To(Equal([]string{secondPCI, secondPCI}))
 	})
 
-	It("soft-retries without mlxreg when current boot still has DELAY_HOST_OS_INIT pending", func() {
-		calls := 0
-		optCtx := newOptCtx(releaseRequiredFlavor())
-		optCtx.CurrentBootID = "boot-id"
-		optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
-			s.LastObservedPendingNVConfig = &provisioningv1.PendingNVConfigState{
-				BootID: "boot-id",
-				Devices: []provisioningv1.PendingNVConfigDevice{{
-					Device: testPCI,
-					Entries: []provisioningv1.PendingNVConfigEntry{{
-						Name: "delay_host_os_init", Current: "DEVICE_DEFAULT(0)", NextBoot: "ENABLE_USER(3)",
-					}},
-				}},
-			}
-		})
-		op := &ReleaseHostOSInit{runBash: func(string) (bytes.Buffer, bytes.Buffer, error) {
-			calls++
-			return bytes.Buffer{}, bytes.Buffer{}, nil
-		}}
-
-		err := op.Execute(context.Background(), optCtx)
-		Expect(err).To(MatchError(ContainSubstring("host OS init release blocked")))
-		Expect(err.Error()).To(ContainSubstring("DELAY_HOST_OS_INIT"))
-		Expect(err.Error()).To(ContainSubstring(testPCI))
-		Expect(calls).To(Equal(0))
-		Expect(optCtx.Status.GetLocal().HostOSInit).To(BeNil())
-	})
-
 	It("returns error when gate is not ready without terminal hostOSInit", func() {
 		runBash := func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 			if strings.Contains(cmd, "mlxreg") && strings.Contains(cmd, "--get") {
@@ -412,21 +384,4 @@ var _ = Describe("ReleaseHostOSInit", func() {
 		Expect(ok).To(BeTrue())
 		Expect(value).To(Equal("0x1"))
 	})
-
-	It("keeps flavor and observed NVConfig value parsing distinct", func() {
-		mode, ok := parseObservedNVConfigMode("ENABLE_USER(3)")
-		Expect(ok).To(BeTrue())
-		Expect(mode).To(Equal(uint64(3)))
-		_, ok = parseObservedNVConfigMode("FUTURE_MODE(3)")
-		Expect(ok).To(BeFalse())
-		Expect(isFlavorUserMode("ENABLE_USER(3)")).To(BeFalse())
-	})
 })
-
-func isFlavorUserMode(value string) bool {
-	flavor := provisioningv1.DPUFlavor{Spec: provisioningv1.DPUFlavorSpec{
-		NVConfig: []provisioningv1.NVConfig{{Parameters: []string{"DELAY_HOST_OS_INIT=" + value}}},
-	}}
-	resolved, err := nvconfig.EnsureResolved(newOptCtx(flavor))
-	return err == nil && resolved.HostOSInitRequired
-}

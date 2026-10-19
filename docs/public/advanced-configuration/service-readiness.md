@@ -188,8 +188,6 @@ waiting on the gate. The message identifies the cause:
 
 * `waiting for DPUServiceCriticalPodsReady` or `waiting for OperationalReady` means the DPU is gated rather than broken.
   Investigate the gating condition on `status.operationalConditions`.
-* `DELAY_HOST_OS_INIT did not activate on PCI <pci> after reboot` means the host was warm-rebooted instead of
-  power-cycled, so the parameter is staged but not active.
 * `unexpected HOST_OS_INIT_CTRL state on PCI <pci>: clear=... delay=... mode=...` most often means `mode` is not `3`,
   so `DELAY_HOST_OS_INIT` is not active on this boot and the host was never held. A power cycle is needed to apply it.
 * A message beginning `mlxreg -d <pci> --reg_name HOST_OS_INIT_CTRL --get:` means the register could not be read. Check

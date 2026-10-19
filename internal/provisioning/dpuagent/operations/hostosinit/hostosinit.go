@@ -28,7 +28,6 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/nvconfig"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
-	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -81,10 +80,6 @@ func (r *ReleaseHostOSInit) Execute(execCtx context.Context, optCtx *operations.
 	}
 	if !resolved.HostOSInitRequired {
 		return r.patchSkipped(optCtx, "ReleaseNotRequired", "DELAY_HOST_OS_INIT is not set to ENABLE_USER (0x3) in flavor nvconfig")
-	}
-
-	if mismatch := pendingHostOSInitMismatch(optCtx, resolved.HostOSInitPCIs); mismatch != "" {
-		return fmt.Errorf("host OS init release blocked: %s", mismatch)
 	}
 
 	states := make([]hostOSInitRegisterState, len(resolved.HostOSInitPCIs))
@@ -154,46 +149,6 @@ func (r *ReleaseHostOSInit) readHoldRegister(pci string) (hostOSInitRegisterStat
 		return hostOSInitReleased, nil
 	}
 	return hostOSInitHeld, nil
-}
-
-func pendingHostOSInitMismatch(optCtx *operations.Context, pcis []string) string {
-	pending := optCtx.Status.GetLocal().LastObservedPendingNVConfig
-	if pending == nil || pending.BootID == "" || pending.BootID != optCtx.CurrentBootID {
-		return ""
-	}
-	targets := make(map[string]struct{}, len(pcis))
-	for _, pci := range pcis {
-		targets[pciutil.NormalizeAddress(pci)] = struct{}{}
-	}
-	for _, device := range pending.Devices {
-		if _, ok := targets[pciutil.NormalizeAddress(device.Device)]; !ok {
-			continue
-		}
-		for _, entry := range device.Entries {
-			if !strings.EqualFold(strings.TrimSpace(entry.Name), "DELAY_HOST_OS_INIT") {
-				continue
-			}
-			current, currentOK := parseObservedNVConfigMode(entry.Current)
-			next, nextOK := parseObservedNVConfigMode(entry.NextBoot)
-			if currentOK && nextOK && current < 3 && next == 3 {
-				return fmt.Sprintf("DELAY_HOST_OS_INIT did not activate on PCI %s after reboot (current=%s, next=%s)",
-					device.Device, entry.Current, entry.NextBoot)
-			}
-		}
-	}
-	return ""
-}
-
-func parseObservedNVConfigMode(value string) (uint64, bool) {
-	value = strings.ToUpper(strings.TrimSpace(value))
-	switch value {
-	case "DEVICE_DEFAULT(0)":
-		return 0, true
-	case "ENABLE_USER(3)":
-		return 3, true
-	}
-	mode, err := parseMlxregUint(value)
-	return mode, err == nil && mode <= 3
 }
 
 func (r *ReleaseHostOSInit) mlxregGet(pci string) (string, error) {
