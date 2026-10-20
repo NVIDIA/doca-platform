@@ -19,7 +19,9 @@ package underlaymtu
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -28,6 +30,8 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/utils/netplan"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
+	"github.com/vishvananda/netlink"
+	"gopkg.in/yaml.v3"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 )
@@ -37,6 +41,11 @@ const (
 	ovsTimeout         = "5"
 	defaultNetplanRoot = "/etc/netplan"
 	pfMTUNetplanFile   = "97-pf-mtu.yaml"
+)
+
+var (
+	errNetplanApplied = errors.New("netplan underlay MTU applied, waiting for networkd to finish reconfiguring br-comm-ch")
+	errLinkMTU        = fmt.Errorf("underlay link does not have MTU %d", underlayMTU)
 )
 
 // SetNetplanUnderlayMTU writes netplan MTU 9216 for N/S uplinks and host PF
@@ -51,6 +60,9 @@ type SetNetplanUnderlayMTU struct {
 	runBash          func(cmd string) (bytes.Buffer, bytes.Buffer, error)
 	listPFRepsFunc   func() ([]string, error)
 	applyNetplanFunc func() error
+	linkMTUFunc      func(dev string) (int, error)
+	// applied is true once netplan apply has succeeded for the current 97-pf-mtu.yaml content.
+	applied bool
 }
 
 func (s *SetNetplanUnderlayMTU) Name() string {
@@ -99,9 +111,32 @@ func (s *SetNetplanUnderlayMTU) Execute(execCtx context.Context, optCtx *operati
 		klog.Info("All underlay ports have OVS mtu_request; skipping netplan underlay MTU")
 		return nil
 	}
-	if err := s.writeNetplan(needNetplan); err != nil {
-		return err
+	config := netplanConfig(needNetplan)
+	name := filepath.Join(s.root(), pfMTUNetplanFile)
+	desired, err := yaml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal netplan underlay MTU: %w", err)
 	}
+	// A matching file alone is not enough: an earlier apply may have failed or been interrupted.
+	// s.applied limits netplan apply to once per process, so a link that never reaches the MTU
+	// fails the step instead of re-running netplan apply, and dropping the br-comm-ch lease, on
+	// every retry.
+	if current, _ := os.ReadFile(name); bytes.Equal(current, desired) {
+		err := s.checkLinksMTU(needNetplan)
+		if err == nil {
+			klog.Infof("Netplan underlay MTU already applied for %s", strings.Join(needNetplan, ", "))
+			return nil
+		}
+		if s.applied {
+			return fmt.Errorf("netplan apply did not set the underlay MTU: %w", err)
+		}
+		klog.Infof("Re-applying netplan underlay MTU: %v", err)
+	}
+	s.applied = false
+	if err := config.WriteToFile(name); err != nil {
+		return fmt.Errorf("failed to write %s: %w", name, err)
+	}
+	klog.Infof("Wrote netplan underlay MTU %d for interfaces without OVS mtu_request: %s", underlayMTU, strings.Join(needNetplan, ", "))
 	apply := s.applyNetplanFunc
 	if apply == nil {
 		apply = runNetplanApply
@@ -109,14 +144,53 @@ func (s *SetNetplanUnderlayMTU) Execute(execCtx context.Context, optCtx *operati
 	if err := apply(); err != nil {
 		return fmt.Errorf("failed to apply netplan underlay MTU: %w", err)
 	}
+	s.applied = true
+	if optCtx.Options.ZeroTrustMode {
+		return nil
+	}
+	// netplan apply returns before networkd reloads br-comm-ch. Failing here makes the agent
+	// retry after its retry interval, so Check Bridge sees the settled address.
+	return errNetplanApplied
+}
+
+// root returns the netplan directory, defaulting to /etc/netplan.
+func (s *SetNetplanUnderlayMTU) root() string {
+	if s.netplanRoot == "" {
+		return defaultNetplanRoot
+	}
+	return s.netplanRoot
+}
+
+// checkLinksMTU returns an error wrapping errLinkMTU if a device in devs does not have the
+// underlay MTU or its MTU cannot be read.
+func (s *SetNetplanUnderlayMTU) checkLinksMTU(devs []string) error {
+	linkMTU := s.linkMTUFunc
+	if linkMTU == nil {
+		linkMTU = netlinkMTU
+	}
+	for _, dev := range devs {
+		mtu, err := linkMTU(dev)
+		if err != nil {
+			return fmt.Errorf("%w: failed to read MTU of %s: %v", errLinkMTU, dev, err)
+		}
+		if mtu != underlayMTU {
+			return fmt.Errorf("%w: %s has MTU %d", errLinkMTU, dev, mtu)
+		}
+	}
 	return nil
 }
 
-func (s *SetNetplanUnderlayMTU) writeNetplan(devs []string) error {
-	root := s.netplanRoot
-	if root == "" {
-		root = defaultNetplanRoot
+// netlinkMTU returns the current MTU of the dev link.
+func netlinkMTU(dev string) (int, error) {
+	link, err := netlink.LinkByName(dev)
+	if err != nil {
+		return 0, err
 	}
+	return link.Attrs().MTU, nil
+}
+
+// netplanConfig returns the 97-pf-mtu.yaml netplan config that sets the underlay MTU on devs.
+func netplanConfig(devs []string) *netplan.Config {
 	config := &netplan.Config{
 		Network: netplan.Network{
 			Version:  2,
@@ -129,12 +203,7 @@ func (s *SetNetplanUnderlayMTU) writeNetplan(devs []string) error {
 			MTU: ptr.To(int32(underlayMTU)),
 		}
 	}
-	name := filepath.Join(root, pfMTUNetplanFile)
-	if err := config.WriteToFile(name); err != nil {
-		return fmt.Errorf("failed to write %s: %w", name, err)
-	}
-	klog.Infof("Wrote netplan underlay MTU %d for interfaces without OVS mtu_request: %s", underlayMTU, strings.Join(devs, ", "))
-	return nil
+	return config
 }
 
 func (s *SetNetplanUnderlayMTU) underlayDevs(optCtx *operations.Context) ([]string, error) {

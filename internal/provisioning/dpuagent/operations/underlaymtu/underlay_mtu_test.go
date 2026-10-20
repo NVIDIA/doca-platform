@@ -42,7 +42,7 @@ var _ = Describe("SetNetplanUnderlayMTU", func() {
 
 	It("should write netplan MTU only when OVS mtu_request is unset or the Interface is missing", func() {
 		tempDir := GinkgoT().TempDir()
-		applied := false
+		applied := 0
 		operation := &SetNetplanUnderlayMTU{
 			netplanRoot: tempDir,
 			runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
@@ -68,18 +68,22 @@ var _ = Describe("SetNetplanUnderlayMTU", func() {
 				return []string{"pf0hpf", "pf1hpf"}, nil
 			},
 			applyNetplanFunc: func() error {
-				applied = true
+				applied++
 				return nil
 			},
+			linkMTUFunc: func(string) (int, error) {
+				return underlayMTU, nil
+			},
 		}
-		Expect(operation.Execute(context.Background(), &operations.Context{
+		optCtx := &operations.Context{
 			DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 				return []pciutil.NICPort{
 					{Netdev: "p0"},
 					{Netdev: "p1"},
 				}, nil
 			},
-		})).To(Succeed())
+		}
+		Expect(operation.Execute(context.Background(), optCtx)).To(MatchError(errNetplanApplied))
 
 		content, err := os.ReadFile(filepath.Join(tempDir, "97-pf-mtu.yaml"))
 		Expect(err).NotTo(HaveOccurred())
@@ -87,7 +91,92 @@ var _ = Describe("SetNetplanUnderlayMTU", func() {
 		Expect(string(content)).To(ContainSubstring("pf1hpf:"))
 		Expect(string(content)).NotTo(ContainSubstring("p0:"))
 		Expect(string(content)).NotTo(ContainSubstring("pf0hpf:"))
-		Expect(applied).To(BeTrue())
+		Expect(applied).To(Equal(1))
+
+		By("succeeding on the retry without applying again")
+		Expect(operation.Execute(context.Background(), optCtx)).To(Succeed())
+		Expect(applied).To(Equal(1))
+	})
+
+	Context("when 97-pf-mtu.yaml already has the desired content", func() {
+		var (
+			tempDir string
+			applied int
+			mtus    map[string]int
+			optCtx  *operations.Context
+		)
+		newOperation := func() *SetNetplanUnderlayMTU {
+			return &SetNetplanUnderlayMTU{
+				netplanRoot: tempDir,
+				runBash: func(string) (bytes.Buffer, bytes.Buffer, error) {
+					var stdout bytes.Buffer
+					stdout.WriteString("[]\n")
+					return stdout, bytes.Buffer{}, nil
+				},
+				listPFRepsFunc: func() ([]string, error) {
+					return []string{"pf0hpf"}, nil
+				},
+				applyNetplanFunc: func() error {
+					applied++
+					return nil
+				},
+				linkMTUFunc: func(dev string) (int, error) {
+					return mtus[dev], nil
+				},
+			}
+		}
+		BeforeEach(func() {
+			tempDir = GinkgoT().TempDir()
+			applied = 0
+			mtus = map[string]int{"p0": underlayMTU, "pf0hpf": underlayMTU}
+			optCtx = &operations.Context{
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0"}}, nil
+				},
+			}
+			Expect(newOperation().Execute(context.Background(), optCtx)).To(MatchError(errNetplanApplied))
+			applied = 0
+		})
+
+		It("should not apply netplan when the links already have the MTU", func() {
+			Expect(newOperation().Execute(context.Background(), optCtx)).To(Succeed())
+			Expect(applied).To(BeZero())
+		})
+
+		It("should apply netplan once and fail until a link has the MTU", func() {
+			mtus["pf0hpf"] = 1500
+			operation := newOperation()
+			Expect(operation.Execute(context.Background(), optCtx)).To(MatchError(errNetplanApplied))
+			Expect(applied).To(Equal(1))
+
+			By("failing without re-applying while the link MTU stays wrong")
+			err := operation.Execute(context.Background(), optCtx)
+			Expect(err).To(MatchError(errLinkMTU))
+			Expect(err.Error()).To(ContainSubstring("pf0hpf has MTU 1500"))
+			Expect(operation.Execute(context.Background(), optCtx)).To(MatchError(errLinkMTU))
+			Expect(applied).To(Equal(1))
+
+			By("succeeding once the link has the MTU")
+			mtus["pf0hpf"] = underlayMTU
+			Expect(operation.Execute(context.Background(), optCtx)).To(Succeed())
+			Expect(applied).To(Equal(1))
+		})
+
+		It("should apply netplan again after a failed apply", func() {
+			mtus["pf0hpf"] = 1500
+			operation := newOperation()
+			operation.applyNetplanFunc = func() error {
+				applied++
+				return fmt.Errorf("netplan failed")
+			}
+			Expect(operation.Execute(context.Background(), optCtx)).To(MatchError(ContainSubstring("netplan failed")))
+			operation.applyNetplanFunc = func() error {
+				applied++
+				return nil
+			}
+			Expect(operation.Execute(context.Background(), optCtx)).To(MatchError(errNetplanApplied))
+			Expect(applied).To(Equal(2))
+		})
 	})
 
 	It("should not write netplan when all underlay ports have OVS mtu_request", func() {
@@ -146,5 +235,31 @@ var _ = Describe("SetNetplanUnderlayMTU", func() {
 		_, statErr := os.Stat(filepath.Join(tempDir, "97-pf-mtu.yaml"))
 		Expect(os.IsNotExist(statErr)).To(BeTrue())
 		Expect(applied).To(BeFalse())
+	})
+
+	It("should not hold after netplan apply in ZeroTrustMode", func() {
+		applied := false
+		operation := &SetNetplanUnderlayMTU{
+			netplanRoot: GinkgoT().TempDir(),
+			runBash: func(string) (bytes.Buffer, bytes.Buffer, error) {
+				var stderr bytes.Buffer
+				stderr.WriteString(`ovs-vsctl: no row "p0" in table Interface`)
+				return bytes.Buffer{}, stderr, fmt.Errorf(`no row "p0" in table Interface`)
+			},
+			listPFRepsFunc: func() ([]string, error) {
+				return nil, nil
+			},
+			applyNetplanFunc: func() error {
+				applied = true
+				return nil
+			},
+		}
+		Expect(operation.Execute(context.Background(), &operations.Context{
+			Options: opts.Options{ZeroTrustMode: true},
+			DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+				return []pciutil.NICPort{{Netdev: "p0"}}, nil
+			},
+		})).To(Succeed())
+		Expect(applied).To(BeTrue())
 	})
 })
