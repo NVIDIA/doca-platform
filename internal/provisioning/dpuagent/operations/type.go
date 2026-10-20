@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
@@ -51,9 +50,10 @@ type Operation interface {
 
 // Context is the context for all operations.
 // It is passed to all operations and can be used to pass data between operations.
-// Operations run sequentially; NIC runtime is stopped during setup. Only flavor
-// snapshots and Status support concurrent access during the host release wait.
-// Release and flavor reload stay on the Run goroutine; NIC never writes shared flavor.
+// It is not thread-safe: operations run sequentially on one goroutine, and the
+// NIC runtime-config loop is stopped before a pipeline restart rewrites the
+// flavor, so the flavor is only ever accessed from one goroutine at a time.
+// Status is safe for concurrent use.
 type Context struct {
 	// Options are the options for the DPU agent, loaded at startup (e.g. from command line).
 	Options opts.Options
@@ -75,12 +75,11 @@ type Context struct {
 	K8sClient kubernetes.Interface
 
 	// DPUFlavor is the live DPUFlavor named by LatestDPU.spec.dpuFlavor.
-	// GetLatestDPU loads it from the API on each Run(). A failed operation reloads
-	// it before the next attempt.
+	// GetLatestDPU loads it from the API on each Run(). A retry that observes a
+	// flavor generation change applies the fetched flavor here, after stopping
+	// the NIC runtime-config loop, so the restarted pipeline converges on it.
+	// Writes happen only on the Run goroutine while the loop is stopped.
 	DPUFlavor provisioningv1.DPUFlavor
-	// flavorMu protects retry publication and NIC snapshots. Setup writes only
-	// while NIC runtime is stopped; published flavor contents are immutable.
-	flavorMu sync.Mutex
 
 	// LatestDPU is the current DPU resource, populated by GetLatestDPU.
 	// Operations use it to read spec/status and to decide behavior.
@@ -133,6 +132,13 @@ type Context struct {
 	// must not bounce kubelet. A process restart leaves this false, so the
 	// same-boot NVConfigApplied skip still applies after an OS reboot.
 	ReapplyConfig bool
+
+	// FlavorUpdated is set when a retry observed a new flavor generation and the
+	// pipeline restarted to converge on the updated spec. Unlike ReapplyConfig it
+	// stays set for the rest of the process: success conditions recorded against
+	// the old flavor (e.g. NVConfigApplied on the legacy boot-ID path) must not
+	// skip re-application. ResetPerRunState must not clear it.
+	FlavorUpdated bool
 }
 
 // DeferredNVConfigParam is one deferred mlxconfig set request for a PCI device.
@@ -171,42 +177,33 @@ func (ctx *Context) SetResolvedNVConfig(r *ResolvedNVConfig) {
 	ctx.resolvedNVConfig = r
 }
 
-// DPUFlavorSnapshot isolates NIC runtime reads from operation retry reloads.
-func (ctx *Context) DPUFlavorSnapshot() *provisioningv1.DPUFlavor {
-	ctx.flavorMu.Lock()
-	defer ctx.flavorMu.Unlock()
-	return ctx.DPUFlavor.DeepCopy()
-}
-
-// ReloadDPUFlavor GETs the DPUFlavor already named on the context. Callers use it
-// before retrying work that failed against the flavor loaded earlier. The DPU
-// object is not read. When metadata.generation changes, the resolved NVConfig
-// cache is dropped: generation advances only with spec, which is what that cache
-// was built from. A metadata-only write changes resourceVersion and leaves the cache.
-// DeferredNVConfigParams is left in place. ConfigureNVConfig rebuilds that list
-// when it applies; clearing it here would let a later HandleReboot retry treat
-// parameters that were never applied as if they had been.
-func (ctx *Context) ReloadDPUFlavor(execCtx context.Context) error {
+// FetchDPUFlavor GETs the DPUFlavor already named on the context and reports
+// whether its metadata.generation differs from the context flavor's, i.e. the
+// spec was edited. The DPU object is not read and the context is NOT modified:
+// callers decide what to do with the fetched object. A caller that observes an
+// unchanged generation must discard it — the spec is identical and only
+// metadata could differ. A caller that applies a changed flavor to the context
+// must first stop the NIC runtime-config loop, the only concurrent reader of
+// the context flavor, and drop the resolved NVConfig cache, which was built
+// from the old spec.
+func (ctx *Context) FetchDPUFlavor(execCtx context.Context) (*provisioningv1.DPUFlavor, bool, error) {
 	if ctx == nil || ctx.Client == nil {
-		return nil
+		return nil, false, nil
 	}
-	current := ctx.DPUFlavorSnapshot()
+	current := ctx.DPUFlavor
 	if current.Name == "" {
-		return nil
+		return nil, false, nil
 	}
 	flavor := &provisioningv1.DPUFlavor{}
 	key := client.ObjectKey{Namespace: ctx.Options.DPUNamespace, Name: current.Name}
 	if err := ctx.Client.Get(execCtx, key, flavor); err != nil {
-		return fmt.Errorf("get DPUFlavor %s/%s: %w", key.Namespace, key.Name, err)
+		return nil, false, fmt.Errorf("get DPUFlavor %s/%s: %w", key.Namespace, key.Name, err)
 	}
-	if flavor.GetGeneration() != current.GetGeneration() {
-		ctx.SetResolvedNVConfig(nil)
-		klog.InfoS("reloaded DPUFlavor after operation failure", "flavor", klog.KObj(flavor), "generation", flavor.GetGeneration())
+	changed := flavor.GetGeneration() != current.GetGeneration()
+	if changed {
+		klog.InfoS("observed DPUFlavor generation change", "flavor", klog.KObj(flavor), "generation", flavor.GetGeneration())
 	}
-	ctx.flavorMu.Lock()
-	ctx.DPUFlavor = *flavor
-	ctx.flavorMu.Unlock()
-	return nil
+	return flavor, changed, nil
 }
 
 // ResetPerRunState clears caches that must not leak from a previous Run() into a

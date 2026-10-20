@@ -381,6 +381,28 @@ var _ = Describe("NVConfig Operation", func() {
 			Expect(operation.ShouldSkip(operationCtx)).To(BeFalse())
 		})
 
+		It("should not skip after a flavor-update pipeline restart when NVConfigApplied is already True", func() {
+			operation := ConfigureNVConfig{}
+			operationCtx := &operations.Context{
+				// Legacy boot-ID path: without FlavorUpdated the leftover
+				// NVConfigApplied=True recorded against the old flavor would skip.
+				RebootMethodDiscovery: false,
+				FlavorUpdated:         true,
+				LatestDPU: &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{
+						AgentStatus: &provisioningv1.AgentStatus{
+							Conditions: []metav1.Condition{{
+								Type:   CondNVConfigApplied,
+								Status: metav1.ConditionTrue,
+								Reason: CondNVConfigApplied,
+							}},
+						},
+					},
+				},
+			}
+			Expect(operation.ShouldSkip(operationCtx)).To(BeFalse())
+		})
+
 		It("should skip when SkipNVConfig is true regardless of NVConfig condition", func() {
 			operation := ConfigureNVConfig{runBash: func(string) (bytes.Buffer, bytes.Buffer, error) { return bytes.Buffer{}, bytes.Buffer{}, nil }}
 			Expect(operation.ShouldSkip(&operations.Context{Options: opts.Options{SkipNVConfig: true}})).To(BeTrue())
