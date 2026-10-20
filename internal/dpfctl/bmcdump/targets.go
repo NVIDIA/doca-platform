@@ -23,8 +23,8 @@ import (
 	"sort"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	redfishclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 
-	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -133,16 +133,16 @@ func (r *logTargetResolver) targets() []logTarget {
 	return sortedLogTargets(r.targetsByBMC)
 }
 
+// getDumpPassword reads the BMC password with the provisioning client's own resolver, so dpfctl
+// authenticates with the same Secret and data key the controller does. Only the namespace is added
+// back: the resolver names the Secret but not where it looked for it, and here that is whatever the
+// caller passed to --namespace.
 func getDumpPassword(ctx context.Context, c client.Client, namespace string, secretName string) (string, error) {
-	secret := &corev1.Secret{}
-	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret); err != nil {
-		return "", fmt.Errorf("reading bmc dump password secret %s/%s: %w", namespace, secretName, err)
+	cred, err := redfishclient.ResolveBMCCredential(ctx, namespace, &secretName, c)
+	if err != nil {
+		return "", fmt.Errorf("reading bmc dump password in namespace %s: %w", namespace, err)
 	}
-	if password := string(secret.Data[passwordSecretDataKey]); password != "" {
-		return password, nil
-	}
-	return "", fmt.Errorf("bmc dump collection skipped: %s/%s secret key %q is empty or missing",
-		namespace, secretName, passwordSecretDataKey)
+	return cred.Password, nil
 }
 
 func dpuDeviceBMCIP(device provisioningv1.DPUDevice) string {

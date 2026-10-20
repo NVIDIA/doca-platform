@@ -30,7 +30,9 @@ import (
 	"strings"
 	"time"
 
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/dpfctl/util"
+	redfishclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 
 	"github.com/go-resty/resty/v2"
 )
@@ -67,6 +69,11 @@ func collectDumpWithOutput(ctx context.Context, target logTarget, outputDir stri
 	stopSpinner()
 	if err != nil {
 		util.Failure("%s: %v", target.IP, err)
+		// The BMC serves its factory certificate until its DPUDevice finishes initializing.
+		if redfishclient.IsBMCServerCertUntrusted(err) {
+			util.Warn("%s: the BMC is not serving a certificate issued by the DPF CA; check the %s condition on its DPUDevice",
+				target.IP, provisioningv1.ConditionDpuDeviceBMCServerCertificateReady)
+		}
 		return err
 	}
 	util.Success("%s -> %s", target.IP, targetDir)
@@ -84,8 +91,15 @@ func newCollector(ctx context.Context, target logTarget, outputDir string, opts 
 	}
 
 	baseURL := baseURL(target)
-	if _, err := url.ParseRequestURI(baseURL); err != nil {
+	dialed, err := url.ParseRequestURI(baseURL)
+	if err != nil {
 		return nil, nil, err
+	}
+
+	// Pin the identity to the host actually dialed.
+	redfishClient, err := newRedfishClient(baseURL, dialed.Hostname(), opts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("configuring bmc dump client for %s: %w", target.IP, err)
 	}
 
 	// Budget for every dump this target can yield. Each dump is a separate
@@ -98,7 +112,7 @@ func newCollector(ctx context.Context, target logTarget, outputDir string, opts 
 		target:         target,
 		targetDir:      targetDir,
 		ctx:            targetCtx,
-		client:         newRedfishClient(baseURL, opts),
+		client:         redfishClient,
 		opts:           opts,
 		entryRetry:     defaultEntryRetryCount,
 		entryRetryWait: defaultEntryRetryInterval,
@@ -110,19 +124,28 @@ func newCollector(ctx context.Context, target logTarget, outputDir string, opts 
 // discover(), once the root service has told us which username this BMC
 // generation uses.
 //
+// The BMC server certificate is verified against the DPF CA and its identity is pinned to host,
+// using the provisioning controller's TLS settings (BlueField certificates carry no subjectAltName).
+//
 // Every request closes its connection. BF4 BMCs close their end after
 // streaming a dump attachment, and a POST reused on that pooled connection
 // fails with EOF, which Go never retries. A dump is a few dozen requests, so
 // the extra handshakes are noise next to the dump task itself.
-func newRedfishClient(baseURL string, opts CollectOptions) *resty.Client {
+func newRedfishClient(baseURL, host string, opts CollectOptions) (*resty.Client, error) {
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true} //nolint:gosec // test-only, see CollectOptions.InsecureSkipTLSVerify
+	if !opts.InsecureSkipTLSVerify {
+		var err error
+		if tlsConfig, err = redfishclient.NewVerifiedServerTLSConfig(opts.caPool, host); err != nil {
+			return nil, err
+		}
+	}
 	redfishClient := resty.New().
 		SetBaseURL(baseURL).
 		SetTimeout(opts.RequestTimeout).
-		SetCloseConnection(true)
-	if opts.InsecureSkipTLSVerify {
-		redfishClient.SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true}) //nolint:gosec // Explicit user opt-in for lab/self-signed BMCs.
-	}
-	return redfishClient
+		SetCloseConnection(true).
+		SetTLSClientConfig(tlsConfig)
+
+	return redfishClient, nil
 }
 
 func (c *collector) collect() (err error) {

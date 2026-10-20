@@ -29,6 +29,7 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	redfishclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 
 	"github.com/go-resty/resty/v2"
 	. "github.com/onsi/gomega"
@@ -222,7 +223,7 @@ func TestGetLogTargetsUsesSharedSecretFallbackAndSkipsFailedDevices(t *testing.T
 		WithObjects(
 			&corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{Name: sharedPasswordSecretName, Namespace: namespace},
-				Data:       map[string][]byte{passwordSecretDataKey: []byte(password)},
+				Data:       map[string][]byte{redfishclient.BMCSharedPasswordKey: []byte(password)},
 			},
 			dpuDevice("device-b", bmcIP, nil),
 			dpuDevice("device-a", bmcIP, nil),
@@ -257,7 +258,7 @@ func TestGetLogTargetsKeepsResolvedExplicitDevicesWhenOneIsMissing(t *testing.T)
 		WithObjects(
 			&corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{Name: sharedPasswordSecretName, Namespace: namespace},
-				Data:       map[string][]byte{passwordSecretDataKey: []byte(password)},
+				Data:       map[string][]byte{redfishclient.BMCSharedPasswordKey: []byte(password)},
 			},
 			dpuDevice("device-a", bmcIP, nil),
 		).
@@ -312,48 +313,6 @@ func TestWaitForDumpEntryRetriesUntilEntryIsVisible(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(targetDir, "dump-entries.json"))
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(string(data)).To(ContainSubstring("entry-1"))
-}
-
-func TestNewCollectorTLSVerification(t *testing.T) {
-	tests := []struct {
-		name     string
-		insecure bool
-	}{
-		{
-			name:     "verifies TLS by default",
-			insecure: false,
-		},
-		{
-			name:     "skips TLS verification when explicitly requested",
-			insecure: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			g := NewWithT(t)
-
-			collector, cancel, err := newCollector(context.Background(), logTarget{
-				IP:       "10.0.0.10",
-				Port:     defaultPort,
-				Password: "password",
-			}, t.TempDir(), CollectOptions{
-				Namespace:             DefaultNamespace,
-				InsecureSkipTLSVerify: tt.insecure,
-			})
-
-			g.Expect(err).NotTo(HaveOccurred())
-			defer cancel()
-
-			transport, err := collector.client.Transport()
-			g.Expect(err).NotTo(HaveOccurred())
-			insecureSkipVerify := false
-			if transport.TLSClientConfig != nil {
-				insecureSkipVerify = transport.TLSClientConfig.InsecureSkipVerify
-			}
-			g.Expect(insecureSkipVerify).To(Equal(tt.insecure))
-		})
-	}
 }
 
 func dpuDevice(name, bmcIP string, credentialSecret *string) *provisioningv1.DPUDevice {

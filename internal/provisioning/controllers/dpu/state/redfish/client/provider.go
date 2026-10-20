@@ -399,9 +399,9 @@ func (p *Provider) readCACreds(ctx context.Context, namespace string) (*caCreds,
 	if len(bundle) == 0 {
 		return nil, fmt.Errorf("no %q in ConfigMap %q", CATrustBundleKey, name)
 	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(bundle) {
-		return nil, errors.New("failed to load CA certs")
+	pool, err := CAPoolFromBundle(bundle)
+	if err != nil {
+		return nil, fmt.Errorf("%w from ConfigMap %q", err, name)
 	}
 	sum := sha256.Sum256(bundle)
 	out := &caCreds{pem: bundle, pool: pool, version: cm.ResourceVersion, digest: hex.EncodeToString(sum[:])}
