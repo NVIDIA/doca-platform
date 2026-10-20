@@ -287,6 +287,15 @@ func readChartMetadata(dir string) (*chartMetadata, error) {
 	return meta, nil
 }
 
+// Pull downloads a chart of a repository into the private directory of the renderer (once) and
+// returns its archive, which is removed on Close.
+func (h *HelmRenderer) Pull(ctx context.Context, ref ChartRef) (string, error) {
+	if ref.Path != "" {
+		return "", fmt.Errorf("chart %s is a local chart", ref)
+	}
+	return h.pull(ctx, ref.RepoURL, ref.Name, ref.Version)
+}
+
 // pull downloads a chart into the private directory (once) and returns its archive.
 func (h *HelmRenderer) pull(ctx context.Context, repoURL, name, version string) (string, error) {
 	h.mu.Lock()

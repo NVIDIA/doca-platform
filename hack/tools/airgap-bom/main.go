@@ -37,8 +37,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/nvidia/doca-platform/hack/tools/airgap-bom/internal/bom"
-	"github.com/nvidia/doca-platform/hack/tools/airgap-bom/internal/bom/release"
+	"github.com/nvidia/doca-platform/hack/tools/airgap-bom/internal/release"
+	"github.com/nvidia/doca-platform/internal/airgap/bom"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	"github.com/spf13/cobra"

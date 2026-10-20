@@ -51,22 +51,9 @@ func (s SourceObject) String() string {
 	return fmt.Sprintf("%s %s/%s", s.File, s.Object.GetKind(), s.Object.GetName())
 }
 
-// LoadObjects reads the Kubernetes objects of the *.yaml, *.yml and *.json files below dir, in
-// lexical order.
-func LoadObjects(dir string) ([]SourceObject, error) {
-	var files []string
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		switch strings.ToLower(filepath.Ext(path)) {
-		case ".yaml", ".yml", ".json":
-			if !d.IsDir() {
-				files = append(files, path)
-			}
-		}
-		return nil
-	})
+// LoadObjects reads the Kubernetes objects of the manifest files of path, see objectFiles.
+func LoadObjects(path string) ([]SourceObject, error) {
+	files, err := objectFiles(path)
 	if err != nil {
 		return nil, err
 	}
@@ -85,6 +72,39 @@ func LoadObjects(dir string) ([]SourceObject, error) {
 		}
 	}
 	return out, nil
+}
+
+// objectFiles returns the manifest files of path. For a file, objectFiles returns the file itself,
+// with any extension. For a directory, or a symbolic link to one, objectFiles returns the *.yaml,
+// *.yml and *.json files below the directory, in lexical order.
+func objectFiles(path string) ([]string, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !fi.IsDir() {
+		return []string{path}, nil
+	}
+	dir := path
+	if lfi, err := os.Lstat(path); err == nil && lfi.Mode()&fs.ModeSymlink != 0 {
+		if dir, err = filepath.EvalSymlinks(path); err != nil {
+			return nil, err
+		}
+	}
+	var files []string
+	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		switch strings.ToLower(filepath.Ext(p)) {
+		case ".yaml", ".yml", ".json":
+			if !d.IsDir() {
+				files = append(files, p)
+			}
+		}
+		return nil
+	})
+	return files, err
 }
 
 // ServiceInstance is one deployment of a DPUService chart: the chart, the helm values the manifests

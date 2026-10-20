@@ -19,10 +19,12 @@ package inventory
 import (
 	"testing"
 
+	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/release"
 
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/utils/ptr"
 )
 
@@ -141,6 +143,46 @@ func TestVariablesFromDPFOperatorConfig_ImageTags(t *testing.T) {
 		"mirror.example.com/multus-cni"))
 	g.Expect(vars.NodeSRIOVDevicePluginController.DevicePluginImage).To(Equal("mirror.example.com/sriov-network-device-plugin" + defaultDevicePluginTag))
 	g.Expect(vars.NodeSRIOVDevicePluginController.DevicePluginInitImage).To(Equal("nvcr.io/nvstaging/doca/dpf-system" + defaultTag))
+}
+
+func TestVariablesFromDPFOperatorConfig_NVIPAMImages(t *testing.T) {
+	controllerKey := operatorv1.NVIPAMControllerName.WithContainer(operatorv1.NVIPAMContainerController)
+	nodeKey := operatorv1.NVIPAMControllerName.WithContainer(operatorv1.NVIPAMContainerNode)
+	defaults := &release.Defaults{}
+	NewWithT(t).Expect(defaults.Parse()).To(Succeed())
+
+	t.Run("the deprecated image sets both containers", func(t *testing.T) {
+		g := NewWithT(t)
+		config := &operatorv1.DPFOperatorConfig{Spec: operatorv1.DPFOperatorConfigSpec{
+			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{},
+			//nolint:staticcheck // Intentionally using deprecated field for backward compatibility
+			NVIPAM: &operatorv1.NVIPAMConfiguration{Image: ptr.To("mirror.example.com/nvidia-k8s-ipam")},
+		}}
+		vars := VariablesFromDPFOperatorConfig(defaults, config, nil)
+		g.Expect(vars.Images).To(HaveKeyWithValue(controllerKey, "mirror.example.com/nvidia-k8s-ipam"))
+		g.Expect(vars.Images).To(HaveKeyWithValue(nodeKey, "mirror.example.com/nvidia-k8s-ipam"))
+	})
+
+	t.Run("each container gets its own chart value", func(t *testing.T) {
+		g := NewWithT(t)
+		svc := &dpuservicev1.DPUService{}
+		for key, img := range map[string]string{
+			controllerKey: "ghcr.io/mellanox/nvidia-k8s-ipam:v0.4.0",
+			nodeKey:       "mirror.example.com/nvidia-k8s-ipam",
+		} {
+			edits, err := imageEditsForComponent(key, img)
+			g.Expect(err).NotTo(HaveOccurred())
+			for _, edit := range edits {
+				g.Expect(edit(svc)).To(Succeed())
+			}
+		}
+		g.Expect(svc.Spec.HelmChart.Values.Object).To(Equal(&unstructured.Unstructured{Object: map[string]any{
+			operatorv1.NVIPAMControllerName.String(): map[string]any{"nvIpam": map[string]any{
+				"controller": map[string]any{"image": map[string]any{"repository": "ghcr.io/mellanox/nvidia-k8s-ipam", "tag": "v0.4.0"}},
+				"node":       map[string]any{"image": map[string]any{"repository": "mirror.example.com/nvidia-k8s-ipam"}},
+			}},
+		}}))
+	})
 }
 
 func Test_imageEditsForComponent_WithoutTag(t *testing.T) {

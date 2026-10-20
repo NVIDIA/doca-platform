@@ -75,13 +75,13 @@ func helmPaths() helmPathsProvider {
 			},
 			operatorv1.NVIPAMControllerName: {
 				operatorv1.NVIPAMContainerController: {
-					Repository: []string{"nvIpam", "image", "repository"},
-					Tag:        []string{"nvIpam", "image", "tag"},
+					Repository: []string{"nvIpam", "controller", "image", "repository"},
+					Tag:        []string{"nvIpam", "controller", "image", "tag"},
 					Resources:  []string{"nvIpam", "controller", "resources"},
 				},
 				operatorv1.NVIPAMContainerNode: {
-					Repository: []string{"nvIpam", "image", "repository"},
-					Tag:        []string{"nvIpam", "image", "tag"},
+					Repository: []string{"nvIpam", "node", "image", "repository"},
+					Tag:        []string{"nvIpam", "node", "image", "tag"},
 					Resources:  []string{"nvIpam", "node", "resources"},
 				},
 			},

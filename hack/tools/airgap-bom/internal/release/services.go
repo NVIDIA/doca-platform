@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/nvidia/doca-platform/hack/tools/airgap-bom/internal/bom"
+	"github.com/nvidia/doca-platform/internal/airgap/bom"
 )
 
 // serviceSources are the directories the services of the BOM are read from: the DPUServices,

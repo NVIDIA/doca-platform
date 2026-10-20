@@ -801,6 +801,22 @@ func Test_parseImageString(t *testing.T) {
 				tag:       "",
 			},
 		},
+		{
+			name: "keep the registry port in the repository",
+			in:   "mirror.example.com:5000/dpf/multus-cni",
+			want: &image{
+				repoImage: "mirror.example.com:5000/dpf/multus-cni",
+				tag:       "",
+			},
+		},
+		{
+			name: "split the tag after a registry port",
+			in:   "mirror.example.com:5000/dpf/multus-cni:v3.9.3@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			want: &image{
+				repoImage: "mirror.example.com:5000/dpf/multus-cni",
+				tag:       "v3.9.3@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

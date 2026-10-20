@@ -703,12 +703,15 @@ type image struct {
 	tag       string
 }
 
-// Image will be in the form: repoName/imageName:version. The version is optional; if it is omitted the tag
-// is left empty so that the helm chart's default tag is used.
+// parseImageString splits an image reference of the form [registry[:port]/]repoName/imageName[:version] into
+// the repository and the tag. The tag starts at the first colon of the last path component, because an
+// earlier colon belongs to a registry port. Without a version the tag is empty, so the helm chart's default
+// tag is used.
 func parseImageString(repoImageVersion string) *image {
-	repoImage, tag, _ := strings.Cut(repoImageVersion, ":")
+	nameStart := strings.LastIndex(repoImageVersion, "/") + 1
+	name, tag, _ := strings.Cut(repoImageVersion[nameStart:], ":")
 	return &image{
-		repoImage: repoImage,
+		repoImage: repoImageVersion[:nameStart] + name,
 		tag:       tag,
 	}
 }

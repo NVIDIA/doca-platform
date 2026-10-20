@@ -30,7 +30,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nvidia/doca-platform/hack/tools/airgap-bom/internal/bom"
+	"github.com/nvidia/doca-platform/internal/airgap/bom"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	"github.com/google/go-cmp/cmp"
@@ -38,9 +38,9 @@ import (
 )
 
 // repoRoot is the root of this repository, relative to the package directory.
-const repoRoot = "../../../../../.."
+const repoRoot = "../../../../.."
 
-// update rewrites the golden BOM: go test ./hack/tools/airgap-bom/internal/bom/release -run TestRelease -update
+// update rewrites the golden BOM: go test ./hack/tools/airgap-bom/internal/release -run TestRelease -update
 var update = flag.Bool("update", false, "update the golden BOM")
 
 const goldenBOM = "testdata/release.golden.yaml"
