@@ -32,7 +32,25 @@ import (
 )
 
 const (
-	defaultNetplanRoot = "/etc/netplan"
+	defaultNetplanRoot        = "/etc/netplan"
+	defaultSystemdNetworkRoot = "/etc/systemd/network"
+	defaultSysctlRoot         = "/etc/sysctl.d"
+
+	oobNetworkOverrideFile = "02-oob.network"
+	oobARPConfigFile       = "99-z-dpf-oob-arp.conf"
+
+	oobNetworkOverride = `[Match]
+Name=oob_net0
+
+[Network]
+DHCP=no
+LinkLocalAddressing=no
+IPv6AcceptRA=no
+`
+
+	oobARPConfig = `net.ipv4.conf.all.arp_ignore=1
+net.ipv4.conf.all.arp_announce=2
+`
 
 	// tmfifoIPv6 is the fixed IPv6 link-local address for the tmfifo_net0 interface on the DPU.
 	// This IP is used to communicate with the host agent running on the host.
@@ -65,8 +83,12 @@ func (c *CheckNetwork) Execute(execCtx context.Context, optCtx *operations.Conte
 }
 
 type ConfigureNetwork struct {
-	netplanRoot      string
-	applyNetplanFunc func() error
+	netplanRoot        string
+	systemdNetworkRoot string
+	sysctlRoot         string
+	applyNetplanFunc   func() error
+	applyOOBARPFunc    func(string) error
+	reconfigureOOBFunc func() error
 }
 
 func (n *ConfigureNetwork) Name() string {
@@ -100,6 +122,9 @@ func (n *ConfigureNetwork) configNetplan(ctx *operations.Context) error {
 		return fmt.Errorf("failed to create 98-oob-tmfifo.yaml: %w", err)
 	}
 	if !ctx.Options.ZeroTrustMode {
+		if err := n.setHostTrustedOOBConfig(); err != nil {
+			return fmt.Errorf("failed to configure host-trusted OOB interface: %w", err)
+		}
 		if err := n.setBridgeCommCh(ctx.Options.ControlPlaneMTU); err != nil {
 			return fmt.Errorf("failed to create 99-dpf-comm-ch.yaml: %w", err)
 		}
@@ -111,7 +136,41 @@ func (n *ConfigureNetwork) configNetplan(ctx *operations.Context) error {
 	if err := n.applyNetplanFunc(); err != nil {
 		return fmt.Errorf("failed to apply netplan: %w", err)
 	}
+	if !ctx.Options.ZeroTrustMode {
+		arpConfigPath := filepath.Join(n.sysctlRoot, oobARPConfigFile)
+		if n.applyOOBARPFunc == nil {
+			n.applyOOBARPFunc = runApplyOOBARP
+		}
+		if err := n.applyOOBARPFunc(arpConfigPath); err != nil {
+			return fmt.Errorf("failed to apply OOB ARP settings: %w", err)
+		}
+		if n.reconfigureOOBFunc == nil {
+			n.reconfigureOOBFunc = runReconfigureOOB
+		}
+		if err := n.reconfigureOOBFunc(); err != nil {
+			return fmt.Errorf("failed to reconfigure oob_net0: %w", err)
+		}
+	}
 	return nil
+}
+
+func (n *ConfigureNetwork) setHostTrustedOOBConfig() error {
+	if n.systemdNetworkRoot == "" {
+		n.systemdNetworkRoot = defaultSystemdNetworkRoot
+	}
+	if n.sysctlRoot == "" {
+		n.sysctlRoot = defaultSysctlRoot
+	}
+	if err := filesystem.MkdirAll(n.systemdNetworkRoot, 0755); err != nil {
+		return err
+	}
+	if err := filesystem.AtomicWrite(filepath.Join(n.systemdNetworkRoot, oobNetworkOverrideFile), []byte(oobNetworkOverride), 0644); err != nil {
+		return err
+	}
+	if err := filesystem.MkdirAll(n.sysctlRoot, 0755); err != nil {
+		return err
+	}
+	return filesystem.AtomicWrite(filepath.Join(n.sysctlRoot, oobARPConfigFile), []byte(oobARPConfig), 0644)
 }
 
 func (n *ConfigureNetwork) remove60Mlx() error {
@@ -195,6 +254,22 @@ func runNetplanApply() error {
 	stdout, stderr, err := bash.Run("netplan apply")
 	if err != nil {
 		return fmt.Errorf("failed to apply netplan: %w, stdout: %s, stderr: %s", err, stdout.String(), stderr.String())
+	}
+	return nil
+}
+
+func runApplyOOBARP(configPath string) error {
+	stdout, stderr, err := bash.Run(fmt.Sprintf("sysctl --load %q", configPath))
+	if err != nil {
+		return fmt.Errorf("failed to load %s: %w, stdout: %s, stderr: %s", configPath, err, stdout.String(), stderr.String())
+	}
+	return nil
+}
+
+func runReconfigureOOB() error {
+	stdout, stderr, err := bash.Run("networkctl reload && networkctl reconfigure oob_net0")
+	if err != nil {
+		return fmt.Errorf("failed to reload networkd and reconfigure oob_net0: %w, stdout: %s, stderr: %s", err, stdout.String(), stderr.String())
 	}
 	return nil
 }

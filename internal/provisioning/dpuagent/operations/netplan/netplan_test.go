@@ -64,10 +64,18 @@ var _ = Describe("Netplan", func() {
 
 			applied := false
 			operation := &ConfigureNetwork{
-				netplanRoot: tempDir,
+				netplanRoot:        tempDir,
+				systemdNetworkRoot: filepath.Join(tempDir, "systemd-network"),
+				sysctlRoot:         filepath.Join(tempDir, "sysctl.d"),
 				applyNetplanFunc: func() error {
 					applied = true
 					return nil
+				},
+				applyOOBARPFunc: func(string) error {
+					return fmt.Errorf("must not apply host-trusted ARP settings in zero-trust mode")
+				},
+				reconfigureOOBFunc: func() error {
+					return fmt.Errorf("must not reconfigure OOB in zero-trust mode")
 				},
 			}
 			Expect(operation.Execute(ctx, &operations.Context{
@@ -108,10 +116,23 @@ var _ = Describe("Netplan", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			applied := false
+			arpApplied := false
+			oobReconfigured := false
 			operation := &ConfigureNetwork{
-				netplanRoot: tempDir,
+				netplanRoot:        tempDir,
+				systemdNetworkRoot: filepath.Join(tempDir, "systemd-network"),
+				sysctlRoot:         filepath.Join(tempDir, "sysctl.d"),
 				applyNetplanFunc: func() error {
 					applied = true
+					return nil
+				},
+				applyOOBARPFunc: func(path string) error {
+					arpApplied = true
+					Expect(path).To(Equal(filepath.Join(tempDir, "sysctl.d", oobARPConfigFile)))
+					return nil
+				},
+				reconfigureOOBFunc: func() error {
+					oobReconfigured = true
 					return nil
 				},
 			}
@@ -140,7 +161,17 @@ var _ = Describe("Netplan", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(content)).To(ContainSubstring("pf0vf0"))
 
+			oobOverride, err := os.ReadFile(filepath.Join(tempDir, "systemd-network", oobNetworkOverrideFile))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(oobOverride)).To(Equal(oobNetworkOverride))
+
+			arpConfig, err := os.ReadFile(filepath.Join(tempDir, "sysctl.d", oobARPConfigFile))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(arpConfig)).To(Equal(oobARPConfig))
+
 			Expect(applied).To(BeTrue())
+			Expect(arpApplied).To(BeTrue())
+			Expect(oobReconfigured).To(BeTrue())
 		})
 
 	})

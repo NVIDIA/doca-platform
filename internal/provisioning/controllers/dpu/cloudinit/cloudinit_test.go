@@ -268,6 +268,11 @@ network:
 
 		installFile := getWriteFile(parsed, "/opt/dpf/install-dpu-agent.sh")
 		Expect(installFile.Permissions).To(Equal("0700"))
+		Expect(installFile.Content).NotTo(ContainSubstring("networkctl reconfigure oob_net0"))
+		for _, f := range parsed.WriteFiles {
+			Expect(f.Path).NotTo(Equal("/etc/systemd/network/02-oob.network"))
+			Expect(f.Path).NotTo(Equal("/etc/sysctl.d/99-z-dpf-oob-arp.conf"))
+		}
 
 		Expect(parsed.PreserveHostname).NotTo(BeNil())
 		Expect(*parsed.PreserveHostname).To(BeFalse())
@@ -351,9 +356,31 @@ network:
 `)
 		Expect(netplanFile.Content).To(Equal(expectedNetplan))
 
+		oobNetworkFile := getWriteFile(parsed, "/etc/systemd/network/02-oob.network")
+		Expect(oobNetworkFile.Permissions).To(Equal("0644"))
+		Expect(oobNetworkFile.Content).To(Equal(`[Match]
+Name=oob_net0
+
+[Network]
+DHCP=no
+LinkLocalAddressing=no
+IPv6AcceptRA=no
+`))
+
+		arpConfigFile := getWriteFile(parsed, "/etc/sysctl.d/99-z-dpf-oob-arp.conf")
+		Expect(arpConfigFile.Permissions).To(Equal("0644"))
+		Expect(arpConfigFile.Content).To(Equal(`net.ipv4.conf.all.arp_ignore=1
+net.ipv4.conf.all.arp_announce=2
+`))
+
 		agentConf := getWriteFile(parsed, "/opt/dpf/dpuagent.conf")
 		Expect(agentConf.Content).To(ContainSubstring("--zero-trust-mode=false"))
 		Expect(agentConf.Content).NotTo(ContainSubstring("--bootstrap-kubeconfig="))
+
+		installFile := getWriteFile(parsed, "/opt/dpf/install-dpu-agent.sh")
+		Expect(installFile.Content).To(ContainSubstring("sysctl --load /etc/sysctl.d/99-z-dpf-oob-arp.conf"))
+		Expect(installFile.Content).To(ContainSubstring("networkctl reload"))
+		Expect(installFile.Content).To(ContainSubstring("networkctl reconfigure oob_net0"))
 
 		for _, f := range parsed.WriteFiles {
 			Expect(f.Path).NotTo(Equal("/var/lib/dpf/dpuagent/bootstrap-kubeconfig"))
