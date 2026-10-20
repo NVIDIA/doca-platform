@@ -185,14 +185,14 @@ func main() {
 			klog.Fatalf("failed to run DPU agent bootstrap: %v", err)
 		}
 		klog.Info("Bootstrap aborted for reprovision")
+		// Run may have aborted before reaching worker startup.
+		agent.StartNICRuntimeConfigLoop(execCtx)
+		agent.StartSPIREAttestorLoop(execCtx)
 	} else {
 		klog.Info("DPUAgent successfully completed all operations")
 	}
-	klog.Info("DPUAgent successfully completed all operations")
 	agent.StartCACertUpdateLoop(execCtx)
-	agent.StartNICRuntimeConfigLoop(execCtx)
 	agent.StartDPUReconcileLoop(execCtx)
-	agent.StartSPIREAttestorLoop(execCtx)
 	<-execCtx.Done()
 	if err := agent.Shutdown(); err != nil {
 		klog.ErrorS(err, "failed to stop local DMS server during DPU agent shutdown")

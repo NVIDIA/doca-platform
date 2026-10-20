@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
@@ -50,9 +51,9 @@ type Operation interface {
 
 // Context is the context for all operations.
 // It is passed to all operations and can be used to pass data between operations.
-// It is not thread-safe: operations run sequentially on one goroutine, and the
-// NIC runtime-config loop is stopped while an in-place Run executes, so the
-// flavor is only ever accessed from one goroutine at a time.
+// Operations run sequentially; NIC runtime is stopped during setup. Only flavor
+// snapshots and Status support concurrent access during the host release wait.
+// Release and flavor reload stay on the Run goroutine; NIC never writes shared flavor.
 type Context struct {
 	// Options are the options for the DPU agent, loaded at startup (e.g. from command line).
 	Options opts.Options
@@ -77,6 +78,9 @@ type Context struct {
 	// GetLatestDPU loads it from the API on each Run(). A failed operation reloads
 	// it before the next attempt.
 	DPUFlavor provisioningv1.DPUFlavor
+	// flavorMu protects retry publication and NIC snapshots. Setup writes only
+	// while NIC runtime is stopped; published flavor contents are immutable.
+	flavorMu sync.Mutex
 
 	// LatestDPU is the current DPU resource, populated by GetLatestDPU.
 	// Operations use it to read spec/status and to decide behavior.
@@ -167,6 +171,13 @@ func (ctx *Context) SetResolvedNVConfig(r *ResolvedNVConfig) {
 	ctx.resolvedNVConfig = r
 }
 
+// DPUFlavorSnapshot isolates NIC runtime reads from operation retry reloads.
+func (ctx *Context) DPUFlavorSnapshot() *provisioningv1.DPUFlavor {
+	ctx.flavorMu.Lock()
+	defer ctx.flavorMu.Unlock()
+	return ctx.DPUFlavor.DeepCopy()
+}
+
 // ReloadDPUFlavor GETs the DPUFlavor already named on the context. Callers use it
 // before retrying work that failed against the flavor loaded earlier. The DPU
 // object is not read. When metadata.generation changes, the resolved NVConfig
@@ -179,7 +190,7 @@ func (ctx *Context) ReloadDPUFlavor(execCtx context.Context) error {
 	if ctx == nil || ctx.Client == nil {
 		return nil
 	}
-	current := ctx.DPUFlavor
+	current := ctx.DPUFlavorSnapshot()
 	if current.Name == "" {
 		return nil
 	}
@@ -192,7 +203,9 @@ func (ctx *Context) ReloadDPUFlavor(execCtx context.Context) error {
 		ctx.SetResolvedNVConfig(nil)
 		klog.InfoS("reloaded DPUFlavor after operation failure", "flavor", klog.KObj(flavor), "generation", flavor.GetGeneration())
 	}
+	ctx.flavorMu.Lock()
 	ctx.DPUFlavor = *flavor
+	ctx.flavorMu.Unlock()
 	return nil
 }
 
