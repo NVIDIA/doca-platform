@@ -317,6 +317,15 @@ func extractComponentConfigs(variables Variables, config *operatorv1.DPFOperator
 func extraImageConfigs(componentConfig operatorv1.ComponentConfigurable, images map[string]string, componentName operatorv1.ComponentName) {
 	// nolint:staticcheck
 	if imageConfig, ok := componentConfig.(operatorv1.DeprecatedImageComponentConfigurable); ok && imageConfig.GetImage() != nil {
+		// TODO: Remove this special case after the deprecated single image config is removed.
+		// The deprecated image of nvipam sets both of its containers, as it did while both read one chart value.
+		if componentName == operatorv1.NVIPAMControllerName {
+			for _, c := range []operatorv1.ContainerName{operatorv1.NVIPAMContainerController, operatorv1.NVIPAMContainerNode} {
+				key := componentName.WithContainer(c)
+				images[key] = imageWithDefaultTag(*imageConfig.GetImage(), images[key])
+			}
+			return
+		}
 		containerName := getContainerNameFromComponent(componentName)
 		if containerName != "" {
 			key := componentName.WithContainer(containerName)

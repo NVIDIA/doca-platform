@@ -9,6 +9,9 @@
 # The image with sandbox: true is the pause image containerd on the DPU starts in every pod.
 # containerd pulls it itself, so set the DPUFlavor field spec.containerdConfig.sandboxImage
 # to its mirror copy.
+# The images with kamajiAddon: true are the kube-proxy and CoreDNS addons of a Kamaji DPU
+# cluster. Kamaji pulls them as <addonsRepository>/<last path element>:<tag>, with the
+# DPFOperatorConfig field spec.kamajiClusterManager.dpuClusterImages.addonsRepository.
 schemaVersion: v1alpha1
 images:
   - name: dpf-system

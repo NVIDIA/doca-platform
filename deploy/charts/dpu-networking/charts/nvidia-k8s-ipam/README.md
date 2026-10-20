@@ -16,6 +16,7 @@ A Helm chart for Kubernetes
 | env | list | `[]` |  |
 | global.serviceDaemonSet.updateStrategy.type | string | `"RollingUpdate"` | DaemonSet update strategy. The DPUService controller supplies rollout settings when managed by DPF. |
 | imagePullSecrets | list | `[]` |  |
+| nvIpam.controller.image | object | `{}` | image of the controller Deployment in the host cluster. When empty, the controller uses nvIpam.image. |
 | nvIpam.controller.resources.limits.memory | string | `"300Mi"` |  |
 | nvIpam.controller.resources.requests.cpu | string | `"100m"` |  |
 | nvIpam.controller.resources.requests.memory | string | `"300Mi"` |  |
@@ -23,6 +24,7 @@ A Helm chart for Kubernetes
 | nvIpam.image.repository | string | `"ghcr.io/mellanox/nvidia-k8s-ipam"` |  |
 | nvIpam.image.tag | string | `"v0.4.0@sha256:4b984dd345754e28ff964a209d76bff71ed31bb392b25aa5ddccf3925ac4e2ce"` |  |
 | nvIpam.nameOverride | string | `""` |  |
+| nvIpam.node.image | object | `{}` | image of the node DaemonSet in the DPU cluster. When empty, the node uses nvIpam.image. |
 | nvIpam.node.resources.limits.cpu | string | `"300m"` |  |
 | nvIpam.node.resources.limits.memory | string | `"400Mi"` |  |
 | nvIpam.node.resources.requests.cpu | string | `"100m"` |  |

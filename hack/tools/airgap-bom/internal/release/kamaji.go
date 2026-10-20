@@ -26,7 +26,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/nvidia/doca-platform/hack/tools/airgap-bom/internal/bom"
+	"github.com/nvidia/doca-platform/internal/airgap/bom"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 
 	"sigs.k8s.io/yaml"
@@ -62,7 +62,7 @@ func kamajiImages(ctx context.Context, opts Options) ([]bom.Image, error) {
 		images = append(images, opts.Engine.Image(ref, bom.ScopeHost))
 	}
 	for _, ref := range dpu {
-		images = append(images, opts.Engine.Image(ref, bom.ScopeDPU))
+		images = append(images, kamajiAddonImage(opts.Engine, ref))
 	}
 	lookup := opts.KamajiCoreDNSVersion
 	if lookup == nil {
@@ -78,7 +78,7 @@ func kamajiImages(ctx context.Context, opts Options) ([]bom.Image, error) {
 	if err != nil {
 		return nil, err
 	}
-	images = append(images, opts.Engine.Image(ref, bom.ScopeDPU))
+	images = append(images, kamajiAddonImage(opts.Engine, ref))
 	keepalived, err := keepalivedImages(opts)
 	if err != nil {
 		return nil, err
@@ -176,6 +176,14 @@ func kamajiRefs() (host, dpu []bom.ImageRef) {
 		bom.MustParseImageRef(kubernetesImageRegistry + "/kube-proxy:" + cutil.KubernetesVersion),
 	}
 	return host, dpu
+}
+
+// kamajiAddonImage returns the BOM entry of an addon image of a Kamaji DPUCluster, which runs on
+// the DPUs.
+func kamajiAddonImage(engine *bom.Engine, ref bom.ImageRef) bom.Image {
+	img := engine.Image(ref, bom.ScopeDPU)
+	img.KamajiAddon = true
+	return img
 }
 
 // kamajiCoreDNSRef returns the CoreDNS addon image of a Kamaji DPUCluster, which runs on the DPUs:

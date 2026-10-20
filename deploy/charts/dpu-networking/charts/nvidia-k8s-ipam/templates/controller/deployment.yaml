@@ -72,7 +72,7 @@ spec:
       {{- end }}
       containers:
         - name: controller
-          image: "{{ .Values.nvIpam.image.repository }}:{{ .Values.nvIpam.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.nvIpam.controller.image.repository | default .Values.nvIpam.image.repository }}:{{ .Values.nvIpam.controller.image.tag | default .Values.nvIpam.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.nvIpam.pullPolicy }}
           command: [ "/ipam-controller" ]
           args:

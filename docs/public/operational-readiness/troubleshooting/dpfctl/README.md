@@ -28,6 +28,7 @@ There are 2 ways to run `dpfctl`:
 | [dump](dump.md)             | Collect diagnostic dumps from DPF infrastructure components     |
 | [sosreport](sosreport.md)   | Collect SOS reports from host and DPU cluster nodes             |
 | [flavor-template](flavor-template.md) | Render a DPUFlavorTemplate into a concrete DPUFlavor for preview and validation |
+| [airgap](airgap.md)         | List the images and helm charts to copy into a mirror registry for an air-gapped installation |
 
 ### Install
 

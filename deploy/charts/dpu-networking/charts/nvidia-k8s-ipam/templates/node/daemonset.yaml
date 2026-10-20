@@ -44,7 +44,7 @@ spec:
       imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
       containers:
         - name: node
-          image: "{{ .Values.nvIpam.image.repository }}:{{ .Values.nvIpam.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.nvIpam.node.image.repository | default .Values.nvIpam.image.repository }}:{{ .Values.nvIpam.node.image.tag | default .Values.nvIpam.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.nvIpam.pullPolicy }}
           env:
             - name: POD_NAMESPACE

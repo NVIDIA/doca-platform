@@ -43,3 +43,10 @@ This approach gives you:
 * End-to-end Kubernetes-native experience
 * Support for HBN, OVN Kubernetes, and HBN+OVN Kubernetes use cases
 * DPU configuration through DOCA Management Service (DMS)
+
+## Air-Gapped Deployment
+
+[Air-Gapped Deployment Guide](airgapped/README.md)
+
+Run the DPUs of either deployment scenario without internet access: copy the images of a DPF release into a mirror
+registry inside your network and configure DPF to pull them from there.

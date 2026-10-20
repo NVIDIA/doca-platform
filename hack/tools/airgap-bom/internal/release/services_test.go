@@ -22,7 +22,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nvidia/doca-platform/hack/tools/airgap-bom/internal/bom"
+	"github.com/nvidia/doca-platform/internal/airgap/bom"
 
 	. "github.com/onsi/gomega"
 )

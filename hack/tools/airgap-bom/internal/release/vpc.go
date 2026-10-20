@@ -19,7 +19,7 @@ package release
 import (
 	"slices"
 
-	"github.com/nvidia/doca-platform/hack/tools/airgap-bom/internal/bom"
+	"github.com/nvidia/doca-platform/internal/airgap/bom"
 )
 
 // vpcChart is a chart the dpf-vpc repository builds and the DPF release publishes with its own

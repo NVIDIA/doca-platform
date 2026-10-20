@@ -41,7 +41,10 @@ const (
 		"# repository and its charts set it, by tag or by digest.\n" +
 		"# The image with sandbox: true is the pause image containerd on the DPU starts in every pod.\n" +
 		"# containerd pulls it itself, so set the DPUFlavor field spec.containerdConfig.sandboxImage\n" +
-		"# to its mirror copy.\n"
+		"# to its mirror copy.\n" +
+		"# The images with kamajiAddon: true are the kube-proxy and CoreDNS addons of a Kamaji DPU\n" +
+		"# cluster. Kamaji pulls them as <addonsRepository>/<last path element>:<tag>, with the\n" +
+		"# DPFOperatorConfig field spec.kamajiClusterManager.dpuClusterImages.addonsRepository.\n"
 )
 
 // Scope is a cluster that pulls an image: the DPU cluster or the host (management) cluster.
@@ -80,6 +83,9 @@ type Image struct {
 	// Sandbox is true for the containerd sandbox (pause) image of the DPU, which containerd pulls
 	// from its own configuration, not from a pod.
 	Sandbox bool `yaml:"sandbox,omitempty"`
+	// KamajiAddon is true for an addon image of a Kamaji DPU cluster (kube-proxy, CoreDNS). Kamaji
+	// pulls such an image as <addonsRepository>/<last path element>:<tag>.
+	KamajiAddon bool `yaml:"kamajiAddon,omitempty"`
 }
 
 // Service is one optional DPUService chart and the images it pulls.
@@ -370,10 +376,11 @@ func (i Image) tagKey() string {
 }
 
 // mergeImage merges img into existing, an entry with the same key: scopes are united, and the
-// result is the sandbox image when either is.
+// result is the sandbox image or a Kamaji addon image when either is.
 func mergeImage(existing *Image, img Image) {
 	existing.Scope = append(existing.Scope, img.Scope...)
 	existing.Sandbox = existing.Sandbox || img.Sandbox
+	existing.KamajiAddon = existing.KamajiAddon || img.KamajiAddon
 }
 
 // Names returns the names of all first-party images of the BOM, images and services, sorted.
