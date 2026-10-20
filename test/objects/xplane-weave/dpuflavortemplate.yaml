@@ -305,6 +305,12 @@ spec:
           permissions: "0644"
           raw: ""
 
+        # BFB 3.6 ships an OOB network unit, empty it out.
+        - path: /usr/lib/systemd/network/02-oob.network
+          operation: override
+          permissions: "0644"
+          raw: ""
+
         - path: /bindata/spectrum-x/RA2.2-runtime-only.yaml
           operation: override
           permissions: "0644"
