@@ -428,7 +428,9 @@ func TestNewCollectorClosesTheConnectionAfterEveryRequest(t *testing.T) {
 	g := NewWithT(t)
 
 	target := logTarget{IP: "10.0.0.10", Port: defaultPort, Password: "password"}
-	c, cancel, err := newCollector(context.Background(), target, t.TempDir(), CollectOptions{Namespace: DefaultNamespace}.withDefaults())
+	opts := CollectOptions{Namespace: DefaultNamespace}.withDefaults()
+	opts.caPool = testCAPool(t)
+	c, cancel, err := newCollector(context.Background(), target, t.TempDir(), opts)
 	g.Expect(err).NotTo(HaveOccurred())
 	defer cancel()
 

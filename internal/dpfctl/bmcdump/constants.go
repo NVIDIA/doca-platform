@@ -16,7 +16,16 @@ limitations under the License.
 
 package bmcdump
 
-import "time"
+import (
+	"time"
+
+	redfishclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
+)
+
+// sharedPasswordSecretName is the provisioning controller's contract with the cluster, not this
+// command's. Aliasing it rather than restating the string means a rename there cannot leave dpfctl
+// naming a Secret nobody writes.
+const sharedPasswordSecretName = redfishclient.BMCPasswordSecret
 
 const (
 	// DefaultNamespace is the default namespace for DPUDevices and BMC credential Secrets.
@@ -29,8 +38,6 @@ const (
 	defaultEntryRetryInterval = 2 * time.Second
 	defaultPort               = 443
 	urlScheme                 = "https://"
-	sharedPasswordSecretName  = "bmc-shared-password"
-	passwordSecretDataKey     = "password"
 
 	rootServicePath           = "/redfish/v1"
 	dumpLogServicePath        = "/LogServices/Dump"

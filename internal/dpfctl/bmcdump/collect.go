@@ -19,6 +19,7 @@ package bmcdump
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"os"
@@ -46,10 +47,19 @@ type CollectOptions struct {
 	TaskTimeout time.Duration
 	// ClearExisting controls whether existing BMC dump entries are deleted before creating a new dump.
 	ClearExisting bool
-	// InsecureSkipTLSVerify skips BMC TLS certificate verification. Use only for lab/self-signed BMC endpoints.
-	InsecureSkipTLSVerify bool
+	// CACertFile is a PEM file holding the CA that signed the BMC server certificates. Empty means
+	// the CA is read from the trust bundle the DPF operator publishes, in the DPFOperatorConfig namespace (Namespace if it cannot be listed).
+	CACertFile string
 	// Quiet suppresses CLI progress output.
 	Quiet bool
+	// InsecureSkipTLSVerify disables BMC server certificate verification. It exists so the E2E suite
+	// can still collect logs from a BMC that has not been issued its DPF certificate yet (factory
+	// reset, early provisioning). It is deliberately not exposed as a dpfctl flag.
+	InsecureSkipTLSVerify bool
+
+	// caPool is resolved by Collect from CACertFile or the published trust bundle; unexported so
+	// callers cannot substitute their own.
+	caPool *x509.CertPool
 }
 
 // Collect resolves DPUDevice BMC endpoints, creates diagnostic dumps, waits for
@@ -75,6 +85,17 @@ func Collect(ctx context.Context, c client.Client, opts CollectOptions) error {
 			util.ResultFail("No DPUDevice BMC target found")
 		}
 		return err
+	}
+
+	// Resolved once, before any artifact is written, so a run that cannot verify leaves nothing behind.
+	if !opts.InsecureSkipTLSVerify {
+		var err error
+		if opts.caPool, err = resolveCAPool(ctx, c, opts); err != nil {
+			if !opts.Quiet {
+				util.ResultFail("Cannot verify BMC server certificates: %v", err)
+			}
+			return err
+		}
 	}
 
 	if err := os.MkdirAll(opts.OutputDir, 0700); err != nil {
