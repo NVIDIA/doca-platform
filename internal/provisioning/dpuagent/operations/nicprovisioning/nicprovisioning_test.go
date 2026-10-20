@@ -626,6 +626,7 @@ func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
 
 		op.StartRuntimeConfigLoop(ctx, optCtx)
 		<-applyStarted
+		op.StartRuntimeConfigLoop(ctx, optCtx)
 
 		// Stop must wait for the in-flight apply to finish.
 		stopped := make(chan struct{})
@@ -640,6 +641,7 @@ func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
 		}
 		close(releaseApply)
 		<-stopped
+		require.EqualValues(t, 1, calls.Load(), "duplicate start must not launch another loop")
 
 		// The loop goroutine has exited, so nothing consumes pending signals and
 		// no further apply can happen.
@@ -908,7 +910,9 @@ func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
 		newer := stored.DeepCopy()
 		newer.Generation = stored.Generation + 2
 		newer.Spec.EWNicConfigurations[0].NumVfs = 16
-		optCtx.DPUFlavor = *newer
+		newer.ResourceVersion = updated.ResourceVersion
+		require.NoError(t, fakeClient.Update(ctx, newer))
+		require.NoError(t, optCtx.ReloadDPUFlavor(ctx))
 		ccCh <- "mlx5_0"
 		require.Eventually(t, func() bool { return reapplyVfs.Load() != 0 }, time.Second, 10*time.Millisecond)
 		cancel()

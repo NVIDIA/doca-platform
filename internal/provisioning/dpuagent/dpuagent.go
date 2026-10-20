@@ -48,6 +48,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/ovsscript"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/packages"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/reboot"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/runtimeworkers"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/sriovconfig"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/staticfiles"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/sysctl"
@@ -95,6 +96,9 @@ type DPUAgent struct {
 	// removeDoneMarkerFunc, if non-nil, replaces the default marker remover (tests only).
 	removeDoneMarkerFunc func(dir string) error
 
+	// spireAttestorOnce prevents duplicate loops when Run or abort recovery requests startup again.
+	spireAttestorOnce sync.Once
+
 	mu sync.Mutex
 	// reconfig is process-local: idle / armed / running. See reconfigState.
 	reconfig reconfigState
@@ -120,8 +124,13 @@ const (
 )
 
 func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
+	optCtx.Status = statusmanager.New(optCtx.Client, optCtx.Options.DPUNamespace, optCtx.Options.DPUName, optCtx.Options.DPUUID)
+	agent := &DPUAgent{
+		optCtx: optCtx,
+		runDir: defaultRunDir,
+	}
 	// The DPU Agent executes operations sequentially in the order defined in the slice.
-	operations := []operations.Operation{
+	agent.operations = []operations.Operation{
 		&kernelmodule.LoadModule{},
 		&netplan.ConfigureNetwork{},
 		&netplan.CheckNetwork{},
@@ -151,14 +160,13 @@ func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
 		&devicepluginregistry.CleanPluginRegistry{},
 		&kubelet.StartKubelet{},
 		&nodelabels.ReportNodeLabels{},
+		&runtimeworkers.StartRuntimeWorkers{
+			StartNIC:   agent.StartNICRuntimeConfigLoop,
+			StartSPIRE: agent.StartSPIREAttestorLoop,
+		},
 		&hostosinit.ReleaseHostOSInit{},
 	}
-	optCtx.Status = statusmanager.New(optCtx.Client, optCtx.Options.DPUNamespace, optCtx.Options.DPUName, optCtx.Options.DPUUID)
-	return &DPUAgent{
-		optCtx:     optCtx,
-		operations: operations,
-		runDir:     defaultRunDir,
-	}
+	return agent
 }
 
 func (d *DPUAgent) Run(ctx context.Context) error {
@@ -433,11 +441,8 @@ func (d *DPUAgent) maybeReconfigRun(ctx context.Context, dpu *provisioningv1.DPU
 	}()
 
 	klog.Infof("DPU reconcile: in-place reconfig Run() for DPU %s/%s", dpu.Namespace, dpu.Name)
-	// The runtime config loop and Run() must not overlap: both use the operations
-	// context, which is not thread-safe. Stop the loop before Run and restart it
-	// afterwards even on failure, so CC-termination recovery and failed-device
-	// retries keep working. The restarted loop's first apply covers everything
-	// that was paused or signaled while it was down.
+	// Setup owns the operations context exclusively. Run resumes NIC runtime
+	// before release; the deferred start also restores it if setup aborts.
 	d.stopNICRuntimeConfigLoop()
 	defer d.StartNICRuntimeConfigLoop(ctx)
 	err = d.Run(ctx)
@@ -462,7 +467,7 @@ func agentStatusVersion() string {
 // Version is set on every Run so the first status push of the process, including
 // a push before Run() succeeds, reports a capable agent. An in-process reconfig
 // keeps the CA trust-bundle fields and the SPIRE attestor condition: those loops
-// run outside the operation list and would otherwise lose their in-memory state.
+// continue across Run calls and would otherwise lose their in-memory state.
 func (d *DPUAgent) resetStatusForRun() {
 	prev := d.optCtx.Status.GetLocal()
 	next := provisioningv1.AgentStatus{
@@ -499,7 +504,7 @@ func (d *DPUAgent) snapshotPreInstallCtx(dpu *provisioningv1.DPU, status *status
 	}
 }
 
-// StartNICRuntimeConfigLoop starts the post-provisioning E/W NIC runtime config
+// StartNICRuntimeConfigLoop starts the E/W NIC runtime config
 // loop (first apply with retry, then periodic reapply). No-op when NIC provisioning
 // did not start a DMS session.
 func (d *DPUAgent) StartNICRuntimeConfigLoop(ctx context.Context) {

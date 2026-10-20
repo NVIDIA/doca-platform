@@ -964,7 +964,7 @@ func (n *NICProvisioning) StartRuntimeConfigLoop(ctx context.Context, optCtx *op
 }
 
 // StopRuntimeConfigLoop stops the runtime configuration loop and waits for the
-// goroutine to exit, so a following Run() is the only user of the operations
+// goroutine to exit, so setup in the following Run() owns the operations
 // context. An in-flight apply finishes (or observes cancellation) before this
 // returns. No-op when the loop is not running.
 func (n *NICProvisioning) StopRuntimeConfigLoop() {
@@ -1136,8 +1136,8 @@ func (n *NICProvisioning) runtimeFlavorContext(optCtx *operations.Context) *oper
 	if optCtx == nil {
 		return nil
 	}
-	shared := optCtx.DPUFlavor
-	return n.contextWithRuntimeFlavor(optCtx, newerFlavor(&shared, n.runtimeFlavor))
+	shared := optCtx.DPUFlavorSnapshot()
+	return n.contextWithRuntimeFlavor(optCtx, newerFlavor(shared, n.runtimeFlavor))
 }
 
 // runtimeRetryContext returns a context for one failed-device retry. A successful GET is
@@ -1147,7 +1147,7 @@ func (n *NICProvisioning) runtimeRetryContext(ctx context.Context, optCtx *opera
 	if optCtx == nil {
 		return nil
 	}
-	current := optCtx.DPUFlavor
+	current := optCtx.DPUFlavorSnapshot()
 	name := current.Name
 	if name == "" && n.runtimeFlavor != nil {
 		name = n.runtimeFlavor.Name
@@ -1161,8 +1161,8 @@ func (n *NICProvisioning) runtimeRetryContext(ctx context.Context, optCtx *opera
 		klog.ErrorS(err, "NIC provisioning: failed to reload DPUFlavor before runtime config retry")
 		return n.runtimeFlavorContext(optCtx)
 	}
-	shared := optCtx.DPUFlavor
-	return n.contextWithRuntimeFlavor(optCtx, newerFlavor(&shared, flavor))
+	shared := optCtx.DPUFlavorSnapshot()
+	return n.contextWithRuntimeFlavor(optCtx, newerFlavor(shared, flavor))
 }
 
 // contextWithRuntimeFlavor remembers flavor for later applies and returns a context that uses it.

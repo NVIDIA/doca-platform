@@ -57,8 +57,9 @@ func spireAttestorRunner() attestor.Runner {
 
 // StartSPIREAttestorLoop enables the SPIRE Kubernetes workload attestor and reports
 // whether it is configured.
+// ctx must be the process context; subsequent startup requests reuse the existing loop.
 //
-// This is a loop rather than an operation because the attestor needs the kubelet
+// Reconciliation is asynchronous because the attestor needs the kubelet
 // client certificate, which only appears after TLS bootstrap, so waiting for it in
 // the operation sequence would block everything behind it.
 //
@@ -69,8 +70,10 @@ func (d *DPUAgent) StartSPIREAttestorLoop(ctx context.Context) {
 	if !d.optCtx.Options.SpiffeMode {
 		return
 	}
-	reporter := &spireAttestorReporter{agent: d}
-	go wait.UntilWithContext(ctx, reporter.reconcile, spireAttestorInterval)
+	d.spireAttestorOnce.Do(func() {
+		reporter := &spireAttestorReporter{agent: d}
+		go wait.UntilWithContext(ctx, reporter.reconcile, spireAttestorInterval)
+	})
 }
 
 // spireAttestorReporter remembers what it last published so a failed patch is retried

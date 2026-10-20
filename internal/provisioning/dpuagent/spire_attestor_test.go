@@ -22,11 +22,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/spire/attestor"
 
+	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 const agentConfigWithoutAttestor = `plugins {
@@ -208,4 +212,27 @@ func TestConditionChanged(t *testing.T) {
 	if !conditionChanged([]metav1.Condition{other}, waiting) {
 		t.Error("a different condition type must not suppress reporting")
 	}
+}
+
+// TestSPIREAttestorStartsOnlyOnce verifies that repeated startup requests do not launch another reconciliation loop.
+func TestSPIREAttestorStartsOnlyOnce(t *testing.T) {
+	dpu := newTestDPU()
+	c := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+	agent := NewDPUAgent(newTestOptCtx(c))
+	agent.optCtx.Options.SpiffeMode = true
+	agent.optCtx.Status.Start(t.Context())
+	dir := t.TempDir()
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "openssl"), []byte("#!/bin/sh\nexit 1\n"), 0700))
+	agent.StartSPIREAttestorLoop(t.Context())
+	hasCondition := func() bool {
+		return meta.FindStatusCondition(agent.optCtx.Status.GetLocal().Conditions, provisioningv1.DPUAgentConditionSPIREWorkloadAttestorEnabled) != nil
+	}
+	require.Eventually(t, hasCondition, time.Second, time.Millisecond)
+	agent.optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) { s.Conditions = nil })
+	// Run and abort recovery can request startup again while the process remains alive.
+	agent.StartSPIREAttestorLoop(t.Context())
+	agent.StartSPIREAttestorLoop(t.Context())
+	require.NoError(t, t.Context().Err())
+	require.Never(t, hasCondition, 500*time.Millisecond, time.Millisecond, "duplicate startup must not reconcile again")
 }
