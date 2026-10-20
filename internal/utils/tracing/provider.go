@@ -35,7 +35,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	sdkresource "go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"google.golang.org/grpc/credentials"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -50,9 +50,17 @@ const (
 	TransportGRPC Transport = "grpc"
 	// DefaultTransport is the transport the --otel-tracing-transport flag defaults to.
 	DefaultTransport = TransportHTTP
+	// DefaultSamplingPercent is the value the --otel-tracing-sampling-percent flag defaults to.
+	DefaultSamplingPercent = 100
+	// DefaultRolloutTimeout is the value the --otel-tracing-rollout-timeout flag defaults to.
+	DefaultRolloutTimeout = time.Hour
 
 	// shutdownTimeout bounds how long flushing the pending spans may block process exit.
 	shutdownTimeout = 5 * time.Second
+
+	// dropAttribute marks a span that must not be exported. ReconcileSpan sets it on a reconcile span
+	// that is not wanted, which is only known when the reconcile ends.
+	dropAttribute = "dpf.tracing.drop"
 )
 
 // FlagOptions holds the CLI flag values controlling the TracerProvider bootstrap. Tracing is
@@ -65,6 +73,18 @@ type FlagOptions struct {
 	// CA is the PEM-encoded CA bundle content, not a file path. Inline content means a CA
 	// rotation changes the Deployment pod template and rolls the pod, which a mounted file would not.
 	CA string
+	// RecordIdleReconciles exports the spans of idle reconciles, see ReconcileSpan.
+	RecordIdleReconciles bool
+	// RecordUnchangedReconciles exports the spans of reconciles that changed nothing on their object,
+	// did not fail and have no child spans.
+	RecordUnchangedReconciles bool
+	// SamplingPercent is the share of the traces that is exported, from 0 to 100. AddFlags defaults it
+	// to DefaultSamplingPercent.
+	SamplingPercent int
+	// RolloutTimeout is how long a change may take to become ready before its rollout is reported as
+	// timed out, and how long its trace collects reconciles. AddFlags defaults it to
+	// DefaultRolloutTimeout, and so does zero.
+	RolloutTimeout time.Duration
 }
 
 // AddFlags registers the --otel-tracing-* flags on fs, writing into opts. Mirrors the
@@ -83,6 +103,36 @@ func AddFlags(opts *FlagOptions, fs *pflag.FlagSet) {
 		}
 	})
 	fs.StringVar(&opts.CA, "otel-tracing-ca-pem", "", "PEM-encoded CA certificate bundle content used to verify the otel-tracing-endpoint TLS certificate.")
+	fs.BoolVar(&opts.RecordIdleReconciles, "otel-tracing-record-idle-reconciles", false, "Export the spans of idle reconciles, which start at the resourceVersion the last successful reconcile left behind.")
+	fs.BoolVar(&opts.RecordUnchangedReconciles, "otel-tracing-record-unchanged-reconciles", false, "Export the spans of reconciles that changed nothing on their object, did not fail and have no child spans.")
+	fs.IntVar(&opts.SamplingPercent, "otel-tracing-sampling-percent", DefaultSamplingPercent, "Share of the traces that is exported, from 0 to 100. The decision is made per trace.")
+	fs.DurationVar(&opts.RolloutTimeout, "otel-tracing-rollout-timeout", DefaultRolloutTimeout, "How long a change may take to become ready before its rollout span is exported as timed out.")
+}
+
+// validate returns an error when opts holds a setting that cannot be applied.
+func (o FlagOptions) validate() error {
+	if o.SamplingPercent < 0 || o.SamplingPercent > 100 {
+		return fmt.Errorf("invalid sampling percent %d: use a value from 0 to 100", o.SamplingPercent)
+	}
+	if o.RolloutTimeout < 0 {
+		return fmt.Errorf("invalid rollout timeout %s: use a positive duration", o.RolloutTimeout)
+	}
+	return nil
+}
+
+// dropProcessor does not pass the spans marked with dropAttribute on to the processor it wraps.
+type dropProcessor struct {
+	sdktrace.SpanProcessor
+}
+
+// OnEnd drops a span marked with dropAttribute.
+func (p dropProcessor) OnEnd(s sdktrace.ReadOnlySpan) {
+	for _, kv := range s.Attributes() {
+		if string(kv.Key) == dropAttribute {
+			return
+		}
+	}
+	p.SpanProcessor.OnEnd(s)
 }
 
 // SetupTracerProviderFromFlags builds the TracerProvider from opts (see NewTracerProvider),
@@ -101,12 +151,16 @@ func SetupTracerProviderFromFlags(ctx context.Context, serviceName string, opts 
 	if opts.Endpoint == "" {
 		return func() {}, nil
 	}
-	tp, err := NewTracerProvider(ctx, serviceName, opts.Endpoint, opts.Transport, opts.CA)
+	if err := opts.validate(); err != nil {
+		return nil, err
+	}
+	tp, err := NewTracerProvider(ctx, serviceName, opts.Endpoint, opts.Transport, opts.CA, opts.SamplingPercent)
 	if err != nil {
 		return nil, err
 	}
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagator)
+	reconciles.Store(newTracker(opts))
 	log := ctrllog.FromContext(ctx)
 	log.Info("Tracing enabled", "service", serviceName, "endpoint", opts.Endpoint, "transport", opts.Transport)
 	return func() {
@@ -125,7 +179,11 @@ func SetupTracerProviderFromFlags(ctx context.Context, serviceName string, opts 
 // certificate bundle content (not a file path) used to verify the endpoint's TLS certificate in
 // addition to the system trust store. It is only consulted for endpoints that enable TLS (an
 // "https://" prefix, see parseEndpoint).
-func NewTracerProvider(ctx context.Context, serviceName, endpoint string, transport Transport, caPEM string) (*sdktrace.TracerProvider, error) {
+//
+// samplingPercent is the share of the traces that is exported, from 0 to 100. The decision is made
+// from the trace ID, so all spans of a trace are kept or dropped together, including those that have
+// a remote parent.
+func NewTracerProvider(ctx context.Context, serviceName, endpoint string, transport Transport, caPEM string, samplingPercent int) (*sdktrace.TracerProvider, error) {
 	exporter, err := newExporter(ctx, endpoint, transport, caPEM)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OTLP trace exporter: %w", err)
@@ -140,9 +198,24 @@ func NewTracerProvider(ctx context.Context, serviceName, endpoint string, transp
 	}
 
 	return sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
+		sdktrace.WithSpanProcessor(dropProcessor{sdktrace.NewBatchSpanProcessor(exporter)}),
 		sdktrace.WithResource(res),
+		sdktrace.WithIDGenerator(idGenerator{}),
+		sdktrace.WithSampler(newSampler(samplingPercent)),
 	), nil
+}
+
+// newSampler returns the sampler that keeps percent of the traces DPF starts. The decision comes from
+// the trace ID, so all spans of a trace are kept or dropped together. A trace with a remote parent
+// follows the decision of the parent, so the owner of an external trace decides about its sampling.
+// The traces DPF derives carry the decision of the ratio in their sampled flag, see keeps.
+func newSampler(percent int) sdktrace.Sampler {
+	return sdktrace.ParentBased(newRatioSampler(percent))
+}
+
+// newRatioSampler returns the sampler that keeps percent of the trace IDs.
+func newRatioSampler(percent int) sdktrace.Sampler {
+	return sdktrace.TraceIDRatioBased(float64(percent) / 100)
 }
 
 // newExporter builds the OTLP span exporter for endpoint over transport.
