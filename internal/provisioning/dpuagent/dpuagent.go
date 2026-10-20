@@ -194,9 +194,67 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 			return fmt.Errorf("failed to remove stale OVS script marker: %w", err)
 		}
 	}
+	// Run the pipeline. When a stuck operation observes a flavor spec change
+	// during its retry, restart the pipeline from the first operation: state
+	// derived from the old flavor (resolved NVConfig, deferred NVConfig params,
+	// grub detection) must be rebuilt by re-running every operation against the
+	// updated spec. Restarts are bounded by flavor generation bumps, which only
+	// happen when the flavor is edited.
+	for {
+		flavorChanged, err := d.runOperations(ctx)
+		if err != nil {
+			return err
+		}
+		if !flavorChanged {
+			break
+		}
+		klog.Infof("DPUFlavor changed while an operation was retrying; restarting the pipeline with the updated flavor")
+		// The retry that observed the change already stopped the NIC runtime
+		// loop before applying the new flavor, so the Run goroutine owns the
+		// context exclusively, as at the start of a Run. StartRuntimeWorkers
+		// restarts the loop when the restarted pipeline reaches it.
+		d.optCtx.ResetPerRunState()
+		// The restarted pipeline must converge on the updated flavor: a
+		// leftover NVConfigApplied=True recorded against the old flavor must
+		// not skip re-application, and the once-per-boot OVS script runs again
+		// against the new spec, as at the start of an in-place Run.
+		d.optCtx.FlavorUpdated = true
+		if err := removeOVSScriptMarker(d.runDir); err != nil {
+			return fmt.Errorf("failed to remove stale OVS script marker: %w", err)
+		}
+	}
+	if err := d.checkBootstrapAbort(ctx); err != nil {
+		return err
+	}
+	writeMarker := writeDoneMarker
+	if d.writeDoneMarkerFunc != nil {
+		writeMarker = d.writeDoneMarkerFunc
+	}
+	if err := writeMarker(d.runDir); err != nil {
+		return fmt.Errorf("failed to write done marker: %w", err)
+	}
+	flavor := d.optCtx.DPUFlavor
+	if gen := flavor.GetGeneration(); gen != 0 {
+		d.optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
+			s.AppliedFlavorGeneration = gen
+		})
+	}
+	if err := d.optCtx.Status.UpdateRemote(true); err != nil {
+		return abortIfDPUGone(err)
+	}
+	d.logNICProvisioningRetainedResources()
+	return nil
+}
+
+// runOperations executes each operation in order, retrying a failed operation
+// until it succeeds. A retry fetches the live DPUFlavor; when the flavor
+// generation changed, the retry stops the NIC runtime loop, applies the new
+// flavor, and runOperations reports flavorChanged so Run restarts the pipeline
+// instead of this operation retrying against state built from the old flavor.
+func (d *DPUAgent) runOperations(ctx context.Context) (bool, error) {
 	for _, op := range d.operations {
 		if err := d.checkBootstrapAbort(ctx); err != nil {
-			return err
+			return false, err
 		}
 		if op.ShouldSkip(d.optCtx) {
 			klog.Infof("Skipping operation %s", op.Name())
@@ -204,15 +262,30 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 		}
 
 		attempt := 0
+		flavorChanged := false
 		err := wait.PollUntilContextCancel(ctx, d.retryInterval, true, func(execCtx context.Context) (bool, error) {
 			if err := d.checkBootstrapAbort(execCtx); err != nil {
 				return false, err
 			}
 			// The first attempt keeps the flavor loaded at the start of this Run.
-			// A retry GETs the live flavor so a fix is applied while this operation is stuck.
+			// A retry GETs the live flavor; when the spec changed, the pipeline
+			// restarts so every operation converges on the updated flavor.
 			if attempt > 0 {
-				if err := d.optCtx.ReloadDPUFlavor(execCtx); err != nil {
-					klog.Errorf("[%s] Failed to reload DPUFlavor before retry: %v", op.Name(), err)
+				flavor, changed, err := d.optCtx.FetchDPUFlavor(execCtx)
+				if err != nil {
+					klog.Errorf("[%s] Failed to fetch DPUFlavor before retry: %v", op.Name(), err)
+				} else if changed {
+					// The NIC runtime loop reads the context flavor concurrently;
+					// stop it before applying the new flavor so the Run goroutine
+					// owns the context exclusively again. An unchanged generation
+					// is discarded without any write: the spec is identical, only
+					// metadata could differ. The resolved NVConfig cache was built
+					// from the old spec and must not survive the swap.
+					d.stopNICRuntimeConfigLoop()
+					d.optCtx.DPUFlavor = *flavor
+					d.optCtx.SetResolvedNVConfig(nil)
+					flavorChanged = true
+					return true, nil
 				}
 			}
 			attempt++
@@ -238,32 +311,15 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 		})
 		if err != nil {
 			if isBootstrapAbortErr(err) {
-				return err
+				return false, err
 			}
-			return fmt.Errorf("execution of operator %s aborted: %w", op.Name(), err)
+			return false, fmt.Errorf("execution of operator %s aborted: %w", op.Name(), err)
+		}
+		if flavorChanged {
+			return true, nil
 		}
 	}
-	if err := d.checkBootstrapAbort(ctx); err != nil {
-		return err
-	}
-	writeMarker := writeDoneMarker
-	if d.writeDoneMarkerFunc != nil {
-		writeMarker = d.writeDoneMarkerFunc
-	}
-	if err := writeMarker(d.runDir); err != nil {
-		return fmt.Errorf("failed to write done marker: %w", err)
-	}
-	flavor := d.optCtx.DPUFlavor
-	if gen := flavor.GetGeneration(); gen != 0 {
-		d.optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
-			s.AppliedFlavorGeneration = gen
-		})
-	}
-	if err := d.optCtx.Status.UpdateRemote(true); err != nil {
-		return abortIfDPUGone(err)
-	}
-	d.logNICProvisioningRetainedResources()
-	return nil
+	return false, nil
 }
 
 func (d *DPUAgent) logNICProvisioningRetainedResources() {
@@ -626,9 +682,10 @@ func removeDoneMarker(dir string) error {
 }
 
 // removeOVSScriptMarker deletes ovs-script-complete under dir so an in-process
-// reconfig runs the OVS script again. Run() calls it only when ReapplyConfig is
-// set. A process restart in the same boot must not call it: the marker stays,
-// and the script remains once-per-boot.
+// reconfig runs the OVS script again. Run() calls it when ReapplyConfig is set
+// and when restarting the pipeline on a flavor update. A process restart in
+// the same boot must not call it: the marker stays, and the script remains
+// once-per-boot.
 func removeOVSScriptMarker(dir string) error {
 	markerPath := filepath.Join(dir, ovsscript.DoneMarkerFileName)
 	if err := os.Remove(markerPath); err != nil && !os.IsNotExist(err) {

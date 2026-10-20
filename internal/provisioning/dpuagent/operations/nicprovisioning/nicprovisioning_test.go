@@ -912,7 +912,9 @@ func TestNICProvisioning_StartRuntimeConfigLoop(t *testing.T) {
 		newer.Spec.EWNicConfigurations[0].NumVfs = 16
 		newer.ResourceVersion = updated.ResourceVersion
 		require.NoError(t, fakeClient.Update(ctx, newer))
-		require.NoError(t, optCtx.ReloadDPUFlavor(ctx))
+		fetched, _, fetchErr := optCtx.FetchDPUFlavor(ctx)
+		require.NoError(t, fetchErr)
+		optCtx.DPUFlavor = *fetched
 		ccCh <- "mlx5_0"
 		require.Eventually(t, func() bool { return reapplyVfs.Load() != 0 }, time.Second, 10*time.Millisecond)
 		cancel()

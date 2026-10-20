@@ -381,7 +381,7 @@ var _ = Describe("DPUAgent", func() {
 	Describe("Run", func() {
 		noopMarker := func(_ string) error { return nil }
 
-		It("reloads the DPUFlavor before retrying a failed operation", func() {
+		It("reloads the DPUFlavor and restarts the pipeline when a failed operation observes a spec change", func() {
 			dpu := newTestDPU()
 			flavor := &provisioningv1.DPUFlavor{
 				ObjectMeta: metav1.ObjectMeta{Name: "flavor-1", Namespace: "test-ns"},
@@ -415,11 +415,18 @@ var _ = Describe("DPUAgent", func() {
 								updated.Spec.Sysctl.Parameters = []string{"good"}
 								// The fake client does not bump generation. The apiserver does on this spec edit.
 								updated.Generation = stored.Generation + 1
-								Expect(fakeClient.Update(execCtx, updated)).To(Succeed())
+								Expect(fakeClient.Patch(execCtx, updated, client.MergeFrom(stored))).To(Succeed())
 								return fmt.Errorf("invalid nvconfig")
 							}
+							// The pipeline restarted: ResetPerRunState cleared the
+							// per-run state built from the old flavor, and this run
+							// sees the fixed spec.
 							Expect(optCtx.GetResolvedNVConfig()).To(BeNil())
-							Expect(optCtx.DeferredNVConfigParams).To(Equal([]operations.DeferredNVConfigParam{{Device: "0000:03:00.0", Params: "FOO=1"}}))
+							Expect(optCtx.DeferredNVConfigParams).To(BeEmpty())
+							// The leftover-success skip (e.g. NVConfigApplied on the
+							// legacy boot-ID path) is disabled for the restarted
+							// pipeline.
+							Expect(optCtx.FlavorUpdated).To(BeTrue())
 							return nil
 						},
 					},
@@ -428,6 +435,172 @@ var _ = Describe("DPUAgent", func() {
 			agent.optCtx.DPUFlavor = *stored
 			Expect(agent.Run(ctx)).To(Succeed())
 			Expect(attempts).To(Equal([]string{"bad", "good"}))
+		})
+
+		It("restarts from the first operation when the flavor changes during a retry", func() {
+			dpu := newTestDPU()
+			flavor := &provisioningv1.DPUFlavor{
+				ObjectMeta: metav1.ObjectMeta{Name: "flavor-1", Namespace: "test-ns"},
+				Spec: provisioningv1.DPUFlavorSpec{
+					Sysctl: provisioningv1.DPUFLavorSysctl{Parameters: []string{"bad"}},
+				},
+			}
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu, flavor).WithStatusSubresource(dpu).Build()
+			stored := &provisioningv1.DPUFlavor{}
+			Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "flavor-1"}, stored)).To(Succeed())
+
+			var executionOrder []string
+			agent := &DPUAgent{
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: noopMarker,
+				optCtx:              newTestOptCtx(fakeClient),
+				operations: []operations.Operation{
+					&mockOperation{
+						name:          "first",
+						conditionType: "First",
+						executeFunc: func(_ context.Context, _ *operations.Context) error {
+							executionOrder = append(executionOrder, "first")
+							return nil
+						},
+					},
+					&mockOperation{
+						name:          "second",
+						conditionType: "Second",
+						executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
+							param := ""
+							if len(optCtx.DPUFlavor.Spec.Sysctl.Parameters) > 0 {
+								param = optCtx.DPUFlavor.Spec.Sysctl.Parameters[0]
+							}
+							executionOrder = append(executionOrder, "second:"+param)
+							if param == "bad" {
+								updated := stored.DeepCopy()
+								updated.Spec.Sysctl.Parameters = []string{"good"}
+								updated.Generation = stored.Generation + 1
+								Expect(fakeClient.Patch(execCtx, updated, client.MergeFrom(stored))).To(Succeed())
+								return fmt.Errorf("invalid config")
+							}
+							return nil
+						},
+					},
+				},
+			}
+			agent.optCtx.DPUFlavor = *stored
+			Expect(agent.Run(ctx)).To(Succeed())
+			Expect(executionOrder).To(Equal([]string{"first", "second:bad", "first", "second:good"}))
+		})
+
+		It("keeps retrying the same operation when only flavor metadata changes", func() {
+			dpu := newTestDPU()
+			flavor := &provisioningv1.DPUFlavor{
+				ObjectMeta: metav1.ObjectMeta{Name: "flavor-1", Namespace: "test-ns"},
+				Spec: provisioningv1.DPUFlavorSpec{
+					Sysctl: provisioningv1.DPUFLavorSysctl{Parameters: []string{"bad"}},
+				},
+			}
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu, flavor).WithStatusSubresource(dpu).Build()
+			stored := &provisioningv1.DPUFlavor{}
+			Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "flavor-1"}, stored)).To(Succeed())
+
+			var executionOrder []string
+			secondRuns := 0
+			agent := &DPUAgent{
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: noopMarker,
+				optCtx:              newTestOptCtx(fakeClient),
+				operations: []operations.Operation{
+					&mockOperation{
+						name:          "first",
+						conditionType: "First",
+						executeFunc: func(_ context.Context, _ *operations.Context) error {
+							executionOrder = append(executionOrder, "first")
+							return nil
+						},
+					},
+					&mockOperation{
+						name:          "second",
+						conditionType: "Second",
+						executeFunc: func(execCtx context.Context, optCtx *operations.Context) error {
+							param := ""
+							if len(optCtx.DPUFlavor.Spec.Sysctl.Parameters) > 0 {
+								param = optCtx.DPUFlavor.Spec.Sysctl.Parameters[0]
+							}
+							executionOrder = append(executionOrder, "second:"+param)
+							secondRuns++
+							switch secondRuns {
+							case 1:
+								// Metadata-only write: generation is unchanged, so the
+								// retry keeps working on this operation instead of
+								// restarting the pipeline.
+								updated := stored.DeepCopy()
+								updated.Labels = map[string]string{"touched": "true"}
+								Expect(fakeClient.Patch(execCtx, updated, client.MergeFrom(stored))).To(Succeed())
+								return fmt.Errorf("invalid config")
+							case 2:
+								updated := stored.DeepCopy()
+								updated.Spec.Sysctl.Parameters = []string{"good"}
+								updated.Generation = stored.Generation + 1
+								Expect(fakeClient.Patch(execCtx, updated, client.MergeFrom(stored))).To(Succeed())
+								return fmt.Errorf("invalid config")
+							}
+							return nil
+						},
+					},
+				},
+			}
+			agent.optCtx.DPUFlavor = *stored
+			Expect(agent.Run(ctx)).To(Succeed())
+			Expect(executionOrder).To(Equal([]string{"first", "second:bad", "second:bad", "first", "second:good"}))
+		})
+
+		It("removes the once-per-boot OVS script marker on a flavor-change restart without in-place reconfig", func() {
+			dpu := newTestDPU()
+			flavor := &provisioningv1.DPUFlavor{
+				ObjectMeta: metav1.ObjectMeta{Name: "flavor-1", Namespace: "test-ns"},
+				Spec: provisioningv1.DPUFlavorSpec{
+					Sysctl: provisioningv1.DPUFLavorSysctl{Parameters: []string{"bad"}},
+				},
+			}
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu, flavor).WithStatusSubresource(dpu).Build()
+			stored := &provisioningv1.DPUFlavor{}
+			Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "flavor-1"}, stored)).To(Succeed())
+
+			runDir, err := os.MkdirTemp("", "dpu-agent-run")
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { Expect(os.RemoveAll(runDir)).To(Succeed()) })
+			markerPath := filepath.Join(runDir, ovsscript.DoneMarkerFileName)
+			Expect(os.WriteFile(markerPath, nil, 0644)).To(Succeed())
+
+			attempts := 0
+			agent := &DPUAgent{
+				retryInterval:       testRetryInterval,
+				writeDoneMarkerFunc: noopMarker,
+				optCtx:              newTestOptCtx(fakeClient),
+				runDir:              runDir,
+				operations: []operations.Operation{
+					&mockOperation{
+						name:          "nvconfig",
+						conditionType: "NVConfigApplied",
+						executeFunc: func(execCtx context.Context, _ *operations.Context) error {
+							attempts++
+							if attempts == 1 {
+								updated := stored.DeepCopy()
+								updated.Spec.Sysctl.Parameters = []string{"good"}
+								updated.Generation = stored.Generation + 1
+								Expect(fakeClient.Patch(execCtx, updated, client.MergeFrom(stored))).To(Succeed())
+								return fmt.Errorf("invalid nvconfig")
+							}
+							return nil
+						},
+					},
+				},
+			}
+			agent.optCtx.DPUFlavor = *stored
+			// Initial provisioning: not an in-place reconfig.
+			Expect(agent.optCtx.ReapplyConfig).To(BeFalse())
+			Expect(agent.Run(ctx)).To(Succeed())
+			Expect(attempts).To(Equal(2))
+			Expect(agent.optCtx.FlavorUpdated).To(BeTrue())
+			Expect(markerPath).NotTo(BeAnExistingFile())
 		})
 
 		It("keeps the flavor loaded at the start of the Run while operations succeed", func() {

@@ -966,7 +966,9 @@ func (n *NICProvisioning) StartRuntimeConfigLoop(ctx context.Context, optCtx *op
 // StopRuntimeConfigLoop stops the runtime configuration loop and waits for the
 // goroutine to exit, so setup in the following Run() owns the operations
 // context. An in-flight apply finishes (or observes cancellation) before this
-// returns. No-op when the loop is not running.
+// returns. The remembered runtime flavor is dropped so a restarted loop begins
+// from the operations context flavor, as on its first start. No-op when the
+// loop is not running.
 func (n *NICProvisioning) StopRuntimeConfigLoop() {
 	if n.runtimeCancel == nil {
 		return
@@ -975,6 +977,7 @@ func (n *NICProvisioning) StopRuntimeConfigLoop() {
 	n.runtimeCancel()
 	n.runtimeConfigWG.Wait()
 	n.runtimeCancel = nil
+	n.runtimeFlavor = nil
 }
 
 // requestRuntimeReapply asks the runtime loop to apply after Execute. No-op
@@ -1136,8 +1139,8 @@ func (n *NICProvisioning) runtimeFlavorContext(optCtx *operations.Context) *oper
 	if optCtx == nil {
 		return nil
 	}
-	shared := optCtx.DPUFlavorSnapshot()
-	return n.contextWithRuntimeFlavor(optCtx, newerFlavor(shared, n.runtimeFlavor))
+	shared := optCtx.DPUFlavor
+	return n.contextWithRuntimeFlavor(optCtx, newerFlavor(&shared, n.runtimeFlavor))
 }
 
 // runtimeRetryContext returns a context for one failed-device retry. A successful GET is
@@ -1147,7 +1150,7 @@ func (n *NICProvisioning) runtimeRetryContext(ctx context.Context, optCtx *opera
 	if optCtx == nil {
 		return nil
 	}
-	current := optCtx.DPUFlavorSnapshot()
+	current := optCtx.DPUFlavor
 	name := current.Name
 	if name == "" && n.runtimeFlavor != nil {
 		name = n.runtimeFlavor.Name
@@ -1161,8 +1164,8 @@ func (n *NICProvisioning) runtimeRetryContext(ctx context.Context, optCtx *opera
 		klog.ErrorS(err, "NIC provisioning: failed to reload DPUFlavor before runtime config retry")
 		return n.runtimeFlavorContext(optCtx)
 	}
-	shared := optCtx.DPUFlavorSnapshot()
-	return n.contextWithRuntimeFlavor(optCtx, newerFlavor(shared, flavor))
+	shared := optCtx.DPUFlavor
+	return n.contextWithRuntimeFlavor(optCtx, newerFlavor(&shared, flavor))
 }
 
 // contextWithRuntimeFlavor remembers flavor for later applies and returns a context that uses it.

@@ -65,9 +65,11 @@ func (n *ConfigureNVConfig) ShouldSkip(ctx *operations.Context) bool {
 		return true
 	}
 	// In-process reconfig must apply the live flavor even when a previous Run()
-	// already reported NVConfigApplied=True. After an OS reboot this flag is false,
-	// so the same-boot skip below still avoids a redundant mlxconfig set.
-	if ctx.ReapplyConfig {
+	// already reported NVConfigApplied=True. So must a pipeline restarted on a
+	// flavor update: the leftover condition was recorded against the old flavor.
+	// After an OS reboot both flags are false, so the same-boot skip below still
+	// avoids a redundant mlxconfig set.
+	if ctx.ReapplyConfig || ctx.FlavorUpdated {
 		return false
 	}
 	if ctx.LatestDPU == nil {
