@@ -22,10 +22,37 @@ This document describes how the Weave service behaves on the DPU - components, [
 * East-west isolation: Per-tenant overlay traffic separated on the DPU using VXLAN and OVS forwarding.
 * Multi-NIC underlay: support for multiple east-west NICs.
 * Per-DPU virtual network management: control virtual networks and attachments to those networks per DPU.
+* Address family: IPv4 or IPv6 underlay and overlay, one family per deployment (see [Address family](#address-family)).
 
 ## Underlay configuration
 
 DOCA Weave uses several OVS bridges per east-west NIC. Names come from `weaveFlowController.underlayConfigMapData.interfaces[]` in `DPUServiceConfiguration`
+
+### Address family
+
+Weave runs a single address family per deployment. Underlay and overlay always use the same family, there is no dual-stack mode.
+
+The family is discovered rather than configured. `UNDERLAY_IP_FAMILY` on `weave-flow-controller` defaults to `auto`, where the controller reads the global-scope address on the underlay bridges and uses whichever family it finds, so the default is correct for both IPv4 and IPv6 fabrics. Set the variable to `ipv4` or `ipv6` only to override that discovery. A dual-addressed underlay is not expected, but if a bridge does carry both, `auto` prefers IPv6.
+
+| | IPv4 | IPv6 |
+|-|------|------|
+| `VirtualNetwork` subnet | `subnetIpv4`, `--subnet-v4` | `subnetIpv6`, `--subnet-v6` |
+| Host overlay address | leased by `weave-dhcp-agent`, reported in `status.hostIpv4` | depends on `ipv6AssignmentMode`, see below |
+| Host overlay routes | DHCP option 121 | RA Route Information Options |
+
+`overlayNetworkPrefixLength`, `softwarePlaneIDBitLength` and `railIDBitLength` describe the same address layout in both families. Their values differ because the address widths do.
+
+On IPv6, `underlayConfigMapData.ipv6AssignmentMode` decides how host PFs get their overlay address. It defaults to `slaac` when unset and has no effect on an IPv4 deployment.
+
+| | `slaac` | `dhcpv6` |
+|-|---------|----------|
+| Host overlay address | autoconfigured from the Router Advertisement prefix | leased by `weave-dhcp-agent` |
+| Attachment status | no address, read it from the host | the leased address in `status.hostIpv6` |
+| Host PF configuration | accept RAs | accept RAs and run a DHCPv6 client |
+
+Overlay routes come from RA Route Information Options in both modes, DHCPv6 carries no route option, so host PFs must always accept RAs.
+
+The examples on this page use IPv4.
 
 ### Bridges you must provide
 
@@ -33,7 +60,7 @@ The flow controller expects these bridges to already exist on each DPU (names co
 
 | Bridge (example) | Config field | Role |
 |------------------|--------------|------|
-| `br-underlay-n0`, `br-underlay-n1` | `underlayInterface` | Underlay fabric egress, carries the `/31` IPv4 used for VXLAN encapsulation |
+| `br-underlay-n0`, `br-underlay-n1` | `underlayInterface` | Underlay fabric egress, carries the address used for VXLAN encapsulation (a `/31` on an IPv4 underlay) |
 
 ### Bridges created by Weave
 
@@ -89,13 +116,14 @@ Set these on the `weave-flow-controller` `DPUService` / `DPUServiceConfiguration
 | `DB_FILE_PATH` | `/var/lib/dpf/weave/db/db.bolt` | BoltDB path for virtual network state. |
 | `UNDERLAY_CONFIG_FILE` | `/var/lib/dpf/weave/flow-controller/underlay-config.yaml` | Underlay YAML consumed by the flow controller. |
 | `RECONCILE_INTERVAL` | `2m` | Interval between reconcile attempts for failed items. |
-| `ENABLE_SRC_BASED_ROUTE` | `true` | When true, mirror selected kernel IPv4 routes into OVS so underlay traffic follows source-based routing. |
+| `ENABLE_SRC_BASED_ROUTE` | `true` | When true, mirror selected kernel routes into OVS so underlay traffic follows source-based routing. |
+| `UNDERLAY_IP_FAMILY` | `auto` | Address family for underlay and overlay. `auto` discovers it from the underlay bridge addresses, `ipv4` or `ipv6` force a family (see [Address family](#address-family)). |
 
-When `ENABLE_SRC_BASED_ROUTE` is true, the flow controller mirrors selected kernel IPv4 routes into OVS. It copies main-table routes that have a destination prefix and a non-zero IPv4 gateway. For policy routing, use `ip rule` entries in `from <source> lookup <table>` form and define the routes in that table so they can sync to OVS route rules. Routes with no destination, on-link routes without a gateway, and rules in other forms are not mirrored.
+When `ENABLE_SRC_BASED_ROUTE` is true, the flow controller mirrors selected kernel routes into OVS, for both address families. It copies main-table routes that have a destination prefix and a non-zero gateway. For policy routing, use `ip rule` entries in `from <source> lookup <table>` form and define the routes in that table so they can sync to OVS route rules. Routes with no destination, on-link routes without a gateway, and rules in other forms are not mirrored.
 
 ### weave-dhcp-agent
 
-Serves overlay DHCP on bridges such as `br-dhcp-n0` and `br-dhcp-n1`, aligned with `dhcpBridgeName` and `overlayDHCPInterface` in the flow-controller configuration. When `dhcpNetworks.createNADs` is true, the chart creates Multus NetworkAttachmentDefinitions.
+Serves overlay DHCP on bridges such as `br-dhcp-n0` and `br-dhcp-n1`, aligned with `dhcpBridgeName` and `overlayDHCPInterface` in the flow-controller configuration. When `dhcpNetworks.createNADs` is true, the chart creates Multus NetworkAttachmentDefinitions. On an IPv6 overlay the agent only leases addresses under `ipv6AssignmentMode: dhcpv6`, SLAAC bypasses it (see [Address family](#address-family)).
 
 #### weave-dhcp-agent environment variables
 
@@ -111,7 +139,7 @@ Set these on the `weave-dhcp-agent` `DPUService` / `DPUServiceConfiguration`.
 
 The `weave-flow-controller` exposes the NetworkIsolation gRPC API on each DPU. It provides create, delete, get, and list methods for:
 
-* `VirtualNetwork` - isolation boundary for east-west overlay traffic, defined by an IPv4 subnet and a VXLAN VNI.
+* `VirtualNetwork` - isolation boundary for east-west overlay traffic, defined by a subnet and a VXLAN VNI.
 * `VirtualNetworkAttachment` - binds an attachment to a `VirtualNetwork` on a specific east-west NIC.
 
 ### Status
@@ -136,7 +164,7 @@ After `create-vnet` or `create-attachment`, the response usually shows `PHASE_RE
 
 On `PHASE_ERROR`, inspect `status.state.message` and `weave-flow-controller` logs on that DPU. The flow controller retries failed objects on a background interval (default every two minutes). Typical causes include missing or misconfigured underlay bridges, invalid `nicId` / `pfId`, parent virtual network not in `PHASE_READY` when creating an attachment, or OVS programming failures after restart.
 
-`VirtualNetworkAttachment` objects use the same `status.state` phases. When `PHASE_READY`, an attachment may also include `status.hostIpv4`.
+`VirtualNetworkAttachment` objects use the same `status.state` phases. When `PHASE_READY`, an attachment may also include the host overlay address, `status.hostIpv4` on IPv4 and `status.hostIpv6` on IPv6. With `ipv6AssignmentMode: slaac` no address is reported, read it from the host instead.
 
 Example when apply succeeds (`PHASE_READY`):
 
@@ -182,12 +210,12 @@ Some failures are reported only as gRPC errors (no persisted object), for exampl
 
 ### VirtualNetwork
 
-A `VirtualNetwork` is the isolation boundary for east-west overlay traffic. It is defined by an IPv4 subnet and a VXLAN VNI. One `VirtualNetwork` on a DPU can be used by multiple attachments on that DPU, including across NICs. Overlay connectivity between two PF attachments on the same node is not yet supported (see [Limitations](#limitations)).
+A `VirtualNetwork` is the isolation boundary for east-west overlay traffic. It is defined by a subnet and a VXLAN VNI. One `VirtualNetwork` on a DPU can be used by multiple attachments on that DPU, including across NICs. Overlay connectivity between two PF attachments on the same node is not yet supported (see [Limitations](#limitations)).
 
 | Field | Description |
 |-------|-------------|
 | `id` | Unique identifier for this virtual network on the DPU |
-| `subnetIpv4` | Overlay subnet (CIDR), prefix length must match `overlayNetworkPrefixLength` in `underlayConfigMapData` |
+| `subnetIpv4` / `subnetIpv6` | Overlay subnet (CIDR), one or the other depending on the [address family](#address-family), prefix length must match `overlayNetworkPrefixLength` in `underlayConfigMapData` |
 | `vni` | VXLAN VNI (20-bit usable value, bits 20-23 of the 24-bit on-wire VNI are reserved, range 1-1048575) |
 | `status.state` | Lifecycle state, see [Status](#status) |
 
@@ -226,7 +254,7 @@ A virtual network attachment binds one host PF to a `VirtualNetwork` on a specif
 | `nicId` | NIC identifier this virtual network is bound to, MAC address of one of the NIC's host-facing PFs |
 | `attachmentPf.pfId` | Host PF to attach, MAC address of that PF |
 | `attachmentType` | `ATTACHMENT_TYPE_PF` only (`vf` not supported, see [Limitations](#limitations)) |
-| `status.hostIpv4` | Overlay address assigned to the host PF when applicable |
+| `status.hostIpv4` / `status.hostIpv6` | Overlay address assigned to the host PF when applicable, one or the other depending on the [address family](#address-family), absent on an IPv6 overlay with `ipv6AssignmentMode: slaac` |
 | `status.state` | Lifecycle state, see [Status](#status) |
 
 > [!NOTE]
@@ -702,7 +730,7 @@ On each worker pod, `list-attachment` and `list-vnet` should no longer list thes
 
 ## Limitations
 
-* Address family - Only IPv4 is supported for overlay and underlay traffic in this release.
+* Address family - IPv4 or IPv6, one family per deployment. Overlay and underlay always use the same family, dual-stack is not supported (see [Address family](#address-family)).
 * Attachments - Only `attachment_type` `pf` and `ovs` are supported for `VirtualNetworkAttachment`.
 * Same-node PFs - Overlay connectivity between two PF attachments on the same node is not yet supported, even when they share the same `VirtualNetwork` and VNI.
 * VNI - Bits 20-23 of the 24-bit VNI are reserved (see [VirtualNetwork](#virtualnetwork)).
