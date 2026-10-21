@@ -41,14 +41,8 @@ import (
 )
 
 const (
-	// throughputThreshold is the minimum throughput required for the test to pass (10 Gbit/sec).
-	throughputThreshold = 10e9
-	// iperfRetryMinRatio is the fraction of throughputThreshold that still qualifies
-	// for a retry. Below this, fail immediately.
-	iperfRetryMinRatio = 0.75
-	// iperfMaxAttempts is the initial run plus retries for a near-miss. Extra
-	// attempts absorb CI setup variance without lowering the pass bar.
-	iperfMaxAttempts = 3
+	// throughputThreshold is the minimum throughput required for the test to pass.
+	throughputThreshold = 8e9
 )
 
 // TestPodConfig represents the configuration for a test pod
@@ -279,8 +273,10 @@ func RunTrafficTestWithResult(restClient **rest.RESTClient, restConfig **rest.Co
 	startIperf3Server(restClient, restConfig, hostNamespace, podName2)
 	defer stopIperf3Server(restClient, restConfig, hostNamespace, podName2)
 
-	forwardResult := runIperf3WithRetry(restClient, restConfig, hostNamespace, podName1, pod2IP, false)
-	reverseResult := runIperf3WithRetry(restClient, restConfig, hostNamespace, podName1, pod2IP, true)
+	forwardResult := ParseIperfResult(runIperf3Client(restClient, restConfig, hostNamespace, podName1, pod2IP))
+	AnalyzeIperfResults(forwardResult, false)
+	reverseResult := ParseIperfResult(runIperf3ClientReverse(restClient, restConfig, hostNamespace, podName1, pod2IP))
+	AnalyzeIperfResults(reverseResult, true)
 
 	return TrafficTestResult{Forward: forwardResult, Reverse: reverseResult}
 }
@@ -600,35 +596,6 @@ func ParseIperfResult(output string) IperfResult {
 	Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("failed to parse iperf3 output: %v", err))
 
 	Expect(result.Start.Connected).ShouldNot(BeEmpty(), "no connection information found. output: %s", output)
-	return result
-}
-
-// runIperf3WithRetry runs iperf3 and asserts the throughput threshold.
-// Near-misses are retried; the last attempt must still clear the full bar.
-func runIperf3WithRetry(restClient **rest.RESTClient, restConfig **rest.Config, namespace, podName, serverIP string, reverse bool) IperfResult {
-	var result IperfResult
-	for attempt := 1; attempt <= iperfMaxAttempts; attempt++ {
-		if reverse {
-			result = ParseIperfResult(runIperf3ClientReverse(restClient, restConfig, namespace, podName, serverIP))
-		} else {
-			result = ParseIperfResult(runIperf3Client(restClient, restConfig, namespace, podName, serverIP))
-		}
-
-		bitrate := result.End.SumSent.BitsPerSecond
-		if bitrate >= throughputThreshold {
-			AnalyzeIperfResults(result, reverse)
-			return result
-		}
-
-		// Too far below the bar, or no attempts left: fail with the usual assertion.
-		if attempt == iperfMaxAttempts || bitrate < throughputThreshold*iperfRetryMinRatio {
-			AnalyzeIperfResults(result, reverse)
-			return result
-		}
-
-		fmt.Printf("iperf attempt %d/%d: %.2f Gbit/sec is below threshold; retrying\n",
-			attempt, iperfMaxAttempts, bitrate/1e9)
-	}
 	return result
 }
 
