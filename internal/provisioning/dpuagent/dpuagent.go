@@ -99,8 +99,7 @@ type DPUAgent struct {
 	// spireAttestorOnce prevents duplicate loops when Run or abort recovery requests startup again.
 	spireAttestorOnce sync.Once
 
-	mu sync.Mutex
-	// reconfig is process-local: idle / armed / running. See reconfigState.
+	// reconfig is process-local: idle / armed. See reconfigState.
 	reconfig reconfigState
 	// seenResourceVersion is the highest DPU resourceVersion already observed.
 	// A queued watch event at or below it cannot arm another Run.
@@ -109,18 +108,18 @@ type DPUAgent struct {
 
 // reconfigState is the in-place reconfig machine. One value at a time.
 //
-//	idle    — process start, or a reconfig Run finished with no newer round
-//	          pending. A DPU Config event does not start Run().
-//	armed   — the watch saw a phase that means DPU Config already finished.
-//	          Rebooting does not arm. The next DPU Config event starts Run().
-//	running — that Run() is in progress. Context.ReapplyConfig is true only for
-//	          this call. After an OS reboot the agent is a new process and starts idle.
+//	idle  — process start, or a reconfig Run finished with no newer round
+//	        pending. A DPU Config event does not start Run().
+//	armed — the watch saw a phase that means DPU Config already finished.
+//	        Rebooting does not arm. The next DPU Config event starts Run().
+//
+// Context.ReapplyConfig is true only while the reconfig Run() executes.
+// After an OS reboot the agent is a new process and starts idle.
 type reconfigState int
 
 const (
 	reconfigIdle reconfigState = iota
 	reconfigArmed
-	reconfigRunning
 )
 
 func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
@@ -443,8 +442,10 @@ func phaseLeftDPUConfig(phase provisioningv1.DPUPhase) bool {
 }
 
 // maybeReconfigRun starts one in-place Run() when the DPU returns to DPU Config
-// after the watch has seen a post-config phase (idle → armed → running).
-// It does not start a second Run while one is already in progress.
+// after the watch has seen a post-config phase (idle → armed → Run).
+// The watch callback is the only caller and invokes it serially (the bootstrap
+// Run() finishes before the watch loop starts), so a second Run cannot start
+// while one is in progress and the state takes no lock.
 // event is the DPU from the watch event, or nil for the reconcile that runs
 // before a watch session. A post-config phase on that event arms the Run even
 // when the live GET has already returned to DPU Config. The event must be newer
@@ -454,11 +455,6 @@ func phaseLeftDPUConfig(phase provisioningv1.DPUPhase) bool {
 // round rather than from queued events: the Run() blocked the watch callback,
 // so the transitions that would arm the next round drain as stale snapshots.
 func (d *DPUAgent) maybeReconfigRun(ctx context.Context, dpu *provisioningv1.DPU, event *provisioningv1.DPU) error {
-	d.mu.Lock()
-	if d.reconfig == reconfigRunning {
-		d.mu.Unlock()
-		return nil
-	}
 	// Same UID only: a stale event for a replaced DPU must not arm the new one.
 	// Compare the event before raising the high-water mark, then record both
 	// versions. A queued Node Effect event behind the GET must still arm once;
@@ -476,24 +472,18 @@ func (d *DPUAgent) maybeReconfigRun(ctx context.Context, dpu *provisioningv1.DPU
 	}
 	if phaseLeftDPUConfig(dpu.Status.Phase) {
 		d.reconfig = reconfigArmed
-		d.mu.Unlock()
 		return nil
 	}
 	if dpu.Status.Phase != provisioningv1.DPUConfig || d.reconfig != reconfigArmed {
-		d.mu.Unlock()
 		return nil
 	}
-	d.reconfig = reconfigRunning
 	d.optCtx.ReapplyConfig = true
-	d.mu.Unlock()
 
 	var err error
 	finalState := reconfigIdle
 	defer func() {
-		d.mu.Lock()
 		d.optCtx.ReapplyConfig = false
 		d.reconfig = finalState
-		d.mu.Unlock()
 	}()
 
 	servedRound := reconfigRound(dpu)
@@ -526,11 +516,9 @@ func (d *DPUAgent) maybeReconfigRun(ctx context.Context, dpu *provisioningv1.DPU
 		// queued while the Run blocked the callback drain as stale: a post-config
 		// transition of an already-served round must not arm another Run.
 		if rv, ok := objectResourceVersion(live); ok {
-			d.mu.Lock()
 			if rv > d.seenResourceVersion {
 				d.seenResourceVersion = rv
 			}
-			d.mu.Unlock()
 		}
 		switch {
 		case newerRoundPending(live, servedRound):

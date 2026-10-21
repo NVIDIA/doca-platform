@@ -23,7 +23,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -1663,55 +1662,6 @@ var _ = Describe("DPUAgent", func() {
 			Expect(runs).To(Equal(0))
 			Expect(agent.reconfig).To(Equal(reconfigArmed))
 			Expect(agent.seenResourceVersion).To(Equal(uint64(50)))
-		})
-
-		It("does not clear an in-flight reconfig when the UID changes", func() {
-			dpu := newTestDPU()
-			dpu.Status.Phase = provisioningv1.DPUConfig
-			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
-			runs := 0
-			agent := newAgent(fakeClient, func(_ context.Context, _ *operations.Context) error {
-				runs++
-				return nil
-			})
-			agent.reconfig = reconfigRunning
-			agent.seenResourceVersion = 50
-			agent.optCtx.ReapplyConfig = true
-			agent.optCtx.Options.DPUUID = "old-uid"
-			Expect(reconcile(agent, fakeClient)).To(Succeed())
-			Expect(runs).To(Equal(0))
-			Expect(agent.reconfig).To(Equal(reconfigRunning))
-			Expect(agent.optCtx.ReapplyConfig).To(BeTrue())
-			Expect(agent.seenResourceVersion).To(Equal(uint64(50)))
-		})
-
-		It("skips a concurrent reconcile while a reconfig Run is in flight", func() {
-			dpu := newTestDPU()
-			dpu.Status.Phase = provisioningv1.DPUReady
-			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
-			var runs atomic.Int32
-			started := make(chan struct{})
-			release := make(chan struct{})
-			agent := newAgent(fakeClient, func(_ context.Context, _ *operations.Context) error {
-				runs.Add(1)
-				close(started)
-				<-release
-				return nil
-			})
-			Expect(reconcile(agent, fakeClient)).To(Succeed())
-			setDPUConfigPhase(fakeClient)
-
-			done := make(chan struct{})
-			go func() {
-				defer GinkgoRecover()
-				Expect(reconcile(agent, fakeClient)).To(Succeed())
-				close(done)
-			}()
-			Eventually(started).Should(BeClosed())
-			Expect(reconcile(agent, fakeClient)).To(Succeed())
-			Expect(runs.Load()).To(Equal(int32(1)))
-			close(release)
-			Eventually(done).Should(BeClosed())
 		})
 	})
 })
