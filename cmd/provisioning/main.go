@@ -533,6 +533,7 @@ func main() {
 		BFBPVC:                 flags.bfbPVC,
 		ImagePullSecrets:       imagePullSecretsReferences,
 		KubernetesAPIServerVIP: bfbregistry.APIServerVIPFromDMSPodEnvs(flags.dmsPodEnvs),
+		LoadBalancerAddress:    flags.bfbRegistryLoadBalancerAddress,
 	}); err != nil {
 		setupLog.Error(err, "unable to register bfb-registry runnable")
 		os.Exit(1)
