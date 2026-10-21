@@ -33,7 +33,7 @@ type vpcChart struct {
 // vpcChartsRef is the dpf-vpc commit whose charts vpcCharts lists. It must equal VPC_REF of the
 // Makefile, the commit DPF builds: TestVPCChartsMatchVPCRef fails when they differ. On a VPC
 // bump, update vpcCharts to the charts of the new commit, then set vpcChartsRef to it.
-const vpcChartsRef = "0659d9127e5356bca6df4f2d392753b4a06e8f43"
+const vpcChartsRef = "6082556e2b4bec0ebadf46c7a6f3d4c46e6b363a"
 
 // vpcCharts are the charts of the dpf-vpc repository at vpcChartsRef, with the first-party
 // images their templates use (image names: VPC_OVN_SYSTEM_IMAGE_NAME, OVN_IMAGE_NAME and
