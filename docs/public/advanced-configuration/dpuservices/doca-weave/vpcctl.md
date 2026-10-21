@@ -49,15 +49,18 @@ The token is transparently attached to every DHCP gRPC call as a bearer token.
 Create a new virtual network.
 
 ```bash
-vpcctl create-vnet [--id <id>] --vni <number> --subnet-v4 <cidr> [--user-data <key=value>...]
+vpcctl create-vnet [--id <id>] --vni <number> (--subnet-v4 <cidr> | --subnet-v6 <cidr>) [--user-data <key=value>...]
 ```
 
 | Flag | Required | Description |
 |------|----------|-------------|
 | `--id` | No | Unique identifier for the virtual network (server generates if not set) |
 | `--vni` | Yes | VXLAN Network Identifier (1-1048575) |
-| `--subnet-v4` | Yes | IPv4 subnet in CIDR notation |
+| `--subnet-v4` | One of | IPv4 subnet in CIDR notation |
+| `--subnet-v6` | One of | IPv6 subnet in CIDR notation |
 | `--user-data` | No | Arbitrary `key=value` pairs stored in `metadata.user_data`. Repeatable, or comma-separated (e.g. `--user-data k1=v1,k2=v2`) |
+
+Pass the flag matching the deployment's address family, Weave runs one family at a time.
 
 #### update-vnet
 
@@ -291,6 +294,34 @@ Output:
 }
 ```
 
+On an IPv6 deployment, pass `--subnet-v6` instead:
+
+```bash
+vpcctl \
+    create-vnet \
+    --id "my-vnet-v6-001" \
+    --vni 100 \
+    --subnet-v6 "f001::/24"
+```
+
+Output:
+```json
+{
+  "virtualNetwork": {
+    "spec": {
+      "id": "my-vnet-v6-001",
+      "vni": 100,
+      "subnetIpv6": "f001::/24"
+    },
+    "status": {
+      "state": {
+        "phase": "PHASE_READY"
+      }
+    }
+  }
+}
+```
+
 ### Creating a PF attachment
 
 ```bash
@@ -326,6 +357,43 @@ Output:
   }
 }
 ```
+
+Attaching to the IPv6 virtual network created above:
+
+```bash
+vpcctl \
+    create-attachment \
+    --id "att-pf-v6-001" \
+    --vnet-id "my-vnet-v6-001" \
+    --nic-id "00:11:22:33:44:55" \
+    --type pf \
+    --pf "00:11:22:33:44:55" \
+    --user-data owner=alice,team=net
+```
+
+Output:
+```json
+{
+  "virtualNetworkAttachment": {
+    "spec": {
+      "id": "att-pf-v6-001",
+      "vnetId": "my-vnet-v6-001",
+      "nicId": "00:11:22:33:44:55",
+      "attachmentType": "ATTACHMENT_TYPE_PF",
+      "attachmentPf": {
+        "pfId": "00:11:22:33:44:55"
+      }
+    },
+    "status": {
+      "state": {
+        "phase": "PHASE_READY"
+      }
+    }
+  }
+}
+```
+
+The status carries no address because `ipv6AssignmentMode` defaults to `slaac`, where the host autoconfigures from Router Advertisements. Under `dhcpv6` the leased address appears as `hostIpv6`.
 
 ### Creating a VF attachment
 
