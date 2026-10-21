@@ -136,6 +136,24 @@ var _ = Describe("ConfigFWParameters", func() {
 		Expect(mockServer.GetHostPrivilegeMode()).To(Equal("Restricted"))
 	})
 
+	It("should clear a left-over Redfish task ID when advancing BF4 to Firmware Update", func() {
+		mockServer := createMockRedfishServer(redfishmock.BF4)
+		defer mockServer.Stop()
+		createBMCAndMTLSSecrets(mockServer, "dpf-provisioning-redfish-client-secret-bf4")
+		dpuDevice := prepareDPUDevice(mockServer, provisioningv1.DPUTypeBlueField4)
+
+		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.DPUDeviceName = dpuDevice.Name
+		dpu.Status.Phase = provisioningv1.DPUConfigFWParameters
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+		dpu.Status.RedfishTaskID = ptr.To("stale-task")
+
+		status, err := ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUUpdateFirmware))
+		Expect(status.RedfishTaskID).To(BeNil(), "PLDM gate must not inherit a task ID from an earlier phase")
+	})
+
 	It("should fail when BF4 host privilege endpoint returns error", func() {
 		mockServer := createMockRedfishServer(redfishmock.BF4)
 		defer mockServer.Stop()

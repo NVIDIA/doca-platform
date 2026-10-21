@@ -183,6 +183,21 @@ func createObject(obj client.Object) {
 	testObjects = append(testObjects, obj)
 }
 
+// createDPUWithStatus creates the DPU and applies its desired status (needed when handlers
+// immediately status-patch fields such as redfishTaskId).
+func createDPUWithStatus(dpu *provisioningv1.DPU) {
+	// dpuObj defaults BFB; firmware-update tests also set BlueFieldSoftware. Spec allows only one.
+	if dpu.Spec.BlueFieldSoftware != nil {
+		dpu.Spec.BFB = nil
+	}
+	desired := dpu.Status.DeepCopy()
+	createObject(dpu)
+	patch := client.MergeFrom(dpu.DeepCopy())
+	dpu.Status = *desired
+	Expect(k8sClient.Status().Patch(ctx, dpu, patch)).To(Succeed())
+	Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
+}
+
 func dpuFlavorObj(name string) *provisioningv1.DPUFlavor {
 	return &provisioningv1.DPUFlavor{
 		ObjectMeta: metav1.ObjectMeta{
