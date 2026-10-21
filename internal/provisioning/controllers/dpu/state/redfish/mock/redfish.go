@@ -98,6 +98,7 @@ type RedfishMockServer struct {
 	bmcRShimPatchCount              atomic.Int32             // number of enable PATCHes received
 	bmcRShimGetError                bool                     // Simulate GET Oem/Nvidia error for testing
 	lastForceUpdate                 atomic.Bool              // ForceUpdate requested by the most recent PLDM multipart update, read from the test goroutine
+	pldmMultipartPOSTs              atomic.Int64             // Number of PLDM update-multipart POSTs accepted
 	armPoweredOff                   atomic.Bool              // DPU Arm reported as shut down by GET System, toggled by NvidiaChassis.Reset from another goroutine
 	armShutdownRequests             atomic.Int64             // Number of NvidiaChassis.Reset ArmShutdown requests received
 	networkDeviceFunctionRequests   atomic.Int64             // Number of PF0 GET requests received
@@ -710,6 +711,7 @@ func (r *RedfishMockServer) handleUpdateBluefieldFirmwareMultipart(w http.Respon
 		return
 	}
 
+	r.pldmMultipartPOSTs.Add(1)
 	r.lastForceUpdate.Store(forceUpdateFromRequest(req))
 
 	taskInfo := map[string]interface{}{
@@ -722,6 +724,11 @@ func (r *RedfishMockServer) handleUpdateBluefieldFirmwareMultipart(w http.Respon
 
 	w.WriteHeader(http.StatusAccepted)
 	writeJSONResponse(w, taskInfo)
+}
+
+// GetPldmMultipartPOSTs returns how many update-multipart POSTs the mock has accepted.
+func (r *RedfishMockServer) GetPldmMultipartPOSTs() int {
+	return int(r.pldmMultipartPOSTs.Load())
 }
 
 // forceUpdateFromRequest reads the ForceUpdate flag out of the multipart UpdateParameters

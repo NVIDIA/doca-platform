@@ -73,7 +73,7 @@ func TestTaskReadFailureKeepsIdentity(t *testing.T) {
 				submissions++
 				return nil, nil, errors.New("must not submit")
 			}
-			err = reconcileBf4ArmTransfer(ctx, logr.Discard(), dpu, state, c, provisioningv1.DPUCondIsoTransferred, "image", install, "ISO")
+			err = reconcileBf4ArmTransfer(ctx, logr.Discard(), dpu, state, c, fake.NewClientBuilder().Build(), provisioningv1.DPUCondIsoTransferred, "image", install, "ISO")
 			releaseHold()
 			if err == nil || isRestartOSInstallError(err) || state.RedfishTaskID == nil || *state.RedfishTaskID != taskID || submissions != 0 || state.Phase != provisioningv1.DPUOSInstalling {
 				t.Fatalf("read failure lost operation identity: state=%+v submissions=%d err=%v", state, submissions, err)

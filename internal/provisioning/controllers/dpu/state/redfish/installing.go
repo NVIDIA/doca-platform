@@ -40,6 +40,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -425,12 +426,19 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		return *state, err
 	}
 
+	_, isoDone := cutil.GetDPUCondition(&dpu.Status, string(provisioningv1.DPUCondIsoTransferred))
+	isoAlreadyDone := isoDone != nil && isoDone.Status == metav1.ConditionTrue
 	imageURI := filepath.Join(bfbRegistryAddr, bluefieldSoftware.Status.DownloadedComponents.OsIso)
-	if err := reconcileBf4ArmTransfer(ctx, logger, dpu, state, client, provisioningv1.DPUCondIsoTransferred, imageURI, client.InstallBluefieldArmImage, "ISO"); err != nil {
+	if err := reconcileBf4ArmTransfer(ctx, logger, dpu, state, client, ctrlCtx.Client, provisioningv1.DPUCondIsoTransferred, imageURI, client.InstallBluefieldArmImage, "ISO"); err != nil {
 		logger.Error(err, "Failed to install ISO", "error", err)
 		return *state, err
 	}
 	if _, c := cutil.GetDPUCondition(state, string(provisioningv1.DPUCondIsoTransferred)); c == nil || c.Status != metav1.ConditionTrue {
+		return *state, nil
+	}
+	if !isoAlreadyDone {
+		// Persist IsoTransferred and the cleared ISO task id before submitting config. Otherwise the
+		// config task id checkpoint can land without IsoTransferred and be polled as the ISO task.
 		return *state, nil
 	}
 
@@ -451,7 +459,7 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 	}
 
 	configURI := filepath.Join(bfbRegistryAddr, dpu.Status.BFCFGFile)
-	if err := reconcileBf4ArmTransfer(ctx, logger, dpu, state, client, provisioningv1.DPUCondConfigTransferred, configURI, client.InstallBluefieldArmConfig, "config"); err != nil {
+	if err := reconcileBf4ArmTransfer(ctx, logger, dpu, state, client, ctrlCtx.Client, provisioningv1.DPUCondConfigTransferred, configURI, client.InstallBluefieldArmConfig, "config"); err != nil {
 		logger.Error(err, "Failed to install config", "error", err)
 		return *state, err
 	}
@@ -556,14 +564,15 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 }
 
 // reconcileBf4ArmTransfer submits or polls a single BlueField ARM install Redfish task (ISO or config)
-// and updates state. It uses state.RedfishTaskID (not dpu.Status) so a completed ISO step can start
-// the config step in the same reconcile without reusing the prior task id from the API object.
+// and updates state. It reads state.RedfishTaskID, the working copy of the task id for this step.
+// statusClient immediately persists redfishTaskId after BMC acceptance.
 func reconcileBf4ArmTransfer(
 	ctx context.Context,
 	logger logr.Logger,
 	dpu *provisioningv1.DPU,
 	state *provisioningv1.DPUStatus,
 	client *rc.Client,
+	statusClient client.Client,
 	condType provisioningv1.DPUConditionType,
 	uri string,
 	install func(string) (*resty.Response, *rc.TaskInfo, error),
@@ -593,18 +602,26 @@ func reconcileBf4ArmTransfer(
 			cutil.SetDPUCondition(state, cutil.NewCondition(condKey, err, "FailToInstall", resp.String()))
 			return newRestartOSInstallError(fmt.Errorf("%w: %s", err, resp.String()))
 		}
-		state.RedfishTaskID = &taskInfo.ID
+		// Checkpoint task id before returning so a crash/failed deferred status patch cannot
+		// lose BMC acceptance evidence and trigger a duplicate SimpleUpdate on restart.
+		if err := checkpointRedfishTaskID(ctx, statusClient, dpu, state, taskInfo.ID); err != nil {
+			cutil.SetDPUCondition(state, cutil.NewCondition(condKey, err, "FailToPersistTaskID", err.Error()))
+			logger.Info(msgTaskSubmitted, append(taskSubmittedFields(opBF4ArmTransfer, taskInfo), "component", installDesc)...)
+			return err
+		}
 		logger.Info(msgTaskSubmitted, append(taskSubmittedFields(opBF4ArmTransfer, taskInfo), "component", installDesc)...)
 		return nil
 	}
 
 	resp, prog, err := client.CheckTaskProgress(ctx, *state.RedfishTaskID)
 	if err != nil {
+		// Keep RedfishTaskID: observation failure must not look like "no task" and resubmit.
 		err = fmt.Errorf("failed to check task progress: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(condKey, err, "FailToCheckProgress", err.Error()))
 		return err
 	}
 	if resp.StatusCode() != http.StatusOK {
+		// Non-OK progress (including 404) is not proof the install never started; retain task id.
 		err = fmt.Errorf("get status: %s", resp.Status())
 		logger.Error(err, "Failed to check task progress", "status", resp.Status(), "body", resp.String())
 		cutil.SetDPUCondition(state, cutil.NewCondition(condKey, err, "FailToCheckProgress", resp.String()))
@@ -666,20 +683,25 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToInstall", err.Error()))
 			return *state, newRestartOSInstallError(err)
 		}
-		// Update the state with the task ID so it's reflected in the returned status
-		state.RedfishTaskID = &taskInfo.ID
+		// Checkpoint task id before returning so a crash/failed deferred status patch cannot
+		// lose BMC acceptance evidence and trigger a duplicate SimpleUpdate on restart.
+		if err := checkpointRedfishTaskID(ctx, ctrlCtx.Client, dpu, state, taskInfo.ID); err != nil {
+			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToPersistTaskID", err.Error()))
+			logger.Info(msgTaskSubmitted, taskSubmittedFields(opBFBInstall, taskInfo)...)
+			return *state, err
+		}
 
 		logger.Info(msgTaskSubmitted, taskSubmittedFields(opBFBInstall, taskInfo)...)
 		return *state, nil
 	}
 
-	// check progress
 	resp, prog, err := client.CheckTaskProgress(readCtx, *dpu.Status.RedfishTaskID)
 	if err != nil {
 		if resp != nil && rc.HasHTTPStatus(err, resp.StatusCode()) {
 			err = fmt.Errorf("%v: %w", buildNon200ProgressError(ctx, dpu, ctrlCtx, logger, client, resp), err)
 		}
 		err = fmt.Errorf("failed to check task progress: %w", err)
+		// state is a copy of dpu.Status and still holds RedfishTaskID; do not clear it on observe failure.
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToCheckProgress", err.Error()))
 		return *state, err
 	}
