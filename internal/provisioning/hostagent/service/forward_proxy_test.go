@@ -44,13 +44,17 @@ var _ = Describe("ForwardProxy", func() {
 		Expect(err).To(Succeed())
 		proxyAddress = proxyListener.Addr().String()
 		proxyServer = &http.Server{Handler: newForwardProxyHandler()}
-		go func() {
-			_ = proxyServer.Serve(proxyListener)
-		}()
+		// Pass the server and listener as arguments so the goroutine does not
+		// read the shared variables after the next BeforeEach reassigns them.
+		go func(srv *http.Server, ln net.Listener) {
+			_ = srv.Serve(ln)
+		}(proxyServer, proxyListener)
 	})
 
 	AfterEach(func() {
 		Expect(proxyServer.Close()).To(Succeed())
+		// Close() only closes listeners that Serve has already taken over.
+		_ = proxyListener.Close()
 	})
 
 	proxyURL := func() *url.URL {
