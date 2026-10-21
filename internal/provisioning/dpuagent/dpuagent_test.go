@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -1079,6 +1080,41 @@ var _ = Describe("DPUAgent", func() {
 			Entry("Deleting", provisioningv1.DPUDeleting, false),
 		)
 
+		DescribeTable("newerRoundPending",
+			func(dpu *provisioningv1.DPU, servedRound int32, want bool) {
+				Expect(newerRoundPending(dpu, servedRound)).To(Equal(want))
+			},
+			Entry("newer round in DPU Config",
+				&provisioningv1.DPU{Status: provisioningv1.DPUStatus{
+					Phase:       provisioningv1.DPUConfig,
+					DPUReconfig: &provisioningv1.DPUReconfigStatus{InProgress: ptr.To(true), Round: 3},
+				}}, int32(2), true),
+			Entry("same round still in DPU Config",
+				&provisioningv1.DPU{Status: provisioningv1.DPUStatus{
+					Phase:       provisioningv1.DPUConfig,
+					DPUReconfig: &provisioningv1.DPUReconfigStatus{InProgress: ptr.To(true), Round: 2},
+				}}, int32(2), false),
+			Entry("newer round but not yet in DPU Config",
+				&provisioningv1.DPU{Status: provisioningv1.DPUStatus{
+					Phase:       provisioningv1.DPUNodeEffect,
+					DPUReconfig: &provisioningv1.DPUReconfigStatus{InProgress: ptr.To(true), Round: 3},
+				}}, int32(2), false),
+			Entry("newer round but InProgress cleared",
+				&provisioningv1.DPU{Status: provisioningv1.DPUStatus{
+					Phase:       provisioningv1.DPUConfig,
+					DPUReconfig: &provisioningv1.DPUReconfigStatus{InProgress: ptr.To(false), Round: 3},
+				}}, int32(2), false),
+			Entry("InProgress not set",
+				&provisioningv1.DPU{Status: provisioningv1.DPUStatus{
+					Phase:       provisioningv1.DPUConfig,
+					DPUReconfig: &provisioningv1.DPUReconfigStatus{Round: 3},
+				}}, int32(2), false),
+			Entry("no reconfig tracked",
+				&provisioningv1.DPU{Status: provisioningv1.DPUStatus{
+					Phase: provisioningv1.DPUConfig,
+				}}, int32(2), false),
+		)
+
 		It("keeps the OVS script marker on a process-start Run", func() {
 			dpu := newTestDPU()
 			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
@@ -1438,6 +1474,154 @@ var _ = Describe("DPUAgent", func() {
 			Expect(runs).To(Equal(1))
 			Expect(reconcile(agent, fakeClient)).To(Succeed())
 			Expect(runs).To(Equal(1))
+		})
+
+		It("starts the pending round when the next round reached DPU Config while a Run was in progress", func() {
+			dpu := newTestDPU()
+			dpu.Status.Phase = provisioningv1.DPUReady
+			dpu.Status.DPUReconfig = &provisioningv1.DPUReconfigStatus{
+				InProgress:     ptr.To(true),
+				Round:          2,
+				CompletedRound: 1,
+			}
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			runs := 0
+			agent := newAgent(fakeClient, func(_ context.Context, optCtx *operations.Context) error {
+				runs++
+				Expect(optCtx.ReapplyConfig).To(BeTrue())
+				if runs == 1 {
+					// Round 3 reaches DPU Config while round 2 is still running.
+					// The phase transitions that got it here drain as stale watch
+					// snapshots, so only the round counter witnesses it.
+					live := &provisioningv1.DPU{}
+					Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "test-dpu"}, live)).To(Succeed())
+					patch := client.MergeFrom(live.DeepCopy())
+					live.Status.DPUReconfig.Round = 3
+					live.Status.Phase = provisioningv1.DPUConfig
+					Expect(fakeClient.Status().Patch(ctx, live, patch)).To(Succeed())
+				}
+				return nil
+			})
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			setDPUConfigPhase(fakeClient)
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			Expect(runs).To(Equal(2))
+			Expect(agent.reconfig).To(Equal(reconfigIdle))
+			Expect(agent.optCtx.ReapplyConfig).To(BeFalse())
+		})
+
+		It("does not re-arm from a stale snapshot queued while the Runs were in progress", func() {
+			dpu := newTestDPU()
+			dpu.Status.Phase = provisioningv1.DPUReady
+			dpu.Status.DPUReconfig = &provisioningv1.DPUReconfigStatus{
+				InProgress:     ptr.To(true),
+				Round:          2,
+				CompletedRound: 1,
+			}
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			runs := 0
+			agent := newAgent(fakeClient, func(_ context.Context, _ *operations.Context) error {
+				runs++
+				if runs == 1 {
+					// Round 3 reaches DPU Config while round 2 is still running.
+					live := &provisioningv1.DPU{}
+					Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "test-dpu"}, live)).To(Succeed())
+					patch := client.MergeFrom(live.DeepCopy())
+					live.Status.DPUReconfig.Round = 3
+					live.Status.Phase = provisioningv1.DPUConfig
+					Expect(fakeClient.Status().Patch(ctx, live, patch)).To(Succeed())
+				}
+				return nil
+			})
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			setDPUConfigPhase(fakeClient)
+			// The resourceVersion observed when the Run starts: snapshots newer
+			// than this but older than the post-Run live GET are the backlog that
+			// queued while the callback was blocked.
+			entry := &provisioningv1.DPU{}
+			Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "test-dpu"}, entry)).To(Succeed())
+			entryRV, ok := objectResourceVersion(entry)
+			Expect(ok).To(BeTrue())
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			Expect(runs).To(Equal(2))
+			Expect(agent.reconfig).To(Equal(reconfigIdle))
+
+			// The post-Run live GET must raise the high-water mark past the
+			// backlog so a stale post-config snapshot cannot arm another Run.
+			live := &provisioningv1.DPU{}
+			Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "test-dpu"}, live)).To(Succeed())
+			liveRV, ok := objectResourceVersion(live)
+			Expect(ok).To(BeTrue())
+			Expect(entryRV).To(BeNumerically("<", liveRV))
+			Expect(agent.seenResourceVersion).To(BeNumerically(">=", entryRV+1))
+
+			// A queued Node Effect snapshot from the served rounds must not arm
+			// another Run for an already-served round.
+			stale := live.DeepCopy()
+			stale.ResourceVersion = strconv.FormatUint(entryRV+1, 10)
+			stale.Status.Phase = provisioningv1.DPUNodeEffect
+			Expect(reconcile(agent, fakeClient, stale)).To(Succeed())
+			Expect(runs).To(Equal(2))
+			Expect(agent.reconfig).To(Equal(reconfigIdle))
+		})
+
+		It("goes idle when a Run finishes with no newer round pending", func() {
+			dpu := newTestDPU()
+			dpu.Status.Phase = provisioningv1.DPUReady
+			dpu.Status.DPUReconfig = &provisioningv1.DPUReconfigStatus{
+				InProgress:     ptr.To(true),
+				Round:          2,
+				CompletedRound: 1,
+			}
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			runs := 0
+			agent := newAgent(fakeClient, func(_ context.Context, _ *operations.Context) error {
+				runs++
+				return nil
+			})
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			setDPUConfigPhase(fakeClient)
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			Expect(runs).To(Equal(1))
+			Expect(agent.reconfig).To(Equal(reconfigIdle))
+			// Another reconcile for the same DPU Config round must not start a Run.
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			Expect(runs).To(Equal(1))
+		})
+
+		It("stays armed when the DPU left DPU Config while a Run was in progress", func() {
+			dpu := newTestDPU()
+			dpu.Status.Phase = provisioningv1.DPUReady
+			dpu.Status.DPUReconfig = &provisioningv1.DPUReconfigStatus{
+				InProgress:     ptr.To(true),
+				Round:          2,
+				CompletedRound: 1,
+			}
+			fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+			runs := 0
+			agent := newAgent(fakeClient, func(_ context.Context, _ *operations.Context) error {
+				runs++
+				if runs == 1 {
+					// The controller finishes round 2 while the Run is still in progress.
+					live := &provisioningv1.DPU{}
+					Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "test-dpu"}, live)).To(Succeed())
+					patch := client.MergeFrom(live.DeepCopy())
+					live.Status.DPUReconfig.InProgress = ptr.To(false)
+					live.Status.DPUReconfig.CompletedRound = 2
+					live.Status.Phase = provisioningv1.DPUReady
+					Expect(fakeClient.Status().Patch(ctx, live, patch)).To(Succeed())
+				}
+				return nil
+			})
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			setDPUConfigPhase(fakeClient)
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			Expect(runs).To(Equal(1))
+			Expect(agent.reconfig).To(Equal(reconfigArmed))
+			// The next round's DPU Config starts a Run through the normal path.
+			setDPUConfigPhase(fakeClient)
+			Expect(reconcile(agent, fakeClient)).To(Succeed())
+			Expect(runs).To(Equal(2))
 		})
 
 		It("retries after a failed reconfig Run", func() {
