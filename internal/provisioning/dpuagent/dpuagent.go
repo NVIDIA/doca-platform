@@ -109,8 +109,8 @@ type DPUAgent struct {
 
 // reconfigState is the in-place reconfig machine. One value at a time.
 //
-//	idle    — process start, or a reconfig Run finished while still in DPU Config.
-//	          A DPU Config event does not start Run().
+//	idle    — process start, or a reconfig Run finished with no newer round
+//	          pending. A DPU Config event does not start Run().
 //	armed   — the watch saw a phase that means DPU Config already finished.
 //	          Rebooting does not arm. The next DPU Config event starts Run().
 //	running — that Run() is in progress. Context.ReapplyConfig is true only for
@@ -450,6 +450,9 @@ func phaseLeftDPUConfig(phase provisioningv1.DPUPhase) bool {
 // when the live GET has already returned to DPU Config. The event must be newer
 // than a resourceVersion already observed, so queued snapshots from the same
 // return do not start another Run.
+// When a Run() finishes, the next state is decided from the live DPUReconfig
+// round rather than from queued events: the Run() blocked the watch callback,
+// so the transitions that would arm the next round drain as stale snapshots.
 func (d *DPUAgent) maybeReconfigRun(ctx context.Context, dpu *provisioningv1.DPU, event *provisioningv1.DPU) error {
 	d.mu.Lock()
 	if d.reconfig == reconfigRunning {
@@ -485,27 +488,83 @@ func (d *DPUAgent) maybeReconfigRun(ctx context.Context, dpu *provisioningv1.DPU
 	d.mu.Unlock()
 
 	var err error
+	finalState := reconfigIdle
 	defer func() {
 		d.mu.Lock()
 		d.optCtx.ReapplyConfig = false
-		if err != nil {
-			d.reconfig = reconfigArmed
-		} else {
-			d.reconfig = reconfigIdle
-		}
+		d.reconfig = finalState
 		d.mu.Unlock()
 	}()
 
-	klog.Infof("DPU reconcile: in-place reconfig Run() for DPU %s/%s", dpu.Namespace, dpu.Name)
-	// Setup owns the operations context exclusively. Run resumes NIC runtime
-	// before release; the deferred start also restores it if setup aborts.
-	d.stopNICRuntimeConfigLoop()
-	defer d.StartNICRuntimeConfigLoop(ctx)
-	err = d.Run(ctx)
-	if err != nil {
-		return fmt.Errorf("in-place reconfig Run: %w", err)
+	servedRound := reconfigRound(dpu)
+	for {
+		klog.Infof("DPU reconcile: in-place reconfig Run() for DPU %s/%s", dpu.Namespace, dpu.Name)
+		// Setup owns the operations context exclusively. Run resumes NIC runtime
+		// before release; the deferred start also restores it if setup aborts.
+		run := func() error {
+			d.stopNICRuntimeConfigLoop()
+			defer d.StartNICRuntimeConfigLoop(ctx)
+			return d.Run(ctx)
+		}
+		if err = run(); err != nil {
+			finalState = reconfigArmed
+			return fmt.Errorf("in-place reconfig Run: %w", err)
+		}
+		// The Run blocked the watch callback, so phase transitions that happened
+		// meanwhile drain as stale snapshots and cannot arm the next Run. Decide
+		// from the live round counter instead: if the DPU already entered DPU
+		// Config for a newer round, run it now; if it already left DPU Config,
+		// stay armed for the next one; otherwise this round is done.
+		live := &provisioningv1.DPU{}
+		key := client.ObjectKey{Namespace: dpu.Namespace, Name: dpu.Name}
+		if getErr := d.optCtx.Client.Get(ctx, key, live); getErr != nil {
+			klog.Warningf("get DPU %s after in-place reconfig Run: %v; staying armed", key, getErr)
+			finalState = reconfigArmed
+			return nil
+		}
+		// Raise the high-water mark from the live object so the snapshots that
+		// queued while the Run blocked the callback drain as stale: a post-config
+		// transition of an already-served round must not arm another Run.
+		if rv, ok := objectResourceVersion(live); ok {
+			d.mu.Lock()
+			if rv > d.seenResourceVersion {
+				d.seenResourceVersion = rv
+			}
+			d.mu.Unlock()
+		}
+		switch {
+		case newerRoundPending(live, servedRound):
+			servedRound = reconfigRound(live)
+			klog.Infof("DPU %s entered DPU Config for in-place reconfig round %d; starting it now", key, servedRound)
+			continue
+		case phaseLeftDPUConfig(live.Status.Phase):
+			finalState = reconfigArmed
+		default:
+			finalState = reconfigIdle
+		}
+		return nil
 	}
-	return nil
+}
+
+// reconfigRound returns the in-place reconfig round recorded on the DPU, or 0
+// when the DPUSet controller has not tracked one.
+func reconfigRound(dpu *provisioningv1.DPU) int32 {
+	if r := dpu.Status.DPUReconfig; r != nil {
+		return r.Round
+	}
+	return 0
+}
+
+// newerRoundPending reports whether the live DPU already entered DPU Config for
+// a reconfig round newer than servedRound. The round counter, not the phase
+// history, is the witness: phase transitions that occur while a Run() blocks
+// the watch callback are discarded as stale when the queue drains, so a round
+// that starts during a Run() would otherwise never start a Run().
+func newerRoundPending(dpu *provisioningv1.DPU, servedRound int32) bool {
+	r := dpu.Status.DPUReconfig
+	return r != nil && r.InProgress != nil && *r.InProgress &&
+		r.Round > servedRound &&
+		dpu.Status.Phase == provisioningv1.DPUConfig
 }
 
 // agentStatusVersion is the DPF version reported on agentStatus.version.
