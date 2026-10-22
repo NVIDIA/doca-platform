@@ -1100,7 +1100,7 @@ var _ = Describe("Installing", func() {
 				Expect(status.RebootStatus).NotTo(BeNil())
 				Expect(status.RebootStatus.Phase).To(Equal(provisioningv1.RebootStatusPending))
 				Expect(status.RebootStatus.Method).NotTo(BeNil())
-				Expect(*status.RebootStatus.Method).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+				Expect(*status.RebootStatus.Method).To(Equal(provisioningv1.RebootMethodPowerCycle))
 			} else {
 				Expect(status.RebootStatus).To(BeNil())
 			}
