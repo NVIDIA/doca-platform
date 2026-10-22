@@ -78,6 +78,12 @@ one of the change that created it. Audit every `Create`/`Patch` call your
 controller makes against an object type that is (or will be) instrumented,
 not just your own top-level `ReconcileSpan` call.
 
+With tracing off, `ReconcileSpan` returns at once and `InjectIntoObject` writes
+nothing. It removes the generated annotations from the object instead, so the
+`Create`/`Patch` that follows clears them from objects written while tracing was
+on. Keep the call before every write of a child for that reason. An object a
+controller does not write anymore keeps its annotations.
+
 ## Idle reconciles
 
 A reconcile that starts at the `resourceVersion` the last successful reconcile

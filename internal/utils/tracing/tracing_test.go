@@ -54,10 +54,12 @@ func newTestObject(annotations map[string]string) *corev1.ConfigMap {
 	}
 }
 
-// useInMemoryTracerProvider installs an in-memory exporter as the global TracerProvider for the
-// duration of the test and returns it so assertions can inspect the exported spans.
+// useInMemoryTracerProvider installs an in-memory exporter as the global TracerProvider and turns
+// tracing on for the duration of the test. It returns the exporter so assertions can inspect the
+// exported spans.
 func useInMemoryTracerProvider(t *testing.T) *tracetest.InMemoryExporter {
 	t.Helper()
+	useTracker(t)
 	exporter := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter), sdktrace.WithIDGenerator(idGenerator{}))
 	prev := otel.GetTracerProvider()
@@ -510,6 +512,48 @@ func TestInjectIntoObject_NoopWithoutActiveSpan(t *testing.T) {
 	obj := newTestObject(nil)
 	InjectIntoObject(context.Background(), obj)
 	require.Empty(t, obj.Annotations[GeneratedTraceParentAnnotation], "no active span in ctx should produce no annotation")
+}
+
+func TestReconcileSpan_ReturnsEarlyWithTracingOff(t *testing.T) {
+	exporter := useInMemoryTracerProvider(t)
+	reconciles.Store(nil)
+	obj := newTestObject(nil)
+
+	ctx := context.Background()
+	got, endSpan := ReconcileSpan(ctx, "dpuset", obj, WorkflowRoot())
+	ObserveRollout(got, "dpuset", obj, true)
+	endSpan(nil)
+
+	require.Equal(t, ctx, got, "the context must stay untouched")
+	require.Empty(t, exporter.GetSpans())
+}
+
+func TestInjectIntoObject_WritesNothingWithTracingOff(t *testing.T) {
+	useInMemoryTracerProvider(t)
+	ctx, endSpan := ReconcileSpan(context.Background(), "dpuset", newTestObject(nil), WorkflowRoot())
+	defer endSpan(nil)
+	reconciles.Store(nil)
+
+	child := newTestObject(nil)
+	InjectIntoObject(ctx, child)
+
+	require.Empty(t, child.Annotations)
+}
+
+func TestInjectIntoObject_RemovesGeneratedAnnotationsWithTracingOff(t *testing.T) {
+	child := newTestObject(map[string]string{
+		GeneratedTraceParentAnnotation: "00-" + testTraceID + "-" + testSpanID + "-01",
+		GeneratedTraceStateAnnotation:  "vendor=a",
+		TraceParentAnnotation:          "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+		"other":                        "kept",
+	})
+
+	InjectIntoObject(context.Background(), child)
+
+	require.Equal(t, map[string]string{
+		TraceParentAnnotation: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+		"other":               "kept",
+	}, child.Annotations)
 }
 
 func TestStartSpanEndSpan_RecordsError(t *testing.T) {

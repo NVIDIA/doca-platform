@@ -186,8 +186,13 @@ func ContextFromObject(ctx context.Context, obj client.Object) context.Context {
 // or Patch of a child that another controller reconciles, so its span joins the same trace. The
 // incoming value is copied unchanged, not the per-reconcile span, so repeated reconciles cause no
 // updates. A derived workflow is only copied by a WorkflowRoot controller. No-op when ctx did not
-// come from ReconcileSpan.
+// come from ReconcileSpan. With tracing off it writes nothing and removes the generated annotations
+// from obj, so the write that follows also clears them from an object that carried them before.
 func InjectIntoObject(ctx context.Context, obj client.Object) {
+	if !enabled() {
+		removeGeneratedAnnotations(obj)
+		return
+	}
 	in, ok := ctx.Value(incomingKey{}).(incoming)
 	if !ok {
 		return
@@ -210,6 +215,25 @@ func InjectIntoObject(ctx context.Context, obj client.Object) {
 		// the child with the tracestate of the old request. Drop it.
 		delete(annotations, GeneratedTraceStateAnnotation)
 	}
+	obj.SetAnnotations(annotations)
+}
+
+// enabled reports whether tracing is set up in this process. Without it nothing is traced and
+// nothing is written to the objects.
+func enabled() bool {
+	return reconciles.Load() != nil
+}
+
+// removeGeneratedAnnotations removes the annotations DPF generated from obj. The ones a consumer set stay.
+func removeGeneratedAnnotations(obj client.Object) {
+	annotations := obj.GetAnnotations()
+	_, hasParent := annotations[GeneratedTraceParentAnnotation]
+	_, hasState := annotations[GeneratedTraceStateAnnotation]
+	if !hasParent && !hasState {
+		return
+	}
+	delete(annotations, GeneratedTraceParentAnnotation)
+	delete(annotations, GeneratedTraceStateAnnotation)
 	obj.SetAnnotations(annotations)
 }
 
@@ -249,8 +273,12 @@ func newSpanContextForObject(obj client.Object, revision string) trace.SpanConte
 //	ctx, endSpan := tracing.ReconcileSpan(ctx, controllerName, obj)
 //	defer endSpan(&reterr)
 //
-// The function accepts a nil pointer for callers that have no error to report.
+// The function accepts a nil pointer for callers that have no error to report. With tracing off
+// it returns at once, the reconcile is not touched.
 func ReconcileSpan(ctx context.Context, controller string, obj client.Object, opts ...ReconcileOption) (context.Context, func(*error)) {
+	if !enabled() {
+		return ctx, func(*error) {}
+	}
 	var o reconcileOptions
 	for _, opt := range opts {
 		opt(&o)
