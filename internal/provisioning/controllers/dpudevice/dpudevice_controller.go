@@ -90,6 +90,10 @@ const (
 	serverCertIssuanceRequeue = 30 * time.Second
 	// serverCertRotationBackoff is used when the mTLS client cannot be opened for rotation.
 	serverCertRotationBackoff = 5 * time.Minute
+	// basicAuthFallbackLogMsg is logged at error level whenever the controller authenticates to a
+	// BMC with its password over TLS without server certificate verification, so operators can
+	// alert on it.
+	basicAuthFallbackLogMsg = "Falling back to BMC basic auth without server certificate verification"
 
 	CATrustBundleDataKey            = "ca.crt"
 	BundleHashDataKey               = "bundle-hash"
@@ -570,6 +574,9 @@ func (r *DPUDeviceReconciler) confirmSameDPU(ctx context.Context, dpuDevice *pro
 	ctx, cancel := rfclient.ReadContext(ctx)
 	defer cancel()
 	// Use basic auth because the new address does not yet have a server certificate.
+	log.FromContext(ctx).Error(nil, basicAuthFallbackLogMsg,
+		"reason", "BMC IP changed; confirming DPU identity at the new address",
+		"bmcAddress", dpuDevice.BMCAddress())
 	basicAuthClient, err := r.basicAuthClientForRecovery(ctx, dpuDevice)
 	if err != nil {
 		return fmt.Errorf("failed to authenticate to BMC at the new address: %w", err)
@@ -844,10 +851,13 @@ func (r *DPUDeviceReconciler) ensureRedfishMTLS(ctx context.Context, dpuDevice *
 	if !rfclient.IsBMCServerCertUntrusted(err) && !mtlsRejected {
 		return fmt.Errorf("cannot verify BMC mTLS readiness: %w", err)
 	}
+	log.Error(err, basicAuthFallbackLogMsg,
+		"reason", "BMC requires mTLS bootstrap",
+		"mtlsRejected", mtlsRejected,
+		"bmcAddress", dpuDevice.BMCAddress())
 	if _, _, verifyErr := basicAuthClient.GetManagers(ctx); verifyErr != nil {
 		return fmt.Errorf("cannot authenticate BMC bootstrap: %w", verifyErr)
 	}
-	log.Error(err, "BMC requires mTLS bootstrap")
 	if err := r.setUpMTLS(ctx, dpuDevice, basicAuthClient); err != nil {
 		err = fmt.Errorf("failed to set up mTLS: %w", err)
 		log.Error(err, "failed to set up mTLS")
@@ -1743,7 +1753,9 @@ func (r *DPUDeviceReconciler) forceReissueRedfishClientCerts(ctx context.Context
 // never clears Initialized / re-enters initializeDPUDevice.
 func (r *DPUDeviceReconciler) recoverServerCert(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, serverCertStatus *provisioningv1.CertificateStatus, verifyErr error) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
-	log.Info("BMC server certificate failed verification; re-running setUpMTLS over basic auth", "verifyErr", verifyErr.Error())
+	log.Error(verifyErr, basicAuthFallbackLogMsg,
+		"reason", "BMC server certificate failed verification; re-running mTLS setup",
+		"bmcAddress", dpuDevice.BMCAddress())
 
 	basicAuthClient, err := r.basicAuthClientForRecovery(ctx, dpuDevice)
 	if err != nil {
