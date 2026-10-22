@@ -18,6 +18,7 @@ package controller //nolint:dupl
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -1898,6 +1899,59 @@ var _ = Describe("PodIpam Controller", func() {
 		Expect(changed).To(BeTrue())
 		Expect(*mutated[0].CNIArgs).To(HaveKeyWithValue("poolNames", []string{"pool-v4", "pool-v6"}))
 		Expect(*mutated[0].CNIArgs).To(HaveKeyWithValue("poolType", "ippool"))
+	})
+})
+
+var _ = Describe("patchPodWithoutInvalidNetworkAnnotationAndWithDigestAnnotation", func() {
+	It("applies only the network and digest annotations when given a cache-transformed Pod", func() {
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "patch-minimal-apply", Namespace: defaultNS},
+			Spec: corev1.PodSpec{
+				NodeName:   nodeName,
+				Containers: []corev1.Container{{Name: "ctr1", Image: "image"}},
+			},
+		}
+		Expect(testClient.Create(ctx, pod)).To(Succeed())
+		DeferCleanup(func() {
+			Expect(client.IgnoreNotFound(testClient.Delete(ctx, pod, client.GracePeriodSeconds(0)))).To(Succeed())
+		})
+
+		cached := &corev1.Pod{}
+		Eventually(func(g Gomega) {
+			g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), cached)).To(Succeed())
+		}).WithTimeout(2 * time.Second).Should(Succeed())
+		transformed, err := TransformPodForCache()(cached.DeepCopy())
+		Expect(err).NotTo(HaveOccurred())
+
+		networks := []*multustypes.NetworkSelectionElement{{Name: "mybrsfc", InterfaceRequest: ifcName}}
+		wantNetworks, err := json.Marshal(networks)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(patchPodWithoutInvalidNetworkAnnotationAndWithDigestAnnotation(ctx, testClient, transformed.(*corev1.Pod), networks)).To(Succeed())
+
+		apiReader, err := client.New(cfg, client.Options{Scheme: testClient.Scheme()})
+		Expect(err).NotTo(HaveOccurred())
+		Eventually(func(g Gomega) {
+			live := &corev1.Pod{}
+			g.Expect(apiReader.Get(ctx, client.ObjectKeyFromObject(pod), live)).To(Succeed())
+			g.Expect(live.Annotations).To(HaveKeyWithValue(NetworkAttachmentAnnot, string(wantNetworks)))
+			g.Expect(live.Annotations).To(HaveKeyWithValue(NetworkDigestAnnotation, calculateNetworkDigest(networks)))
+			g.Expect(live.Spec.Containers).To(HaveLen(1))
+
+			var owned map[string]any
+			for _, mf := range live.ManagedFields {
+				if mf.Manager == podIpamControllerName && mf.Operation == metav1.ManagedFieldsOperationApply {
+					g.Expect(json.Unmarshal(mf.FieldsV1.Raw, &owned)).To(Succeed())
+				}
+			}
+			g.Expect(owned).To(Equal(map[string]any{
+				"f:metadata": map[string]any{
+					"f:annotations": map[string]any{
+						"f:" + NetworkAttachmentAnnot:  map[string]any{},
+						"f:" + NetworkDigestAnnotation: map[string]any{},
+					},
+				},
+			}))
+		}).WithTimeout(2 * time.Second).Should(Succeed())
 	})
 })
 
