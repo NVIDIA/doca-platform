@@ -283,6 +283,7 @@ func monitorTask(ctx context.Context, client *rc.Client, taskID string) (bool, e
 func CheckFirmwareVersions(ctx context.Context, client *rc.Client, blueFieldSoftware *provisioningv1.BlueFieldSoftware, psid string) error {
 	ctx, cancel := rc.ReadContext(ctx)
 	defer cancel()
+	defer client.CloseIdleConnections()
 	versions, err := bundleVersions(blueFieldSoftware, psid)
 	if err != nil {
 		return err
@@ -373,7 +374,7 @@ func checkStagedFirmwareVersions(ctx context.Context, ctrlCtx *dutil.ControllerC
 	return nil
 }
 
-func submitPldmFirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, state *provisioningv1.DPUStatus, client *rc.Client, pldmFwBundle string, force bool, cond *metav1.Condition) (provisioningv1.DPUStatus, error) {
+func submitPldmFirmwareUpdate(ctx context.Context, state *provisioningv1.DPUStatus, client *rc.Client, pldmFwBundle string, force bool, cond *metav1.Condition) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
 
 	_, erotChassis, err := client.GetErotChassis(ctx)
@@ -432,11 +433,7 @@ func submitPldmFirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrl
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToUpdateBMCFirmware", err.Error()))
 		return *state, err
 	}
-	if err := checkpointRedfishTaskID(ctx, ctrlCtx.Client, dpu, state, taskInfo.ID); err != nil {
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleSubmitted.String(), err, "FailToPersistTaskID", err.Error()))
-		logger.Info(msgTaskSubmitted, taskSubmittedFields(opPLDMFirmware, taskInfo)...)
-		return *state, err
-	}
+	state.RedfishTaskID = &taskInfo.ID
 	logger.Info(msgTaskSubmitted, taskSubmittedFields(opPLDMFirmware, taskInfo)...)
 	cutil.SetDPUCondition(state, cond)
 	return *state, nil
@@ -467,12 +464,8 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 
 	cond := cutil.NewCondition(provisioningv1.DPUCondFwBundleSubmitted.String(), nil, "Submitting", "Submitting PLDM Firmware")
 	_, existingCond := cutil.GetDPUCondition(&dpu.Status, cond.Type)
-	// Durable task identity is the gate for "already accepted," not FwBundleSubmitted alone.
-	if state.RedfishTaskID == nil && (existingCond == nil || existingCond.Status != metav1.ConditionTrue) {
-		return submitPldmFirmwareUpdate(ctx, dpu, ctrlCtx, state, client, pldmFwBundle, force, cond)
-	}
-	if state.RedfishTaskID != nil && (existingCond == nil || existingCond.Status != metav1.ConditionTrue) {
-		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleSubmitted.String(), nil, "Submitting", "PLDM firmware task already accepted; resuming progress"))
+	if existingCond == nil || existingCond.Status != metav1.ConditionTrue {
+		return submitPldmFirmwareUpdate(ctx, state, client, pldmFwBundle, force, cond)
 	}
 
 	activatedCondition := cutil.NewCondition(provisioningv1.DPUCondFwBundleActivated.String(), nil, "Activated", "Activated Pending Bundle")

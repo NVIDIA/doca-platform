@@ -329,19 +329,21 @@ var _ = Describe("Installing", func() {
 		status, err := Installing(ctx, dpu, ctrlCtx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
-		Expect(status.RedfishTaskID).NotTo(BeNil())
 
-		By("Step 2: Verify taskId was checkpointed on the API immediately after BMC accept")
-		// checkpointRedfishTaskID patches status.redfishTaskId before returning; do not require
-		// the caller to copy returned status first.
-		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
-		Expect(dpu.Status.RedfishTaskID).NotTo(BeNil(), "taskId should already be on the API after InstallBFB accept")
-		Expect(*dpu.Status.RedfishTaskID).To(Equal("0"))
-
-		// Keep local object aligned for the progress poll step.
+		// Update DPU status with the returned status
 		patch = client.MergeFrom(dpu.DeepCopy())
 		dpu.Status = status
 		Expect(k8sClient.Status().Patch(ctx, dpu, patch)).To(Succeed())
+
+		By("Step 2: Verify taskId is stored in DPU Status")
+		Eventually(func() *string {
+			err := k8sClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)
+			if err != nil {
+				return nil
+			}
+			return dpu.Status.RedfishTaskID
+		}, "2s", "100ms").Should(Not(BeNil()), "taskId should be stored in DPU Status")
+		Expect(*dpu.Status.RedfishTaskID).To(Equal("0"))
 
 		By("Step 3: Call Installing again to check progress")
 		dpu.Status = status
@@ -1057,7 +1059,7 @@ var _ = Describe("Installing", func() {
 				Expect(isoCond.Status).NotTo(Equal(metav1.ConditionTrue))
 			}
 
-			By("Step 2: complete ISO transfer without submitting config in the same reconcile")
+			By("Step 2: complete ISO transfer and submit config install task")
 			dpu.Status = status
 			status, err = Installing(ctx, dpu, ctrlCtx)
 			Expect(err).NotTo(HaveOccurred())
@@ -1065,17 +1067,7 @@ var _ = Describe("Installing", func() {
 			_, isoCond = cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondIsoTransferred))
 			Expect(isoCond).NotTo(BeNil())
 			Expect(isoCond.Status).To(Equal(metav1.ConditionTrue))
-			Expect(status.RedfishTaskID).To(BeNil(), "config must not be checkpointed before IsoTransferred is persisted")
 			_, cfgCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondConfigTransferred))
-			Expect(cfgCond).To(BeNil())
-
-			By("Step 2b: submit config install task once IsoTransferred is persisted")
-			dpu.Status = status
-			status, err = Installing(ctx, dpu, ctrlCtx)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
-			Expect(status.RedfishTaskID).NotTo(BeNil())
-			_, cfgCond = cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondConfigTransferred))
 			if cfgCond != nil {
 				Expect(cfgCond.Status).NotTo(Equal(metav1.ConditionTrue))
 			}

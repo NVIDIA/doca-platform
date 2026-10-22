@@ -108,9 +108,6 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		logger.Info("successfully set host privilege to restricted via BMC")
 
 		state.Phase = provisioningv1.DPUUpdateFirmware
-		// The PLDM submit gate treats any RedfishTaskID as an accepted update; only IDs
-		// checkpointed inside DPUUpdateFirmware may count.
-		state.RedfishTaskID = nil
 		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondFWConfigured, "", ""))
 		return *state, nil
 	}
