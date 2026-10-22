@@ -398,7 +398,7 @@ see [Custom Configuration](user-managed-components.md#custom-configuration).
 
 ## Tracing
 
-DPF controllers can export distributed trace spans for their reconcile loops via OpenTelemetry, using the `tracing.dpu.nvidia.com/traceparent` and `tracing.dpu.nvidia.com/tracestate` annotations an upstream caller (e.g. carbide) sets on the CRs it creates, so a single request can be followed across DPF's own controllers.
+DPF controllers can export distributed trace spans for their reconcile loops via OpenTelemetry, using the `tracing.k8s.io/traceparent` and `tracing.k8s.io/tracestate` annotations an upstream caller (e.g. carbide) sets on the CRs it creates, so a single request can be followed across DPF's own controllers.
 
 `tracing.endpoint` is a single destination shared by two independent producers:
 

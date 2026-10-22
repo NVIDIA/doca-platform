@@ -46,14 +46,14 @@ import (
 const (
 	// TraceParentAnnotation carries the W3C parent context a user or consumer sets on an object.
 	// DPF never writes it, and it wins over the generated one.
-	TraceParentAnnotation = "tracing.dpu.nvidia.com/traceparent"
+	TraceParentAnnotation = "tracing.k8s.io/traceparent"
 	// TraceStateAnnotation carries optional vendor-specific W3C trace state of the consumer.
-	TraceStateAnnotation = "tracing.dpu.nvidia.com/tracestate"
+	TraceStateAnnotation = "tracing.k8s.io/tracestate"
 	// GeneratedTraceParentAnnotation carries the W3C parent context DPF passes on to the objects it
 	// creates, across a Kubernetes watch boundary.
-	GeneratedTraceParentAnnotation = "tracing.dpu.nvidia.com/generated-traceparent"
+	GeneratedTraceParentAnnotation = "tracing.k8s.io/generated-traceparent"
 	// GeneratedTraceStateAnnotation carries the trace state that goes with the generated parent.
-	GeneratedTraceStateAnnotation = "tracing.dpu.nvidia.com/generated-tracestate"
+	GeneratedTraceStateAnnotation = "tracing.k8s.io/generated-tracestate"
 
 	tracerName = "github.com/nvidia/doca-platform"
 

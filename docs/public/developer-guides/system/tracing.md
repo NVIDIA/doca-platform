@@ -52,10 +52,10 @@ in that case, because nothing would export the root of a derived trace for it,
 and it does not pass the derived value on.
 
 There are two pairs of annotations, so DPF never overwrites what a user or
-consumer set. A user or consumer sets `tracing.dpu.nvidia.com/traceparent` and
-`tracestate`, and DPF never writes them. `InjectIntoObject` writes
-`tracing.dpu.nvidia.com/generated-traceparent` and `generated-tracestate` on
-the objects DPF creates. `ReconcileSpan` reads the consumer pair first and the
+consumer set. A user or consumer sets `tracing.k8s.io/traceparent` and
+`tracing.k8s.io/tracestate`, and DPF never writes them. `InjectIntoObject`
+writes `tracing.k8s.io/generated-traceparent` and
+`tracing.k8s.io/generated-tracestate` on the objects DPF creates. `ReconcileSpan` reads the consumer pair first and the
 generated pair second.
 
 `InjectIntoObject` copies the trace context unchanged, so repeated reconciles
