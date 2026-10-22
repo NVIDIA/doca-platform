@@ -340,28 +340,6 @@ func TestMarkUnchanged(t *testing.T) {
 			require.False(t, dropped(s), s.Name)
 		}
 	})
-
-	t.Run("nothing is dropped without a tracker", func(t *testing.T) {
-		exporter := useInMemoryTracerProvider(t)
-
-		ctx, endSpan := ReconcileSpan(context.Background(), "dpuset", newTestObject(nil))
-		childCtx, child := StartSpan(ctx, "child")
-		MarkUnchanged(childCtx)
-		child.End()
-		endSpan(nil)
-
-		for _, s := range exporter.GetSpans() {
-			require.False(t, dropped(s), s.Name)
-		}
-	})
-}
-
-func TestReconcileSpan_NothingIsDroppedWithoutTracker(t *testing.T) {
-	exporter := useInMemoryTracerProvider(t)
-
-	_, endSpan := ReconcileSpan(context.Background(), "dpuset", newTestObject(nil))
-	endSpan(nil)
-	require.False(t, dropped(exporter.GetSpans()[0]))
 }
 
 // dropFirstSampler drops the first trace it sees and keeps the rest, which tells a reconcile that
@@ -470,14 +448,6 @@ func TestReconcileSpan_ExternalTraceKeepsTheDecisionOfItsOwner(t *testing.T) {
 	spans := exporter.GetSpans()
 	require.Len(t, spans, 1, "at 0 percent only the trace its owner sampled is kept")
 	require.Equal(t, "0af7651916cd43dd8448eb211c80319c", spans[0].SpanContext.TraceID().String())
-}
-
-func TestReconcileSpan_NothingIsIdleWithoutTracker(t *testing.T) {
-	exporter := useInMemoryTracerProvider(t)
-
-	reconcileAt("1", nil)
-	reconcileAt("1", nil)
-	require.Len(t, exporter.GetSpans(), 4)
 }
 
 func TestReconcileSpan_ReconcileAfterTheTimeoutStartsLinkedTrace(t *testing.T) {

@@ -292,8 +292,9 @@ func TestObserveRollout_ReadyWhenFirstSeenIsNoRollout(t *testing.T) {
 		"with a rollout span, the change span has an ID of its own")
 }
 
-func TestObserveRollout_NoTrackerNoSpan(t *testing.T) {
+func TestObserveRollout_NoSpanWithTracingOff(t *testing.T) {
 	exporter := useInMemoryTracerProvider(t)
+	reconciles.Store(nil)
 
 	observe(newTestObject(nil), true)
 	require.Empty(t, spansNamed(exporter, "dpudeployment.change"))
