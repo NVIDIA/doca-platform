@@ -62,3 +62,20 @@ annotations
 {{- toYaml . }}
 {{- end }}
 {{- end }}
+
+{{/*
+The args to be passed to the manager
+*/}}
+{{- define "servicechain.manager.args" -}}
+{{- $args := .Values.controllerManager.manager.args }}
+{{- if .Values.tracing.endpoint }}
+{{- $args = append $args (printf "--otel-tracing-endpoint=%s" .Values.tracing.endpoint) }}
+{{- with .Values.tracing.transport }}
+{{- $args = append $args (printf "--otel-tracing-transport=%s" .) }}
+{{- end }}
+{{- with .Values.tracing.caPEM }}
+{{- $args = append $args (printf "--otel-tracing-ca-pem=%s" .) }}
+{{- end }}
+{{- end }}
+{{- toYaml $args }}
+{{- end }}

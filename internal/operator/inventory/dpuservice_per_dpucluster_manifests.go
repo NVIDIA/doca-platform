@@ -67,6 +67,9 @@ func newServiceChainSetControllerObjects(data []byte) *dpuServicePerDPUClusterOb
 		templateDPUService: fromDPUService{name: operatorv1.ServiceSetControllerName},
 		componentName:      operatorv1.ServiceSetControllerName,
 		rbacAndCRDsName:    operatorv1.ServiceChainSetCRDsName,
+		extraPerDPUClusterEdits: func(vars Variables, _ *provisioningv1.DPUCluster) []StructuredEdit {
+			return tracingValueEdits(vars, operatorv1.ServiceSetControllerName)
+		},
 	}
 }
 

@@ -251,7 +251,7 @@ var _ = Describe("DPUService Controller", func() {
 			}
 			patcher = patch.NewSerialPatcher(dpuServices[0], testClient)
 			dpuServices[0].Spec.ConfigPorts = configPorts
-			Expect(patcher.Patch(ctx, dpuServices[0], patch.WithFieldOwner(dpuServiceControllerName))).To(Succeed())
+			Expect(patcher.Patch(ctx, dpuServices[0], patch.WithFieldOwner(DPUServiceControllerName))).To(Succeed())
 
 			// Create Service inside DPUCluster to test the NodePort creation.
 			// This is necessary to populate the Service and EndpointSlice on the host cluster.
@@ -288,32 +288,32 @@ var _ = Describe("DPUService Controller", func() {
 
 			By("update configPorts should fail if the ServiceType is changed")
 			dpuServices[0].Spec.ConfigPorts.ServiceType = corev1.ClusterIPNone
-			err = patcher.Patch(ctx, dpuServices[0], patch.WithFieldOwner(dpuServiceControllerName))
+			err = patcher.Patch(ctx, dpuServices[0], patch.WithFieldOwner(DPUServiceControllerName))
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring(`Value is immutable`))
 
 			By("update configPorts should succeed if we remove the config ports")
 			dpuServices[0].Spec.ConfigPorts = nil
-			Expect(patcher.Patch(ctx, dpuServices[0], patch.WithFieldOwner(dpuServiceControllerName))).To(Succeed())
+			Expect(patcher.Patch(ctx, dpuServices[0], patch.WithFieldOwner(DPUServiceControllerName))).To(Succeed())
 			Expect(dpuServices[0].Status.ConfigPorts).To(BeEmpty())
 
 			By("creating a headless Service with a NodePort should fail")
 			dpuServices[0].Spec.ConfigPorts = configPorts
 			dpuServices[0].Spec.ConfigPorts.ServiceType = corev1.ClusterIPNone
 			dpuServices[0].Spec.ConfigPorts.Ports[0].NodePort = ptr.To(uint16(30001))
-			err = patcher.Patch(ctx, dpuServices[0], patch.WithFieldOwner(dpuServiceControllerName))
+			err = patcher.Patch(ctx, dpuServices[0], patch.WithFieldOwner(DPUServiceControllerName))
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring(`nodePort can only be set when serviceType is NodePort`))
 
 			patcher = patch.NewSerialPatcher(hostDPUService, testClient)
 			hostDPUService.Spec.Paused = ptr.To(true)
-			Expect(patcher.Patch(ctx, hostDPUService, patch.WithFieldOwner(dpuServiceControllerName))).To(Succeed())
+			Expect(patcher.Patch(ctx, hostDPUService, patch.WithFieldOwner(DPUServiceControllerName))).To(Succeed())
 
 			By("pause the DPUServices and ensure the application associated with it are paused")
 			for _, dpuService := range dpuServices {
 				patcher := patch.NewSerialPatcher(dpuService, testClient)
 				dpuService.Spec.Paused = ptr.To(true)
-				Expect(patcher.Patch(ctx, dpuService, patch.WithFieldOwner(dpuServiceControllerName))).To(Succeed())
+				Expect(patcher.Patch(ctx, dpuService, patch.WithFieldOwner(DPUServiceControllerName))).To(Succeed())
 			}
 
 			// Ensure the applications are paused.
@@ -325,12 +325,12 @@ var _ = Describe("DPUService Controller", func() {
 			for _, dpuService := range dpuServices {
 				patcher := patch.NewSerialPatcher(dpuService, testClient)
 				dpuService.Spec.Paused = ptr.To(false)
-				Expect(patcher.Patch(ctx, dpuService, patch.WithFieldOwner(dpuServiceControllerName))).To(Succeed())
+				Expect(patcher.Patch(ctx, dpuService, patch.WithFieldOwner(DPUServiceControllerName))).To(Succeed())
 			}
 
 			patcher = patch.NewSerialPatcher(hostDPUService, testClient)
 			hostDPUService.Spec.Paused = ptr.To(false)
-			Expect(patcher.Patch(ctx, hostDPUService, patch.WithFieldOwner(dpuServiceControllerName))).To(Succeed())
+			Expect(patcher.Patch(ctx, hostDPUService, patch.WithFieldOwner(DPUServiceControllerName))).To(Succeed())
 
 			// Ensure the applications are resumed.
 			Eventually(func(g Gomega) {
@@ -1460,7 +1460,7 @@ func createDPUClusters(clusters []provisioningv1.DPUCluster) {
 
 		// mark the cluster as ready so that the remoteCache treats it as ready
 		cl.Status.Phase = provisioningv1.PhaseReady
-		Expect(patcher.Patch(ctx, &cl, patch.WithFieldOwner(dpuServiceControllerName))).To(Succeed())
+		Expect(patcher.Patch(ctx, &cl, patch.WithFieldOwner(DPUServiceControllerName))).To(Succeed())
 	}
 }
 
@@ -1724,7 +1724,7 @@ func assertConfigPortEndpointSlice(g Gomega, testClient client.Client, dpuServic
 		dpuservicev1.DPUServiceNameLabelKey:                     dpuService.GetName(),
 		dpuservicev1.DPUServiceNamespaceLabelKey:                dpuService.GetNamespace(),
 		dpuservicev1.DPUServiceExposedPortForDPUClusterLabelKey: clusterName,
-		discoveryv1.LabelManagedBy:                              dpuServiceControllerName,
+		discoveryv1.LabelManagedBy:                              DPUServiceControllerName,
 		discoveryv1.LabelServiceName:                            endpointSliceName,
 	}
 

@@ -827,3 +827,61 @@ func Test_parseImageString(t *testing.T) {
 		})
 	}
 }
+
+// tracingValues applies edits to an empty DPUService and returns the resulting Helm values.
+func tracingValues(g Gomega, edits []StructuredEdit) map[string]interface{} {
+	dpuService := &dpuservicev1.DPUService{}
+	for _, edit := range edits {
+		g.Expect(edit(dpuService)).To(Succeed())
+	}
+	if dpuService.Spec.HelmChart.Values == nil {
+		return nil
+	}
+	values, ok := dpuService.Spec.HelmChart.Values.Object.(*unstructured.Unstructured)
+	g.Expect(ok).To(BeTrue())
+	return values.UnstructuredContent()
+}
+
+func Test_tracingValueEdits(t *testing.T) {
+	t.Run("no edits without an endpoint", func(t *testing.T) {
+		g := NewWithT(t)
+		g.Expect(tracingValueEdits(Variables{}, operatorv1.SFCControllerName)).To(BeEmpty())
+	})
+
+	t.Run("sets endpoint, transport and CA under the component", func(t *testing.T) {
+		g := NewWithT(t)
+		vars := Variables{}
+		vars.OpenTelemetryCollector.Tracing = OpenTelemetryCollectorGenericVariables{
+			Endpoint: "http://10.0.0.1:30050", Transport: "grpc", CACert: "pem",
+		}
+		g.Expect(tracingValues(g, tracingValueEdits(vars, operatorv1.SFCControllerName))).To(Equal(map[string]interface{}{
+			"sfc-controller": map[string]interface{}{
+				"tracing": map[string]interface{}{"endpoint": "http://10.0.0.1:30050", "transport": "grpc", "caPEM": "pem"},
+			},
+		}))
+	})
+
+	t.Run("omits transport and CA when unset", func(t *testing.T) {
+		g := NewWithT(t)
+		vars := Variables{}
+		vars.OpenTelemetryCollector.Tracing.Endpoint = "http://10.0.0.1:30050"
+		g.Expect(tracingValues(g, tracingValueEdits(vars, operatorv1.SFCControllerName))).To(Equal(map[string]interface{}{
+			"sfc-controller": map[string]interface{}{
+				"tracing": map[string]interface{}{"endpoint": "http://10.0.0.1:30050"},
+			},
+		}))
+	})
+}
+
+func Test_serviceChainSetControllerTracingValues(t *testing.T) {
+	g := NewWithT(t)
+	vars := Variables{}
+	vars.OpenTelemetryCollector.Tracing.Endpoint = "http://10.0.0.1:30050"
+
+	component := newServiceChainSetControllerObjects(nil)
+	g.Expect(tracingValues(g, component.extraPerDPUClusterEdits(vars, nil))).To(Equal(map[string]interface{}{
+		"servicechainset-controller": map[string]interface{}{
+			"tracing": map[string]interface{}{"endpoint": "http://10.0.0.1:30050"},
+		},
+	}))
+}

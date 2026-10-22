@@ -30,6 +30,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	predicateutils "github.com/nvidia/doca-platform/pkg/utils/predicates"
@@ -93,6 +94,10 @@ func (r *DPUServiceCredentialRequestReconciler) Reconcile(ctx context.Context, r
 		}
 		return ctrl.Result{}, err
 	}
+
+	ctx, endSpan := tracing.ReconcileSpan(ctx, dpuservicev1.DPUServiceCredentialRequestControllerName, obj)
+	defer endSpan(&reterr)
+
 	patcher := patch.NewSerialPatcher(obj, r.Client)
 
 	defer func() {
@@ -227,7 +232,9 @@ func (r *DPUServiceCredentialRequestReconciler) reconcile(ctx context.Context, o
 // reconcileServiceAccount reconciles the ServiceAccount for the DPUServiceCredentialRequest.
 // It returns the TokenRequest if the reconciliation was successful.
 // Labels are used to identify the ServiceAccount since it may be in a remote cluster where ownerReferences don't work.
-func reconcileServiceAccount(ctx context.Context, obj *dpuservicev1.DPUServiceCredentialRequest, targetClient client.Client, currentClusterUID types.UID) (*authenticationv1.TokenRequest, error) {
+func reconcileServiceAccount(ctx context.Context, obj *dpuservicev1.DPUServiceCredentialRequest, targetClient client.Client, currentClusterUID types.UID) (_ *authenticationv1.TokenRequest, reterr error) {
+	ctx, span := tracing.StartSpan(ctx, "credentialrequest.service-account")
+	defer func() { tracing.EndSpan(span, reterr) }()
 	log := ctrllog.FromContext(ctx)
 
 	// The ServiceAccount name and/or namespace diverges or the DPUServiceCredentialRequest
@@ -251,11 +258,13 @@ func reconcileServiceAccount(ctx context.Context, obj *dpuservicev1.DPUServiceCr
 	if obj.Status.ExpirationTimestamp != nil && !requiresRefresh(obj.Status.ExpirationTimestamp.Time, obj.Status.IssuedAt.Time) {
 		if obj.Spec.Duration == nil {
 			log.Info("ServiceAccount already exists with a valid token", "namespace", obj.Spec.ServiceAccount.GetNamespace(), "name", obj.Spec.ServiceAccount.Name)
+			tracing.MarkUnchanged(ctx)
 			return nil, nil
 		}
 		// we should requeue the object before the token expires if the duration has not changed
 		if expirationSeconds := getExpirationSeconds(obj.Status.ExpirationTimestamp.Time, obj.Status.IssuedAt.Time); expirationSeconds == int64(obj.Spec.Duration.Duration/time.Second) {
 			log.Info("ServiceAccount already exists with a valid token", "namespace", obj.Spec.ServiceAccount.GetNamespace(), "name", obj.Spec.ServiceAccount.Name)
+			tracing.MarkUnchanged(ctx)
 			return nil, nil
 		}
 	}
@@ -314,7 +323,9 @@ func reconcileServiceAccount(ctx context.Context, obj *dpuservicev1.DPUServiceCr
 	return tr, nil
 }
 
-func (r *DPUServiceCredentialRequestReconciler) reconcileSecret(ctx context.Context, obj *dpuservicev1.DPUServiceCredentialRequest, dpuClusterConfig *dpucluster.Config, token string) error {
+func (r *DPUServiceCredentialRequestReconciler) reconcileSecret(ctx context.Context, obj *dpuservicev1.DPUServiceCredentialRequest, dpuClusterConfig *dpucluster.Config, token string) (reterr error) {
+	ctx, span := tracing.StartSpan(ctx, "credentialrequest.secret")
+	defer func() { tracing.EndSpan(span, reterr) }()
 	var config map[string][]byte
 	// The Secret name and/or namespace diverges or the DPUServiceCredentialRequest
 	// is being deleted, delete the Secret.

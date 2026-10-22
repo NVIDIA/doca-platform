@@ -359,6 +359,29 @@ func setFlags(c *corev1.Container, newFlags ...string) error {
 	return nil
 }
 
+// setTracingFlags passes the DPFOperatorConfig tracing settings to the "manager" container of a
+// component whose binary registers tracing.AddFlags. It does nothing when no endpoint is
+// configured. The CA is passed inline as PEM, see tracing.FlagOptions.
+func setTracingFlags(deploy *appsv1.Deployment, vars Variables) error {
+	if vars.OpenTelemetryCollector.Tracing.Endpoint == "" {
+		return nil
+	}
+	c := getManagerContainer(deploy)
+	if c == nil {
+		return fmt.Errorf("container %q not found in Deployment %s", managerContainerName, deploy.GetName())
+	}
+
+	flags := []string{fmt.Sprintf("--otel-tracing-endpoint=%s", vars.OpenTelemetryCollector.Tracing.Endpoint)}
+	if vars.OpenTelemetryCollector.Tracing.Transport != "" {
+		flags = append(flags, fmt.Sprintf("--otel-tracing-transport=%s", vars.OpenTelemetryCollector.Tracing.Transport))
+	}
+	if vars.OpenTelemetryCollector.Tracing.CACert != "" {
+		flags = append(flags, fmt.Sprintf("--otel-tracing-ca-pem=%s", vars.OpenTelemetryCollector.Tracing.CACert))
+	}
+
+	return setFlags(c, flags...)
+}
+
 // parseFlagName extracts the name of a command line flag from its string representation.
 // It returns an empty string if the argument is not a valid flag.
 func parseFlagName(arg string) string {

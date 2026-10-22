@@ -28,7 +28,9 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/digest"
 	dpfutils "github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"github.com/Masterminds/semver/v3"
@@ -51,7 +53,7 @@ import (
 )
 
 const (
-	dpuDeploymentControllerName = "dpudeploymentcontroller"
+	DPUDeploymentControllerName = "dpudeploymentcontroller"
 	// dpuServiceChainVersionLabelKey is the key for the DPUServiceChain version that is used as labels on DPUSets and NodeSelector in DPUServiceChains.
 	// It is also used to discover the most current DPUServiceChain as annotations on DPUServiceChain objects.
 	dpuServiceChainVersionLabelAnnotationKey = "svc.dpu.nvidia.com/dpuservicechain-version"
@@ -300,6 +302,11 @@ func (r *DPUDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 		return ctrl.Result{}, err
 	}
+
+	ctx, endSpan := tracing.ReconcileSpan(ctx, DPUDeploymentControllerName, dpuDeployment, tracing.WorkflowRoot(),
+		tracing.Revision(tracingRevision(ctx, r.Client, dpuDeployment)))
+	defer endSpan(&reterr)
+
 	patcher := patch.NewSerialPatcher(dpuDeployment, r.Client)
 
 	// Defer a patch call to always patch the object when Reconcile exits.
@@ -310,8 +317,14 @@ func (r *DPUDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
 
+		if dpuDeployment.DeletionTimestamp.IsZero() {
+			// The status still holds the previous generation until the patch below, so a new generation is not ready yet.
+			tracing.ObserveRollout(ctx, DPUDeploymentControllerName, dpuDeployment,
+				conditions.IsTrue(dpuDeployment, conditions.TypeReady) && dpuDeployment.Status.ObservedGeneration == dpuDeployment.Generation)
+		}
+
 		if err := patcher.Patch(ctx, dpuDeployment,
-			patch.WithFieldOwner(dpuDeploymentControllerName),
+			patch.WithFieldOwner(DPUDeploymentControllerName),
 			patch.WithStatusObservedGeneration{},
 			patch.WithOwnedConditions{Conditions: conditions.TypesAsStrings(dpuservicev1.DPUDeploymentConditions)},
 		); err != nil {
@@ -453,6 +466,43 @@ func (r *DPUDeploymentReconciler) reconcile(ctx context.Context, dpuDeployment *
 	conditions.AddTrue(dpuDeployment, dpuservicev1.ConditionDPUSetsReconciled)
 
 	return requeue, nil
+}
+
+// tracingRevision identifies the inputs of the DPUDeployment as the generations of the objects it
+// references. A change of one of them is a change of the DPUDeployment for tracing, although its
+// own generation stays. Objects that cannot be read are left out, so readiness does not matter.
+func tracingRevision(ctx context.Context, c client.Client, dpuDeployment *dpuservicev1.DPUDeployment) string {
+	var refs []client.Object
+	add := func(ref client.Object, name string) {
+		ref.SetNamespace(dpuDeployment.Namespace)
+		ref.SetName(name)
+		refs = append(refs, ref)
+	}
+	if dpuDeployment.Spec.DPUs.BFB != nil {
+		add(&provisioningv1.BFB{}, *dpuDeployment.Spec.DPUs.BFB)
+	}
+	if dpuDeployment.Spec.DPUs.BlueFieldSoftware != nil {
+		add(&provisioningv1.BlueFieldSoftware{}, *dpuDeployment.Spec.DPUs.BlueFieldSoftware)
+	}
+	if dpuDeployment.Spec.DPUs.FlavorTemplate != nil {
+		add(&provisioningv1.DPUFlavorTemplate{}, *dpuDeployment.Spec.DPUs.FlavorTemplate)
+	} else if dpuDeployment.Spec.DPUs.Flavor != nil {
+		add(&provisioningv1.DPUFlavor{}, *dpuDeployment.Spec.DPUs.Flavor)
+	}
+	for _, service := range dpuDeployment.Spec.Services {
+		add(&dpuservicev1.DPUServiceTemplate{}, service.ServiceTemplate)
+		add(&dpuservicev1.DPUServiceConfiguration{}, service.ServiceConfiguration)
+	}
+
+	generations := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if err := c.Get(ctx, client.ObjectKeyFromObject(ref), ref); err != nil {
+			continue
+		}
+		generations = append(generations, fmt.Sprintf("%T/%s/%d", ref, ref.GetName(), ref.GetGeneration()))
+	}
+	slices.Sort(generations)
+	return digest.Short(digest.FromObjects(generations), 12)
 }
 
 // prepareDependencies prepares the DPUDeployment dependencies and returns them for the rest of the reconciliation loop
@@ -878,7 +928,8 @@ func reconcileDPUSets(ctx context.Context, c client.Client, dpuDeployment *dpuse
 
 		if i := matchDPUSetIndex(newDPUSet, existingDPUSets.Items); i >= 0 {
 			// patch the existing dpuset
-			if err := c.Patch(ctx, newDPUSet, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName)); err != nil {
+			tracing.InjectIntoObject(ctx, newDPUSet)
+			if err := c.Patch(ctx, newDPUSet, client.Apply, client.ForceOwnership, client.FieldOwner(DPUDeploymentControllerName)); err != nil {
 				return fmt.Errorf("error while patching %s %s: %w", newDPUSet.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(newDPUSet), err)
 			}
 			existingDPUSets.Items = deleteElementOrNil(existingDPUSets.Items, i, i+1)
@@ -889,7 +940,8 @@ func reconcileDPUSets(ctx context.Context, c client.Client, dpuDeployment *dpuse
 
 	// Create DPUSets to match what is defined in the DPUDeployment
 	for _, dpuSet := range dpuSetsToBeCreated {
-		if err := c.Patch(ctx, dpuSet, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName)); err != nil {
+		tracing.InjectIntoObject(ctx, dpuSet)
+		if err := c.Patch(ctx, dpuSet, client.Apply, client.ForceOwnership, client.FieldOwner(DPUDeploymentControllerName)); err != nil {
 			return fmt.Errorf("error while patching %s %s: %w", dpuSet.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(dpuSet), err)
 		}
 	}
@@ -1098,7 +1150,8 @@ func (r *DPUDeploymentReconciler) reconcileDelete(ctx context.Context, dpuDeploy
 				dpuService.Spec.Paused = ptr.To(false)
 				dpuService.SetManagedFields(nil)
 				dpuService.SetGroupVersionKind(dpuservicev1.DPUServiceGroupVersionKind)
-				if err := r.Client.Patch(ctx, &dpuService, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName)); err != nil {
+				tracing.InjectIntoObject(ctx, &dpuService)
+				if err := r.Client.Patch(ctx, &dpuService, client.Apply, client.ForceOwnership, client.FieldOwner(DPUDeploymentControllerName)); err != nil {
 					if !apierrors.IsNotFound(err) {
 						return ctrl.Result{}, fmt.Errorf("error while patching %s %s: %w", dpuService.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&dpuService), err)
 					}

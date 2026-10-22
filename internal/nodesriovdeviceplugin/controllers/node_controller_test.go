@@ -22,10 +22,14 @@ import (
 
 	noderesourcesv1 "github.com/nvidia/doca-platform/api/noderesources/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -532,6 +536,80 @@ func cleanupTestObjects(ctx context.Context, c client.Client) {
 
 	ExpectWithOffset(1, testutils.CleanupAndWait(ctx, c, allObjs...)).To(Succeed())
 }
+
+var _ = Describe("sync-pod span unit tests", func() {
+	var exporter *tracetest.InMemoryExporter
+
+	BeforeEach(func() {
+		exporter = tracetest.NewInMemoryExporter()
+		DeferCleanup(otel.SetTracerProvider, otel.GetTracerProvider())
+		otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter)))
+	})
+
+	// managedPod returns a managed pod that targets node-1.
+	managedPod := func(name string) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: "ns",
+				Labels:    map[string]string{ManagedByLabelKey: ManagedByLabelValue},
+			},
+			Spec: corev1.PodSpec{Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+					NodeSelectorTerms: []corev1.NodeSelectorTerm{{MatchFields: []corev1.NodeSelectorRequirement{{
+						Key: metav1.ObjectNameField, Operator: corev1.NodeSelectorOpIn, Values: []string{"node-1"},
+					}}}},
+				},
+			}}},
+		}
+	}
+
+	// podActionOf runs fn in a span and returns the pod.action attribute fn set on it.
+	podActionOf := func(objs []client.Object, fn func(ctx context.Context, r *NodeReconciler) error) string {
+		exporter.Reset()
+		r := &NodeReconciler{
+			Namespace: "ns",
+			Client: fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(objs...).
+				WithIndex(&corev1.Pod{}, podTargetNodeField, func(o client.Object) []string {
+					return []string{getTargetNodeFromPod(o.(*corev1.Pod))}
+				}).Build(),
+		}
+		ctx, span := tracing.StartSpan(context.Background(), "test")
+		ExpectWithOffset(1, fn(ctx, r)).To(Succeed())
+		tracing.EndSpan(span, nil)
+
+		spans := exporter.GetSpans()
+		ExpectWithOffset(1, spans).To(HaveLen(1))
+		for _, kv := range spans[0].Attributes {
+			if string(kv.Key) == podActionAttribute {
+				return kv.Value.AsString()
+			}
+		}
+		return ""
+	}
+
+	It("should record what ensureNoPod did about the pod", func() {
+		ensureNoPod := func(ctx context.Context, r *NodeReconciler) error {
+			_, err := r.ensureNoPod(ctx, "node-1")
+			return err
+		}
+		Expect(podActionOf(nil, ensureNoPod)).To(Equal(podActionNone))
+		Expect(podActionOf([]client.Object{managedPod("p")}, ensureNoPod)).To(Equal(podActionDelete))
+	})
+
+	It("should record what reconcilePod did about the pod", func() {
+		reconcilePod := func(existing ...*corev1.Pod) func(ctx context.Context, r *NodeReconciler) error {
+			return func(ctx context.Context, r *NodeReconciler) error {
+				_, err := r.reconcilePod(ctx, "node-1", managedPod("p"), existing)
+				return err
+			}
+		}
+		Expect(podActionOf(nil, reconcilePod())).To(Equal(podActionCreate))
+		Expect(podActionOf([]client.Object{managedPod("p")}, reconcilePod(managedPod("p")))).To(Equal(podActionNone))
+		Expect(podActionOf([]client.Object{managedPod("p"), managedPod("q")},
+			reconcilePod(managedPod("p"), managedPod("q")))).To(Equal(podActionRecreate))
+	})
+})
 
 var _ = Describe("handlePodInTerminalState unit tests", func() {
 	var (

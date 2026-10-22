@@ -24,6 +24,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/digest"
 	"github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -61,7 +62,10 @@ type ServiceChainSetReconciler struct {
 const (
 	ServiceChainSetNameLabel      = dpuservicev1.SvcDpuGroupName + "/servicechainset-name"
 	ServiceChainSetNamespaceLabel = dpuservicev1.SvcDpuGroupName + "/servicechainset-namespace"
-	serviceChainSetControllerName = "service-chain-set-controller"
+	ServiceChainSetControllerName = "service-chain-set-controller"
+
+	// TracingServiceName is the service.name of the spans the ServiceChainSet controller binary exports.
+	TracingServiceName = "dpf-servicechainset-controller"
 )
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch;update
@@ -86,6 +90,10 @@ func (r *ServiceChainSetReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 		return ctrl.Result{}, err
 	}
+
+	ctx, endSpan := tracing.ReconcileSpan(ctx, ServiceChainSetControllerName, serviceChainSet)
+	defer endSpan(&reterr)
+
 	patcher := patch.NewSerialPatcher(serviceChainSet, r.Client)
 
 	// Defer a patch call to always patch the object when Reconcile exits.
@@ -96,7 +104,7 @@ func (r *ServiceChainSetReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
 		if err := patcher.Patch(ctx, serviceChainSet,
-			patch.WithFieldOwner(serviceChainSetControllerName),
+			patch.WithFieldOwner(ServiceChainSetControllerName),
 			patch.WithStatusObservedGeneration{},
 			patch.WithOwnedConditions{Conditions: conditions.TypesAsStrings(dpuservicev1.ServiceChainSetConditions)},
 		); err != nil {
@@ -244,10 +252,14 @@ func (r *ServiceChainSetReconciler) createOrUpdateChild(ctx context.Context, set
 	}
 	serviceChain.SetManagedFields(nil)
 	serviceChain.SetGroupVersionKind(dpuservicev1.GroupVersion.WithKind("ServiceChain"))
+	// Propagate this reconcile's trace context onto the ServiceChain so a future SDN-owned
+	// controller span for it continues this trace instead of starting an unparented one.
+	// Before the up-to-date check, so a new trace context is written to an existing child.
+	tracing.InjectIntoObject(ctx, serviceChain)
 	if sc != nil && serviceChainUpToDate(sc, serviceChain) {
 		return nil
 	}
-	if err := r.Client.Patch(ctx, serviceChain, client.Apply, client.ForceOwnership, client.FieldOwner(serviceChainSetControllerName)); err != nil {
+	if err := r.Client.Patch(ctx, serviceChain, client.Apply, client.ForceOwnership, client.FieldOwner(ServiceChainSetControllerName)); err != nil {
 		return err
 	}
 

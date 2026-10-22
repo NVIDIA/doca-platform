@@ -273,6 +273,23 @@ func additionalValuesForComponent(name operatorv1.ComponentName, vars Variables)
 	}
 }
 
+// tracingValueEdits is the Helm counterpart of setTracingFlags for a component deployed as a
+// DPUService. It returns no edits when no endpoint is configured.
+func tracingValueEdits(vars Variables, component operatorv1.ComponentName) []StructuredEdit {
+	tracing := vars.OpenTelemetryCollector.Tracing
+	if tracing.Endpoint == "" {
+		return nil
+	}
+	edits := []StructuredEdit{dpuServiceAddValueEdit(tracing.Endpoint, component.String(), "tracing", "endpoint")}
+	if tracing.Transport != "" {
+		edits = append(edits, dpuServiceAddValueEdit(tracing.Transport, component.String(), "tracing", "transport"))
+	}
+	if tracing.CACert != "" {
+		edits = append(edits, dpuServiceAddValueEdit(tracing.CACert, component.String(), "tracing", "caPEM"))
+	}
+	return edits
+}
+
 func sfcControllerEdits(vars Variables) ([]StructuredEdit, error) {
 	edits := []StructuredEdit{
 		dpuServiceAddValueEdit(vars.DPUOpenvSwitchRunPath, operatorv1.SFCControllerName.String(), openvSwitchRunDirPathKey),

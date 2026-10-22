@@ -23,9 +23,11 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
+	"go.opentelemetry.io/otel/attribute"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -187,20 +189,12 @@ func reconcileObjectsInDPUClusters(ctx context.Context,
 
 	// Create and update objects in each targeted cluster
 	for _, dpuClusterConfig := range targetDPUClusterConfigs {
-		dpuClusterClient, err := dpuClusterConfig.Client(ctx)
-		if err != nil {
-			return err
-		}
-		if err := utils.EnsureNamespace(ctx, dpuClusterClient, dpuServiceObject.GetNamespace()); err != nil {
-			return err
-		}
-		dpuClusterKey := client.ObjectKeyFromObject(dpuClusterConfig.Cluster)
-		if err := r.createOrUpdateObjectsInDPUCluster(ctx, dpuClusterClient, dpuClusterKey, dpuServiceObject); err != nil {
+		if err := applyObjectsInDPUCluster(ctx, r, dpuClusterConfig, dpuServiceObject); err != nil {
 			return err
 		}
 
 		// Remove the cluster from the map to keep only clusters where resources need to be deleted
-		delete(unprocessedDPUClusters, dpuClusterKey.String())
+		delete(unprocessedDPUClusters, client.ObjectKeyFromObject(dpuClusterConfig.Cluster).String())
 	}
 
 	// Delete leftover resources in clusters that are no longer selected
@@ -230,6 +224,21 @@ func reconcileObjectsInDPUClusters(ctx context.Context,
 	return nil
 }
 
+// applyObjectsInDPUCluster ensures the namespace of the object in the given DPUCluster and applies the objects there.
+// It is a remote call to the DPU cluster, so it has its own span.
+func applyObjectsInDPUCluster(ctx context.Context, r objectsInDPUClustersReconciler, dpuClusterConfig *dpucluster.Config, dpuServiceObject dpuservicev1.DPUServiceObject) (reterr error) {
+	ctx, span := tracing.StartSpan(ctx, "dpucluster.apply", attribute.String("dpucluster.name", dpuClusterConfig.Cluster.Name))
+	defer func() { tracing.EndSpan(span, reterr) }()
+	dpuClusterClient, err := dpuClusterConfig.Client(ctx)
+	if err != nil {
+		return err
+	}
+	if err := utils.EnsureNamespace(ctx, dpuClusterClient, dpuServiceObject.GetNamespace()); err != nil {
+		return err
+	}
+	return r.createOrUpdateObjectsInDPUCluster(ctx, dpuClusterClient, client.ObjectKeyFromObject(dpuClusterConfig.Cluster), dpuServiceObject)
+}
+
 // reconcileReadinessOfObjectsInDPUClusters handles the readiness reconciliation loop for objects in the DPU clusters
 //
 //nolint:unparam
@@ -255,15 +264,7 @@ func reconcileReadinessOfObjectsInDPUClusters(ctx context.Context,
 
 	unreadyObjsNN := []namespacedNameInCluster{}
 	for _, dpuClusterConfig := range targetDPUClusterConfigs {
-		dpuClusterClient, err := dpuClusterConfig.Client(ctx)
-		if err != nil {
-			return nil, err
-		}
-		objs, err := r.getObjectsInDPUCluster(ctx, dpuClusterClient, dpuServiceObject)
-		if err != nil {
-			return nil, err
-		}
-		unreadyObjs, err := r.getUnreadyObjects(objs)
+		unreadyObjs, err := getUnreadyObjectsInDPUCluster(ctx, r, dpuClusterConfig, dpuServiceObject)
 		if err != nil {
 			return nil, err
 		}
@@ -273,6 +274,27 @@ func reconcileReadinessOfObjectsInDPUClusters(ctx context.Context,
 
 	}
 	return unreadyObjsNN, nil
+}
+
+// getUnreadyObjectsInDPUCluster returns the objects in the given DPUCluster that are not ready. It is a remote call to
+// the DPU cluster, so it has its own span.
+func getUnreadyObjectsInDPUCluster(ctx context.Context, r objectsInDPUClustersReconciler, dpuClusterConfig *dpucluster.Config, dpuServiceObject dpuservicev1.DPUServiceObject) (_ []types.NamespacedName, reterr error) {
+	ctx, span := tracing.StartSpan(ctx, "dpucluster.readiness", attribute.String("dpucluster.name", dpuClusterConfig.Cluster.Name))
+	defer func() { tracing.EndSpan(span, reterr) }()
+	dpuClusterClient, err := dpuClusterConfig.Client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	objs, err := r.getObjectsInDPUCluster(ctx, dpuClusterClient, dpuServiceObject)
+	if err != nil {
+		return nil, err
+	}
+	unreadyObjs, err := r.getUnreadyObjects(objs)
+	if err != nil {
+		return nil, err
+	}
+	tracing.AddAttributes(ctx, attribute.Int("objects.count", len(objs)), attribute.Int("objects.unready", len(unreadyObjs)))
+	return unreadyObjs, nil
 }
 
 // updateSummary updates the status conditions in the object.
@@ -326,7 +348,9 @@ func updateSummary(ctx context.Context,
 
 // deleteObjectsInDPUCluster deletes objects in the given DPUCluster and returns the amount of objects that still exist
 // in that cluster but should not exist.
-func deleteObjectsInDPUCluster(ctx context.Context, dpuClusterConfig *dpucluster.Config, r objectsInDPUClustersReconciler, dpuServiceObject dpuservicev1.DPUServiceObject) ([]unstructured.Unstructured, error) {
+func deleteObjectsInDPUCluster(ctx context.Context, dpuClusterConfig *dpucluster.Config, r objectsInDPUClustersReconciler, dpuServiceObject dpuservicev1.DPUServiceObject) (_ []unstructured.Unstructured, reterr error) {
+	ctx, span := tracing.StartSpan(ctx, "dpucluster.delete", attribute.String("dpucluster.name", dpuClusterConfig.Cluster.Name))
+	defer func() { tracing.EndSpan(span, reterr) }()
 	dpuClusterClient, err := dpuClusterConfig.Client(ctx)
 	if err != nil {
 		return nil, err

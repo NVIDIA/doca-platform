@@ -77,6 +77,8 @@ func ValidateDPUDeploymentCreation(ctx context.Context, input *systemTestInput) 
 	Eventually(func(g Gomega) {
 		g.Expect(VerifyDeploymentUnderlyingObjectsCreated(ctx, g, input.client, dpuDeployment)).To(BeTrue())
 	}).WithTimeout(15 * time.Minute).WithPolling(time.Second).Should(Succeed())
+
+	ValidateDPUDeploymentTraceFlow(ctx, dpuDeployment)
 }
 
 func ValidateDPUDeploymentMetrics(ctx context.Context, input *systemTestInput) {

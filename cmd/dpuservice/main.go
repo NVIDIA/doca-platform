@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"os"
 	"time"
@@ -30,6 +31,7 @@ import (
 	dpuservicechaincontroller "github.com/nvidia/doca-platform/internal/dpuservicechain/controllers"
 	dpuservicechainwebhooks "github.com/nvidia/doca-platform/internal/dpuservicechain/webhooks"
 	"github.com/nvidia/doca-platform/internal/features"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/pkg/health"
 	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
@@ -88,6 +90,7 @@ func main() {
 	var disableDPUReadyTaints bool
 	var disableHostNetworkReadyNoExecuteTaints bool
 	var syncPeriod time.Duration
+	var tracingOpts tracing.FlagOptions
 
 	fs.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	fs.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -108,6 +111,7 @@ func main() {
 		"If set (the default), the DPUReady controller does not manage NoExecute taints based on HostNetworkReady. Set to false to enable.")
 	fs.DurationVar(&syncPeriod, "sync-period", 10*time.Minute,
 		"The minimum interval at which watched resources are reconciled.")
+	tracing.AddFlags(&tracingOpts, fs)
 
 	features.MutableGates.AddFlag(fs)
 
@@ -119,6 +123,13 @@ func main() {
 		os.Exit(1)
 	}
 	ctrl.SetLogger(klog.Background())
+
+	shutdownTracing, err := tracing.SetupTracerProviderFromFlags(context.Background(), dpuservicecontroller.TracingServiceName, tracingOpts)
+	if err != nil {
+		setupLog.Error(err, "unable to set up tracing")
+		os.Exit(1)
+	}
+	defer shutdownTracing()
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -388,6 +399,7 @@ func main() {
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
+		shutdownTracing() // os.Exit skips the deferred call
 		os.Exit(1)
 	}
 }

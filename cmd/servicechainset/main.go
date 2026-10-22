@@ -30,6 +30,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/features"
 	ipamcontroller "github.com/nvidia/doca-platform/internal/pod-ipam-injector/controllers"
 	sfcsetcontroller "github.com/nvidia/doca-platform/internal/servicechainset/controllers"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/health"
 	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
 
@@ -100,6 +101,7 @@ func main() {
 	var enableHTTP2 bool
 	var syncPeriod time.Duration
 	var leaderElectionNamespace string
+	var tracingOpts tracing.FlagOptions
 	fs.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	fs.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	fs.StringVar(&pprofBindAddr, "pprof-bind-address", "", "The address the pprof endpoint binds to.")
@@ -117,6 +119,7 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	fs.DurationVar(&syncPeriod, "sync-period", 10*time.Minute,
 		"The minimum interval at which watched resources are reconciled.")
+	tracing.AddFlags(&tracingOpts, fs)
 	logsv1.AddFlags(logOptions, fs)
 	features.MutableGates.AddFlag(fs)
 
@@ -126,6 +129,13 @@ func main() {
 		os.Exit(1)
 	}
 	ctrl.SetLogger(klog.Background())
+
+	shutdownTracing, err := tracing.SetupTracerProviderFromFlags(context.Background(), sfcsetcontroller.TracingServiceName, tracingOpts)
+	if err != nil {
+		setupLog.Error(err, "unable to set up tracing")
+		os.Exit(1)
+	}
+	defer shutdownTracing()
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -210,6 +220,7 @@ func main() {
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
+		shutdownTracing() // os.Exit skips the deferred call
 		os.Exit(1)
 	}
 }

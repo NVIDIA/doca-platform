@@ -26,6 +26,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	nodesriovdeviceplugincontrollers "github.com/nvidia/doca-platform/internal/nodesriovdeviceplugin/controllers"
 	nodesriovdevicepluginwebhooks "github.com/nvidia/doca-platform/internal/nodesriovdeviceplugin/webhooks"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/health"
 
 	"github.com/spf13/pflag"
@@ -83,6 +84,8 @@ func main() {
 	var defaultResourcePrefix string
 	var imagePullSecrets string
 
+	var tracingOpts tracing.FlagOptions
+
 	fs.StringVar(&metricsAddr, "metrics-bind-address", ":8080",
 		"The address the metric endpoint binds to.")
 	fs.StringVar(&probeAddr, "health-probe-bind-address", ":8081",
@@ -120,6 +123,8 @@ func main() {
 	fs.StringVar(&imagePullSecrets, "image-pull-secrets", "",
 		"Comma-separated list of image pull secrets for the device plugin pod.")
 
+	tracing.AddFlags(&tracingOpts, fs)
+
 	logsv1.AddFlags(logOptions, fs)
 
 	pflag.Parse()
@@ -128,6 +133,13 @@ func main() {
 		os.Exit(1)
 	}
 	ctrl.SetLogger(klog.Background())
+
+	shutdownTracing, err := tracing.SetupTracerProviderFromFlags(context.Background(), nodesriovdeviceplugincontrollers.TracingServiceName, tracingOpts)
+	if err != nil {
+		setupLog.Error(err, "unable to set up tracing")
+		os.Exit(1)
+	}
+	defer shutdownTracing()
 
 	// Validate required flags.
 	if devicePluginImage == "" {
@@ -243,6 +255,7 @@ func main() {
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
+		shutdownTracing() // os.Exit skips the deferred call
 		os.Exit(1)
 	}
 }

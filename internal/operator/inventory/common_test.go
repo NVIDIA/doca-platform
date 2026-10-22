@@ -84,6 +84,88 @@ func Test_setFlags(t *testing.T) {
 	})
 }
 
+func newManagerDeployment() *appsv1.Deployment {
+	return &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: managerContainerName},
+					},
+				},
+			},
+		},
+	}
+}
+
+func Test_setTracingFlags(t *testing.T) {
+	t.Run("no-op when endpoint is unset", func(t *testing.T) {
+		g := NewWithT(t)
+		deploy := newManagerDeployment()
+
+		g.Expect(setTracingFlags(deploy, Variables{})).To(Succeed())
+
+		g.Expect(deploy.Spec.Template.Spec.Containers[0].Args).To(BeEmpty())
+	})
+
+	t.Run("sets endpoint only", func(t *testing.T) {
+		g := NewWithT(t)
+		deploy := newManagerDeployment()
+		vars := Variables{OpenTelemetryCollector: OpenTelemetryCollectorVariables{
+			Tracing: OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318"},
+		}}
+
+		g.Expect(setTracingFlags(deploy, vars)).To(Succeed())
+
+		g.Expect(deploy.Spec.Template.Spec.Containers[0].Args).To(ConsistOf(
+			"--otel-tracing-endpoint=http://collector:4318",
+		))
+	})
+
+	t.Run("sets transport and inline CA PEM when configured", func(t *testing.T) {
+		g := NewWithT(t)
+		deploy := newManagerDeployment()
+		vars := Variables{OpenTelemetryCollector: OpenTelemetryCollectorVariables{
+			Tracing: OpenTelemetryCollectorGenericVariables{
+				Endpoint:  "https://collector:4317",
+				Transport: "grpc",
+				CACert:    "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+			},
+		}}
+
+		g.Expect(setTracingFlags(deploy, vars)).To(Succeed())
+
+		g.Expect(deploy.Spec.Template.Spec.Containers[0].Args).To(ConsistOf(
+			"--otel-tracing-endpoint=https://collector:4317",
+			"--otel-tracing-transport=grpc",
+			"--otel-tracing-ca-pem=-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+		))
+	})
+
+	t.Run("does not mount a Secret or add a volume for the CA", func(t *testing.T) {
+		g := NewWithT(t)
+		deploy := newManagerDeployment()
+		vars := Variables{OpenTelemetryCollector: OpenTelemetryCollectorVariables{
+			Tracing: OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318", CACert: "pem"},
+		}}
+
+		g.Expect(setTracingFlags(deploy, vars)).To(Succeed())
+
+		g.Expect(deploy.Spec.Template.Spec.Volumes).To(BeEmpty())
+		g.Expect(deploy.Spec.Template.Spec.Containers[0].VolumeMounts).To(BeEmpty())
+	})
+
+	t.Run("errors when the manager container is missing", func(t *testing.T) {
+		g := NewWithT(t)
+		deploy := &appsv1.Deployment{}
+		vars := Variables{OpenTelemetryCollector: OpenTelemetryCollectorVariables{
+			Tracing: OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318"},
+		}}
+
+		g.Expect(setTracingFlags(deploy, vars)).To(MatchError(ContainSubstring("manager")))
+	})
+}
+
 func Test_deploymentReadyCheck(t *testing.T) {
 	g := NewWithT(t)
 

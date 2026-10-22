@@ -36,6 +36,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/features"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/pkg/dpuselector"
@@ -43,6 +44,7 @@ import (
 	argohealth "github.com/nvidia/doca-platform/third_party/forked/argoproj/gitops-engine/pkg/health"
 
 	"github.com/fluxcd/pkg/runtime/patch"
+	"go.opentelemetry.io/otel/attribute"
 	multusTypes "gopkg.in/k8snetworkplumbingwg/multus-cni.v4/pkg/types"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -108,7 +110,11 @@ var pauseDPUServiceReconciler atomic.Bool
 // +kubebuilder:rbac:groups=spire.spiffe.io,resources=clusterstaticentries,verbs=get;list;watch;create;update;patch;delete
 
 const (
-	dpuServiceControllerName = "dpuservice-manager"
+	// DPUServiceControllerName is the name of the DPUService controller manager.
+	DPUServiceControllerName = "dpuservice-manager"
+
+	// TracingServiceName is the service.name of the spans the DPUService controller binary exports.
+	TracingServiceName = "dpf-dpuservice-controller"
 
 	// TODO: These constants don't belong here and should be moved as they're shared with other packages.
 	networkAnnotationKey          = "k8s.v1.cni.cncf.io/networks"
@@ -121,7 +127,7 @@ const (
 // applyPatchOptions contains options which are passed to every `client.Apply` patch.
 var applyPatchOptions = []client.PatchOption{
 	client.ForceOwnership,
-	client.FieldOwner(dpuServiceControllerName),
+	client.FieldOwner(DPUServiceControllerName),
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -216,6 +222,10 @@ func (r *DPUServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		return ctrl.Result{}, err
 	}
+
+	ctx, endSpan := tracing.ReconcileSpan(ctx, DPUServiceControllerName, dpuService, tracing.WorkflowRoot())
+	defer endSpan(&reterr)
+
 	patcher := patch.NewSerialPatcher(dpuService, r.Client)
 
 	conditions.EnsureConditions(dpuService, dpuservicev1.Conditions)
@@ -229,8 +239,14 @@ func (r *DPUServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
 
+		if dpuService.DeletionTimestamp.IsZero() {
+			// The status still holds the previous generation until the patch below, so a new generation is not ready yet.
+			tracing.ObserveRollout(ctx, DPUServiceControllerName, dpuService,
+				conditions.IsTrue(dpuService, conditions.TypeReady) && dpuService.Status.ObservedGeneration == dpuService.Generation)
+		}
+
 		if err := patcher.Patch(ctx, dpuService,
-			patch.WithFieldOwner(dpuServiceControllerName),
+			patch.WithFieldOwner(DPUServiceControllerName),
 			patch.WithStatusObservedGeneration{},
 			patch.WithOwnedConditions{Conditions: conditions.TypesAsStrings(dpuservicev1.Conditions)},
 		); err != nil {
@@ -334,6 +350,7 @@ func (r *DPUServiceReconciler) deleteInterfaceAnnotation(ctx context.Context, in
 		dpuServiceInterface.SetManagedFields(nil)
 		// Set the GroupVersionKind to the DPUServiceInterface.
 		dpuServiceInterface.SetGroupVersionKind(dpuservicev1.DPUServiceInterfaceGroupVersionKind)
+		tracing.InjectIntoObject(ctx, dpuServiceInterface)
 		if err := r.Client.Patch(ctx, dpuServiceInterface, client.Apply, applyPatchOptions...); err != nil {
 			return err
 		}
@@ -699,6 +716,7 @@ func (r *DPUServiceReconciler) reconcileInterfaces(ctx context.Context, dpuServi
 			dpuServiceInterface.SetManagedFields(nil)
 			// Set the GroupVersionKind to the DPUServiceInterface.
 			dpuServiceInterface.SetGroupVersionKind(dpuservicev1.DPUServiceInterfaceGroupVersionKind)
+			tracing.InjectIntoObject(ctx, dpuServiceInterface)
 			if err := r.Client.Patch(ctx, dpuServiceInterface, client.Apply, applyPatchOptions...); err != nil {
 				return nil, nil, err
 			}
@@ -831,7 +849,9 @@ func (r *DPUServiceReconciler) summary(ctx context.Context, dpuService *dpuservi
 	return nil
 }
 
-func (r *DPUServiceReconciler) reconcileImagePullSecrets(ctx context.Context, dpuClusterConfigs []*dpucluster.Config, service *dpuservicev1.DPUService) error {
+func (r *DPUServiceReconciler) reconcileImagePullSecrets(ctx context.Context, dpuClusterConfigs []*dpucluster.Config, service *dpuservicev1.DPUService) (reterr error) {
+	ctx, span := tracing.StartSpan(ctx, "dpuservice.image-pull-secrets", attribute.Int("dpucluster.count", len(dpuClusterConfigs)))
+	defer func() { tracing.EndSpan(span, reterr) }()
 	log := ctrllog.FromContext(ctx)
 	log.Info("Patching ImagePullSecrets for DPU clusters")
 
@@ -982,7 +1002,9 @@ func applicationTargetClusterKey(clusterNamespace, clusterName string) string {
 	return fmt.Sprintf("%s-%s", clusterNamespace, clusterName)
 }
 
-func (r *DPUServiceReconciler) ensureApplication(ctx context.Context, dpuService *dpuservicev1.DPUService, serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, clusterName, clusterNamespace, dpfOperatorConfigNamespace, serviceID string, maxUnavailable int32) error {
+func (r *DPUServiceReconciler) ensureApplication(ctx context.Context, dpuService *dpuservicev1.DPUService, serviceDaemonSet *dpuservicev1.ServiceDaemonSetValues, clusterName, clusterNamespace, dpfOperatorConfigNamespace, serviceID string, maxUnavailable int32) (reterr error) {
+	ctx, span := tracing.StartSpan(ctx, "dpuservice.argocd-application", attribute.String("dpucluster.name", clusterName))
+	defer func() { tracing.EndSpan(span, reterr) }()
 	log := ctrllog.FromContext(ctx)
 	project := getProjectName(dpuService)
 	values, err := argoCDValuesFromDPUService(serviceDaemonSet, dpuService, clusterName, serviceID, maxUnavailable)
@@ -996,14 +1018,18 @@ func (r *DPUServiceReconciler) ensureApplication(ctx context.Context, dpuService
 	// If Application does not exist, create it. Otherwise, patch the object.
 	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(argoApplication), gotArgoApplication); apierrors.IsNotFound(err) {
 		log.Info("Creating Application", "Application", klog.KObj(argoApplication))
+		tracing.AddAttributes(ctx, attribute.String("application.action", "create"))
 		if err := r.Client.Create(ctx, argoApplication); err != nil {
 			return err
 		}
 	} else {
 		// Return early if the spec has not changed.
 		if reflect.DeepEqual(gotArgoApplication.Spec, argoApplication.Spec) && !isSkipReconcileAnnotationSet(gotArgoApplication) {
+			tracing.AddAttributes(ctx, attribute.String("application.action", "unchanged"))
+			tracing.MarkUnchanged(ctx)
 			return nil
 		}
+		tracing.AddAttributes(ctx, attribute.String("application.action", "update"))
 
 		// Copy spec to the original object and update it.
 		gotArgoApplication.Spec = argoApplication.Spec
@@ -1350,7 +1376,7 @@ func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(
 	endpointSlice.ObjectMeta.Labels[dpuservicev1.DPUServiceNameLabelKey] = dpuService.GetName()
 	endpointSlice.ObjectMeta.Labels[dpuservicev1.DPUServiceNamespaceLabelKey] = dpuService.GetNamespace()
 	endpointSlice.ObjectMeta.Labels[dpuservicev1.DPUServiceExposedPortForDPUClusterLabelKey] = dpuClusterConfig.Cluster.Name
-	endpointSlice.ObjectMeta.Labels[discoveryv1.LabelManagedBy] = dpuServiceControllerName
+	endpointSlice.ObjectMeta.Labels[discoveryv1.LabelManagedBy] = DPUServiceControllerName
 
 	// Set the kubernetes.io/service-name to the Service name to label to link the EndpointSlice to the Service.
 	// In our case both Service and EndpointSlice have the exact same name.
@@ -1377,7 +1403,7 @@ func (r *DPUServiceReconciler) reconcileConfigPortEndpointSlices(
 	// Add ownerReference to let the EndpointSlice be garbage collected when the DPUService is deleted.
 	owner := metav1.NewControllerRef(dpuService, dpuservicev1.DPUServiceGroupVersionKind)
 	endpointSlice.SetOwnerReferences([]metav1.OwnerReference{*owner})
-	if err := r.Client.Patch(ctx, endpointSlice, client.Apply, client.ForceOwnership, client.FieldOwner(dpuServiceControllerName)); err != nil {
+	if err := r.Client.Patch(ctx, endpointSlice, client.Apply, client.ForceOwnership, client.FieldOwner(DPUServiceControllerName)); err != nil {
 		return err
 	}
 	// Create an Endpoints object for the Service. Both Endpoints and EndpointSlice are needed. Some Kubernetes
@@ -1433,7 +1459,7 @@ func (r *DPUServiceReconciler) reconcileEndpointsFromEndpointsSlice(ctx context.
 	endpoints.SetOwnerReferences([]metav1.OwnerReference{*owner})
 
 	log.Info("Reconciling Endpoints", "Endpoints", klog.KObj(endpoints))
-	if err := r.Client.Patch(ctx, endpoints, client.Apply, client.ForceOwnership, client.FieldOwner(dpuServiceControllerName)); err != nil {
+	if err := r.Client.Patch(ctx, endpoints, client.Apply, client.ForceOwnership, client.FieldOwner(DPUServiceControllerName)); err != nil {
 		return err
 	}
 
@@ -1574,7 +1600,7 @@ func (r *DPUServiceReconciler) reconcileConfigPortServices(ctx context.Context, 
 	// Add ownerReference to let the Serviceb be garbage collected when the DPUService is deleted.
 	owner := metav1.NewControllerRef(dpuService, dpuservicev1.DPUServiceGroupVersionKind)
 	service.SetOwnerReferences([]metav1.OwnerReference{*owner})
-	return r.Client.Patch(ctx, service, client.Apply, client.ForceOwnership, client.FieldOwner(dpuServiceControllerName))
+	return r.Client.Patch(ctx, service, client.Apply, client.ForceOwnership, client.FieldOwner(DPUServiceControllerName))
 }
 
 func (r *DPUServiceReconciler) updateConfigPortsStatus(ctx context.Context, dpuService *dpuservicev1.DPUService) error {

@@ -24,6 +24,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/digest"
 	"github.com/nvidia/doca-platform/internal/dpuservice/utils"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -87,6 +88,10 @@ func (r *DPUServiceTemplateReconciler) Reconcile(ctx context.Context, req ctrl.R
 		}
 		return ctrl.Result{}, err
 	}
+
+	ctx, endSpan := tracing.ReconcileSpan(ctx, dpuServiceTemplateControllerName, dpuServiceTemplate)
+	defer endSpan(&reterr)
+
 	patcher := patch.NewSerialPatcher(dpuServiceTemplate, r.Client)
 
 	// Defer a patch call to always patch the object when Reconcile exits.

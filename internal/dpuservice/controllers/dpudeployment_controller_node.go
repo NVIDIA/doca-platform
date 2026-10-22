@@ -26,6 +26,7 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -296,6 +297,9 @@ func (r *DPUDeploymentNodeReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 		return ctrl.Result{}, err
 	}
+
+	ctx, endSpan := tracing.ReconcileSpan(ctx, dpuDeploymentNodeControllerName, node)
+	defer endSpan(&reterr)
 
 	// Return early if the object is getting deleted
 	if !node.ObjectMeta.DeletionTimestamp.IsZero() {

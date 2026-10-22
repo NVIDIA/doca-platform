@@ -17,6 +17,7 @@ limitations under the License.
 package controllers
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/digest"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/informer"
@@ -2261,7 +2263,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				By("switching the DPUDeployment from flavorTemplate to flavor")
 				dpuDeployment.Spec.DPUs.FlavorTemplate = nil
 				dpuDeployment.Spec.DPUs.Flavor = ptr.To(dpuFlavor.Name)
-				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(DPUDeploymentControllerName))).To(Succeed())
 
 				By("checking that the existing DPUSets are updated to reference the DPUFlavor")
 				for i := range expectedDPUSetSpecs {
@@ -2512,7 +2514,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("modifying the DPUDeployment object and checking the outcome")
 				dpuDeployment.Spec.DPUs.DPUSets[1].DPUAnnotations["newkey"] = "newvalue"
-				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(DPUDeploymentControllerName))).To(Succeed())
 				By("checking that correct DPUSets are created")
 				Eventually(func(g Gomega) {
 					gotDPUSetList := &provisioningv1.DPUSetList{}
@@ -2591,7 +2593,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					NoEffect: ptr.To(true),
 					Force:    ptr.To(false),
 				}
-				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(DPUDeploymentControllerName))).To(Succeed())
 
 				By("checking that DPUSets are updated")
 				Eventually(func(g Gomega) {
@@ -2636,7 +2638,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					Drain: ptr.To(true),
 					Force: ptr.To(false),
 				}
-				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(DPUDeploymentControllerName))).To(Succeed())
 
 				By("checking that DPUSets are updated")
 				Eventually(func(g Gomega) {
@@ -2735,7 +2737,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				dpuServiceConfiguration.Spec.Interfaces = []dpuservicev1.ServiceInterfaceTemplate{{Name: "someinterface", Network: "somenad"}}
 				dpuServiceConfiguration.SetManagedFields(nil)
 				dpuServiceConfiguration.SetGroupVersionKind(dpuservicev1.DPUServiceConfigurationGroupVersionKind)
-				Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(DPUDeploymentControllerName))).To(Succeed())
 
 				dpuServiceTemplate := &dpuservicev1.DPUServiceTemplate{}
 				Expect(testClient.Get(ctx, types.NamespacedName{Namespace: testNS.Name, Name: "sometemplate"}, dpuServiceTemplate)).To(Succeed())
@@ -2843,7 +2845,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}
 				dpuServiceConfiguration.SetManagedFields(nil)
 				dpuServiceConfiguration.SetGroupVersionKind(dpuservicev1.DPUServiceConfigurationGroupVersionKind)
-				Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(DPUDeploymentControllerName))).To(Succeed())
 
 				dpuServiceTemplate := &dpuservicev1.DPUServiceTemplate{}
 				Expect(testClient.Get(ctx, types.NamespacedName{Namespace: testNS.Name, Name: "sometemplate"}, dpuServiceTemplate)).To(Succeed())
@@ -3266,7 +3268,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 						},
 					},
 				}
-				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(DPUDeploymentControllerName))).To(Succeed())
 
 				// We need to get the object to calculate the digest taking into account the defaults added by the API server
 				gotDPUDeployment := &dpuservicev1.DPUDeployment{}
@@ -3609,7 +3611,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 						},
 					},
 				}
-				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(DPUDeploymentControllerName))).To(Succeed())
 
 				// We need to get the object to calculate the digest taking into account the defaults added by the API server
 				gotDPUDeployment := &dpuservicev1.DPUDeployment{}
@@ -3713,7 +3715,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("Updating the DPUDeployment object to reference the new BFB")
 				dpuDeployment.Spec.DPUs.BFB = ptr.To(bfb2.Name)
-				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(DPUDeploymentControllerName))).To(Succeed())
 
 				// Update the expected DPUSetSpecs
 				expectedDPUSetSpecs[0].DPUTemplate.Spec.BFB.Name = bfb2.Name
@@ -3814,7 +3816,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 						"annotationkey3": "annotationvalue3",
 					},
 				})
-				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(DPUDeploymentControllerName))).To(Succeed())
 				By("checking that correct DPUSets are created")
 				Eventually(func(g Gomega) {
 					gotDPUSetList := &provisioningv1.DPUSetList{}
@@ -3920,7 +3922,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("modifying the DPUDeployment object and checking the outcome")
 				dpuDeployment.Spec.DPUs.DPUSets = dpuDeployment.Spec.DPUs.DPUSets[1:]
-				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(DPUDeploymentControllerName))).To(Succeed())
 				By("checking that correct DPUSets are created")
 				expectedDPUSetSpecs = expectedDPUSetSpecs[1:]
 				Eventually(func(g Gomega) {
@@ -4366,7 +4368,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}
 				dpuServiceConfiguration.SetManagedFields(nil)
 				dpuServiceConfiguration.SetGroupVersionKind(dpuservicev1.DPUServiceConfigurationGroupVersionKind)
-				Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(DPUDeploymentControllerName))).To(Succeed())
 
 				versionDigest := calculateDPUServiceVersionDigest(dpuServiceConfiguration, dpuServiceTemplate)
 				By("checking that the DPUServiceInterfaces are updated")
@@ -4537,7 +4539,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}
 				dpuServiceConfiguration.SetManagedFields(nil)
 				dpuServiceConfiguration.SetGroupVersionKind(dpuservicev1.DPUServiceConfigurationGroupVersionKind)
-				Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(DPUDeploymentControllerName))).To(Succeed())
 
 				versionDigest2 := calculateDPUServiceVersionDigest(dpuServiceConfiguration, dpuServiceTemplate)
 				Expect(versionDigest).ToNot(Equal(versionDigest2))
@@ -4935,7 +4937,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}
 				dpuServiceConfiguration.SetManagedFields(nil)
 				dpuServiceConfiguration.SetGroupVersionKind(dpuservicev1.DPUServiceConfigurationGroupVersionKind)
-				Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(DPUDeploymentControllerName))).To(Succeed())
 
 				versionDigest2 := calculateDPUServiceVersionDigest(dpuServiceConfiguration, dpuServiceTemplate)
 				Expect(versionDigest).ToNot(Equal(versionDigest2))
@@ -5360,7 +5362,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}
 				dpuServiceConfiguration1.SetManagedFields(nil)
 				dpuServiceConfiguration1.SetGroupVersionKind(dpuservicev1.DPUServiceConfigurationGroupVersionKind)
-				Expect(testClient.Patch(ctx, dpuServiceConfiguration1, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(testClient.Patch(ctx, dpuServiceConfiguration1, client.Apply, client.ForceOwnership, client.FieldOwner(DPUDeploymentControllerName))).To(Succeed())
 
 				versionDigest1b := calculateDPUServiceVersionDigest(dpuServiceConfiguration1, dpuServiceTemplate1)
 				Expect(versionDigest1b).ToNot(Equal(versionDigest1))
@@ -5972,7 +5974,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}
 				dpuServiceConfiguration.SetManagedFields(nil)
 				dpuServiceConfiguration.SetGroupVersionKind(dpuservicev1.DPUServiceConfigurationGroupVersionKind)
-				Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(DPUDeploymentControllerName))).To(Succeed())
 
 				versionDigest := calculateDPUServiceVersionDigest(dpuServiceConfiguration, dpuServiceTemplate)
 
@@ -6100,7 +6102,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 				}
 				dpuServiceConfiguration.SetManagedFields(nil)
 				dpuServiceConfiguration.SetGroupVersionKind(dpuservicev1.DPUServiceConfigurationGroupVersionKind)
-				Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(DPUDeploymentControllerName))).To(Succeed())
 
 				versionDigest := calculateDPUServiceVersionDigest(dpuServiceConfiguration, dpuServiceTemplate)
 
@@ -7011,7 +7013,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					}
 					dpuServiceConfiguration.SetManagedFields(nil)
 					dpuServiceConfiguration.SetGroupVersionKind(dpuservicev1.DPUServiceConfigurationGroupVersionKind)
-					Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName))).To(Succeed())
+					Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(DPUDeploymentControllerName))).To(Succeed())
 				}
 
 				By("checking that the version digests are updated only for service-2 and service-4")
@@ -7262,7 +7264,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					dpuServiceConfiguration.Spec.UpgradePolicy = dpuservicev1.UpgradePolicy{ApplyNodeEffect: ptr.To(false)}
 					dpuServiceConfiguration.SetManagedFields(nil)
 					dpuServiceConfiguration.SetGroupVersionKind(dpuservicev1.DPUServiceConfigurationGroupVersionKind)
-					Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName))).To(Succeed())
+					Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.Apply, client.ForceOwnership, client.FieldOwner(DPUDeploymentControllerName))).To(Succeed())
 				}
 
 				By("checking that the version digests are updated only for service-2 and service-4")
@@ -8007,7 +8009,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("modifying the DPUDeployment object and checking the outcome")
 				delete(dpuDeployment.Spec.Services, "service-1")
-				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(DPUDeploymentControllerName))).To(Succeed())
 
 				By("Marking the DPUService ready")
 				patcher = patch.NewSerialPatcher(gotDPUService, testClient)
@@ -8113,7 +8115,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					ServiceTemplate:      "service-2",
 					ServiceConfiguration: "service-2",
 				}
-				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(DPUDeploymentControllerName))).To(Succeed())
 
 				By("checking that two DPUServices exist")
 				var gotDPUServiceName string
@@ -9277,7 +9279,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 
 				By("modifying the DPUDeployment to not include a serviceChain anymore")
 				dpuDeployment.Spec.ServiceChains = nil
-				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(DPUDeploymentControllerName))).To(Succeed())
 
 				By("checking that no DPUServiceChain exists")
 				Eventually(func(g Gomega) {
@@ -9489,7 +9491,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					},
 				}
 
-				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(DPUDeploymentControllerName))).To(Succeed())
 
 				// We need to get the object to calculate the digest taking into account the defaults added by the API server
 				gotDPUDeployment := &dpuservicev1.DPUDeployment{}
@@ -9831,7 +9833,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 						},
 					},
 				}
-				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(DPUDeploymentControllerName))).To(Succeed())
 
 				// We need to get the object to calculate the digest taking into account the defaults added by the API server
 				gotDPUDeployment := &dpuservicev1.DPUDeployment{}
@@ -10015,7 +10017,7 @@ var _ = Describe("DPUDeployment Controller", func() {
 					},
 				}
 
-				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(dpuDeploymentControllerName))).To(Succeed())
+				Expect(patcher.Patch(ctx, dpuDeployment, patch.WithFieldOwner(DPUDeploymentControllerName))).To(Succeed())
 
 				// We need to get the object to calculate the digest taking into account the defaults added by the API server
 				gotDPUDeployment := &dpuservicev1.DPUDeployment{}
@@ -10156,6 +10158,102 @@ var _ = Describe("DPUDeployment Controller", func() {
 					g.Expect(testClient.List(ctx, gotDPUServiceChainList)).To(Succeed())
 					g.Expect(gotDPUServiceChainList.Items).To(HaveLen(1))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
+			})
+		})
+
+		Context("Tracing", func() {
+			const testTraceParent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+			var tracedCtx context.Context
+			BeforeEach(func() {
+				DeferCleanup(tracing.EnableForTest())
+				By("Creating the context of a reconcile whose DPUDeployment carries a traceparent")
+				dpuDeployment := &dpuservicev1.DPUDeployment{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:        "traced",
+						Namespace:   testNS.Name,
+						UID:         "traced-uid",
+						Annotations: map[string]string{tracing.TraceParentAnnotation: testTraceParent},
+					},
+				}
+				var endSpan func(*error)
+				tracedCtx, endSpan = tracing.ReconcileSpan(ctx, "test", dpuDeployment)
+				endSpan(nil)
+			})
+
+			Context("When checking reconcileDPUSets()", func() {
+				var dpuDeployment *dpuservicev1.DPUDeployment
+				BeforeEach(func() {
+					dpuDeployment = getMinimalDPUDeployment(testNS.Name)
+					dpuDeployment.UID = "dpudeployment-uid"
+					dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
+					dpuDeployment.Spec.DPUs.DPUSets = []dpuservicev1.DPUSet{{NameSuffix: "dpuset1", DPUNodeSelector: &metav1.LabelSelector{}}}
+					DeferCleanup(func() {
+						Expect(testClient.DeleteAllOf(ctx, &provisioningv1.DPUSet{}, client.InNamespace(testNS.Name))).To(Succeed())
+					})
+				})
+				It("should copy the trace context to the DPUSets it creates", func() {
+					Expect(reconcileDPUSets(tracedCtx, testClient, dpuDeployment, nil, false)).To(Succeed())
+
+					dpuSetList := &provisioningv1.DPUSetList{}
+					Expect(testClient.List(ctx, dpuSetList, client.InNamespace(testNS.Name))).To(Succeed())
+					Expect(dpuSetList.Items).To(HaveLen(1))
+					Expect(dpuSetList.Items[0].Annotations).To(HaveKeyWithValue(tracing.GeneratedTraceParentAnnotation, testTraceParent))
+				})
+				It("should copy the trace context to the DPUSets it updates", func() {
+					By("creating the DPUSets without a trace context")
+					Expect(reconcileDPUSets(ctx, testClient, dpuDeployment, nil, false)).To(Succeed())
+
+					By("reconciling them again with a trace context")
+					Expect(reconcileDPUSets(tracedCtx, testClient, dpuDeployment, nil, false)).To(Succeed())
+
+					dpuSetList := &provisioningv1.DPUSetList{}
+					Expect(testClient.List(ctx, dpuSetList, client.InNamespace(testNS.Name))).To(Succeed())
+					Expect(dpuSetList.Items).To(HaveLen(1))
+					Expect(dpuSetList.Items[0].Annotations).To(HaveKeyWithValue(tracing.GeneratedTraceParentAnnotation, testTraceParent))
+				})
+			})
+
+			Context("When checking pauseStaleDPUServices()", func() {
+				It("should copy the trace context to the DPUService it pauses", func() {
+					dpuService := getMinimalInClusterDPUServiceCreatedByDPUDeployment(testNS.Name)
+					Expect(testClient.Create(ctx, dpuService)).To(Succeed())
+					DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuService)
+
+					// Other controllers may update the DPUService after the create, do not apply against a stale resourceVersion.
+					stale := dpuService.DeepCopy()
+					stale.ResourceVersion = ""
+					stale.SetGroupVersionKind(dpuservicev1.DPUServiceGroupVersionKind)
+					Expect(pauseStaleDPUServices(tracedCtx, testClient, []dpuservicev1.DPUService{*stale})).To(Succeed())
+
+					got := &dpuservicev1.DPUService{}
+					Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuService), got)).To(Succeed())
+					Expect(got.Spec.Paused).To(HaveValue(BeTrue()))
+					Expect(got.Annotations).To(HaveKeyWithValue(tracing.GeneratedTraceParentAnnotation, testTraceParent))
+				})
+			})
+
+			Context("When checking cleanStaleDPUServices()", func() {
+				It("should copy the trace context to the DPUService it resumes for deletion", func() {
+					dpuService := getMinimalInClusterDPUServiceCreatedByDPUDeployment(testNS.Name)
+					dpuService.Finalizers = []string{"test/finalizer"}
+					Expect(testClient.Create(ctx, dpuService)).To(Succeed())
+					DeferCleanup(func() {
+						// The finalizer keeps the DPUService around after the delete, remove it for the cleanup.
+						got := &dpuservicev1.DPUService{}
+						Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuService), got)).To(Succeed())
+						got.Finalizers = nil
+						Expect(testClient.Update(ctx, got)).To(Succeed())
+					})
+
+					stale := dpuService.DeepCopy()
+					stale.ResourceVersion = ""
+					Expect(cleanStaleDPUServices(tracedCtx, testClient, []dpuservicev1.DPUService{*stale})).To(Succeed())
+
+					got := &dpuservicev1.DPUService{}
+					Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuService), got)).To(Succeed())
+					Expect(got.Spec.Paused).To(HaveValue(BeFalse()))
+					Expect(got.Annotations).To(HaveKeyWithValue(tracing.GeneratedTraceParentAnnotation, testTraceParent))
+				})
 			})
 		})
 	})
