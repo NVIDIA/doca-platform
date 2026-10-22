@@ -36,6 +36,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -442,6 +443,7 @@ func mutateNetworksWithSettings(networks []*multustypes.NetworkSelectionElement,
 }
 
 // patchPodWithoutInvalidNetworkAnnotationAndWithDigestAnnotation updates a Pod's network and digest annotations with the given networks.
+// The apply body carries only those two annotations: pod comes from the cache, which strips most Pod fields.
 func patchPodWithoutInvalidNetworkAnnotationAndWithDigestAnnotation(ctx context.Context, c client.Client, pod *corev1.Pod, networks []*multustypes.NetworkSelectionElement) error {
 	filteredNetworks := filterInvalidNetwork(networks)
 
@@ -454,16 +456,15 @@ func patchPodWithoutInvalidNetworkAnnotationAndWithDigestAnnotation(ctx context.
 		return fmt.Errorf("error while marshaling json: %w", err)
 	}
 
-	// Prepare the pod for patching
-	if pod.Annotations == nil {
-		pod.Annotations = map[string]string{}
-	}
-	pod.Annotations[NetworkAttachmentAnnot] = string(j)
-	pod.Annotations[NetworkDigestAnnotation] = digestValue
-	pod.ObjectMeta.ManagedFields = nil
-	pod.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Pod"))
+	// The ResourceVersion makes the apply fail on a stale cache or a deleted Pod instead of creating one.
+	podApply := corev1ac.Pod(pod.Name, pod.Namespace).
+		WithResourceVersion(pod.ResourceVersion).
+		WithAnnotations(map[string]string{
+			NetworkAttachmentAnnot:  string(j),
+			NetworkDigestAnnotation: digestValue,
+		})
 
-	return c.Patch(ctx, pod, client.Apply, client.ForceOwnership, client.FieldOwner(podIpamControllerName))
+	return c.Apply(ctx, podApply, client.ForceOwnership, client.FieldOwner(podIpamControllerName))
 }
 
 // HasInvalidNetwork returns true if the pod has an invalid network annotation

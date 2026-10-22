@@ -21,7 +21,9 @@ import (
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils"
 	testutils "github.com/nvidia/doca-platform/test/utils"
+	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -29,9 +31,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // Variables are already declared in suite_test.go
@@ -70,6 +78,70 @@ func createTestPodWithName(name string, annotations map[string]string, labels ma
 	Eventually(func() error {
 		return testClient.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: pod.Name}, pod)
 	}, 10*time.Second).Should(Succeed())
+	return pod
+}
+
+// expectPodNotDeleted checks the deletionTimestamp too: envtest has no kubelet, so a deleted
+// pod with a node and a grace period stays readable.
+func expectPodNotDeleted(ctx context.Context, pod *corev1.Pod, timeout time.Duration) {
+	GinkgoHelper()
+	Consistently(func(g Gomega) {
+		currentPod := &corev1.Pod{}
+		g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), currentPod)).To(Succeed())
+		g.Expect(currentPod.DeletionTimestamp).To(BeNil())
+	}).WithTimeout(timeout).Should(Succeed())
+}
+
+// podRestartMetric sums the pod-restart-controller series of a controller-runtime metric.
+func podRestartMetric(g Gomega, name string) float64 {
+	families, err := metrics.Registry.Gather()
+	g.Expect(err).NotTo(HaveOccurred())
+	var sum float64
+	for _, family := range families {
+		if family.GetName() != name {
+			continue
+		}
+		for _, m := range family.GetMetric() {
+			for _, label := range m.GetLabel() {
+				if label.GetName() == "controller" && label.GetValue() == PodRestartControllerName {
+					sum += m.GetCounter().GetValue() + m.GetGauge().GetValue()
+				}
+			}
+		}
+	}
+	return sum
+}
+
+// createServiceChainAndWaitForReconcile creates a firewall ServiceChain on worker-1 and waits until
+// pod-restart-controller has handled its create event, so that pods created afterwards are not reconciled by it.
+func createServiceChainAndWaitForReconcile(ctx context.Context, name string) *dpuservicev1.ServiceChain {
+	GinkgoHelper()
+	var reconciles float64
+	Eventually(func(g Gomega) {
+		reconciles = podRestartMetric(g, "controller_runtime_reconcile_total")
+	}).Should(Succeed())
+
+	serviceChain := createServiceChainWithServiceInterface(ctx, name, nil, "firewall", "sfceth1", ptr.To(1500))
+	Eventually(func(g Gomega) {
+		g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(serviceChain), &dpuservicev1.ServiceChain{})).To(Succeed())
+		g.Expect(podRestartMetric(g, "controller_runtime_reconcile_total")).To(BeNumerically(">", reconciles))
+		g.Expect(podRestartMetric(g, "workqueue_depth")).To(BeZero())
+		g.Expect(podRestartMetric(g, "controller_runtime_active_workers")).To(BeZero())
+	}).WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).Should(Succeed())
+	return serviceChain
+}
+
+// createRunningPod creates a Running firewall pod on worker-1. An empty digest leaves the annotation unset.
+func createRunningPod(ctx context.Context, name, digest string) *corev1.Pod {
+	GinkgoHelper()
+	annotations := map[string]string{NetworkAttachmentAnnot: `[{"name":"mybrsfc","interface":"sfceth1"}]`}
+	if digest != "" {
+		annotations[NetworkDigestAnnotation] = digest
+	}
+	pod := createTestPodWithName(name, annotations, map[string]string{dpuservicev1.DPFServiceIDLabelKey: "firewall"})
+	testutils.PatchStatus(ctx, testClient, pod, func() {
+		pod.Status.Phase = corev1.PodRunning
+	})
 	return pod
 }
 
@@ -755,14 +827,10 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				g.Expect(currentPod2.Status.Phase).To(Equal(corev1.PodRunning))
 			}).WithTimeout(5 * time.Second).Should(Succeed())
 
-			// Trigger reconciliation by updating a non-digest-affecting field.
-			// Any ServiceChain update where both old and new have a Node fires the predicate.
-			Expect(testClient.Get(ctx, client.ObjectKeyFromObject(serviceChain), serviceChain)).To(Succeed())
-			if serviceChain.Labels == nil {
-				serviceChain.Labels = map[string]string{}
-			}
-			serviceChain.Labels["trigger"] = "reconcile"
-			Expect(testClient.Update(ctx, serviceChain)).To(Succeed())
+			// Trigger reconciliation with a ServiceInterface spec change that doesn't affect the digest.
+			siPatch := client.MergeFrom(serviceInterface.DeepCopy())
+			serviceInterface.Spec.Service.Network = "other-network"
+			Expect(testClient.Patch(ctx, serviceInterface, siPatch)).To(Succeed())
 
 			// pod1 should be deleted (digest mismatch)
 			Eventually(func(g Gomega) {
@@ -999,6 +1067,87 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				Consistently(func(g Gomega) {
 					g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(pod), &corev1.Pod{})).ToNot(HaveOccurred())
 				}).WithTimeout(10 * time.Second).Should(Succeed())
+			})
+
+			It("should delete pod with digest mismatch when its ServiceInterface spec changes", func() {
+				By("Create ServiceInterface and ServiceChain")
+				serviceInterface := createServiceInterfaceForService(ctx, "firewall-sfceth1-si-change", "firewall", "sfceth1")
+				cleanupObjects = append(cleanupObjects, serviceInterface)
+				serviceChain := createServiceChainAndWaitForReconcile(ctx, "sc-si-change")
+				cleanupObjects = append(cleanupObjects, serviceChain)
+
+				By("Create Running pod with a stale digest; pod creation does not trigger the controller")
+				pod := createRunningPod(ctx, "test-pod-si-change", "old-digest")
+				expectPodNotDeleted(ctx, pod, 2*time.Second)
+
+				By("Change the ServiceInterface spec")
+				siPatch := client.MergeFrom(serviceInterface.DeepCopy())
+				serviceInterface.Spec.Service.Network = "other-network"
+				Expect(testClient.Patch(ctx, serviceInterface, siPatch)).To(Succeed())
+
+				By("Verify pod is eventually deleted due to digest mismatch")
+				Eventually(func(g Gomega) {
+					currentPod := &corev1.Pod{}
+					err := testClient.Get(ctx, client.ObjectKeyFromObject(pod), currentPod)
+					if err != nil {
+						g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+					} else {
+						g.Expect(currentPod.DeletionTimestamp).NotTo(BeNil())
+					}
+				}).WithTimeout(15 * time.Second).Should(Succeed())
+			})
+
+			It("should not delete pod when only the ServiceChain status changes", func() {
+				By("Create ServiceInterface and ServiceChain")
+				serviceInterface := createServiceInterfaceForService(ctx, "firewall-sfceth1-status-change", "firewall", "sfceth1")
+				cleanupObjects = append(cleanupObjects, serviceInterface)
+				serviceChain := createServiceChainAndWaitForReconcile(ctx, "sc-status-change")
+				cleanupObjects = append(cleanupObjects, serviceChain)
+
+				By("Create Running pod with a stale digest")
+				pod := createRunningPod(ctx, "test-pod-status-change", "old-digest")
+				expectPodNotDeleted(ctx, pod, 2*time.Second)
+
+				By("Update only the ServiceChain status")
+				testutils.PatchStatus(ctx, testClient, serviceChain, func() {
+					serviceChain.Status.Conditions = []metav1.Condition{{
+						Type:               "Ready",
+						Status:             metav1.ConditionTrue,
+						Reason:             "Test",
+						LastTransitionTime: metav1.Now(),
+					}}
+				})
+
+				By("Verify pod is consistently not deleted")
+				expectPodNotDeleted(ctx, pod, 5*time.Second)
+			})
+
+			It("should delete pod when a stale digest is written after the configuration changed", func() {
+				By("Create ServiceInterface and ServiceChain")
+				serviceInterface := createServiceInterfaceForService(ctx, "firewall-sfceth1-late-digest", "firewall", "sfceth1")
+				cleanupObjects = append(cleanupObjects, serviceInterface)
+				serviceChain := createServiceChainAndWaitForReconcile(ctx, "sc-late-digest")
+				cleanupObjects = append(cleanupObjects, serviceChain)
+
+				By("Create Running pod without a digest, as PodIpam has not written it yet")
+				pod := createRunningPod(ctx, "test-pod-late-digest", "")
+				expectPodNotDeleted(ctx, pod, 2*time.Second)
+
+				By("Write a digest computed from an outdated configuration")
+				podPatch := client.MergeFrom(pod.DeepCopy())
+				pod.Annotations[NetworkDigestAnnotation] = "old-digest"
+				Expect(testClient.Patch(ctx, pod, podPatch)).To(Succeed())
+
+				By("Verify pod is eventually deleted due to digest mismatch")
+				Eventually(func(g Gomega) {
+					currentPod := &corev1.Pod{}
+					err := testClient.Get(ctx, client.ObjectKeyFromObject(pod), currentPod)
+					if err != nil {
+						g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+					} else {
+						g.Expect(currentPod.DeletionTimestamp).NotTo(BeNil())
+					}
+				}).WithTimeout(15 * time.Second).Should(Succeed())
 			})
 		})
 
@@ -1259,5 +1408,260 @@ var _ = Describe("PodRestartController Envtest Integration", func() {
 				}).WithTimeout(10 * time.Second).Should(Succeed())
 			})
 		})
+	})
+})
+
+// watchTestController returns a PodRestartController backed by a fake client seeded with objects and the
+// ServiceChain node index. The watch mapping tests use it instead of the suite's client so that their objects are
+// not reconciled by the controllers running in envtest.
+func watchTestController(objects ...client.Object) *PodRestartController {
+	s := runtime.NewScheme()
+	Expect(dpuservicev1.AddToScheme(s)).To(Succeed())
+	Expect(nvipamv1.AddToScheme(s)).To(Succeed())
+	c := fake.NewClientBuilder().
+		WithScheme(s).
+		WithObjects(objects...).
+		WithIndex(&dpuservicev1.ServiceChain{}, utils.ServiceChainNodeFieldKey, utils.ServiceChainNodeIndexFunc).
+		Build()
+	return &PodRestartController{Client: c, Scheme: c.Scheme()}
+}
+
+// testServiceChain returns a ServiceChain on node with one switch and, for each ipamLabels entry, a port whose IPAM
+// selects pools with those labels.
+func testServiceChain(namespace, name string, node *string, ipamLabels ...map[string]string) *dpuservicev1.ServiceChain {
+	sc := &dpuservicev1.ServiceChain{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       name,
+			Namespace:  namespace,
+			Generation: 1,
+		},
+		Spec: dpuservicev1.ServiceChainSpec{
+			Node:     node,
+			Switches: []dpuservicev1.Switch{{ServiceMTU: ptr.To(1500)}},
+		},
+	}
+	for _, l := range ipamLabels {
+		sc.Spec.Switches[0].Ports = append(sc.Spec.Switches[0].Ports, dpuservicev1.Port{
+			ServiceInterface: dpuservicev1.ServiceIfc{IPAM: &dpuservicev1.IPAM{MatchLabels: l}},
+		})
+	}
+	return sc
+}
+
+// request returns the reconcile.Request for the object namespace/name.
+func request(namespace, name string) reconcile.Request {
+	return reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: namespace,
+			Name:      name,
+		},
+	}
+}
+
+var _ = Describe("PodRestartController watches", func() {
+	Describe("serviceChainPredicate", func() {
+		DescribeTable("on update",
+			func(mutate func(*dpuservicev1.ServiceChain), want bool) {
+				old := testServiceChain("ns", "sc", ptr.To("node-1"))
+				updated := old.DeepCopy()
+				mutate(updated)
+				e := event.UpdateEvent{
+					ObjectOld: old,
+					ObjectNew: updated,
+				}
+				Expect(serviceChainPredicate().Update(e)).To(Equal(want))
+			},
+			Entry("accepts a spec change", func(sc *dpuservicev1.ServiceChain) { sc.Generation = 2 }, true),
+			Entry("ignores a status-only change", func(sc *dpuservicev1.ServiceChain) {
+				sc.ResourceVersion = "2"
+				sc.Status.Conditions = []metav1.Condition{{Type: "Ready"}}
+			}, false),
+			Entry("ignores a label-only change", func(sc *dpuservicev1.ServiceChain) { sc.Labels = map[string]string{"l": "v"} }, false),
+			Entry("ignores a resync", func(*dpuservicev1.ServiceChain) {}, false),
+			Entry("ignores a spec change that removes the node", func(sc *dpuservicev1.ServiceChain) {
+				sc.Generation = 2
+				sc.Spec.Node = nil
+			}, false),
+		)
+
+		It("requires a node on create, delete and generic events", func() {
+			withNode := testServiceChain("ns", "sc", ptr.To("node-1"))
+			withoutNode := testServiceChain("ns", "sc", nil)
+			p := serviceChainPredicate()
+
+			Expect(p.Create(event.CreateEvent{Object: withNode})).To(BeTrue())
+			Expect(p.Create(event.CreateEvent{Object: withoutNode})).To(BeFalse())
+			Expect(p.Delete(event.DeleteEvent{Object: withNode})).To(BeTrue())
+			Expect(p.Delete(event.DeleteEvent{Object: withoutNode})).To(BeFalse())
+			Expect(p.Generic(event.GenericEvent{Object: withNode})).To(BeTrue())
+			Expect(p.Generic(event.GenericEvent{Object: withoutNode})).To(BeFalse())
+		})
+	})
+
+	It("notInInitialList drops only the creates of the initial list", func() {
+		sc := testServiceChain("ns", "sc", ptr.To("node-1"))
+
+		initialCreate := event.CreateEvent{
+			Object:          sc,
+			IsInInitialList: true,
+		}
+		update := event.UpdateEvent{
+			ObjectOld: sc,
+			ObjectNew: sc,
+		}
+
+		Expect(notInInitialList.Create(initialCreate)).To(BeFalse())
+		Expect(notInInitialList.Create(event.CreateEvent{Object: sc})).To(BeTrue())
+		Expect(notInInitialList.Update(update)).To(BeTrue())
+	})
+
+	Describe("podDigestInputsChangedPredicate", func() {
+		newPod := func() *corev1.Pod {
+			return &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "p",
+					Namespace: "ns",
+					Labels:    map[string]string{dpuservicev1.DPFServiceIDLabelKey: "svc", "other": "a"},
+					Annotations: map[string]string{
+						NetworkAttachmentAnnot:  "[]",
+						NetworkDigestAnnotation: "d1",
+					},
+				},
+				Spec:   corev1.PodSpec{NodeName: "node-1"},
+				Status: corev1.PodStatus{Phase: corev1.PodPending},
+			}
+		}
+
+		DescribeTable("on update",
+			func(mutate func(*corev1.Pod), want bool) {
+				old := newPod()
+				updated := old.DeepCopy()
+				mutate(updated)
+				e := event.UpdateEvent{
+					ObjectOld: old,
+					ObjectNew: updated,
+				}
+				Expect(podDigestInputsChangedPredicate().Update(e)).To(Equal(want))
+			},
+			Entry("accepts a digest change", func(p *corev1.Pod) { p.Annotations[NetworkDigestAnnotation] = "d2" }, true),
+			Entry("accepts a networks change", func(p *corev1.Pod) { p.Annotations[NetworkAttachmentAnnot] = `[{"name":"n"}]` }, true),
+			Entry("accepts a service ID label change", func(p *corev1.Pod) { p.Labels[dpuservicev1.DPFServiceIDLabelKey] = "other" }, true),
+			Entry("ignores another label change", func(p *corev1.Pod) { p.Labels["other"] = "b" }, false),
+			Entry("ignores a phase change", func(p *corev1.Pod) { p.Status.Phase = corev1.PodRunning }, false),
+			Entry("ignores a digest change without a node", func(p *corev1.Pod) {
+				p.Spec.NodeName = ""
+				p.Annotations[NetworkDigestAnnotation] = "d2"
+			}, false),
+		)
+
+		It("ignores create, delete and generic events", func() {
+			pod := newPod()
+			p := podDigestInputsChangedPredicate()
+
+			Expect(p.Create(event.CreateEvent{Object: pod})).To(BeFalse())
+			Expect(p.Delete(event.DeleteEvent{Object: pod})).To(BeFalse())
+			Expect(p.Generic(event.GenericEvent{Object: pod})).To(BeFalse())
+		})
+	})
+
+	It("podToServiceChains maps a Pod to the ServiceChains in its namespace on its node", func() {
+		r := watchTestController(
+			testServiceChain("ns", "same-node", ptr.To("node-1")),
+			testServiceChain("ns", "other-node", ptr.To("node-2")),
+			testServiceChain("other-ns", "same-node-other-ns", ptr.To("node-1")),
+		)
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "p",
+				Namespace: "ns",
+			},
+			Spec: corev1.PodSpec{NodeName: "node-1"},
+		}
+
+		Expect(r.podToServiceChains(context.Background(), pod)).To(ConsistOf(request("ns", "same-node")))
+
+		pod.Spec.NodeName = ""
+		Expect(r.podToServiceChains(context.Background(), pod)).To(BeEmpty())
+	})
+
+	It("serviceInterfaceToServiceChains maps a ServiceInterface to the ServiceChains in its namespace on its node", func() {
+		r := watchTestController(
+			testServiceChain("ns", "same-node", ptr.To("node-1")),
+			testServiceChain("ns", "other-node", ptr.To("node-2")),
+			testServiceChain("other-ns", "same-node-other-ns", ptr.To("node-1")),
+			testServiceChain("ns", "no-node", nil),
+		)
+		si := &dpuservicev1.ServiceInterface{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "si",
+				Namespace: "ns",
+			},
+			Spec: dpuservicev1.ServiceInterfaceSpec{Node: ptr.To("node-1")},
+		}
+
+		Expect(r.serviceInterfaceToServiceChains(context.Background(), si)).To(ConsistOf(request("ns", "same-node")))
+
+		si.Spec.Node = nil
+		Expect(r.serviceInterfaceToServiceChains(context.Background(), si)).To(BeEmpty())
+	})
+
+	It("nodeServiceInterfacesToServiceChains maps a NodeServiceInterfaces to all ServiceChains on its node", func() {
+		r := watchTestController(
+			testServiceChain("ns", "same-node", ptr.To("node-1")),
+			testServiceChain("other-ns", "same-node-other-ns", ptr.To("node-1")),
+			testServiceChain("ns", "other-node", ptr.To("node-2")),
+		)
+		nsi := &dpuservicev1.NodeServiceInterfaces{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "nsi",
+				Namespace: "dpf-operator-system",
+			},
+			Spec: dpuservicev1.NodeServiceInterfacesSpec{
+				Node: "node-1",
+				Type: "sfc",
+			},
+		}
+
+		Expect(r.nodeServiceInterfacesToServiceChains(context.Background(), nsi)).To(ConsistOf(
+			request("ns", "same-node"),
+			request("other-ns", "same-node-other-ns"),
+		))
+	})
+
+	It("poolToServiceChains maps a pool to the ServiceChains with a node that select it", func() {
+		r := watchTestController(
+			testServiceChain("ns", "matching", ptr.To("node-1"), map[string]string{"pool": "a"}),
+			testServiceChain("other-ns", "matching-second-port", ptr.To("node-2"), map[string]string{"pool": "b"}, map[string]string{"pool": "a"}),
+			testServiceChain("ns", "other-pool", ptr.To("node-1"), map[string]string{"pool": "b"}),
+			testServiceChain("ns", "no-ipam", ptr.To("node-1")),
+			testServiceChain("ns", "matching-no-node", nil, map[string]string{"pool": "a"}),
+		)
+		want := []reconcile.Request{request("ns", "matching"), request("other-ns", "matching-second-port")}
+
+		ipPool := &nvipamv1.IPPool{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "p",
+				Namespace: "nvipam",
+				Labels:    map[string]string{"pool": "a", "extra": "x"},
+			},
+		}
+		Expect(r.poolToServiceChains(context.Background(), ipPool)).To(ConsistOf(want))
+
+		cidrPool := &nvipamv1.CIDRPool{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "p",
+				Namespace: "nvipam",
+				Labels:    map[string]string{"pool": "a"},
+			},
+		}
+		Expect(r.poolToServiceChains(context.Background(), cidrPool)).To(ConsistOf(want))
+
+		unlabeled := &nvipamv1.IPPool{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "p",
+				Namespace: "nvipam",
+			},
+		}
+		Expect(r.poolToServiceChains(context.Background(), unlabeled)).To(BeEmpty())
 	})
 })
