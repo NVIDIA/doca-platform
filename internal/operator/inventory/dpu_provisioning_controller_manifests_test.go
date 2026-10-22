@@ -767,6 +767,30 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		}
 	})
 
+	t.Run("test setting tracing flags", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: ptr.To("pvc"),
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
+		}
+		vars.OpenTelemetryCollector.Tracing.Endpoint = "http://collector:4318"
+
+		objs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		for _, obj := range objs {
+			if obj.GetObjectKind().GroupVersionKind().Kind != string(DeploymentKind) {
+				continue
+			}
+			deployment := &appsv1.Deployment{}
+			uns, ok := obj.(*unstructured.Unstructured)
+			g.Expect(ok).To(BeTrue())
+			g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(uns.UnstructuredContent(), deployment)).To(Succeed())
+			g.Expect(getManagerContainer(deployment).Args).To(ContainElement("--otel-tracing-endpoint=http://collector:4318"))
+		}
+	})
+
 	t.Run("test hostagent dns policy not set when nil", func(t *testing.T) {
 		g := NewGomegaWithT(t)
 		vars := newDefaultVariables(defaults)

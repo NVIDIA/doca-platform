@@ -75,7 +75,7 @@ func startChange(ctx context.Context, controller string, obj client.Object, in i
 	rootCtx := context.WithValue(trace.ContextWithSpanContext(ctx, trace.SpanContext{}), forcedIDsKey{}, marker)
 	_, span := otel.Tracer(tracerName).Start(rootCtx, controller+".change",
 		trace.WithTimestamp(in.started),
-		trace.WithAttributes(append(objectAttributes(controller, obj), attribute.String(attrWorkflowID, in.spanContext.TraceID().String()))...),
+		trace.WithAttributes(append(ObjectAttributes(controller, obj), attribute.String(attrWorkflowID, in.spanContext.TraceID().String()))...),
 	)
 	span.End()
 }
@@ -84,7 +84,7 @@ func startChange(ctx context.Context, controller string, obj client.Object, in i
 // takes the span ID the reconciles of the workflow point at. Otherwise it is a child of the span of
 // the upstream caller.
 func endRollout(ctx context.Context, controller string, obj client.Object, rollout finishedRollout) {
-	attrs := append(objectAttributes(controller, obj),
+	attrs := append(ObjectAttributes(controller, obj),
 		attribute.String(attrWorkflowID, rollout.in.spanContext.TraceID().String()),
 		attribute.Int64("k8s.object.generation", rollout.generation),
 		attribute.String("rollout.result", rollout.outcome),

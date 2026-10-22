@@ -24,6 +24,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/allocator"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -34,6 +35,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -57,7 +59,7 @@ type DPUClusterReconciler struct {
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuclusters/finalizers,verbs=update
 
-func (r *DPUClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *DPUClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconcile")
 
@@ -68,6 +70,9 @@ func (r *DPUClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		return ctrl.Result{}, fmt.Errorf("failed to get DPUCluster %w", err)
 	}
+
+	ctx, endSpan := tracing.ReconcileSpan(ctx, DPUClusterControllerName, dc)
+	defer endSpan(&reterr)
 
 	if !dc.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, r.reconcileDelete(ctx, dc)
@@ -166,7 +171,8 @@ func (r *DPUClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&provisioningv1.DPUCluster{}).
 		Watches(&provisioningv1.DPU{},
-			handler.EnqueueRequestsFromMapFunc(r.dpuToDPUClusterReq)).
+			handler.EnqueueRequestsFromMapFunc(r.dpuToDPUClusterReq),
+			builder.WithPredicates(tracing.IgnoreTraceOnlyUpdates())).
 		Complete(r)
 }
 

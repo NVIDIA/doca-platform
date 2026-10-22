@@ -23,6 +23,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/bluefieldsoftware/state"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -63,6 +64,9 @@ func (r *BlueFieldSoftwareReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 		return ctrl.Result{}, fmt.Errorf("failed to get BlueFieldSoftware %w", err)
 	}
+
+	ctx, endSpan := tracing.ReconcileSpan(ctx, BlueFieldSoftwareControllerName, bfs)
+	defer endSpan(&reterr)
 
 	patcher := patch.NewSerialPatcher(bfs, r.Client)
 	defer func() {

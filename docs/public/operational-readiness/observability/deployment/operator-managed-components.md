@@ -398,7 +398,7 @@ see [Custom Configuration](user-managed-components.md#custom-configuration).
 
 ## Tracing
 
-DPF controllers can export distributed trace spans for their reconcile loops via OpenTelemetry, using the `tracing.k8s.io/traceparent` and `tracing.k8s.io/tracestate` annotations an upstream caller (e.g. carbide) sets on the CRs it creates. One change of a DPUDeployment, including a change of the spec of a DPUServiceTemplate, DPUServiceConfiguration, BFB or flavor it references, is one trace: the reconciles of the DPUDeployment and of everything it creates hang under the rollout span of the change, so a single request can be followed across DPF's own controllers. The trace is the one of the annotation or, when there is none, one DPF derives from the object's UID and generation. The trace ID is also set as the `workflow.id` span attribute. The trace is flat, its spans ran for the same change, they did not cause each other.
+DPF controllers can export distributed trace spans for their reconcile loops via OpenTelemetry, using the `tracing.k8s.io/traceparent` and `tracing.k8s.io/tracestate` annotations an upstream caller (e.g. carbide) sets on the CRs it creates, so a single request can be followed across DPF's own controllers. See [Setting the trace context](#setting-the-trace-context) for the objects a caller sets them on.
 
 `tracing.endpoint` is a single destination shared by two independent producers:
 
@@ -420,6 +420,48 @@ flowchart LR
     app -- "OTLP (local)" --> dpuc
     dpuc -- "OTLP" --> ep
 ```
+
+For how a DPF controller is instrumented, see [Tracing](../../../developer-guides/system/tracing.md) in the developer guide.
+
+### Setting the trace context
+
+Set the annotations to the [W3C trace context](https://www.w3.org/TR/trace-context/) of the
+request, in the same write as the change it traces. `tracestate` is optional. DPF writes
+`tracing.k8s.io/generated-traceparent` and `tracing.k8s.io/generated-tracestate` on the objects it
+creates or changes, and a controller reads the pair a caller set first. A trace context left on
+an object after its change is done is therefore joined by every later change of the object. Set
+a new value with each change, or remove it. DPF removes it only where it ends the trace itself,
+see the table below.
+
+DPF reads a trace context from these objects for DPU provisioning:
+
+| Object | Set it when | What continues the trace |
+|---|---|---|
+| DPUDeployment | creating it or changing its spec | The DPUDeployment reconciles, the DPUSets it creates or updates, and the DPUs they recreate or update in place for that change |
+| DPUDevice | creating it, recreating it, or changing its spec | The DPUDevice reconciles, its hostless DPUNode, the DPU the DPUSet creates for it, and the DPUNodeMaintenance and Node changes of that DPU |
+| DPUCluster | changing its labels | The DPUs the DPUSet deletes and recreates because the DPUCluster no longer matches their cluster selector |
+| DPUFlavorTemplate | changing its template | The DPUs the DPUSet recreates for that change |
+| DPUDiscovery | changing its spec | The scan of that change and the DPUDevices and DPUNodes it creates. DPF removes the trace context once the scan has completed, so a periodic scan does not join it |
+| DPU | changing it | The DPU reconciles, and its DPUNodeMaintenance and Node changes |
+
+A DPUDeployment or DPUDevice without a trace context still gets one trace per change: DPF
+derives the trace from its UID and generation and exports a `dpudeploymentcontroller.rollout` or
+`dpudevice.rollout` root span that ends when the DPUDeployment, or the DPU of the DPUDevice, is
+Ready. For a DPUDeployment, a change of
+a BFB, BlueFieldSoftware, DPUFlavor or DPUFlavorTemplate it references also
+starts a new trace, including when one of them is deleted and recreated under
+the same name. A recreated DPUDevice has a new
+UID and starts a new trace. Any other object without a trace context is not continued: its
+changes do not move the DPUs onto a trace of their own.
+
+When the DPUSet replaces a DPU, it copies the trace of the cause onto the DPUDevice before it
+deletes the DPU, so the DPU it recreates continues the cause. This removes a trace context a
+caller set on the DPUDevice. When the cause has no trace context, the DPUSet removes the
+DPUDevice's trace context instead, so the recreated DPU continues the DPUDevice's own trace
+rather than an earlier change's. The DPUSet copies the same trace onto the DPU it deletes, so
+its cleanup, such as the `dpu.phase.Deleting` span, appears in the same trace as its
+replacement. A DPU that was already being deleted keeps its trace. The cause is the DPUSet, and so its DPUDeployment, unless the
+change came only from a DPUFlavorTemplate, a DPUCluster or the DPUDevice values, as listed above.
 
 ### Configuration
 

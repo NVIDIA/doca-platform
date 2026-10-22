@@ -27,6 +27,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -259,7 +260,7 @@ func (c *CrawlerService) createDPUDeviceAndNode(ctx context.Context, result Craw
 	// do, rather than relying on a CRD default the reader has to know about.
 	resetPolicy := provisioningv1.GetBMCFactoryResetPolicy(c.bmcFactoryResetPolicy)
 
-	dpu := &provisioningv1.DPUDevice{
+	dpudevice := &provisioningv1.DPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      strings.ToLower(result.SerialNumber),
 			Namespace: c.namespace,
@@ -272,18 +273,19 @@ func (c *CrawlerService) createDPUDeviceAndNode(ctx context.Context, result Craw
 			BMCFactoryResetPolicy: resetPolicy,
 		},
 	}
+	tracing.InjectIntoObject(ctx, dpudevice)
 
-	err := c.client.Create(ctx, dpu)
+	err := c.client.Create(ctx, dpudevice)
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
-			logger.Info("DPU device already exists", "name", dpu.Name)
+			logger.Info("DPU device already exists", "name", dpudevice.Name)
 			return nil
 		}
 		return err
 	}
 
 	if !c.skipDpuNodeDiscovery {
-		return c.createDPUNode(ctx, dpu, result)
+		return c.createDPUNode(ctx, dpudevice, result)
 	}
 
 	return nil
@@ -329,6 +331,7 @@ func (c *CrawlerService) createDPUNode(ctx context.Context, dpu *provisioningv1.
 	dpuNode.Labels = map[string]string{
 		util.NodeSelectorLabel: "true",
 	}
+	tracing.InjectIntoObject(ctx, dpuNode)
 
 	err := c.client.Create(ctx, dpuNode)
 	if err != nil {

@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -37,6 +38,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -63,6 +65,15 @@ const (
 	traceParentKey = "traceparent"
 	traceStateKey  = "tracestate"
 )
+
+// traceAnnotations are the annotations that carry the trace context of an object, the ones a
+// consumer sets and the generated ones.
+var traceAnnotations = []string{
+	TraceParentAnnotation,
+	TraceStateAnnotation,
+	GeneratedTraceParentAnnotation,
+	GeneratedTraceStateAnnotation,
+}
 
 // propagator is an empty struct without state, so concurrent reconcile workers can share it.
 var propagator = propagation.TraceContext{}
@@ -197,8 +208,96 @@ func InjectIntoObject(ctx context.Context, obj client.Object) {
 	if !ok {
 		return
 	}
+	setTraceAnnotations(in.spanContext, obj)
+}
+
+// InjectFromObject copies the workflow of from onto the generated trace annotations of obj,
+// resolved the way ReconcileSpan of the controller of from resolves it with opts: the trace context
+// on from when valid, otherwise, for a WorkflowRoot controller, the workflow derived from it (see
+// newSpanContextForObject). Use it when a child continues the workflow of an object other than the
+// one being reconciled, e.g. a DPUSet reconcile creating a DPU that continues its DPUDevice's
+// workflow. Pass the options the controller of from passes to ReconcileSpan. The trace context a
+// consumer set on obj is removed, as it would win over the workflow obj must continue. It reports
+// whether it wrote a trace context; it is a no-op when from has no trace context and its workflow
+// is not derived. With tracing off it writes nothing and removes the generated annotations from obj,
+// like InjectIntoObject.
+func InjectFromObject(from, obj client.Object, opts ...ReconcileOption) bool {
+	if !enabled() {
+		removeGeneratedAnnotations(obj)
+		return false
+	}
+	var o reconcileOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	in := incomingContext(context.Background(), from, o.revision)
+	// Nothing exports the root span of a workflow derived for a controller that is not a WorkflowRoot.
+	if !in.spanContext.IsValid() || (in.derived && !o.workflowRoot) {
+		return false
+	}
+	setTraceAnnotations(in.spanContext, obj)
+	annotations := obj.GetAnnotations()
+	delete(annotations, TraceParentAnnotation)
+	delete(annotations, TraceStateAnnotation)
+	obj.SetAnnotations(annotations)
+	return true
+}
+
+// RemoveFromObject removes the trace annotations from obj, both the ones a consumer set and the
+// generated ones. Like InjectIntoObject it only changes obj, call it before the caller's own Create,
+// Update or Patch of obj. EndObjectTrace removes them and patches obj. With tracing off it only
+// removes the generated ones, as DPF does not end a trace it does not follow.
+func RemoveFromObject(obj client.Object) {
+	annotations := obj.GetAnnotations()
+	for _, key := range removedTraceAnnotations() {
+		delete(annotations, key)
+	}
+	obj.SetAnnotations(annotations)
+}
+
+// removedTraceAnnotations returns the trace annotations RemoveFromObject removes.
+func removedTraceAnnotations() []string {
+	if !enabled() {
+		return []string{
+			GeneratedTraceParentAnnotation,
+			GeneratedTraceStateAnnotation,
+		}
+	}
+	return traceAnnotations
+}
+
+// EndObjectTrace ends the trace of obj once the change it traced has been handled, so a later change
+// made without a trace does not reuse the old one. It removes the trace annotations, both the ones a
+// consumer set and the generated ones, and patches obj. obj must be the
+// object as last read from the API server. The patch uses an optimistic lock and a conflict is
+// ignored: another writer changed obj in the meantime and may have set a newer trace, which must
+// not be dropped. No-op when obj carries none of them. With tracing off it only removes the
+// generated ones, see RemoveFromObject.
+func EndObjectTrace(ctx context.Context, c client.Client, obj client.Object) error {
+	annotations := obj.GetAnnotations()
+	if !slices.ContainsFunc(removedTraceAnnotations(), func(key string) bool { _, ok := annotations[key]; return ok }) {
+		return nil
+	}
+	original, ok := obj.DeepCopyObject().(client.Object)
+	if !ok {
+		return fmt.Errorf("deep copy of %s/%s is not a client.Object", obj.GetNamespace(), obj.GetName())
+	}
+	RemoveFromObject(obj)
+	err := c.Patch(ctx, obj, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
+	if apierrors.IsConflict(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to remove trace annotations from %s/%s: %w", obj.GetNamespace(), obj.GetName(), err)
+	}
+	return nil
+}
+
+// setTraceAnnotations writes sc onto the generated trace annotations of obj, removing a stale
+// GeneratedTraceStateAnnotation when sc has no trace state.
+func setTraceAnnotations(sc trace.SpanContext, obj client.Object) {
 	carrier := propagation.MapCarrier{}
-	propagator.Inject(trace.ContextWithRemoteSpanContext(ctx, in.spanContext), carrier)
+	propagator.Inject(trace.ContextWithRemoteSpanContext(context.Background(), sc), carrier)
 	// Inject writes nothing for an invalid span context, then obj stays untouched.
 	if len(carrier) == 0 {
 		return
@@ -362,7 +461,7 @@ func traceObject(ctx context.Context, controller string, obj client.Object, opts
 	}
 	return otel.Tracer(tracerName).Start(rootCtx, controller+".reconcile",
 		trace.WithSpanKind(trace.SpanKindConsumer),
-		trace.WithAttributes(append(attrs, objectAttributes(controller, obj)...)...),
+		trace.WithAttributes(append(attrs, ObjectAttributes(controller, obj)...)...),
 		trace.WithLinks(links...),
 	)
 }
@@ -370,7 +469,7 @@ func traceObject(ctx context.Context, controller string, obj client.Object, opts
 // recordIdleReconcile exports the span of a reconcile that was thought to be idle when it started
 // but failed or changed obj. The spans started below it are lost.
 func recordIdleReconcile(ctx context.Context, controller string, obj client.Object, revision string, start time.Time, err error) {
-	attrs := append(objectAttributes(controller, obj), attribute.Bool("reconcile.idle_at_start", true))
+	attrs := append(ObjectAttributes(controller, obj), attribute.Bool("reconcile.idle_at_start", true))
 	parentCtx := trace.ContextWithSpanContext(ctx, trace.SpanContext{})
 	if workflow := incomingContext(ctx, obj, revision).spanContext; workflow.IsValid() {
 		attrs = append(attrs, attribute.String(attrWorkflowID, workflow.TraceID().String()))
@@ -409,8 +508,9 @@ func incomingContext(ctx context.Context, obj client.Object, revision string) in
 	return incoming{spanContext: newSpanContextForObject(obj, revision), derived: true, revision: revision}
 }
 
-// objectAttributes returns the attributes that identify obj on the spans of controller.
-func objectAttributes(controller string, obj client.Object) []attribute.KeyValue {
+// ObjectAttributes returns the attributes that identify obj on the spans of controller. Pass them to
+// StartSpan for a span that is not started by ReconcileSpan, so it is found by the same attributes.
+func ObjectAttributes(controller string, obj client.Object) []attribute.KeyValue {
 	// Typed objects from the client usually have empty TypeMeta.
 	kind := obj.GetObjectKind().GroupVersionKind().Kind
 	if kind == "" {
@@ -460,6 +560,15 @@ func EndSpan(span trace.Span, err error) {
 		span.SetStatus(codes.Error, err.Error())
 	}
 	span.End()
+}
+
+// InSpan runs fn in a child span started by StartSpan and ends the span with the error fn returns,
+// which it also returns. fn gets the span's context.
+func InSpan(ctx context.Context, operation string, fn func(context.Context) error, attributes ...attribute.KeyValue) error {
+	ctx, span := StartSpan(ctx, operation, attributes...)
+	err := fn(ctx)
+	EndSpan(span, err)
+	return err
 }
 
 // MarkUnchanged tells that the operation of the span in ctx changed nothing, such as a read-only

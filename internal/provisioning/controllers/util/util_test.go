@@ -23,6 +23,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/bfbregistry"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -930,4 +931,36 @@ var _ = Describe("ConfirmDPUCondition", func() {
 
 		Expect(status.Conditions).To(BeEmpty())
 	})
+})
+
+var _ = Describe("AddLabelsToObject", func() {
+	const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+
+	BeforeEach(func() {
+		DeferCleanup(tracing.EnableForTest())
+	})
+
+	DescribeTable("stamps the writer's trace only when a label changes",
+		func(nodeLabels map[string]string, wantTraceparent string) {
+			k8sClient := fake.NewClientBuilder().WithObjects(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node", Labels: nodeLabels}}).Build()
+			node := &corev1.Node{}
+			Expect(k8sClient.Get(context.Background(), client.ObjectKey{Name: "node"}, node)).To(Succeed())
+			writer := &provisioningv1.DPUNodeMaintenance{ObjectMeta: metav1.ObjectMeta{
+				Name:        "maintenance",
+				UID:         "maintenance-uid",
+				Annotations: map[string]string{tracing.TraceParentAnnotation: traceparent},
+			}}
+			ctx, endSpan := tracing.ReconcileSpan(context.Background(), "dpunodemaintenance", writer)
+			endSpan(nil)
+
+			Expect(AddLabelsToObject(ctx, k8sClient, node, map[string]string{"maintenance": "true"})).To(Succeed())
+
+			got := &corev1.Node{}
+			Expect(k8sClient.Get(context.Background(), client.ObjectKey{Name: "node"}, got)).To(Succeed())
+			Expect(got.Labels).To(HaveKeyWithValue("maintenance", "true"))
+			Expect(got.Annotations[tracing.GeneratedTraceParentAnnotation]).To(Equal(wantTraceparent))
+		},
+		Entry("label added", nil, traceparent),
+		Entry("label already set", map[string]string{"maintenance": "true"}, ""),
+	)
 })

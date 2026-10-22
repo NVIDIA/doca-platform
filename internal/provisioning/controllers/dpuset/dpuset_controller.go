@@ -19,6 +19,7 @@ package dpuset
 import (
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"sort"
@@ -30,6 +31,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -42,8 +44,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -74,7 +78,7 @@ type DPUSetReconciler struct {
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpusets/finalizers,verbs=update
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuflavors,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuflavortemplates,verbs=get;list;watch
-// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpudevices,verbs=get;list;watch
+// +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpudevices,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpunodes,verbs=get;list;watch
 
 func (r *DPUSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
@@ -88,6 +92,10 @@ func (r *DPUSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ c
 		}
 		return ctrl.Result{}, fmt.Errorf("failed to get DPUSet %w", err)
 	}
+
+	ctx, endSpan := tracing.ReconcileSpan(ctx, DPUSetControllerName, dpuSet)
+	defer endSpan(&reterr)
+	ctx = tracing.WithTriggers(ctx, dpuSet, traceOptionsOf)
 
 	patcher := patch.NewSerialPatcher(dpuSet, r.Client)
 	// Defer a patch call to always patch the object when Reconcile exits.
@@ -497,9 +505,10 @@ func outdatedNeedsUpdate(curr, desired *provisioningv1.DPUOutdated) bool {
 func (r *DPUSetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&provisioningv1.DPUSet{}).
-		Owns(&provisioningv1.DPU{}).
+		Owns(&provisioningv1.DPU{}, builder.WithPredicates(tracing.IgnoreTraceOnlyUpdates())).
 		Watches(&provisioningv1.DPUDevice{},
-			handler.EnqueueRequestsFromMapFunc(r.resourceToDPUSetReq)).
+			handler.EnqueueRequestsFromMapFunc(r.resourceToDPUSetReq),
+			builder.WithPredicates(tracing.IgnoreTraceOnlyUpdates())).
 		Watches(&provisioningv1.DPUNode{},
 			handler.EnqueueRequestsFromMapFunc(r.resourceToDPUSetReq)).
 		Watches(&provisioningv1.DPUFlavor{},
@@ -729,6 +738,9 @@ func (r *DPUSetReconciler) createDPU(ctx context.Context, dpuSet *provisioningv1
 	if err != nil {
 		return fmt.Errorf("failed to set last applied annotations on DPU (%s/%s): %w", dpu.Namespace, dpu.Name, err)
 	}
+	// After the template annotation copy, so a template traceparent cannot replace the device's
+	// trace. A rollout stamps the cause of a recreate onto the device before deleting the DPU.
+	tracing.InjectTrigger(ctx, dpu)
 	if isTemplateMode(dpuSet) {
 		if err := r.createTemplateModeDPU(ctx, dpuSet, dpuDevice, dpu); err != nil {
 			return err
@@ -751,6 +763,8 @@ func (r *DPUSetReconciler) updatePCIAddress(ctx context.Context, dpu *provisioni
 	log.FromContext(ctx).Info(fmt.Sprintf("Updating PCI address of DPU(%s/%s) to %s", dpu.Namespace, dpu.Name, *dpuDevice.Status.PCIAddress))
 	patcher := patch.NewSerialPatcher(dpu, r.Client)
 	dpu.Spec.PCIAddress = dpuDevice.Status.PCIAddress
+	tracing.RecordTrigger(ctx, dpu, dpuDevice)
+	tracing.InjectTrigger(ctx, dpu)
 	return patcher.Patch(ctx, dpu)
 }
 
@@ -761,6 +775,10 @@ func (r *DPUSetReconciler) onDelete(ctx context.Context, dpuSet *provisioningv1.
 	}
 	for _, dpu := range dpuMap {
 		if !matchDPUClusterSelector(dpuSet.Spec.DPUTemplate.Spec.Cluster.Selector, dpu.Spec.Cluster, dpuClusters) {
+			tracing.RecordTrigger(ctx, deviceOfDPU(&dpu), clusterSelectorTraceSource(dpuSet, &dpu, dpuClusters))
+			if err := r.stampDeviceTrace(ctx, &dpu); err != nil {
+				return err
+			}
 			if err := r.Delete(ctx, &dpu); err != nil {
 				return err
 			}
@@ -806,9 +824,11 @@ func (r *DPUSetReconciler) rolloutRolling(ctx context.Context, dpuSet *provision
 	}
 
 	for _, dpu := range dpuMap {
-		if !r.needDisruptDPU(*dpuSet, dpu, dpuClusters, templateEvals[dpu.Name]) {
+		drift := r.computeDPUDrift(*dpuSet, dpu, dpuClusters, templateEvals[dpu.Name])
+		if drift.empty() {
 			continue
 		}
+		tracing.RecordTrigger(ctx, deviceOfDPU(&dpu), rolloutTraceSource(dpuSet, &dpu, dpuClusters, drift, templateEvals[dpu.Name]))
 
 		// inProgressStillReady already contributes to unavailable, so deleting it
 		// does not take a second slot.
@@ -819,6 +839,9 @@ func (r *DPUSetReconciler) rolloutRolling(ctx context.Context, dpuSet *provision
 
 		failedMsg := fmt.Sprintf("Failed to Delete DPU: (%s/%s) from DPUNode %s", dpu.Namespace, dpu.Name, dpu.Spec.DPUNodeName)
 		successMsg := fmt.Sprintf("Delete DPU: (%s/%s) from DPUNode %s", dpu.Namespace, dpu.Name, dpu.Spec.DPUNodeName)
+		if err := r.stampDeviceTrace(ctx, &dpu); err != nil {
+			return err
+		}
 		if err := r.Delete(ctx, &dpu); err != nil {
 			r.Recorder.Eventf(dpuSet, corev1.EventTypeNormal, events.EventFailedDeleteDPUReason, failedMsg)
 			return err
@@ -829,6 +852,145 @@ func (r *DPUSetReconciler) rolloutRolling(ctx context.Context, dpuSet *provision
 		}
 	}
 	return nil
+}
+
+// rolloutTraceSource returns the object whose trace the DPU recreated for drift continues. A
+// drift caused only by the generated DPUFlavor continues the changed DPUFlavorTemplate's trace,
+// or returns nil for a DPUDevice.spec.values change, which keeps the DPUDevice's own trace. A
+// drift caused only by the cluster selector is resolved by clusterSelectorTraceSource. Every other
+// rollout continues the DPUSet's trace.
+func rolloutTraceSource(dpuSet *provisioningv1.DPUSet, dpu *provisioningv1.DPU, dpuClusters []provisioningv1.DPUCluster, drift dpuDrift, eval templateEval) client.Object {
+	switch {
+	case slices.Equal(drift.Reasons, []dpuDriftReason{driftReasonDPUFlavor}):
+		switch {
+		case eval.valuesOnly:
+			return nil
+		case eval.changedTemplate != nil:
+			return eval.changedTemplate
+		}
+	case slices.Equal(drift.Reasons, []dpuDriftReason{driftReasonClusterSelector}):
+		return clusterSelectorTraceSource(dpuSet, dpu, dpuClusters)
+	}
+	return dpuSet
+}
+
+// clusterSelectorTraceSource returns the object whose change made the DPUCluster dpu is assigned to
+// stop matching the DPUSet's cluster selector. It must be called before UpdateDPUs copies the
+// template's selector onto dpu. The DPUSet changed the selector when dpu still carries a different
+// one, or when dpu's template hash lags the DPUSet's; otherwise the assigned DPUCluster's labels
+// changed. The DPUSet is returned when the assigned DPUCluster no longer exists.
+func clusterSelectorTraceSource(dpuSet *provisioningv1.DPUSet, dpu *provisioningv1.DPU, dpuClusters []provisioningv1.DPUCluster) client.Object {
+	var selector *metav1.LabelSelector
+	if cluster := dpuSet.Spec.DPUTemplate.Spec.Cluster; cluster != nil {
+		selector = cluster.Selector
+	}
+	if !reflect.DeepEqual(dpu.Spec.Cluster.Selector, selector) ||
+		dpu.Labels[cutil.DPUSetDPUTemplateSpecHashLabelKey] != dpuSet.Labels[cutil.DPUSetDPUTemplateSpecHashLabelKey] {
+		return dpuSet
+	}
+	for i := range dpuClusters {
+		if dpuClusters[i].Name == dpu.Spec.Cluster.Name && dpuClusters[i].Namespace == dpu.Spec.Cluster.Namespace {
+			return &dpuClusters[i]
+		}
+	}
+	return dpuSet
+}
+
+// stampDeviceTrace copies the trace of the trigger recorded for the DPUDevice of dpu onto that
+// device before dpu is deleted, so the DPU createDPU recreates for it continues that trace. When
+// the trigger has no trace to hand on, the device's trace is removed instead, so the recreated DPU
+// continues the device's own workflow rather than an earlier, unrelated one. The patch is retried
+// on a fresh read when the device changed since it was read, so a trace another writer set in the
+// meantime is never removed unseen; dpu must not be deleted when it fails. The device's resulting
+// trace is then copied onto dpu, see stampDeletedDPUTrace. No-op when no trigger was recorded or
+// the device is gone.
+func (r *DPUSetReconciler) stampDeviceTrace(ctx context.Context, dpu *provisioningv1.DPU) error {
+	if !tracing.HasTrigger(ctx, deviceOfDPU(dpu)) {
+		return nil
+	}
+	// The trigger is forgotten once injected, so its trace is resolved once and applied to each read.
+	stamp := deviceOfDPU(dpu)
+	causeTraced := tracing.InjectTrigger(ctx, stamp)
+	var dpuDevice *provisioningv1.DPUDevice
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		dpuDevice = &provisioningv1.DPUDevice{}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(stamp), dpuDevice); err != nil {
+			if apierrors.IsNotFound(err) {
+				dpuDevice = nil
+				return nil
+			}
+			return err
+		}
+		original := dpuDevice.DeepCopy()
+		if causeTraced {
+			tracing.InjectFromObject(stamp, dpuDevice)
+		} else {
+			tracing.RemoveFromObject(dpuDevice)
+		}
+		if maps.Equal(original.Annotations, dpuDevice.Annotations) {
+			return nil
+		}
+		return r.Patch(ctx, dpuDevice, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
+	})
+	if err != nil {
+		return fmt.Errorf("failed to stamp trace context on DPUDevice %s/%s: %w", stamp.Namespace, stamp.Name, err)
+	}
+	if dpuDevice != nil {
+		r.stampDeletedDPUTrace(ctx, dpu, dpuDevice)
+	}
+	return nil
+}
+
+// stampDeletedDPUTrace copies the trace of dpuDevice onto dpu before dpu is deleted, the way createDPU
+// copies it onto the DPU it recreates, so the reconciles that clean dpu up land in the same trace as
+// its replacement. A DPU already being deleted keeps the trace its cleanup started in. It is best
+// effort: a failure is logged and dpu is deleted anyway, as it only leaves the cleanup in its old trace.
+func (r *DPUSetReconciler) stampDeletedDPUTrace(ctx context.Context, dpu *provisioningv1.DPU, dpuDevice *provisioningv1.DPUDevice) {
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		current := &provisioningv1.DPU{}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(dpu), current); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+		if !current.DeletionTimestamp.IsZero() {
+			return nil
+		}
+		original := current.DeepCopy()
+		if !tracing.InjectFromObject(dpuDevice, current, tracing.WorkflowRoot()) {
+			tracing.RemoveFromObject(current)
+		}
+		if maps.Equal(original.Annotations, current.Annotations) {
+			return nil
+		}
+		return r.Patch(ctx, current, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
+	})
+	if err != nil {
+		log.FromContext(ctx).Error(err, "Failed to stamp trace context on DPU before deleting it", "DPU", client.ObjectKeyFromObject(dpu))
+	}
+}
+
+// traceOptionsOf returns the options the provisioning controller of trigger passes to
+// tracing.ReconcileSpan, for tracing.WithTriggers: the DPUDevice controller exports the workflow it
+// derives for a device without a trace, so only a DPUDevice trigger without one is followed.
+func traceOptionsOf(trigger client.Object) []tracing.ReconcileOption {
+	if _, ok := trigger.(*provisioningv1.DPUDevice); ok {
+		return []tracing.ReconcileOption{tracing.WorkflowRoot()}
+	}
+	return nil
+}
+
+// deviceOfDPU returns a reference to the DPUDevice dpu was created for, for recording that
+// device's trace trigger before it is read.
+func deviceOfDPU(dpu *provisioningv1.DPU) *provisioningv1.DPUDevice {
+	return &provisioningv1.DPUDevice{ObjectMeta: metav1.ObjectMeta{Name: dpu.Spec.DPUDeviceName, Namespace: dpu.Namespace}}
+}
+
+// dpuForDevice returns a reference to the DPU that createDPU creates for dpuDevice, for recording
+// that DPU's trace trigger before it exists.
+func dpuForDevice(dpuSet *provisioningv1.DPUSet, dpuDevice *provisioningv1.DPUDevice) *provisioningv1.DPU {
+	return &provisioningv1.DPU{ObjectMeta: metav1.ObjectMeta{
+		Name:      cutil.GenerateDPUName(dpuDevice.Labels[provisioningv1.DPUNodeNameLabel], dpuDevice.Name),
+		Namespace: dpuSet.Namespace,
+	}}
 }
 
 func isUnavailable(dpu *provisioningv1.DPU) bool {
@@ -951,6 +1113,7 @@ func (r *DPUSetReconciler) createMissingDPUs(ctx context.Context, dpuSet *provis
 				r.Recorder.Eventf(dpuSet, corev1.EventTypeWarning, events.EventFailedCreateDPUReason, msg)
 				continue
 			}
+			tracing.RecordTrigger(ctx, dpuForDevice(dpuSet, &dpuDevice), &dpuDevice)
 			err = r.createDPU(ctx, dpuSet, &dpuDevice)
 			if err == nil {
 				dpusCreated = true
@@ -1095,19 +1258,24 @@ func (r *DPUSetReconciler) UpdateDPUs(ctx context.Context, dpuSet *provisioningv
 		// 1. update the merged cluster node labels and annotations for DPU
 		if updateLabelsAndAnnotationsForDPU(ctx, &dpu, dpuSet, userLabels, userAnn) {
 			update = true
+			// A change the DPUSet caused was recorded during the update and wins over this one.
+			tracing.RecordTrigger(ctx, &dpu, &dpuDevice)
 		}
 		// 2. update the NodeEffect Action fields for DPU
-		if updateNodeEffectAction(ctx, dpuSet, &dpu) {
-			update = true
-		}
+		templateUpdate := updateNodeEffectAction(ctx, dpuSet, &dpu)
 		// 3. update the ApplyOnLabelChange field for DPU
 		if updateNodeEffectApplyOnLabelChange(ctx, dpuSet, &dpu) {
-			update = true
+			templateUpdate = true
 		}
 		// 4. update the NodeMaintenanceAdditionalRequestors field for DPU
 		expectedRequestors := dpuSet.Spec.DPUTemplate.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors
 		if updateNodeMaintenanceAdditionalRequestors(ctx, &dpu, expectedRequestors) {
+			templateUpdate = true
+		}
+		// Steps 2-4 come only from the DPUSet template.
+		if templateUpdate {
 			update = true
+			tracing.RecordTrigger(ctx, &dpu, dpuSet)
 		}
 
 		currentTemplateSpecHash := dpu.GetLabels()[cutil.DPUSetDPUTemplateSpecHashLabelKey]
@@ -1126,6 +1294,7 @@ func (r *DPUSetReconciler) UpdateDPUs(ctx context.Context, dpuSet *provisioningv
 		}
 
 		if update {
+			tracing.InjectTrigger(ctx, &dpu)
 			if err := patcher.Patch(ctx, &dpu); err != nil {
 				return false, fmt.Errorf("failed to patch DPU (%s/%s): %w", dpu.Namespace, dpu.Name, err)
 			}
@@ -1224,12 +1393,23 @@ func updateLabelsAndAnnotationsForDPU(ctx context.Context, dpu *provisioningv1.D
 	needUpdateLabels, newLabels, removedLabels := isNodeLabelUpdateNeeded(dpu, mergedUserLabels)
 	needUpdateAnnotations, newAnnotations, removedAnnotations := isNodeAnnotationUpdateNeeded(dpu, mergedUserAnnotations)
 
+	var templateLabels, templateAnnotations map[string]string
+	if tmpl := dpuSet.Spec.DPUTemplate.Spec.Cluster; tmpl != nil {
+		templateLabels, templateAnnotations = tmpl.NodeLabels, tmpl.NodeAnnotations
+	}
+
 	changed := false
 	if needUpdateLabels {
+		if isTemplateMetadataChange(dpu, dpuSet, cutil.LastAppliedLabelsOnDPUKey, newLabels, removedLabels, templateLabels) {
+			tracing.RecordTrigger(ctx, dpu, dpuSet)
+		}
 		updateNodeLabelsForDPU(ctx, dpu, newLabels, removedLabels)
 		changed = true
 	}
 	if needUpdateAnnotations {
+		if isTemplateMetadataChange(dpu, dpuSet, cutil.LastAppliedAnnotationsOnDPUKey, newAnnotations, removedAnnotations, templateAnnotations) {
+			tracing.RecordTrigger(ctx, dpu, dpuSet)
+		}
 		updateNodeAnnotationsForDPU(ctx, dpu, newAnnotations, removedAnnotations)
 		changed = true
 	}
@@ -1238,12 +1418,35 @@ func updateLabelsAndAnnotationsForDPU(ctx context.Context, dpu *provisioningv1.D
 		if !reflect.DeepEqual(dpu.Spec.Cluster.Selector, sel) {
 			dpu.Spec.Cluster.Selector = sel
 			changed = true
+			tracing.RecordTrigger(ctx, dpu, dpuSet)
 		}
 	} else if dpu.Spec.Cluster.Selector != nil {
 		dpu.Spec.Cluster.Selector = nil
 		changed = true
+		tracing.RecordTrigger(ctx, dpu, dpuSet)
 	}
 	return changed
+}
+
+// isTemplateMetadataChange reports whether the DPUSet template caused a change from the DPU's last
+// applied node labels or annotations, stored under lastAppliedKey, to desired. It must be called
+// before the last applied value is overwritten. A changed key the template sets comes from the
+// template. A removed key is set by neither source anymore, so it is attributed to the template
+// while the DPU's template hash lags the DPUSet's. Any other change comes from the DPUDevice.
+func isTemplateMetadataChange(dpu *provisioningv1.DPU, dpuSet *provisioningv1.DPUSet, lastAppliedKey string, desired map[string]string, removed []string, template map[string]string) bool {
+	if len(removed) > 0 && dpu.Labels[cutil.DPUSetDPUTemplateSpecHashLabelKey] != dpuSet.Labels[cutil.DPUSetDPUTemplateSpecHashLabelKey] {
+		return true
+	}
+	lastApplied := cutil.GetStringMapFromAnnotation(dpu.Annotations, lastAppliedKey)
+	for k, v := range desired {
+		if last, ok := lastApplied[k]; ok && last == v {
+			continue
+		}
+		if _, ok := template[k]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // updateNodeMaintenanceAdditionalRequestors updates the NodeMaintenanceAdditionalRequestors field for existing DPUs when the DPUSet template changes.

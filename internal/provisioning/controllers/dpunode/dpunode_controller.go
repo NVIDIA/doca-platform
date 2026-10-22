@@ -28,6 +28,7 @@ import (
 	dnutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpunode/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/release"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	batchv1 "k8s.io/api/batch/v1"
@@ -121,6 +122,9 @@ func (r *DPUNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 		}
 		return ctrl.Result{}, err
 	}
+
+	ctx, endSpan := tracing.ReconcileSpan(ctx, DPUNodeControllerName, dpuNode)
+	defer endSpan(&reterr)
 
 	log.Info("Reconcile", "DPUNode", dpuNode.Status.Conditions)
 	patcher := patch.NewSerialPatcher(dpuNode, r.Client)
@@ -1135,9 +1139,11 @@ func (r *DPUNodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.nodeToDPUNodeReq),
 			builder.WithPredicates(predicate.LabelChangedPredicate{})).
 		Watches(&provisioningv1.DPU{},
-			handler.EnqueueRequestsFromMapFunc(r.dpuToDPUNodeReq)).
+			handler.EnqueueRequestsFromMapFunc(r.dpuToDPUNodeReq),
+			builder.WithPredicates(tracing.IgnoreTraceOnlyUpdates())).
 		Watches(&provisioningv1.DPUDevice{},
-			handler.EnqueueRequestsFromMapFunc(r.dpuDeviceToDPUNodeReq)).
+			handler.EnqueueRequestsFromMapFunc(r.dpuDeviceToDPUNodeReq),
+			builder.WithPredicates(tracing.IgnoreTraceOnlyUpdates())).
 		Watches(&operatorv1.DPFOperatorConfig{},
 			handler.EnqueueRequestsFromMapFunc(r.dpfOperatorConfigToDPUNodeReq)).
 		Complete(r)

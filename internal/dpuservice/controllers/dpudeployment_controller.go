@@ -468,9 +468,11 @@ func (r *DPUDeploymentReconciler) reconcile(ctx context.Context, dpuDeployment *
 	return requeue, nil
 }
 
-// tracingRevision identifies the inputs of the DPUDeployment as the generations of the objects it
-// references. A change of one of them is a change of the DPUDeployment for tracing, although its
-// own generation stays. Objects that cannot be read are left out, so readiness does not matter.
+// tracingRevision identifies the inputs of the DPUDeployment as the UID and generation of the
+// objects it references. A change of one of them is a change of the DPUDeployment for tracing,
+// although its own generation stays. The UID is included so an input deleted and recreated under
+// the same name starts a new trace when its generation matches the old one. Objects that cannot be
+// read are left out, so readiness does not matter.
 func tracingRevision(ctx context.Context, c client.Client, dpuDeployment *dpuservicev1.DPUDeployment) string {
 	var refs []client.Object
 	add := func(ref client.Object, name string) {
@@ -499,7 +501,7 @@ func tracingRevision(ctx context.Context, c client.Client, dpuDeployment *dpuser
 		if err := c.Get(ctx, client.ObjectKeyFromObject(ref), ref); err != nil {
 			continue
 		}
-		generations = append(generations, fmt.Sprintf("%T/%s/%d", ref, ref.GetName(), ref.GetGeneration()))
+		generations = append(generations, fmt.Sprintf("%T/%s/%s/%d", ref, ref.GetName(), ref.GetUID(), ref.GetGeneration()))
 	}
 	slices.Sort(generations)
 	return digest.Short(digest.FromObjects(generations), 12)

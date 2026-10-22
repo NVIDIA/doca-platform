@@ -25,6 +25,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -38,10 +39,13 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	dpfutils "github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	dpucluster "github.com/nvidia/doca-platform/pkg/dpucluster"
 
 	"github.com/fluxcd/pkg/runtime/patch"
+	"go.opentelemetry.io/otel/attribute"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -65,6 +69,8 @@ type PhaseHandlerFunc func(context.Context, *provisioningv1.DPU, *util.Controlle
 const (
 	// DPUControllerName is used when reporting events.
 	DPUControllerName = "dpu"
+	// TracingServiceName is the service.name of the spans the provisioning controller binary exports.
+	TracingServiceName = "dpf-provisioning-controller"
 
 	// ClusterNodeResyncPeriod is how often the DPUCluster Node cache relists.
 	// Ten hours is controller-runtime's default cache sync period.
@@ -73,6 +79,16 @@ const (
 	// dpuNameField indexes DPU metadata.name so a Node event lists only DPUs with that name.
 	dpuNameField = "dpu.metadata.name"
 )
+
+// phaseSpanName returns the span name for phase. Spaces are removed so a phase such as
+// "OS Installing" is recorded as dpu.phase.OSInstalling. An empty phase is Initializing, matching
+// the handler used for that status.
+func phaseSpanName(phase provisioningv1.DPUPhase) string {
+	if phase == "" {
+		phase = provisioningv1.DPUInitializing
+	}
+	return "dpu.phase." + strings.ReplaceAll(string(phase), " ", "")
+}
 
 // DPUReconciler reconciles a DPU object
 type DPUReconciler struct {
@@ -196,6 +212,9 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 		return ctrl.Result{}, fmt.Errorf("failed to get DPU %w", err)
 	}
 
+	ctx, endSpan := tracing.ReconcileSpan(ctx, DPUControllerName, dpu)
+	defer endSpan(&reterr)
+
 	patcher := patch.NewSerialPatcher(dpu, r.ctrlCtx.Client)
 	defer func() {
 		logger.Info("Patching")
@@ -271,14 +290,27 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 	// Node Effect, DPU Config, Rebooting, and install phases fall through.
 	var nextState provisioningv1.DPUStatus
 	var err error
+	phaseCtx, phaseSpan := tracing.StartSpan(ctx, phaseSpanName(dpu.Status.Phase),
+		attribute.String("dpu.phase", string(dpu.Status.Phase)),
+		attribute.String("dpu.device", dpu.Spec.DPUDeviceName),
+		attribute.String("dpu.node", dpu.Spec.DPUNodeName),
+	)
 	if jumped, ok := state.StartInPlaceReconfig(dpu); ok {
 		nextState = jumped
+		tracing.AddAttributes(phaseCtx, attribute.String("dpu.reconfig", "in-place"))
 	} else {
-		nextState, err = h(ctx, dpu, &ctrlCtx)
+		nextState, err = h(phaseCtx, dpu, &ctrlCtx)
 		if err != nil {
 			logger.Error(err, "State handle error")
 		}
 	}
+	tracing.AddAttributes(phaseCtx, attribute.String("dpu.phase.next", string(nextState.Phase)))
+	// Every Ready DPU is reconciled once after a restart. The Ready handler starts no child span, so
+	// dropping its span cannot orphan one.
+	if err == nil && dpu.Status.Phase == provisioningv1.DPUReady && equality.Semantic.DeepEqual(nextState, dpu.Status) {
+		tracing.MarkUnchanged(phaseCtx)
+	}
+	tracing.EndSpan(phaseSpan, err)
 
 	// Mirror the render-failed annotation (set by the DPUSet controller) into the
 	// DPUFlavorRendered condition in any phase. This is phase-agnostic for the update case: a
@@ -497,7 +529,7 @@ func (r *DPUReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		maxConcurrentReconciles = util.DefaultDPUMaxConcurrentReconciles
 	}
 	c, err := ctrl.NewControllerManagedBy(mgr).
-		For(&provisioningv1.DPU{}).
+		For(&provisioningv1.DPU{}, builder.WithPredicates(tracing.IgnoreTraceOnlyUpdates())).
 		Watches(&provisioningv1.DPUCluster{}, handler.EnqueueRequestsFromMapFunc(r.nonInitializedDPU)).
 		// Watch DPUNode annotation changes for external reboot method
 		Watches(&provisioningv1.DPUNode{}, handler.EnqueueRequestsFromMapFunc(r.dpuNodeToDPU), builder.WithPredicates(predicate.AnnotationChangedPredicate{})).
@@ -824,6 +856,7 @@ func (r *DPUReconciler) UpdateDPUNodeMaintenanceRequestors(ctx context.Context, 
 		// update the Requestor field
 		expectedRequestors = append(expectedRequestors, dpuRequestors...)
 		dpunodemaintenance.Spec.Requestor = expectedRequestors
+		tracing.InjectIntoObject(ctx, dpunodemaintenance)
 
 		logger.Info(fmt.Sprintf("Updating NodeMaintenanceAdditionalRequestors: %v for DPUNodeMaintenance (%s/%s)", expectedRequestors, dpunodemaintenance.Namespace, dpunodemaintenance.Name))
 		return client.Update(ctx, dpunodemaintenance)

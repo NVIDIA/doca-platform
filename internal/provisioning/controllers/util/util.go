@@ -30,6 +30,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/bfbregistry"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -320,8 +321,15 @@ func AddLabelsToObject(ctx context.Context, client crclient.Client, obj metav1.O
 		obj.SetLabels(make(map[string]string))
 	}
 
+	changed := false
 	for key, value := range labels {
-		obj.GetLabels()[key] = value
+		if current, ok := obj.GetLabels()[key]; !ok || current != value {
+			obj.GetLabels()[key] = value
+			changed = true
+		}
+	}
+	if changed {
+		tracing.InjectIntoObject(ctx, obj.(crclient.Object))
 	}
 
 	if err := patcher.Patch(ctx, obj.(crclient.Object)); err != nil {

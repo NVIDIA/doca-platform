@@ -97,6 +97,12 @@ func (r *DPUSetReconciler) reconcileDPUFlavorTemplateCondition(ctx context.Conte
 type templateEval struct {
 	// disrupt is true when the DPU must be reprovisioned (delete + recreate).
 	disrupt bool
+	// valuesOnly is true when disrupt comes only from a DPUDevice.spec.values change, which the
+	// DPUDevice's own trace already covers.
+	valuesOnly bool
+	// changedTemplate is the DPUFlavorTemplate when disrupt comes from a change to its body, so
+	// the recreated DPU continues the template's trace.
+	changedTemplate *provisioningv1.DPUFlavorTemplate
 	// renderErr is set when rendering, admission, or an unowned-flavor refusal failed for
 	// an existing DPU. The DPU is NOT disrupted; the failure is surfaced as a
 	// non-disruptive annotation and the rest of the set is still reconciled.
@@ -303,10 +309,15 @@ func (r *DPUSetReconciler) evalTemplateDPU(ctx context.Context, dpuSet provision
 
 	// Render succeeded: only now is a missing generated flavor a genuine drift that
 	// warrants reprovisioning (delete + recreate), per the REL1 flavor lifecycle.
+	valuesOnly := liveHash == dpu.Labels[cutil.DPUFlavorTemplateHashLabel]
+	var changedTemplate *provisioningv1.DPUFlavorTemplate
+	if !valuesOnly {
+		changedTemplate = template
+	}
 	generated := &provisioningv1.DPUFlavor{}
 	flavorErr := r.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpu.Spec.DPUFlavor}, generated)
 	if apierrors.IsNotFound(flavorErr) {
-		return templateEval{disrupt: true}
+		return templateEval{disrupt: true, valuesOnly: valuesOnly, changedTemplate: changedTemplate}
 	}
 	if flavorErr != nil {
 		// Transient read error: don't disrupt on uncertainty.
@@ -314,7 +325,12 @@ func (r *DPUSetReconciler) evalTemplateDPU(ctx context.Context, dpuSet provision
 		return templateEval{}
 	}
 
-	return r.classifyRenderedDrift(ctx, rendered, generated, dpu, liveHash, liveValuesHash)
+	eval := r.classifyRenderedDrift(ctx, rendered, generated, dpu, liveHash, liveValuesHash)
+	if eval.disrupt {
+		eval.valuesOnly = valuesOnly
+		eval.changedTemplate = changedTemplate
+	}
+	return eval
 }
 
 // classifyRenderedDrift decides whether a freshly rendered flavor diverges from the stored

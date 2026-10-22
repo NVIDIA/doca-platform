@@ -24,6 +24,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -159,6 +160,7 @@ func RemoveRequestorFromDPUNodeMaintenance(ctx context.Context, dpu *provisionin
 		}
 		if len(newRequestors) != len(dpunodemaintenance.Spec.Requestor) {
 			dpunodemaintenance.Spec.Requestor = newRequestors
+			tracing.InjectIntoObject(ctx, dpunodemaintenance)
 			return ctrlCtx.Client.Update(ctx, dpunodemaintenance)
 		}
 		return nil
