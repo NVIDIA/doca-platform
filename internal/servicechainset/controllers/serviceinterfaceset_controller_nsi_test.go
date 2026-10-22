@@ -31,9 +31,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 // assertConditionCurrent waits for the named condition on the given entry to be
@@ -814,6 +817,74 @@ var _ = Describe("ServiceInterfaceSet Controller — NSI path", func() {
 					g.Expect(e.Name).NotTo(Equal(entryName))
 				}
 			}, 5*time.Second, interval).Should(Succeed())
+		})
+
+		It("should not patch legacy ServiceInterfaces that are already up to date", func() {
+			matchLabels := map[string]string{"role": "nsi-vpc"}
+			cleanupObjects = append(cleanupObjects, createNode(ctx, "nsi-vpc-node1", matchLabels))
+			sis := createLegacyTypedServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{MatchLabels: matchLabels},
+				dpuservicev1.InterfaceTypeVF, ptr.To("myvnet"))
+			cleanupObjects = append(cleanupObjects, sis)
+
+			By("Waiting for the ServiceInterface to be created")
+			Eventually(func(g Gomega) {
+				g.Expect(legacyChildNames(ctx, g, sis)).To(HaveLen(1))
+			}, timeout*3, interval).Should(Succeed())
+
+			By("Reconciling again and expecting no ServiceInterface PATCH")
+			var childPatches []string
+			c, err := client.NewWithWatch(cfg, client.Options{Scheme: testClient.Scheme(), Cache: &client.CacheOptions{Reader: testClient}})
+			Expect(err).NotTo(HaveOccurred())
+			r := &ServiceInterfaceSetReconciler{
+				Client: interceptor.NewClient(c, interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if _, ok := obj.(*dpuservicev1.ServiceInterfaceSet); !ok {
+							childPatches = append(childPatches, client.ObjectKeyFromObject(obj).String())
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}),
+				Scheme: testClient.Scheme(),
+			}
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: sis.Namespace, Name: sis.Name}}
+			Eventually(func(g Gomega) {
+				childPatches = nil
+				_, err := r.Reconcile(ctx, req)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(childPatches).To(BeEmpty())
+			}, timeout, interval).Should(Succeed())
+		})
+
+		It("should restore a legacy ServiceInterface that drifted from the template", func() {
+			matchLabels := map[string]string{"role": "nsi-vpc"}
+			cleanupObjects = append(cleanupObjects, createNode(ctx, "nsi-vpc-node1", matchLabels))
+			sis := createLegacyTypedServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{MatchLabels: matchLabels},
+				dpuservicev1.InterfaceTypeVF, ptr.To("myvnet"))
+			cleanupObjects = append(cleanupObjects, sis)
+
+			By("Waiting for the ServiceInterface to be created")
+			var si *dpuservicev1.ServiceInterface
+			Eventually(func(g Gomega) {
+				var err error
+				si, err = getServiceInterfaceForNode(ctx, testClient, sis, "nsi-vpc-node1")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(si).NotTo(BeNil())
+			}, timeout*3, interval).Should(Succeed())
+
+			By("Removing a template label and changing the spec of the ServiceInterface")
+			drifted := si.DeepCopy()
+			delete(drifted.Labels, "color")
+			drifted.Spec.VF.VFID = 7
+			Expect(testClient.Patch(ctx, drifted, client.MergeFrom(si))).To(Succeed())
+
+			By("Expecting the controller to restore the ServiceInterface")
+			Eventually(func(g Gomega) {
+				got := &dpuservicev1.ServiceInterface{}
+				g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(si), got)).To(Succeed())
+				g.Expect(got.Labels).To(HaveKeyWithValue("color", "blue"))
+				g.Expect(got.Spec.VF).NotTo(BeNil())
+				g.Expect(got.Spec.VF.VFID).To(Equal(0))
+			}, timeout*3, interval).Should(Succeed())
 		})
 	})
 })
