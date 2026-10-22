@@ -40,8 +40,11 @@ const (
 	// ManagedByLabelValue is the label value for pods managed by this controller.
 	ManagedByLabelValue = "nodesriovdeviceplugin-controller"
 
-	// nodeControllerName is the name of the node controller.
-	nodeControllerName = "nodesriovdeviceplugin-node-controller"
+	// NodeControllerName is the name of the node controller.
+	NodeControllerName = "nodesriovdeviceplugin-node-controller"
+
+	// TracingServiceName is the OpenTelemetry service.name of this binary, the name Tempo and Grafana group its spans under.
+	TracingServiceName = "dpf-nodesriovdeviceplugin-controller"
 
 	// DefaultResourcePrefix is the default resource prefix for device plugin resources.
 	DefaultResourcePrefix = "nvidia.com"
@@ -54,6 +57,16 @@ const (
 
 	// BackoffGCInterval is the interval for backoff garbage collection.
 	BackoffGCInterval = 1 * time.Minute
+)
+
+// podActionAttribute is the attribute of the sync-pod span that tells what the reconcile did about the
+// managed pod of the node.
+const (
+	podActionAttribute = "pod.action"
+	podActionCreate    = "create"
+	podActionDelete    = "delete"
+	podActionRecreate  = "recreate"
+	podActionNone      = "none"
 )
 
 // DevicePluginConfig holds the configuration for device plugin pods.

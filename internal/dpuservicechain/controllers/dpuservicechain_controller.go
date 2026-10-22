@@ -26,6 +26,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dpfutils "github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/pkg/utils/predicates"
@@ -63,7 +64,7 @@ type DPUServiceChainReconciler struct {
 }
 
 const (
-	dpuServiceChainControllerName = "dpuservicechaincontroller"
+	DPUServiceChainControllerName = "dpuservicechaincontroller"
 )
 
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpuservicechains,verbs=get;list;watch;create;update;patch;delete
@@ -89,6 +90,9 @@ func (r *DPUServiceChainReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, err
 	}
 
+	ctx, endSpan := tracing.ReconcileSpan(ctx, DPUServiceChainControllerName, dpuServiceChain)
+	defer endSpan(&reterr)
+
 	patcher := patch.NewSerialPatcher(dpuServiceChain, r.Client)
 
 	// Defer a patch call to always patch the object when Reconcile exits.
@@ -99,7 +103,7 @@ func (r *DPUServiceChainReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
 		if err := patcher.Patch(ctx, dpuServiceChain,
-			patch.WithFieldOwner(dpuServiceChainControllerName),
+			patch.WithFieldOwner(DPUServiceChainControllerName),
 			patch.WithStatusObservedGeneration{},
 			patch.WithOwnedConditions{Conditions: conditions.TypesAsStrings(dpuservicev1.DPUServiceChainConditions)},
 		); err != nil {
@@ -210,7 +214,10 @@ func (r *DPUServiceChainReconciler) createOrUpdateObjectsInDPUCluster(ctx contex
 		return err
 	}
 
-	return k8sClient.Patch(ctx, scs, client.Apply, client.ForceOwnership, client.FieldOwner(dpuServiceChainControllerName))
+	// Propagate this reconcile's trace context onto the ServiceChainSet so its own controller's
+	// span continues this trace instead of starting an unparented one.
+	tracing.InjectIntoObject(ctx, scs)
+	return k8sClient.Patch(ctx, scs, client.Apply, client.ForceOwnership, client.FieldOwner(DPUServiceChainControllerName))
 }
 
 func (r *DPUServiceChainReconciler) deleteObjectsInDPUCluster(ctx context.Context, k8sClient client.Client, dpuObject dpuservicev1.DPUServiceObject) error {

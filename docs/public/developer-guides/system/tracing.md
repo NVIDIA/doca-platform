@@ -2,12 +2,22 @@
 
 DPF controllers can export OpenTelemetry trace spans for their reconcile
 loops. The shared helpers live in `internal/utils/tracing` and are used by
-every instrumented controller the same way. One change of a top-level object,
-such as a DPUDeployment, is one trace: the reconciles of everything it creates
-hang under the rollout span of the change. Controllers apply desired state
-passively, so DPF cannot tell which reconcile caused another. The trace is
-flat on purpose, its spans ran for the same change, they did not cause each
-other. The trace ID is also set as the `workflow.id` span attribute.
+every instrumented controller the same way.
+
+One change of a top-level object, such as a DPUDeployment, is one trace. All
+reconciles of the object and of everything it creates join it, so they show up
+together in the backend.
+
+The trace ID comes from the `traceparent` annotation when the object has one.
+Otherwise DPF derives it from the object's UID and generation, so a spec change
+starts a new trace. The ID is also set as the `workflow.id` span attribute, so
+you can search for it.
+
+The trace is flat, its spans have no parent and child between them. Controllers
+do not call each other, they react to objects, so DPF cannot tell which
+reconcile caused another. All of them sit side by side under the root of the
+change: the rollout span, or the upstream span when the caller set the trace.
+Read the order from the timestamps.
 
 For how to enable tracing on a running deployment and view the result, see
 [Tracing](../../operational-readiness/observability/deployment/operator-managed-components.md#tracing)
@@ -46,10 +56,9 @@ the span in the annotation, so a trace set by an upstream caller like carbide
 continues through DPF. When the reconciled object carries none (the caller is
 not tracing-aware), the controller of a top-level object passes
 `tracing.WorkflowRoot()` and `ReconcileSpan` derives the trace from the
-object's UID and generation. A spec change bumps the generation and starts a
-new trace. Any other controller starts a trace of its own with each reconcile
-in that case, because nothing would export the root of a derived trace for it,
-and it does not pass the derived value on.
+object's UID and generation. Any other controller starts a trace of its own
+with each reconcile in that case, because nothing would export the root of a
+derived trace for it, and it does not pass the derived value on.
 
 There are two pairs of annotations, so DPF never overwrites what a user or
 consumer set. A user or consumer sets `tracing.k8s.io/traceparent` and

@@ -24,6 +24,7 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -161,7 +162,10 @@ func reconcileDPUServiceInterfaces(
 
 			newRevision.SetManagedFields(nil)
 			newRevision.SetGroupVersionKind(dpuservicev1.DPUServiceInterfaceGroupVersionKind)
-			if err := c.Patch(ctx, newRevision, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName)); err != nil {
+			// Propagate this reconcile's trace context onto the DPUServiceInterface so its own
+			// controller's span continues this trace instead of starting an unparented one.
+			tracing.InjectIntoObject(ctx, newRevision)
+			if err := c.Patch(ctx, newRevision, client.Apply, client.ForceOwnership, client.FieldOwner(DPUDeploymentControllerName)); err != nil {
 				errs = append(errs, fmt.Errorf("failed to patch DPUServiceInterface %s: %w", client.ObjectKeyFromObject(newRevision), err))
 			}
 		}

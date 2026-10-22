@@ -29,6 +29,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/digest"
 	"github.com/nvidia/doca-platform/internal/dpuservice/templates"
 	"github.com/nvidia/doca-platform/internal/dpuservice/utils"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"gonum.org/v1/gonum/graph/simple"
@@ -137,6 +138,9 @@ func reconcileDPUServices(
 			errs = append(errs, fmt.Errorf("failed to generate DPUService %s: %w", serviceName, err))
 			continue
 		}
+		// Propagate this reconcile's trace context onto the DPUService so the DPUService
+		// controller's own span continues this trace instead of starting an unparented one.
+		tracing.InjectIntoObject(ctx, newRevision)
 
 		// filter existing services by name
 		currentRevision, oldRevisions := getCurrentAndStaleDPUServices(serviceName, versionDigest, existingDPUServices)
@@ -183,7 +187,7 @@ func reconcileDPUServices(
 
 		// we have to patch in this loop because other dpuServices might depend on this one
 		// further down the line
-		if err := c.Patch(ctx, newRevision, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName)); err != nil {
+		if err := c.Patch(ctx, newRevision, client.Apply, client.ForceOwnership, client.FieldOwner(DPUDeploymentControllerName)); err != nil {
 			errs = append(errs, fmt.Errorf("failed to patch DPUService %s: %w", client.ObjectKeyFromObject(newRevision), err))
 			continue
 		}
@@ -578,7 +582,8 @@ func cleanStaleDPUServices(ctx context.Context, c client.Client, oldRevisions []
 		dpuService.Spec.Paused = ptr.To(false)
 		dpuService.SetManagedFields(nil)
 		dpuService.SetGroupVersionKind(dpuservicev1.DPUServiceGroupVersionKind)
-		if err := c.Patch(ctx, &dpuService, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName)); err != nil {
+		tracing.InjectIntoObject(ctx, &dpuService)
+		if err := c.Patch(ctx, &dpuService, client.Apply, client.ForceOwnership, client.FieldOwner(DPUDeploymentControllerName)); err != nil {
 			if !apierrors.IsNotFound(err) {
 				return fmt.Errorf("error while patching %s %s: %w", dpuService.GetObjectKind().GroupVersionKind().String(), client.ObjectKeyFromObject(&dpuService), err)
 			}
@@ -613,7 +618,8 @@ func pauseStaleDPUServices(ctx context.Context, c client.Client, dpuServices []d
 	for _, dpuService := range dpuServices {
 		dpuService.Spec.Paused = ptr.To(true)
 		dpuService.SetManagedFields(nil)
-		if err := c.Patch(ctx, &dpuService, client.Apply, client.ForceOwnership, client.FieldOwner(dpuDeploymentControllerName)); err != nil {
+		tracing.InjectIntoObject(ctx, &dpuService)
+		if err := c.Patch(ctx, &dpuService, client.Apply, client.ForceOwnership, client.FieldOwner(DPUDeploymentControllerName)); err != nil {
 			return fmt.Errorf("failed to patch DPUService %s: %w", client.ObjectKeyFromObject(&dpuService), err)
 		}
 	}

@@ -27,6 +27,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/features"
 	"github.com/nvidia/doca-platform/internal/servicechainset/predicates"
 	"github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -55,7 +56,7 @@ const (
 	ServiceInterfaceSetNameLabel      = dpuservicev1.SvcDpuGroupName + "/serviceinterfaceset-name"
 	ServiceInterfaceSetNamespaceLabel = dpuservicev1.SvcDpuGroupName + "/serviceinterfaceset-namespace"
 	ServiceInterfaceServiceIDLabel    = dpuservicev1.SvcDpuGroupName + "/service-id"
-	serviceInterfaceSetControllerName = "service-interface-set-controller"
+	ServiceInterfaceSetControllerName = "service-interface-set-controller"
 	nodeFieldKey                      = "spec.node"
 
 	// nsiNodeLabel is stamped on every NodeServiceInterfaces object to record the node
@@ -103,6 +104,9 @@ func (r *ServiceInterfaceSetReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 
+	ctx, endSpan := tracing.ReconcileSpan(ctx, ServiceInterfaceSetControllerName, serviceInterfaceSet)
+	defer endSpan(&reterr)
+
 	patcher := patch.NewSerialPatcher(serviceInterfaceSet, r.Client)
 
 	// Defer a patch call to always patch the object when Reconcile exits.
@@ -121,7 +125,7 @@ func (r *ServiceInterfaceSetReconciler) Reconcile(ctx context.Context, req ctrl.
 		}
 
 		if err := patcher.Patch(ctx, serviceInterfaceSet,
-			patch.WithFieldOwner(serviceInterfaceSetControllerName),
+			patch.WithFieldOwner(ServiceInterfaceSetControllerName),
 			patch.WithStatusObservedGeneration{},
 			patch.WithOwnedConditions{Conditions: conditions.TypesAsStrings(dpuservicev1.ServiceInterfaceSetConditions)},
 		); err != nil {
@@ -469,10 +473,14 @@ func (r *ServiceInterfaceSetReconciler) createOrUpdateChild(ctx context.Context,
 	}
 	serviceInterface.SetManagedFields(nil)
 	serviceInterface.SetGroupVersionKind(dpuservicev1.GroupVersion.WithKind("ServiceInterface"))
+	// Propagate this reconcile's trace context onto the ServiceInterface so a future SDN-owned
+	// controller span for it continues this trace instead of starting an unparented one.
+	// Before the up-to-date check, so a new trace context is written to an existing child.
+	tracing.InjectIntoObject(ctx, serviceInterface)
 	if si != nil && serviceInterfaceUpToDate(si, serviceInterface) {
 		return nil
 	}
-	if err := r.Client.Patch(ctx, serviceInterface, client.Apply, client.ForceOwnership, client.FieldOwner(serviceInterfaceSetControllerName)); err != nil {
+	if err := r.Client.Patch(ctx, serviceInterface, client.Apply, client.ForceOwnership, client.FieldOwner(ServiceInterfaceSetControllerName)); err != nil {
 		return err
 	}
 
@@ -700,6 +708,9 @@ func (r *ServiceInterfaceSetReconciler) applyNSIEntry(
 	}
 	nsi.SetManagedFields(nil)
 	nsi.SetGroupVersionKind(dpuservicev1.NodeServiceInterfacesGroupVersionKind)
+	// Propagate this reconcile's trace context onto the NodeServiceInterfaces so a future
+	// SDN-owned controller span for it continues this trace instead of starting an unparented one.
+	tracing.InjectIntoObject(ctx, nsi)
 	return nsi, r.Client.Patch(ctx, nsi, client.Apply, client.ForceOwnership, client.FieldOwner(nsiFieldManager(set)))
 }
 

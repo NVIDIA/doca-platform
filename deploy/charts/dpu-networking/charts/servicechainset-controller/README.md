@@ -29,6 +29,10 @@ A Helm chart for Kubernetes
 | serviceAccount.annotations | object | `{}` |  |
 | serviceAccount.labels | object | `{}` |  |
 | serviceAccount.name | string | `nil` |  |
+| tracing | object | `{"caPEM":"","endpoint":"","transport":""}` | tracing configures the servicechainset-controller's own OTLP trace export. The operator sets it from DPFOperatorConfig spec.monitoring.openTelemetryCollector.tracing. |
+| tracing.caPEM | string | `""` | caPEM is a PEM-encoded CA certificate bundle used to verify the endpoint's TLS certificate. If empty, TLS endpoints are verified against the system CA pool. |
+| tracing.endpoint | string | `""` | endpoint is the OTLP endpoint to export trace spans to. If empty, tracing is disabled. |
+| tracing.transport | string | `""` | transport is the OTLP transport used to export trace spans: "http" (default) or "grpc". |
 | volumeMounts | list | `[]` |  |
 | volumes | list | `[]` |  |
 

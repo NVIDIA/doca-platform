@@ -26,6 +26,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	sfcsetcontroller "github.com/nvidia/doca-platform/internal/servicechainset/controllers"
 	"github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/pkg/dpuselector"
@@ -298,6 +299,9 @@ func (r *DPUReadyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 	if err := r.Get(ctx, req.NamespacedName, &dpuNode); err != nil {
 		return res, client.IgnoreNotFound(err)
 	}
+
+	ctx, endSpan := tracing.ReconcileSpan(ctx, dpureadyControllerName, &dpuNode)
+	defer endSpan(&reterr)
 
 	scope, err := r.newReconcileScope(ctx, &dpuNode)
 	if err != nil {

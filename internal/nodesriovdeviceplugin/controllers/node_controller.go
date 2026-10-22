@@ -23,9 +23,11 @@ import (
 	noderesourcesv1 "github.com/nvidia/doca-platform/api/noderesources/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/nodesriovdeviceplugin/common"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/utils/predicates"
 
+	"go.opentelemetry.io/otel/attribute"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -61,7 +63,7 @@ type NodeReconciler struct {
 }
 
 // Reconcile handles the reconciliation logic for a Node.
-func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	log := ctrllog.FromContext(ctx)
 	log.Info("Reconciling")
 
@@ -79,6 +81,9 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{}, err
 	}
 
+	ctx, endSpan := tracing.ReconcileSpan(ctx, NodeControllerName, node)
+	defer endSpan(&reterr)
+
 	// Return early if the node is getting deleted.
 	if !node.DeletionTimestamp.IsZero() {
 		return r.reconcileDelete(ctx, node.Name)
@@ -88,8 +93,13 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 }
 
 // reconcile handles the main reconciliation logic.
-func (r *NodeReconciler) reconcile(ctx context.Context, node *corev1.Node) (ctrl.Result, error) {
+func (r *NodeReconciler) reconcile(ctx context.Context, node *corev1.Node) (_ ctrl.Result, reterr error) {
 	log := ctrllog.FromContext(ctx)
+
+	// The reconcile mostly decides, so this span shows what it did about the managed pod. A reconcile
+	// that did nothing marks it unchanged, so it stays out of the traces.
+	ctx, span := tracing.StartSpan(ctx, "nodesriovdeviceplugin.sync-pod")
+	defer func() { tracing.EndSpan(span, reterr) }()
 
 	// Find all target DPUs for this node (DPUs that have annotation pointing to a config).
 	targetDPUs, err := r.getTargetDPUsForNode(ctx, node.Name)
@@ -152,6 +162,14 @@ func (r *NodeReconciler) ensureNoPod(ctx context.Context, nodeName string) (ctrl
 		return ctrl.Result{}, fmt.Errorf("failed to get managed pods for node: %w", err)
 	}
 
+	podAction := podActionNone
+	if len(pods) > 0 {
+		podAction = podActionDelete
+	} else {
+		tracing.MarkUnchanged(ctx)
+	}
+	tracing.AddAttributes(ctx, attribute.String(podActionAttribute, podAction))
+
 	for _, pod := range pods {
 		log.Info("Deleting managed pod", "pod", pod.Name)
 		if err := r.deletePod(ctx, pod); err != nil {
@@ -169,6 +187,7 @@ func (r *NodeReconciler) reconcilePod(ctx context.Context, nodeName string,
 
 	// Handle multiple pods (unexpected state).
 	if len(existingPods) > 1 {
+		tracing.AddAttributes(ctx, attribute.String(podActionAttribute, podActionRecreate))
 		log.Info("Multiple managed pods found, deleting all and recreating")
 		for _, pod := range existingPods {
 			if err := r.deletePod(ctx, pod); err != nil {
@@ -181,6 +200,7 @@ func (r *NodeReconciler) reconcilePod(ctx context.Context, nodeName string,
 
 	// No existing pod, create one.
 	if len(existingPods) == 0 {
+		tracing.AddAttributes(ctx, attribute.String(podActionAttribute, podActionCreate))
 		log.Info("Creating managed pod", "pod", desiredPod.Name)
 		if err := r.Client.Create(ctx, desiredPod); err != nil && !apierrors.IsAlreadyExists(err) {
 			return ctrl.Result{}, fmt.Errorf("failed to create pod: %w", err)
@@ -193,11 +213,13 @@ func (r *NodeReconciler) reconcilePod(ctx context.Context, nodeName string,
 	existingPod := existingPods[0]
 
 	if isPodInTerminalState(existingPod) {
+		tracing.AddAttributes(ctx, attribute.String(podActionAttribute, podActionRecreate))
 		return r.handlePodInTerminalState(ctx, nodeName, existingPod)
 	}
 
 	// Check if pod is outdated and needs recreation.
 	if isPodOutdated(existingPod, desiredPod) {
+		tracing.AddAttributes(ctx, attribute.String(podActionAttribute, podActionRecreate))
 		log.Info("Pod is outdated, deleting and recreating", "pod", existingPod.Name)
 		if err := r.deletePod(ctx, existingPod); err != nil {
 			return ctrl.Result{}, err
@@ -206,6 +228,8 @@ func (r *NodeReconciler) reconcilePod(ctx context.Context, nodeName string,
 		return ctrl.Result{}, nil
 	}
 
+	tracing.MarkUnchanged(ctx)
+	tracing.AddAttributes(ctx, attribute.String(podActionAttribute, podActionNone))
 	log.V(1).Info("Pod spec is up to date", "pod", existingPod.Name)
 	return ctrl.Result{}, nil
 }
@@ -383,7 +407,7 @@ func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// NOTE: When adding or changing watches here, also update cache configuration in manager_options.go
 	// to match.
 	bldr := ctrl.NewControllerManagedBy(mgr).
-		Named(nodeControllerName).
+		Named(NodeControllerName).
 		For(&corev1.Node{}, builder.WithPredicates(
 			predicates.PredicateFuncsByEventTypes(event.CreateEvent{}, event.DeleteEvent{}))).
 		Watches(&provisioningv1.DPU{},

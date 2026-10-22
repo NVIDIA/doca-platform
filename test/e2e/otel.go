@@ -25,8 +25,12 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	dpuservicecontroller "github.com/nvidia/doca-platform/internal/dpuservice/controllers"
+	dpuservicechaincontroller "github.com/nvidia/doca-platform/internal/dpuservicechain/controllers"
+	sfcsetcontroller "github.com/nvidia/doca-platform/internal/servicechainset/controllers"
 	"github.com/nvidia/doca-platform/test/utils/loki"
 	"github.com/nvidia/doca-platform/test/utils/prometheus"
+	"github.com/nvidia/doca-platform/test/utils/tempo"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -52,6 +56,15 @@ const (
 	// directly by the caSecretRef of DPFOperatorConfig
 	// spec.monitoring.openTelemetryCollector.logging and .metrics.
 	otelServingCertSecretName = "otel-gateway-server-tls"
+	// otelInClusterHost is the management collector's in-cluster Service DNS name, a SAN the
+	// serving certificate already covers (unlike the node IP / keepalived VIP otelExportAddress
+	// resolves, which may be a placeholder address in environments with no real DPU nodes - see
+	// openTelemetryCollectorConfiguration's use for Tracing).
+	otelInClusterHost = "opentelemetry-collector.dpf-operator-system.svc.cluster.local"
+	// otelInClusterHTTPPort/otelInClusterHTTPSPort are the collector's in-cluster Service ports
+	// (same container ports the NodePorts above front, see deploy/helmfiles/values/opentelemetry-collector.yaml).
+	otelInClusterHTTPPort  = 4318
+	otelInClusterHTTPSPort = 4320
 )
 
 // otelExportAddress returns the address DPU cluster collectors export to: a DPUCluster keepalived
@@ -70,6 +83,26 @@ func otelExportAddress(ctx context.Context, c client.Client, dpuClusterPaths []s
 	return getClusterControlPlaneIP(ctx, c)
 }
 
+// otelTracingEndpoint returns the endpoint DPF exports traces to. Without DPU nodes only DPF
+// controllers in this cluster use it, so it is the collector's in-cluster Service: a name the
+// serving certificate always covers and always dialable from here, unlike the node IP / keepalived
+// VIP, which may be a placeholder address in a DPUCluster fixture with no real DPU nodes. With DPU
+// nodes the DPU cluster collectors forward traces to it as well and cannot resolve that name, so it
+// is the external NodePort/VIP they use for logs and metrics, which controllers here can dial too.
+func otelTracingEndpoint(exportAddress string, hasDPUNodes, tls bool) string {
+	schema, port, host := otelEndpointSchema, otelInClusterHTTPPort, otelInClusterHost
+	if tls {
+		schema, port = otelTLSEndpointSchema, otelInClusterHTTPSPort
+	}
+	if hasDPUNodes {
+		host, port = exportAddress, otelNodePort
+		if tls {
+			port = otelTLSNodePort
+		}
+	}
+	return fmt.Sprintf("%s%s:%d", schema, host, port)
+}
+
 // openTelemetryCollectorConfiguration returns the collector configuration for the generated
 // DPFOperatorConfig. When the monitoring stack created the management collector's serving
 // certificate, DPU clusters export via the TLS endpoints and verify them against the CA in the
@@ -77,7 +110,7 @@ func otelExportAddress(ctx context.Context, c client.Client, dpuClusterPaths []s
 // over OTLP/HTTP and metrics over OTLP/gRPC, so both transports and both caSecretRef paths are
 // covered end to end against a real cert-manager Secret. Suites deployed without the monitoring
 // stack fall back to the plaintext endpoint.
-func openTelemetryCollectorConfiguration(ctx context.Context, c client.Client, dpuClusterPaths []string) *operatorv1.OpenTelemetryCollectorConfiguration {
+func openTelemetryCollectorConfiguration(ctx context.Context, c client.Client, dpuClusterPaths []string, hasDPUNodes bool) *operatorv1.OpenTelemetryCollectorConfiguration {
 	exportAddress := otelExportAddress(ctx, c, dpuClusterPaths)
 
 	servingCert := &corev1.Secret{}
@@ -89,6 +122,12 @@ func openTelemetryCollectorConfiguration(ctx context.Context, c client.Client, d
 			},
 			Metrics: &operatorv1.OpenTelemetryCollectorExportConfiguration{
 				Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, exportAddress, otelNodePort),
+			},
+			// DPF controllers run inside this cluster, so without DPU nodes they dial the
+			// collector's in-cluster Service. With DPU nodes the DPU cluster collectors forward
+			// traces to this endpoint too, so it must be the external NodePort/VIP.
+			Tracing: &operatorv1.OpenTelemetryCollectorExportConfiguration{
+				Endpoint: otelTracingEndpoint(exportAddress, hasDPUNodes, false),
 			},
 		}
 	}
@@ -107,6 +146,13 @@ func openTelemetryCollectorConfiguration(ctx context.Context, c client.Client, d
 			Transport:   ptr.To(operatorv1.OpenTelemetryCollectorTransportGRPC),
 			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: otelServingCertSecretName},
 		},
+		// Tracing's clients are DPF controller binaries running in this cluster and, with DPU
+		// nodes, the DPU cluster collectors forwarding traces. See otelTracingEndpoint for which
+		// address each case needs.
+		Tracing: &operatorv1.OpenTelemetryCollectorExportConfiguration{
+			Endpoint:    otelTracingEndpoint(exportAddress, hasDPUNodes, true),
+			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: otelServingCertSecretName},
+		},
 	}
 }
 
@@ -123,6 +169,12 @@ func ValidateDPUClusterOpenTelemetryConfiguration(ctx context.Context, input *sy
 	expectedMetricsExporter := "otlphttp/metrics:"
 	if metrics.Transport != nil && *metrics.Transport == operatorv1.OpenTelemetryCollectorTransportGRPC {
 		expectedMetricsExporter = "otlp/metrics:"
+	}
+
+	tracing := input.config.Spec.Monitoring.OpenTelemetryCollector.Tracing
+	expectedTracesExporter := "otlphttp/traces:"
+	if tracing.Transport != nil && *tracing.Transport == operatorv1.OpenTelemetryCollectorTransportGRPC {
+		expectedTracesExporter = "otlp/traces:"
 	}
 
 	for i, dpuClient := range dpuClusterClient {
@@ -165,6 +217,11 @@ func ValidateDPUClusterOpenTelemetryConfiguration(ctx context.Context, input *sy
 				fmt.Sprintf("ConfigMap should contain the management metrics endpoint %s", metrics.Endpoint))
 			g.Expect(c).To(ContainSubstring(expectedMetricsExporter),
 				"ConfigMap should contain the OTLP exporter for metrics")
+			// Verify the traces pipeline forwards to the management tracing endpoint
+			g.Expect(c).To(ContainSubstring(tracing.Endpoint),
+				fmt.Sprintf("ConfigMap should contain the management tracing endpoint %s", tracing.Endpoint))
+			g.Expect(c).To(ContainSubstring(expectedTracesExporter),
+				"ConfigMap should contain the OTLP exporter for traces")
 		}).WithTimeout(10 * time.Second).WithPolling(time.Second).Should(Succeed())
 	}
 }
@@ -444,4 +501,103 @@ func createTestNamespaceInCluster(ctx context.Context, c client.Client, namespac
 	}
 	Expect(client.IgnoreAlreadyExists(c.Create(ctx, testNS))).To(Succeed())
 	return testNS.GetName()
+}
+
+// traceLookback is how far back the trace search looks. A stable cluster stops reconciling, so the
+// spans of the system DPUServices date from startup.
+const traceLookback = 2 * time.Hour
+
+// ValidateManagementClusterTraceFlow verifies trace spans flow from DPF controller reconciles to
+// Tempo. DPF deploys several system DPUServices (kube-state-metrics, node-problem-detector,
+// opentelemetry-collector, ...) that the DPUService controller reconciles once tracing is
+// enabled, each producing a span tagged controller=dpuservice-manager; this waits for one to show
+// up rather than manufacturing a dedicated test DPUService. Reconciles that find nothing changed
+// are not recorded, so the spans can be older than the check and the lookback is generous.
+//
+// The match is on the span's tags, not on a trace shared across controllers.
+func ValidateManagementClusterTraceFlow(ctx context.Context, input *systemTestInput) {
+	tempoClient := tempo.NewClient(hostClusterRESTClient, dpfOperatorSystemNamespace)
+
+	for _, source := range expectedTraceSources(input) {
+		By(fmt.Sprintf("Waiting for %s reconcile spans from %s to appear in Tempo", source.controller, source.serviceName))
+		Eventually(func(g Gomega) {
+			traces, err := tempoClient.SearchByTags(ctx, map[string]string{
+				"controller":   source.controller,
+				"service.name": source.serviceName,
+			}, traceLookback)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(traces).NotTo(BeEmpty(), "No %s reconcile spans from %s found in Tempo", source.controller, source.serviceName)
+		}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
+	}
+}
+
+// ValidateDPUDeploymentTraceFlow verifies that a DPUDeployment yields one trace across the
+// controllers that act on it, from the DPUDeployment down to the ServiceChainSet and
+// ServiceInterfaceSet it leads to. Nothing upstream sets a traceparent on the DPUDeployment, so DPF
+// derives the trace from its UID and generation and copies it onto every object it creates. A trace
+// that contains the spans of all these controllers shows that every hop passed the context on.
+func ValidateDPUDeploymentTraceFlow(ctx context.Context, dpuDeployment *dpuservicev1.DPUDeployment) {
+	tempoClient := tempo.NewClient(hostClusterRESTClient, dpfOperatorSystemNamespace)
+	wantControllers := []string{
+		dpuservicecontroller.DPUDeploymentControllerName,
+		dpuservicecontroller.DPUServiceControllerName,
+		dpuservicechaincontroller.DPUServiceChainControllerName,
+		dpuservicechaincontroller.DPUServiceInterfaceControllerName,
+		sfcsetcontroller.ServiceChainSetControllerName,
+		sfcsetcontroller.ServiceInterfaceSetControllerName,
+	}
+
+	By(fmt.Sprintf("Waiting for one trace of DPUDeployment %s to contain the spans of %v", dpuDeployment.Name, wantControllers))
+	Eventually(func(g Gomega) {
+		traces, err := tempoClient.SearchByTags(ctx, map[string]string{
+			"controller":     dpuservicecontroller.DPUDeploymentControllerName,
+			"k8s.object.uid": string(dpuDeployment.GetUID()),
+		}, 15*time.Minute)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(traces).NotTo(BeEmpty(), "No DPUDeployment reconcile spans found in Tempo")
+
+		// A new generation starts a new trace, so look for the one that has them all.
+		var missing []string
+		for _, trace := range traces {
+			spans, err := tempoClient.GetTrace(ctx, trace.TraceID)
+			g.Expect(err).NotTo(HaveOccurred())
+			missing = missingControllers(spans, wantControllers)
+			if len(missing) == 0 {
+				return
+			}
+		}
+		g.Expect(missing).To(BeEmpty(), "Trace is missing the spans of these controllers")
+	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
+}
+
+// missingControllers returns the controllers in want that no span of the trace is tagged with.
+func missingControllers(spans []tempo.Span, want []string) []string {
+	seen := map[string]bool{}
+	for _, span := range spans {
+		seen[span.Attributes["controller"]] = true
+	}
+	var missing []string
+	for _, controller := range want {
+		if !seen[controller] {
+			missing = append(missing, controller)
+		}
+	}
+	return missing
+}
+
+// traceSource is a controller whose reconcile spans are expected in Tempo.
+type traceSource struct {
+	// controller is the "controller" span attribute and serviceName the service.name of the binary.
+	controller  string
+	serviceName string
+}
+
+// expectedTraceSources returns the controllers that export spans in this run. Only the DPUService
+// controller is checked. The SR-IOV device plugin Node controller is not checked yet: on a bench
+// without DPUs it has nothing to do, so its reconciles are dropped as unchanged. Enable the check
+// with the DPFOperatorConfig tracing settings, which let the e2e record unchanged reconciles.
+func expectedTraceSources(_ *systemTestInput) []traceSource {
+	return []traceSource{
+		{dpuservicecontroller.DPUServiceControllerName, dpuservicecontroller.TracingServiceName},
+	}
 }

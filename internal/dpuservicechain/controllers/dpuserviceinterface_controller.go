@@ -26,6 +26,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	vpcv1 "github.com/nvidia/doca-platform/api/vpc/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/pkg/utils/predicates"
@@ -66,7 +67,7 @@ type DPUServiceInterfaceReconciler struct {
 }
 
 const (
-	dpuServiceInterfaceControllerName = "dpuserviceinterfacecontroller"
+	DPUServiceInterfaceControllerName = "dpuserviceinterfacecontroller"
 )
 
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=dpuserviceinterfaces,verbs=get;list;watch;create;update;patch;delete
@@ -95,6 +96,9 @@ func (r *DPUServiceInterfaceReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 
+	ctx, endSpan := tracing.ReconcileSpan(ctx, DPUServiceInterfaceControllerName, dpuServiceInterface)
+	defer endSpan(&reterr)
+
 	patcher := patch.NewSerialPatcher(dpuServiceInterface, r.Client)
 
 	// Defer a patch call to always patch the object when Reconcile exits.
@@ -105,7 +109,7 @@ func (r *DPUServiceInterfaceReconciler) Reconcile(ctx context.Context, req ctrl.
 			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
 		if err := patcher.Patch(ctx, dpuServiceInterface,
-			patch.WithFieldOwner(dpuServiceInterfaceControllerName),
+			patch.WithFieldOwner(DPUServiceInterfaceControllerName),
 			patch.WithStatusObservedGeneration{},
 			patch.WithOwnedConditions{Conditions: conditions.TypesAsStrings(dpuservicev1.DPUServiceInterfaceConditions)},
 		); err != nil {
@@ -289,7 +293,10 @@ func (r *DPUServiceInterfaceReconciler) createOrUpdateObjectsInDPUCluster(ctx co
 	}
 	sis.ObjectMeta.ManagedFields = nil
 	sis.SetGroupVersionKind(dpuservicev1.GroupVersion.WithKind("ServiceInterfaceSet"))
-	return k8sClient.Patch(ctx, sis, client.Apply, client.ForceOwnership, client.FieldOwner(dpuServiceInterfaceControllerName))
+	// Propagate this reconcile's trace context onto the ServiceInterfaceSet so its own
+	// controller's span continues this trace instead of starting an unparented one.
+	tracing.InjectIntoObject(ctx, sis)
+	return k8sClient.Patch(ctx, sis, client.Apply, client.ForceOwnership, client.FieldOwner(DPUServiceInterfaceControllerName))
 }
 
 func (r *DPUServiceInterfaceReconciler) reconcileDelete(ctx context.Context, dpuServiceInterface *dpuservicev1.DPUServiceInterface) (ctrl.Result, error) {

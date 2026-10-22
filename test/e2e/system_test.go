@@ -184,7 +184,7 @@ func generateDPFOperatorConfig() *operatorv1.DPFOperatorConfig {
 			},
 			Monitoring: &operatorv1.MonitoringConfiguration{
 				Disable:                ptr.To(false),
-				OpenTelemetryCollector: openTelemetryCollectorConfiguration(ctx, testClient, conf.DPUClusterPaths),
+				OpenTelemetryCollector: openTelemetryCollectorConfiguration(ctx, testClient, conf.DPUClusterPaths, conf.NumberOfDPUNodes > 0),
 			},
 			NodeSRIOVDevicePluginController: &operatorv1.NodeSRIOVDevicePluginControllerConfiguration{
 				BaseComponentConfig: operatorv1.BaseComponentConfig{
@@ -749,6 +749,12 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 						Skip("Skip test as there are no DPU nodes")
 					}
 					ValidateDPUClusterMetricsFlow(ctx, input)
+				})
+			})
+
+			Context("Trace Flow", func() {
+				It("should export controller reconcile spans to Tempo", func() {
+					ValidateManagementClusterTraceFlow(ctx, input)
 				})
 			})
 		})

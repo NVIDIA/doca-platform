@@ -27,6 +27,7 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/pkg/utils/predicates"
@@ -99,6 +100,9 @@ func (r *DPUServiceIPAMReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 		return ctrl.Result{}, err
 	}
+
+	ctx, endSpan := tracing.ReconcileSpan(ctx, dpuServiceIPAMControllerName, dpuServiceIPAM)
+	defer endSpan(&reterr)
 
 	rc := &dpuServiceIPAMReconcilerWithPerReconcileState{DPUServiceIPAMReconciler: r}
 

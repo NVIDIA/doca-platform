@@ -75,7 +75,8 @@ spec:
         {{- toYaml . | nindent 6 }}
       {{- end }}
       containers:
-      - args: {{- toYaml .Values.controllerManager.manager.args | nindent 8 }}
+      - args:
+        {{- include "servicechain.manager.args" . | nindent 8 }}
         command:
         - /servicechainset
         volumeMounts:

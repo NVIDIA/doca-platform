@@ -128,6 +128,6 @@ func nodeSRIOVDevicePluginControllerArgsEdit(vars Variables, ownerConfigMapName 
 			return err
 		}
 
-		return nil
+		return setTracingFlags(deployment, vars)
 	}
 }
