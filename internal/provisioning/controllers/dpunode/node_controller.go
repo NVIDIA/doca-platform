@@ -29,6 +29,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/dms"
 	"github.com/nvidia/doca-platform/internal/release"
 	dpfutils "github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -45,12 +46,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+// NodeControllerName is the span name of the host Node reconciler.
+const NodeControllerName = "node"
+
 type NodeReconciler struct {
 	client.Client
 	Options dnutil.HostAgentPodOptions
 }
 
-func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	log := ctrllog.FromContext(ctx)
 
 	log.Info("Reconciling")
@@ -65,6 +69,9 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		}
 		return ctrl.Result{}, err
 	}
+
+	ctx, endSpan := tracing.ReconcileSpan(ctx, NodeControllerName, node)
+	defer endSpan(&reterr)
 
 	if !r.isDPUEnabled(node) {
 		return ctrl.Result{}, nil

@@ -332,6 +332,7 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 			p.setReplicas,
 			p.setCAIssuer,
 			p.setCATrustBundleConfigMapName,
+			setTracingFlags,
 		}
 		for _, mod := range mods {
 			if err := mod(deployment, vars); err != nil {

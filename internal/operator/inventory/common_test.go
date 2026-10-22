@@ -84,6 +84,7 @@ func Test_setFlags(t *testing.T) {
 	})
 }
 
+// newManagerDeployment returns a Deployment with an empty manager container.
 func newManagerDeployment() *appsv1.Deployment {
 	return &appsv1.Deployment{
 		Spec: appsv1.DeploymentSpec{
@@ -98,6 +99,8 @@ func newManagerDeployment() *appsv1.Deployment {
 	}
 }
 
+// Test_setTracingFlags checks the --otel-tracing-* flags set on the manager container for each
+// tracing configuration.
 func Test_setTracingFlags(t *testing.T) {
 	t.Run("no-op when endpoint is unset", func(t *testing.T) {
 		g := NewWithT(t)

@@ -78,3 +78,22 @@ func TestSetErrorPhaseFromCondition(t *testing.T) {
 		g.Expect(state.Phase).To(Equal(provisioningv1.DPUDeleting))
 	})
 }
+
+// TestPhaseSpanNameRemovesSpaces checks that phase span names are a single token.
+func TestPhaseSpanNameRemovesSpaces(t *testing.T) {
+	tests := []struct {
+		phase provisioningv1.DPUPhase
+		want  string
+	}{
+		{provisioningv1.DPUOSInstalling, "dpu.phase.OSInstalling"},
+		{provisioningv1.DPUNodeEffect, "dpu.phase.NodeEffect"},
+		{provisioningv1.DPUPerformArmForceRestart, "dpu.phase.PerformARMForceRestart"},
+		{provisioningv1.DPUInitializing, "dpu.phase.Initializing"},
+		{"", "dpu.phase.Initializing"},
+	}
+	for _, tt := range tests {
+		if got := phaseSpanName(tt.phase); got != tt.want {
+			t.Errorf("phaseSpanName(%q) = %q, want %q", tt.phase, got, tt.want)
+		}
+	}
+}

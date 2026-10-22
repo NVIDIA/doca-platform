@@ -22,9 +22,11 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -181,4 +183,98 @@ var _ = Describe("DPUNodeMaintenanceReconciler", func() {
 		Expect(got.Finalizers).To(ContainElement(provisioningv1.DPUNodeMaintenanceFinalizer))
 		Expect(got.Spec.Requestor).To(Equal([]string{requestor}))
 	})
+})
+
+var _ = Describe("Node writes continue the DPUNodeMaintenance trace", func() {
+	const maintenanceTraceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	taint := corev1.Taint{Key: "dpu-maintenance", Effect: corev1.TaintEffectNoSchedule}
+	var (
+		ctx         context.Context
+		k8sClient   client.Client
+		maintenance *provisioningv1.DPUNodeMaintenance
+	)
+
+	// storedNode creates node in the fake client and returns it as read back, so later writes have
+	// a resourceVersion to work with.
+	storedNode := func(node *corev1.Node) *corev1.Node {
+		Expect(k8sClient.Create(context.Background(), node)).To(Succeed())
+		got := &corev1.Node{}
+		Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(node), got)).To(Succeed())
+		return got
+	}
+	// nodeTraceparent returns the generated traceparent annotation on the stored Node named name.
+	nodeTraceparent := func(name string) string {
+		got := &corev1.Node{}
+		Expect(k8sClient.Get(context.Background(), client.ObjectKey{Name: name}, got)).To(Succeed())
+		return got.Annotations[tracing.GeneratedTraceParentAnnotation]
+	}
+
+	BeforeEach(func() {
+		DeferCleanup(tracing.EnableForTest())
+		scheme := runtime.NewScheme()
+		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+		k8sClient = fake.NewClientBuilder().WithScheme(scheme).Build()
+		maintenance = &provisioningv1.DPUNodeMaintenance{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "maintenance",
+				Namespace:   "ns",
+				UID:         "maintenance-uid",
+				Annotations: map[string]string{tracing.TraceParentAnnotation: maintenanceTraceparent},
+			},
+			Spec: provisioningv1.DPUNodeMaintenanceSpec{
+				DPUNodeName: "dpu-node",
+				NodeEffect:  &provisioningv1.NodeEffect{Action: provisioningv1.Action{Taint: &taint}},
+			},
+		}
+		var endSpan func(*error)
+		ctx, endSpan = tracing.ReconcileSpan(context.Background(), DPUNodeMaintenanceControllerName, maintenance)
+		endSpan(nil)
+	})
+
+	It("stamps the Node when it adds the taint", func() {
+		node := storedNode(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node"}})
+		r := &DPUNodeMaintenanceReconciler{Client: k8sClient}
+
+		Expect(r.reconcileTaint(ctx, maintenance, node)).To(Succeed())
+
+		Expect(nodeTraceparent("node")).To(Equal(maintenanceTraceparent))
+	})
+
+	It("stamps the Node when it removes the taint", func() {
+		node := storedNode(&corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: "node"},
+			Spec:       corev1.NodeSpec{Taints: []corev1.Taint{taint}},
+		})
+
+		Expect(removeNodeEffectTaint(ctx, k8sClient, node, maintenance.Spec.NodeEffect)).To(Succeed())
+
+		Expect(nodeTraceparent("node")).To(Equal(maintenanceTraceparent))
+	})
+
+	It("does not stamp the Node when there is no taint to remove", func() {
+		node := storedNode(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node"}})
+
+		Expect(removeNodeEffectTaint(ctx, k8sClient, node, maintenance.Spec.NodeEffect)).To(Succeed())
+
+		Expect(nodeTraceparent("node")).To(BeEmpty())
+	})
+
+	DescribeTable("removing custom labels stamps the Node and DPUNode only when a label is removed",
+		func(nodeLabels map[string]string, wantTraceparent string) {
+			node := storedNode(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node", Labels: nodeLabels}})
+			nodeEffect := &provisioningv1.NodeEffect{Action: provisioningv1.Action{CustomLabel: map[string]string{"maintenance": "true"}}}
+			dpuNode := &provisioningv1.DPUNode{ObjectMeta: metav1.ObjectMeta{Name: "dpu-node", Namespace: "ns", Labels: nodeLabels}}
+			Expect(k8sClient.Create(context.Background(), dpuNode)).To(Succeed())
+
+			Expect(removeNodeEffectCustomLabel(ctx, k8sClient, node, dpuNode, nodeEffect)).To(Succeed())
+
+			Expect(nodeTraceparent("node")).To(Equal(wantTraceparent))
+			gotDPUNode := &provisioningv1.DPUNode{}
+			Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(dpuNode), gotDPUNode)).To(Succeed())
+			Expect(gotDPUNode.Annotations[tracing.GeneratedTraceParentAnnotation]).To(Equal(wantTraceparent))
+		},
+		Entry("label present", map[string]string{"maintenance": "true"}, maintenanceTraceparent),
+		Entry("label absent", map[string]string{"other": "kept"}, ""),
+	)
 })

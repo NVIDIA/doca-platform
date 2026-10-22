@@ -25,6 +25,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	maintenancev1alpha1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
@@ -76,6 +77,9 @@ func (r *DPUNodeMaintenanceReconciler) Reconcile(ctx context.Context, req ctrl.R
 		}
 		return ctrl.Result{}, err
 	}
+
+	ctx, endSpan := tracing.ReconcileSpan(ctx, DPUNodeMaintenanceControllerName, dpunodemaintenance)
+	defer endSpan(&reterr)
 
 	patcher := patch.NewSerialPatcher(dpunodemaintenance, r.Client)
 	// Defer a patch call to always patch the object when Reconcile exits.
@@ -525,6 +529,7 @@ func (r *DPUNodeMaintenanceReconciler) reconcileTaint(ctx context.Context, dpuno
 	}
 	if !taintExist {
 		node.Spec.Taints = append(node.Spec.Taints, *dpunodemaintenance.Spec.NodeEffect.Taint)
+		tracing.InjectIntoObject(ctx, node)
 		if err := r.Client.Update(ctx, node); err != nil {
 			return err
 		}
@@ -659,6 +664,7 @@ func removeNodeEffectTaint(ctx context.Context, k8sClient client.Client, node *c
 		}
 	}
 	if taintFound {
+		tracing.InjectIntoObject(ctx, node)
 		patch := client.StrategicMergeFrom(originalNode)
 		if err := k8sClient.Patch(ctx, node, patch); err != nil {
 			return fmt.Errorf("failed to patch node %s after removing the Taint: %+v, err: %v", node.Name, nodeEffect.Taint, err)
@@ -696,8 +702,15 @@ func removeNodeEffectDrain(ctx context.Context, k8sClient client.Client, nodeNam
 // TODO: Handling situations where multiple DPUNodeMaintenance CRs have overlapping labels
 func removeNodeEffectCustomLabel(ctx context.Context, k8sClient client.Client, node *corev1.Node, dpuNode *provisioningv1.DPUNode, nodeEffect *provisioningv1.NodeEffect) error {
 	originalNode := node.DeepCopy()
+	removed := false
 	for k := range nodeEffect.CustomLabel {
-		delete(node.Labels, k)
+		if _, ok := node.Labels[k]; ok {
+			delete(node.Labels, k)
+			removed = true
+		}
+	}
+	if removed {
+		tracing.InjectIntoObject(ctx, node)
 	}
 
 	patch := client.StrategicMergeFrom(originalNode)
@@ -727,6 +740,7 @@ func removeNodeEffectCustomLabel(ctx context.Context, k8sClient client.Client, n
 			}
 		}
 		if changed {
+			tracing.InjectIntoObject(ctx, latestDPUNode)
 			if err := k8sClient.Patch(ctx, latestDPUNode, client.MergeFrom(originalDPUNode)); err != nil {
 				if apierrors.IsNotFound(err) {
 					return nil

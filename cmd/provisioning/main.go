@@ -45,6 +45,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpuset"
 	httputils "github.com/nvidia/doca-platform/internal/provisioning/utils/http"
 	provisioningwebhooks "github.com/nvidia/doca-platform/internal/provisioning/webhooks"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/certmanager"
 	pkgdpucluster "github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/pkg/health"
@@ -149,6 +150,7 @@ type cliFlags struct {
 	caIssuerName                       string
 	caIssuerKind                       string
 	caIssuerGroup                      string
+	tracingOpts                        tracing.FlagOptions
 }
 
 // caIssuerRef returns the issuer the certificates minted at runtime are signed by.
@@ -206,6 +208,7 @@ func parseFlags() *cliFlags {
 	fs.StringVar(&flags.caIssuerName, "ca-issuer-name", leafIssuer.Name, "Name of the cert-manager issuer that signs the certificates this controller mints at runtime: the DPU BMC server certificate and the bfb-registry server certificate.")
 	fs.StringVar(&flags.caIssuerKind, "ca-issuer-kind", leafIssuer.Kind, "Kind of the issuer named by --ca-issuer-name, either Issuer or ClusterIssuer.")
 	fs.StringVar(&flags.caIssuerGroup, "ca-issuer-group", leafIssuer.Group, "API group of the issuer named by --ca-issuer-name.")
+	tracing.AddFlags(&flags.tracingOpts, fs)
 
 	logsv1.AddFlags(logOptions, fs)
 
@@ -559,6 +562,13 @@ func main() {
 		setupLog.Error(nil, "--deployment-mode is required (zero-trust or host-trusted)")
 		os.Exit(1)
 	}
+
+	shutdownTracing, err := tracing.SetupTracerProviderFromFlags(context.Background(), dpu.TracingServiceName, flags.tracingOpts)
+	if err != nil {
+		setupLog.Error(err, "unable to set up tracing")
+		os.Exit(1)
+	}
+	defer shutdownTracing()
 
 	mgr, clientConfig := createManager(flags)
 

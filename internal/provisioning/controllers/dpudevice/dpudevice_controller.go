@@ -36,7 +36,9 @@ import (
 	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuflavortemplate"
 	"github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/certmanager"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	spirev1alpha1 "github.com/nvidia/doca-platform/third_party/forked/github.com/spiffe/spire-controller-manager/api/v1alpha1"
@@ -140,7 +142,7 @@ func (r *DPUDeviceReconciler) caTrustBundleName() string {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-func (r *DPUDeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *DPUDeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	log := log.FromContext(ctx)
 	log.Info("Reconciling DPUDevice")
 
@@ -159,11 +161,50 @@ func (r *DPUDeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
+	// A device without an upstream trace starts the workflow its DPUNode and DPU continue.
+	ctx, endSpan := tracing.ReconcileSpan(ctx, DPUDeviceControllerName, dpuDevice, tracing.WorkflowRoot())
+	defer endSpan(&reterr)
+
 	if !dpuDevice.DeletionTimestamp.IsZero() {
 		return r.reconcileDelete(ctx, dpuDevice)
 	}
 
+	defer r.observeRollout(ctx, dpuDevice)
 	return r.reconcile(ctx, dpuDevice)
+}
+
+// observeRollout reports the change of dpuDevice to tracing, which exports the root span of its
+// workflow. The rollout ends once a DPU bound to the device is Ready for its current spec.
+func (r *DPUDeviceReconciler) observeRollout(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) {
+	dpuList := &provisioningv1.DPUList{}
+	if err := r.List(ctx, dpuList,
+		client.InNamespace(dpuDevice.Namespace),
+		client.MatchingFields{dpuByDPUDeviceNameField: dpuDevice.Name},
+	); err != nil {
+		log.FromContext(ctx).V(4).Info("Unable to list the DPUs of the DPUDevice for its tracing rollout", "error", err)
+		return
+	}
+	ready := slices.ContainsFunc(dpuList.Items, func(dpu provisioningv1.DPU) bool {
+		return dpuReadyForDevice(&dpu, dpuDevice)
+	})
+	tracing.ObserveRollout(ctx, DPUDeviceControllerName, dpuDevice, ready)
+}
+
+// dpuReadyForDevice reports whether dpu is Ready for the current spec of dpuDevice. A DPU rendered
+// from a DPUFlavorTemplate records the hash of the device values it was rendered from, and stays
+// Ready from the previous values until the DPUSet replaces it or updates the hash. Other device
+// spec changes are applied to a Ready DPU in place or do not affect it.
+func dpuReadyForDevice(dpu *provisioningv1.DPU, dpuDevice *provisioningv1.DPUDevice) bool {
+	if dpu.Status.Phase != provisioningv1.DPUReady {
+		return false
+	}
+	renderedFrom, ok := dpu.Labels[cutil.DPUDeviceValuesHashLabel]
+	if !ok {
+		return true
+	}
+	// Values that cannot be hashed are not rendered by the DPUSet either, so they do not hold the rollout.
+	valuesHash, err := dpuflavortemplate.ValuesHash(dpuDevice.Spec.Values)
+	return err != nil || valuesHash == renderedFrom
 }
 
 // reconcileDelete handles cleanup when a DPUDevice is being deleted.
@@ -695,6 +736,7 @@ func (r *DPUDeviceReconciler) ensureHostlessDPUNode(ctx context.Context, dpuDevi
 		}
 		dpuNode.Labels[cutil.NodeSelectorLabel] = labelValueTrue
 		dpuNode.Annotations = copyStringMap(dpuDevice.Annotations)
+		tracing.InjectIntoObject(ctx, dpuNode)
 		dpuNode.Spec.DPUs = []provisioningv1.DPURef{{Name: dpuDevice.Name}}
 		dpuNode.Spec.NodeRebootMethod = &provisioningv1.NodeRebootMethod{None: &provisioningv1.None{}}
 		dpuNode.OwnerReferences = []metav1.OwnerReference{*metav1.NewControllerRef(dpuDevice, provisioningv1.DPUDeviceGroupVersionKind)}
@@ -2284,7 +2326,7 @@ func (r *DPUDeviceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	})
 
 	builder := ctrl.NewControllerManagedBy(mgr).
-		For(&provisioningv1.DPUDevice{}).
+		For(&provisioningv1.DPUDevice{}, ctrlbuilder.WithPredicates(tracing.IgnoreTraceOnlyUpdates())).
 		Owns(certificateRequest).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []ctrl.Request {
 			// Resolved once at startup from the flag the operator templates the configured name onto.
@@ -2322,10 +2364,11 @@ func (r *DPUDeviceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			return requests
 		})).
 		// A DPU becoming SPIFFE-stamped must trigger its DPUDevice so the ClusterStaticEntry is
-		// created promptly (the DPUDevice controller does not otherwise watch DPUs).
+		// created promptly, and a DPU entering or leaving Ready so the device's tracing rollout
+		// ends. The DPUDevice controller does not otherwise watch DPUs.
 		Watches(&provisioningv1.DPU{},
 			handler.EnqueueRequestsFromMapFunc(mapDPUToDPUDevice),
-			ctrlbuilder.WithPredicates(dpuSpiffeIdentityPredicate()))
+			ctrlbuilder.WithPredicates(predicate.Or(dpuSpiffeIdentityPredicate(), dpuReadyPhasePredicate())))
 
 	// ClusterStaticEntry is an optional upstream CRD, present only on SPIFFE-enabled clusters.
 	// Registering a watch for a CRD that is not installed fails informer cache startup, which
@@ -2374,6 +2417,30 @@ func dpuSpiffeIdentityPredicate() predicate.Predicate {
 			}
 			newDPU, ok := dpuFromObject(e.ObjectNew)
 			return ok && cutil.IsSpiffeDPU(newDPU) && !cutil.IsSpiffeDPU(oldDPU)
+		},
+		DeleteFunc:  func(event.DeleteEvent) bool { return false },
+		GenericFunc: func(event.GenericEvent) bool { return false },
+	}
+}
+
+// dpuReadyPhasePredicate accepts the DPU updates that enter or leave the Ready phase, or that apply
+// new device values to a Ready DPU, for the tracing rollout of the bound DPUDevice. Creates are left out so a restart does not enqueue every
+// device: the tracking of a rollout does not survive a restart anyway.
+func dpuReadyPhasePredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(event.CreateEvent) bool { return false },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldDPU, ok := dpuFromObject(e.ObjectOld)
+			if !ok {
+				return false
+			}
+			newDPU, ok := dpuFromObject(e.ObjectNew)
+			if !ok {
+				return false
+			}
+			newReady := newDPU.Status.Phase == provisioningv1.DPUReady
+			valuesApplied := newReady && oldDPU.Labels[cutil.DPUDeviceValuesHashLabel] != newDPU.Labels[cutil.DPUDeviceValuesHashLabel]
+			return (oldDPU.Status.Phase == provisioningv1.DPUReady) != newReady || valuesApplied
 		},
 		DeleteFunc:  func(event.DeleteEvent) bool { return false },
 		GenericFunc: func(event.GenericEvent) bool { return false },

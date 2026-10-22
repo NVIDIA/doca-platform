@@ -33,6 +33,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -556,6 +558,242 @@ func TestInjectIntoObject_RemovesGeneratedAnnotationsWithTracingOff(t *testing.T
 	}, child.Annotations)
 }
 
+// TestInjectFromObject_CopiesAnnotations checks that from's traceparent and tracestate are copied
+// unchanged onto the generated annotations of obj, that the trace context a consumer set on obj is
+// removed, and that obj's other annotations are kept.
+func TestInjectFromObject_CopiesAnnotations(t *testing.T) {
+	useTracker(t)
+	traceparent := fmt.Sprintf("00-%s-%s-01", testTraceID, testSpanID)
+	from := newTestObject(map[string]string{
+		TraceParentAnnotation: traceparent,
+		TraceStateAnnotation:  "vendor=value",
+	})
+	obj := newTestObject(map[string]string{
+		TraceParentAnnotation: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+		TraceStateAnnotation:  "consumer=1",
+		"unrelated":           "keep-me",
+	})
+
+	InjectFromObject(from, obj)
+
+	require.Equal(t, map[string]string{
+		GeneratedTraceParentAnnotation: traceparent,
+		GeneratedTraceStateAnnotation:  "vendor=value",
+		"unrelated":                    "keep-me",
+	}, obj.Annotations)
+}
+
+// TestInjectFromObject_MatchesReconcileSpanTrace checks that obj continues the workflow that a
+// WorkflowRoot ReconcileSpan of from joins, both with and without an annotation on from, so the
+// reconciles of obj share the parent of the reconciles of from.
+func TestInjectFromObject_MatchesReconcileSpanTrace(t *testing.T) {
+	for name, annotations := range map[string]map[string]string{
+		"annotated": {TraceParentAnnotation: fmt.Sprintf("00-%s-%s-01", testTraceID, testSpanID)},
+		"derived":   nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			exporter := useInMemoryTracerProvider(t)
+			from := newTestObject(annotations)
+			_, endSpan := ReconcileSpan(context.Background(), "dpudevice", from, WorkflowRoot())
+			endSpan(nil)
+
+			obj := newTestObject(nil)
+			InjectFromObject(from, obj, WorkflowRoot())
+
+			sc := trace.SpanContextFromContext(ContextFromObject(context.Background(), obj))
+			require.True(t, sc.IsValid())
+			require.Len(t, exporter.GetSpans(), 1)
+			require.Equal(t, exporter.GetSpans()[0].SpanContext.TraceID(), sc.TraceID())
+			require.Equal(t, exporter.GetSpans()[0].Parent.SpanID(), sc.SpanID())
+		})
+	}
+}
+
+// TestInjectFromObject_InvalidTraceparentFallsBackToDerived checks that a malformed traceparent on
+// from is not copied, and obj gets the trace derived from from instead.
+func TestInjectFromObject_InvalidTraceparentFallsBackToDerived(t *testing.T) {
+	useTracker(t)
+	from := newTestObject(map[string]string{TraceParentAnnotation: "not-a-traceparent"})
+	derived := newSpanContextForObject(from, "")
+	require.True(t, derived.IsValid())
+
+	obj := newTestObject(nil)
+	InjectFromObject(from, obj, WorkflowRoot())
+
+	sc := trace.SpanContextFromContext(ContextFromObject(context.Background(), obj))
+	require.Equal(t, derived.TraceID(), sc.TraceID())
+	require.Equal(t, derived.SpanID(), sc.SpanID())
+}
+
+// TestInjectFromObject_DerivesOnlyForWorkflowRoot checks that a workflow is derived from a from
+// without a trace only for a WorkflowRoot controller, with its Revision, as nothing exports the
+// root span of a workflow derived for any other controller.
+func TestInjectFromObject_DerivesOnlyForWorkflowRoot(t *testing.T) {
+	useTracker(t)
+	from := newTestObject(nil)
+
+	notRoot := newTestObject(nil)
+	require.False(t, InjectFromObject(from, notRoot))
+	require.Empty(t, notRoot.Annotations)
+
+	root := newTestObject(nil)
+	require.True(t, InjectFromObject(from, root, WorkflowRoot(), Revision("r1")))
+	sc := trace.SpanContextFromContext(ContextFromObject(context.Background(), root))
+	require.Equal(t, newSpanContextForObject(from, "r1").SpanID(), sc.SpanID())
+}
+
+// TestInjectFromObject_ClearsStaleTracestate checks that obj's tracestate is removed when from
+// carries a traceparent without one.
+func TestInjectFromObject_ClearsStaleTracestate(t *testing.T) {
+	from := newTestObject(map[string]string{
+		TraceParentAnnotation: fmt.Sprintf("00-%s-%s-01", testTraceID, testSpanID),
+	})
+	obj := newTestObject(map[string]string{GeneratedTraceStateAnnotation: "vendor=stale"})
+
+	InjectFromObject(from, obj)
+
+	require.NotContains(t, obj.Annotations, GeneratedTraceStateAnnotation)
+}
+
+// TestInjectFromObject_NoopWithoutTraceOrUID checks that obj is left untouched when from has
+// neither a traceparent nor a UID to derive a trace from.
+func TestInjectFromObject_NoopWithoutTraceOrUID(t *testing.T) {
+	from := newTestObject(nil)
+	from.UID = ""
+	obj := newTestObject(nil)
+
+	require.False(t, InjectFromObject(from, obj))
+
+	require.Empty(t, obj.Annotations)
+}
+
+// TestRemoveFromObject checks that the consumer and the generated trace annotations are
+// removed from obj and that its other annotations are kept.
+func TestRemoveFromObject(t *testing.T) {
+	useTracker(t)
+	obj := newTestObject(map[string]string{
+		TraceParentAnnotation:          fmt.Sprintf("00-%s-%s-01", testTraceID, testSpanID),
+		TraceStateAnnotation:           "vendor=value",
+		GeneratedTraceParentAnnotation: fmt.Sprintf("00-%s-%s-01", testTraceID, testSpanID),
+		GeneratedTraceStateAnnotation:  "vendor=value",
+		"unrelated":                    "keep-me",
+	})
+
+	RemoveFromObject(obj)
+
+	require.Equal(t, map[string]string{"unrelated": "keep-me"}, obj.Annotations)
+}
+
+// TestInjectFromObject_WritesNothingWithTracingOff checks that with tracing off from's trace is not
+// copied, the generated annotations of obj are removed and the consumer's trace is kept.
+func TestInjectFromObject_WritesNothingWithTracingOff(t *testing.T) {
+	from := newTestObject(map[string]string{TraceParentAnnotation: fmt.Sprintf("00-%s-%s-01", testTraceID, testSpanID)})
+	obj := newTestObject(map[string]string{
+		TraceParentAnnotation:          "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+		GeneratedTraceParentAnnotation: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+		GeneratedTraceStateAnnotation:  "vendor=value",
+		"unrelated":                    "keep-me",
+	})
+
+	require.False(t, InjectFromObject(from, obj, WorkflowRoot()))
+
+	require.Equal(t, map[string]string{
+		TraceParentAnnotation: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+		"unrelated":           "keep-me",
+	}, obj.Annotations)
+}
+
+// TestRemoveFromObject_KeepsConsumerTraceWithTracingOff checks that with tracing off only the
+// generated trace annotations are removed.
+func TestRemoveFromObject_KeepsConsumerTraceWithTracingOff(t *testing.T) {
+	obj := newTestObject(map[string]string{
+		TraceParentAnnotation:          fmt.Sprintf("00-%s-%s-01", testTraceID, testSpanID),
+		TraceStateAnnotation:           "vendor=value",
+		GeneratedTraceParentAnnotation: fmt.Sprintf("00-%s-%s-01", testTraceID, testSpanID),
+		GeneratedTraceStateAnnotation:  "vendor=value",
+	})
+
+	RemoveFromObject(obj)
+
+	require.Equal(t, map[string]string{
+		TraceParentAnnotation: fmt.Sprintf("00-%s-%s-01", testTraceID, testSpanID),
+		TraceStateAnnotation:  "vendor=value",
+	}, obj.Annotations)
+}
+
+// storedTestObject creates newTestObject(annotations) in a fake client and returns the client and
+// the object as read back from it, so it carries a resourceVersion.
+func storedTestObject(t *testing.T, annotations map[string]string) (client.Client, *corev1.ConfigMap) {
+	t.Helper()
+	c := fake.NewClientBuilder().WithObjects(newTestObject(annotations)).Build()
+	obj := &corev1.ConfigMap{}
+	require.NoError(t, c.Get(context.Background(), client.ObjectKey{Namespace: "test-ns", Name: "test-obj"}, obj))
+	return c, obj
+}
+
+// TestEndObjectTrace_RemovesTraceAnnotations checks that the consumer and the generated trace
+// annotations are removed from the stored object and that its other annotations are kept.
+func TestEndObjectTrace_RemovesTraceAnnotations(t *testing.T) {
+	useTracker(t)
+	c, obj := storedTestObject(t, map[string]string{
+		TraceParentAnnotation:          fmt.Sprintf("00-%s-%s-01", testTraceID, testSpanID),
+		TraceStateAnnotation:           "vendor=value",
+		GeneratedTraceParentAnnotation: fmt.Sprintf("00-%s-%s-01", testTraceID, testSpanID),
+		GeneratedTraceStateAnnotation:  "vendor=value",
+		"unrelated":                    "keep-me",
+	})
+
+	require.NoError(t, EndObjectTrace(context.Background(), c, obj))
+
+	got := &corev1.ConfigMap{}
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(obj), got))
+	require.Equal(t, map[string]string{"unrelated": "keep-me"}, got.Annotations)
+}
+
+// TestEndObjectTrace_NoopWithoutTrace checks that an object without trace annotations is not
+// patched.
+func TestEndObjectTrace_NoopWithoutTrace(t *testing.T) {
+	c, obj := storedTestObject(t, map[string]string{"unrelated": "keep-me"})
+	resourceVersion := obj.ResourceVersion
+
+	require.NoError(t, EndObjectTrace(context.Background(), c, obj))
+
+	got := &corev1.ConfigMap{}
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(obj), got))
+	require.Equal(t, resourceVersion, got.ResourceVersion)
+}
+
+// TestEndObjectTrace_KeepsConsumerTraceWithTracingOff checks that with tracing off an object with
+// only the consumer's trace is not patched.
+func TestEndObjectTrace_KeepsConsumerTraceWithTracingOff(t *testing.T) {
+	c, obj := storedTestObject(t, map[string]string{TraceParentAnnotation: "00-" + testTraceID + "-" + testSpanID + "-01"})
+	resourceVersion := obj.ResourceVersion
+
+	require.NoError(t, EndObjectTrace(context.Background(), c, obj))
+
+	got := &corev1.ConfigMap{}
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(obj), got))
+	require.Equal(t, resourceVersion, got.ResourceVersion)
+	require.Equal(t, map[string]string{TraceParentAnnotation: "00-" + testTraceID + "-" + testSpanID + "-01"}, got.Annotations)
+}
+
+// TestEndObjectTrace_KeepsTraceOnConflict checks that a trace written by another writer after obj
+// was read is kept, and that the conflict is not returned as an error.
+func TestEndObjectTrace_KeepsTraceOnConflict(t *testing.T) {
+	useTracker(t)
+	c, obj := storedTestObject(t, map[string]string{TraceParentAnnotation: "00-" + testTraceID + "-" + testSpanID + "-01"})
+	newer := obj.DeepCopy()
+	newerTraceparent := "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+	newer.Annotations[TraceParentAnnotation] = newerTraceparent
+	require.NoError(t, c.Update(context.Background(), newer))
+
+	require.NoError(t, EndObjectTrace(context.Background(), c, obj))
+
+	got := &corev1.ConfigMap{}
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(obj), got))
+	require.Equal(t, newerTraceparent, got.Annotations[TraceParentAnnotation])
+}
+
 func TestStartSpanEndSpan_RecordsError(t *testing.T) {
 	exporter := useInMemoryTracerProvider(t)
 
@@ -592,6 +830,34 @@ func TestEndSpan_RecordsErrorType(t *testing.T) {
 	require.Len(t, spans, 1)
 	require.Equal(t, codes.Error, spans[0].Status.Code)
 	require.Equal(t, "*errors.errorString", attrValue(t, spans[0].Attributes, "error.type").AsString())
+}
+
+// TestInSpan checks that InSpan runs fn inside the span it starts, ends that span with the error fn
+// returns and returns that error.
+func TestInSpan(t *testing.T) {
+	for name, fnErr := range map[string]error{"success": nil, "error": errors.New("boom")} {
+		t.Run(name, func(t *testing.T) {
+			exporter := useInMemoryTracerProvider(t)
+
+			var inner trace.SpanContext
+			err := InSpan(context.Background(), "op", func(ctx context.Context) error {
+				inner = trace.SpanContextFromContext(ctx)
+				return fnErr
+			}, attribute.String("key", "value"))
+
+			require.Equal(t, fnErr, err)
+			spans := exporter.GetSpans()
+			require.Len(t, spans, 1)
+			require.Equal(t, "op", spans[0].Name)
+			require.Equal(t, spans[0].SpanContext.SpanID(), inner.SpanID(), "fn runs in the span's context")
+			require.Equal(t, "value", attrValue(t, spans[0].Attributes, "key").AsString())
+			if fnErr == nil {
+				require.Equal(t, codes.Unset, spans[0].Status.Code)
+			} else {
+				require.Equal(t, codes.Error, spans[0].Status.Code)
+			}
+		})
+	}
 }
 
 func TestAddAttributes(t *testing.T) {

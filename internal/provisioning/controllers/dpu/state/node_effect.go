@@ -24,6 +24,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -212,7 +213,11 @@ func createDPUNodeMaintenance(ctx context.Context, k8sClient client.Client, name
 	dpunodemaintenance.Spec.NodeEffect.UpgradePolicy.NodeMaintenanceAdditionalRequestors = []string{}
 	// append DPU name to Requestor
 	dpunodemaintenance.Spec.Requestor = append(dpunodemaintenance.Spec.Requestor, dpu.Name)
-	if err := k8sClient.Create(ctx, dpunodemaintenance); err != nil && !apierrors.IsAlreadyExists(err) {
+	tracing.InjectIntoObject(ctx, dpunodemaintenance)
+	err = tracing.InSpan(ctx, "dpu.k8s.createDPUNodeMaintenance", func(ctx context.Context) error {
+		return client.IgnoreAlreadyExists(k8sClient.Create(ctx, dpunodemaintenance))
+	})
+	if err != nil {
 		return err
 	}
 	logger.V(3).Info(fmt.Sprintf("Successfully ensured DPUNodeMaintenance (%s/%s) object", dpunodemaintenance.Namespace, dpunodemaintenance.Name))
@@ -250,6 +255,8 @@ func addRequestorAndUpdateForce(ctx context.Context, k8sClient client.Client, dp
 			current.Annotations = map[string]string{}
 		}
 		current.Annotations[lastAppliedAdditionalRequestorsOnDPUKey] = jsonStr
+		// The requestor change reconciles the DPUNodeMaintenance, so it continues this DPU's trace.
+		tracing.InjectIntoObject(ctx, current)
 		patch := client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})
 		if err := k8sClient.Patch(ctx, current, patch); err != nil {
 			return fmt.Errorf("failed to patch dpunodemaintenance %s: %w", original.Name, err)

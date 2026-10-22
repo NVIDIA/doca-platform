@@ -397,6 +397,8 @@ var _ = Describe("DPUSet template mode", func() {
 			dpuSet.Spec.DPUTemplate.Spec.DPUFlavorTemplate = ptr.To("other")
 			eval := r.evalTemplateDPU(ctx, dpuSet, dpu)
 			Expect(eval.disrupt).To(BeTrue())
+			Expect(eval.valuesOnly).To(BeFalse())
+			Expect(eval.changedTemplate).To(BeNil())
 		})
 
 		It("does not disrupt when the swap targets a missing template", func() {
@@ -422,6 +424,19 @@ var _ = Describe("DPUSet template mode", func() {
 			r, dpuSet, dpu := buildExisting(nil, okBody, `{"mtu":9000}`)
 			eval := r.evalTemplateDPU(ctx, dpuSet, dpu)
 			Expect(eval.disrupt).To(BeTrue())
+			Expect(eval.valuesOnly).To(BeFalse())
+			Expect(eval.changedTemplate).NotTo(BeNil())
+		})
+
+		It("marks a disrupt caused only by DPUDevice values as values-only", func() {
+			r, dpuSet, dpu := buildExisting(nil, okBody, `{"mtu":9000}`)
+			th, _, err := inputHashes(provisioningv1.DPUFlavorTemplateSpec{Template: okBody}, newDevice(`{"mtu":9000}`).Spec.Values)
+			Expect(err).NotTo(HaveOccurred())
+			dpu.Labels[cutil.DPUFlavorTemplateHashLabel] = th
+			eval := r.evalTemplateDPU(ctx, dpuSet, dpu)
+			Expect(eval.disrupt).To(BeTrue())
+			Expect(eval.valuesOnly).To(BeTrue())
+			Expect(eval.changedTemplate).To(BeNil())
 		})
 
 		It("disrupts when a dry-run update rejects an immutable spec change", func() {
@@ -434,6 +449,8 @@ var _ = Describe("DPUSet template mode", func() {
 			)
 			eval := r.evalTemplateDPU(ctx, dpuSet, dpu)
 			Expect(eval.disrupt).To(BeTrue())
+			Expect(eval.valuesOnly).To(BeFalse())
+			Expect(eval.changedTemplate).NotTo(BeNil())
 			Expect(eval.configOnly).To(BeNil())
 			Expect(eval.renderErr).NotTo(HaveOccurred())
 		})

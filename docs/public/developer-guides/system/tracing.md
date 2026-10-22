@@ -65,7 +65,11 @@ consumer set. A user or consumer sets `tracing.k8s.io/traceparent` and
 `tracing.k8s.io/tracestate`, and DPF never writes them. `InjectIntoObject`
 writes `tracing.k8s.io/generated-traceparent` and
 `tracing.k8s.io/generated-tracestate` on the objects DPF creates. `ReconcileSpan` reads the consumer pair first and the
-generated pair second.
+generated pair second. DPF removes the consumer pair only where it replaces or
+ends the trace of an object: `InjectFromObject` removes it from the object it
+copies the trace of another object onto, and `RemoveFromObject` and
+`EndObjectTrace` remove both pairs. For the objects the provisioning controllers read a trace from, see
+[Setting the trace context](../../operational-readiness/observability/deployment/operator-managed-components.md#setting-the-trace-context).
 
 `InjectIntoObject` copies the trace context unchanged, so repeated reconciles
 write identical annotations and cause no extra updates. If your reconcile
@@ -143,21 +147,23 @@ tracing.ObserveRollout(ctx, dpuDeploymentControllerName, dpuDeployment,
 ```
 
 A change can also come from an input of the object that has its own generation,
-such as the DPUServiceTemplate or DPUServiceConfiguration a DPUDeployment
-references. Its own generation stays, so the controller passes
+such as the BFB, DPUFlavor, DPUServiceTemplate or DPUServiceConfiguration a
+DPUDeployment references. Its own generation stays, so the controller passes
 `tracing.Revision` with a value that changes with those inputs, see
-`tracingRevision` in the DPUDeployment controller. A new revision starts a new
-trace and a new rollout, and its reconcile is not idle:
+`tracingRevision` in the DPUDeployment controller. The value includes each
+input's UID and generation, so deleting an input and recreating it under the
+same name starts a new trace even when the new object has the same generation. A new revision starts a new trace and a new rollout,
+and its reconcile is not idle:
 
 ```go
 ctx, endSpan := tracing.ReconcileSpan(ctx, dpuDeploymentControllerName, dpuDeployment, tracing.WorkflowRoot(),
     tracing.Revision(tracingRevision(ctx, r.Client, dpuDeployment)))
 ```
 
-Only a change of the spec of an input counts, as that bumps its generation.
-Labels and annotations do not. The rollout of a revision change has no
-observed generation to wait for, so it can end earlier than the children
-settle.
+A spec change of an input counts, because it bumps the generation, and so does
+replacing the input with a new object. Labels and annotations do not. The
+rollout of a revision change has no observed generation to wait for, so it can
+end earlier than the children settle.
 
 The rollout starts when the process first sees a generation or revision. For an
 object without an upstream trace context, the trace has two root spans. The

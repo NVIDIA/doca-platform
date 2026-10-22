@@ -27,6 +27,7 @@ import (
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	providentity "github.com/nvidia/doca-platform/internal/provisioning/utils/certificate/identity"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 
 	certmanager "k8s.io/api/certificates/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -41,6 +42,8 @@ import (
 )
 
 const (
+	// CSRControllerName is the span name of the certificate-signing-request reconciler.
+	CSRControllerName       = "csr"
 	hostAgentBootstrapGroup = "system:bootstrappers:dpf:host-agent"
 	dpuAgentApprovedReason  = "DPUAgentApproved"
 	hostAgentApprovedReason = "HostAgentApproved"
@@ -55,13 +58,16 @@ type CSRReconciler struct {
 // +kubebuilder:rbac:groups=certificates.k8s.io,resources=certificatesigningrequests/approval;certificatesigningrequests/status,verbs=update
 // +kubebuilder:rbac:groups=certificates.k8s.io,resources=signers,resourceNames="kubernetes.io/kube-apiserver-client",verbs=approve
 
-func (r *CSRReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *CSRReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	log := ctrllog.FromContext(ctx)
 
 	csr := &certmanager.CertificateSigningRequest{}
 	if err := r.RuntimeClient.Get(ctx, req.NamespacedName, csr); err != nil {
 		return ctrl.Result{}, err
 	}
+	ctx, endSpan := tracing.ReconcileSpan(ctx, CSRControllerName, csr)
+	defer endSpan(&reterr)
+
 	needApprove := true
 	var approvalStatus certmanager.RequestConditionType
 	for _, cond := range csr.Status.Conditions {
@@ -195,6 +201,10 @@ func (r *CSRReconciler) updateApprovalCondition(
 		LastUpdateTime:     metav1.Now(),
 		LastTransitionTime: metav1.Now(),
 	})
-	_, err := r.ClientSet.CertificatesV1().CertificateSigningRequests().UpdateApproval(ctx, csr.Name, csr, metav1.UpdateOptions{})
-	return err
+	// The approval is written from a copy, so the reconciled csr looks unchanged and only this span
+	// keeps its reconcile in the trace.
+	return tracing.InSpan(ctx, "csr.k8s.updateApproval", func(ctx context.Context) error {
+		_, err := r.ClientSet.CertificatesV1().CertificateSigningRequests().UpdateApproval(ctx, csr.Name, csr, metav1.UpdateOptions{})
+		return err
+	})
 }

@@ -23,6 +23,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/bfb/state"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -63,6 +64,9 @@ func (r *BFBReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 		}
 		return ctrl.Result{}, fmt.Errorf("failed to get BFB %w", err)
 	}
+
+	ctx, endSpan := tracing.ReconcileSpan(ctx, BFBControllerName, bfb)
+	defer endSpan(&reterr)
 
 	patcher := patch.NewSerialPatcher(bfb, r.Client)
 	defer func() {
