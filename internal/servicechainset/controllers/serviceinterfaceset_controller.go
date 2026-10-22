@@ -31,6 +31,7 @@ import (
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -392,6 +393,10 @@ func getServiceInterfaceForNode(ctx context.Context, cl client.Client, set *dpus
 	}
 }
 
+func serviceInterfaceUpToDate(cached, desired *dpuservicev1.ServiceInterface) bool {
+	return childMetadataUpToDate(cached, desired) && equality.Semantic.DeepEqual(cached.Spec, desired.Spec)
+}
+
 func (r *ServiceInterfaceSetReconciler) createOrUpdateChild(ctx context.Context, set client.Object, nodeName string) error {
 	log := ctrllog.FromContext(ctx)
 
@@ -464,6 +469,9 @@ func (r *ServiceInterfaceSetReconciler) createOrUpdateChild(ctx context.Context,
 	}
 	serviceInterface.SetManagedFields(nil)
 	serviceInterface.SetGroupVersionKind(dpuservicev1.GroupVersion.WithKind("ServiceInterface"))
+	if si != nil && serviceInterfaceUpToDate(si, serviceInterface) {
+		return nil
+	}
 	if err := r.Client.Patch(ctx, serviceInterface, client.Apply, client.ForceOwnership, client.FieldOwner(serviceInterfaceSetControllerName)); err != nil {
 		return err
 	}
@@ -559,14 +567,21 @@ func (r *ServiceInterfaceSetReconciler) reconcileNSI(ctx context.Context, set *d
 	if err != nil {
 		return fmt.Errorf("list interface entries for service interface set: %w", err)
 	}
+	ownedByNode := make(map[string]ownedNSIEntry, len(interfaceEntries))
 	// Build a stale map keyed by node name; entries are removed as we confirm they are still desired.
 	staleByNode := make(map[string]ownedNSIEntry, len(interfaceEntries))
 	for _, interfaceEntry := range interfaceEntries {
+		ownedByNode[interfaceEntry.NSI.Spec.Node] = interfaceEntry
 		staleByNode[interfaceEntry.NSI.Spec.Node] = interfaceEntry
 	}
 
+	entryName := interfaceEntryName(set.Namespace, set.Name)
 	for _, node := range nodeList.Items {
 		delete(staleByNode, node.Name)
+		if owned, ok := ownedByNode[node.Name]; ok &&
+			nsiEntryUpToDate(owned, buildInterfaceEntry(set, entryName, node.Name), node.Name, nsiType) {
+			continue
+		}
 		if err := r.createOrUpdateEntryInNSI(ctx, set, node.Name, nsiType); err != nil {
 			return fmt.Errorf("upsert NSI entry for node %s: %w", node.Name, err)
 		}
@@ -820,6 +835,15 @@ func buildInterfaceEntry(set *dpuservicev1.ServiceInterfaceSet, name, nodeName s
 		}
 	}
 	return entry
+}
+
+// nsiEntryUpToDate reports whether applying desired for nodeName and nsiType would leave owned unchanged.
+func nsiEntryUpToDate(owned ownedNSIEntry, desired dpuservicev1.InterfaceEntry, nodeName, nsiType string) bool {
+	return owned.NSI.Name == nsiName(nodeName, nsiType) &&
+		owned.NSI.Spec.Type == nsiType &&
+		owned.NSI.Labels[nsiNodeLabel] == nodeName &&
+		owned.NSI.Labels[nsiTypeLabel] == nsiType &&
+		equality.Semantic.DeepEqual(owned.Entry, desired)
 }
 
 // SetupWithManager sets up the controller with the Manager.

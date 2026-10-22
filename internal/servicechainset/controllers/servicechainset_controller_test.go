@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"testing"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
@@ -32,9 +33,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 const (
@@ -459,6 +463,65 @@ var _ = Describe("ServiceChainSet Controller", func() {
 				))
 			}, timeout*3, interval).Should(Succeed())
 		})
+		It("should not patch ServiceChains that are already up to date", func() {
+			labels := map[string]string{"role": "firewall"}
+			cleanupObjects = append(cleanupObjects, createServiceChainSet(ctx, testNS.Name, &metav1.LabelSelector{MatchLabels: labels}))
+			cleanupObjects = append(cleanupObjects, createNode(ctx, "node1", labels))
+			cleanupObjects = append(cleanupObjects, createNode(ctx, "node2", labels))
+
+			By("Waiting for the ServiceChains to be created")
+			Eventually(func(g Gomega) {
+				assertServiceChainList(ctx, g, 2, &cleanupObjects, getExpectedTestServiceChainSpec(), testNS.Name)
+			}, timeout*30, interval).Should(Succeed())
+
+			By("Reconciling again and expecting no ServiceChain PATCH")
+			var childPatches []string
+			c, err := client.NewWithWatch(cfg, client.Options{Scheme: testClient.Scheme(), Cache: &client.CacheOptions{Reader: testClient}})
+			Expect(err).NotTo(HaveOccurred())
+			r := &ServiceChainSetReconciler{
+				Client: interceptor.NewClient(c, interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if _, ok := obj.(*dpuservicev1.ServiceChainSet); !ok {
+							childPatches = append(childPatches, client.ObjectKeyFromObject(obj).String())
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}),
+				Scheme: testClient.Scheme(),
+			}
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: testNS.Name, Name: resourceName}}
+			Eventually(func(g Gomega) {
+				childPatches = nil
+				_, err := r.Reconcile(ctx, req)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(childPatches).To(BeEmpty())
+			}, timeout, interval).Should(Succeed())
+		})
+		It("should restore a ServiceChain that drifted from the template", func() {
+			labels := map[string]string{"role": "firewall"}
+			scs := createServiceChainSet(ctx, testNS.Name, &metav1.LabelSelector{MatchLabels: labels})
+			cleanupObjects = append(cleanupObjects, scs)
+			cleanupObjects = append(cleanupObjects, createNode(ctx, "node1", labels))
+
+			By("Waiting for the ServiceChain to be created")
+			Eventually(func(g Gomega) {
+				assertServiceChainList(ctx, g, 1, &cleanupObjects, getExpectedTestServiceChainSpec(), testNS.Name)
+			}, timeout*30, interval).Should(Succeed())
+
+			By("Removing a template label and changing the spec of the ServiceChain")
+			sc, err := getServiceChainForNode(ctx, testClient, scs, "node1")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(sc).NotTo(BeNil())
+			drifted := sc.DeepCopy()
+			delete(drifted.Labels, "color")
+			drifted.Spec.Switches[0].ServiceMTU = ptr.To(9000)
+			Expect(testClient.Patch(ctx, drifted, client.MergeFrom(sc))).To(Succeed())
+
+			By("Expecting the controller to restore the ServiceChain")
+			Eventually(func(g Gomega) {
+				assertServiceChainList(ctx, g, 1, &cleanupObjects, getExpectedTestServiceChainSpec(), testNS.Name)
+			}, timeout*30, interval).Should(Succeed())
+		})
 	})
 	Context("Validating ServiceChainSet creation", func() {
 		var (
@@ -819,5 +882,141 @@ func assertServiceChain(g Gomega, sc *dpuservicev1.ServiceChain, testSpec *dpuse
 	g.ExpectWithOffset(2, sc.OwnerReferences).To(HaveLen(1))
 	for k, v := range testutils.GetTestLabels() {
 		g.ExpectWithOffset(2, sc.Labels[k]).To(Equal(v))
+	}
+}
+
+func testControllerRef() metav1.OwnerReference {
+	return metav1.OwnerReference{
+		APIVersion:         dpuservicev1.GroupVersion.String(),
+		Kind:               "ServiceChainSet",
+		Name:               "set",
+		UID:                "uid-1",
+		Controller:         ptr.To(true),
+		BlockOwnerDeletion: ptr.To(true),
+	}
+}
+
+func testChildMeta() metav1.ObjectMeta {
+	return metav1.ObjectMeta{
+		Name:            "child",
+		Namespace:       "ns",
+		Labels:          map[string]string{"a": "1"},
+		Annotations:     map[string]string{"x": "1"},
+		OwnerReferences: []metav1.OwnerReference{testControllerRef()},
+	}
+}
+
+func TestChildMetadataUpToDate(t *testing.T) {
+	otherRef := metav1.OwnerReference{APIVersion: "v1", Kind: "ConfigMap", Name: "cm", UID: "uid-2"}
+	tests := []struct {
+		name    string
+		cached  func(*metav1.ObjectMeta)
+		desired func(*metav1.ObjectMeta)
+		want    bool
+	}{
+		{name: "identical", want: true},
+		{
+			name:    "nil and empty annotations are equal",
+			cached:  func(m *metav1.ObjectMeta) { m.Annotations = nil },
+			desired: func(m *metav1.ObjectMeta) { m.Annotations = map[string]string{} },
+			want:    true,
+		},
+		{
+			name:   "label value differs",
+			cached: func(m *metav1.ObjectMeta) { m.Labels["a"] = "2" },
+			want:   false,
+		},
+		{
+			name:   "annotation missing",
+			cached: func(m *metav1.ObjectMeta) { m.Annotations = nil },
+			want:   false,
+		},
+		{
+			name:   "extra owner reference on cached",
+			cached: func(m *metav1.ObjectMeta) { m.OwnerReferences = append(m.OwnerReferences, otherRef) },
+			want:   true,
+		},
+		{
+			name:   "owner reference missing",
+			cached: func(m *metav1.ObjectMeta) { m.OwnerReferences = []metav1.OwnerReference{otherRef} },
+			want:   false,
+		},
+		{
+			name:   "owner reference not controller",
+			cached: func(m *metav1.ObjectMeta) { m.OwnerReferences[0].Controller = ptr.To(false) },
+			want:   false,
+		},
+		{
+			name:   "owner reference UID differs",
+			cached: func(m *metav1.ObjectMeta) { m.OwnerReferences[0].UID = "uid-3" },
+			want:   false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			cached, desired := testChildMeta(), testChildMeta()
+			if tt.cached != nil {
+				tt.cached(&cached)
+			}
+			if tt.desired != nil {
+				tt.desired(&desired)
+			}
+			g.Expect(childMetadataUpToDate(&cached, &desired)).To(Equal(tt.want))
+		})
+	}
+}
+
+func testServiceChain() *dpuservicev1.ServiceChain {
+	return &dpuservicev1.ServiceChain{
+		ObjectMeta: testChildMeta(),
+		Spec: dpuservicev1.ServiceChainSpec{
+			Node: ptr.To("node1"),
+			Switches: []dpuservicev1.Switch{{
+				ServiceMTU: ptr.To(1500),
+				Ports: []dpuservicev1.Port{{
+					ServiceInterface: dpuservicev1.ServiceIfc{
+						MatchLabels: map[string]string{"svc.dpu.nvidia.com/interface": "eth0"},
+					},
+				}},
+			}},
+		},
+	}
+}
+
+func TestServiceChainUpToDate(t *testing.T) {
+	tests := []struct {
+		name   string
+		cached func(*dpuservicev1.ServiceChain)
+		want   bool
+	}{
+		{name: "identical", want: true},
+		{
+			name:   "spec differs",
+			cached: func(sc *dpuservicev1.ServiceChain) { sc.Spec.Switches[0].ServiceMTU = ptr.To(9000) },
+			want:   false,
+		},
+		{
+			name:   "metadata differs",
+			cached: func(sc *dpuservicev1.ServiceChain) { delete(sc.Labels, "a") },
+			want:   false,
+		},
+		{
+			name: "status is ignored",
+			cached: func(sc *dpuservicev1.ServiceChain) {
+				sc.Status.Conditions = []metav1.Condition{{Type: "Ready", Status: metav1.ConditionTrue}}
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			cached, desired := testServiceChain(), testServiceChain()
+			if tt.cached != nil {
+				tt.cached(cached)
+			}
+			g.Expect(serviceChainUpToDate(cached, desired)).To(Equal(tt.want))
+		})
 	}
 }

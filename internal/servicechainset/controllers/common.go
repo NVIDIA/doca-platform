@@ -20,11 +20,13 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 
 	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -257,4 +259,26 @@ func mergeMaps(ms ...map[string]string) map[string]string {
 		maps.Copy(result, m)
 	}
 	return result
+}
+
+// childMetadataUpToDate reports whether cached carries the labels, annotations and owner references
+// of desired. Callers build desired's labels and annotations by merging over cached's, so map
+// equality means every key we set is present with our value.
+func childMetadataUpToDate(cached, desired metav1.Object) bool {
+	if !maps.Equal(cached.GetLabels(), desired.GetLabels()) ||
+		!maps.Equal(cached.GetAnnotations(), desired.GetAnnotations()) {
+		return false
+	}
+	for _, ref := range desired.GetOwnerReferences() {
+		if !hasOwnerReference(cached.GetOwnerReferences(), ref) {
+			return false
+		}
+	}
+	return true
+}
+
+func hasOwnerReference(refs []metav1.OwnerReference, want metav1.OwnerReference) bool {
+	return slices.ContainsFunc(refs, func(ref metav1.OwnerReference) bool {
+		return equality.Semantic.DeepEqual(ref, want)
+	})
 }
