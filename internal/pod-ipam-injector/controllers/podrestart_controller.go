@@ -21,17 +21,22 @@ import (
 	"fmt"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/utils"
+	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
 
 	multustypes "gopkg.in/k8snetworkplumbingwg/multus-cni.v4/pkg/types"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const (
@@ -53,6 +58,9 @@ type PodRestartController struct {
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=servicechains,verbs=get;list;watch
 // +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=serviceinterfaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups=svc.dpu.nvidia.com,resources=nodeserviceinterfaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups=nv-ipam.nvidia.com,resources=ippools,verbs=get;list;watch
+// +kubebuilder:rbac:groups=nv-ipam.nvidia.com,resources=cidrpools,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
 func (r *PodRestartController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -124,37 +132,153 @@ func (r *PodRestartController) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 
-	// Create a predicate that only processes ServiceChains with a node specified
-	serviceChainPredicate := predicate.Funcs{
-		CreateFunc: func(e event.CreateEvent) bool {
-			serviceChain := e.Object.(*dpuservicev1.ServiceChain)
-			return serviceChain.Spec.Node != nil
-		},
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldServiceChain := e.ObjectOld.(*dpuservicev1.ServiceChain)
-			newServiceChain := e.ObjectNew.(*dpuservicev1.ServiceChain)
+	// The ServiceChain spec.node index is registered by ServiceChainSetReconciler in the same manager.
 
-			// Process if both old and new have a node specified
-			// This is to avoid processing ServiceChains that are not part of a node.
-			oldHasNode := oldServiceChain.Spec.Node != nil
-			newHasNode := newServiceChain.Spec.Node != nil
-
-			return oldHasNode && newHasNode
-		},
-		DeleteFunc: func(e event.DeleteEvent) bool {
-			serviceChain := e.Object.(*dpuservicev1.ServiceChain)
-			return serviceChain.Spec.Node != nil
-		},
-		GenericFunc: func(e event.GenericEvent) bool {
-			serviceChain := e.Object.(*dpuservicev1.ServiceChain)
-			return serviceChain.Spec.Node != nil
-		},
-	}
-
+	// The network digest depends on the ServiceChain spec, the ServiceInterfaces (legacy and NSI entries), the
+	// NV-IPAM pools and the Pod. Status writes and resyncs don't change it, so only spec and label changes trigger a
+	// reconcile. The Pod watch catches a digest written from a configuration that changed while the write was in flight.
+	specOrLabelsChanged := builder.WithPredicates(notInInitialList,
+		predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{}))
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(PodRestartControllerName).
-		For(&dpuservicev1.ServiceChain{}, builder.WithPredicates(serviceChainPredicate)).
+		For(&dpuservicev1.ServiceChain{}, builder.WithPredicates(serviceChainPredicate())).
+		Watches(&dpuservicev1.ServiceInterface{}, handler.EnqueueRequestsFromMapFunc(r.serviceInterfaceToServiceChains), specOrLabelsChanged).
+		Watches(&dpuservicev1.NodeServiceInterfaces{}, handler.EnqueueRequestsFromMapFunc(r.nodeServiceInterfacesToServiceChains),
+			builder.WithPredicates(notInInitialList, predicate.GenerationChangedPredicate{})).
+		Watches(&nvipamv1.IPPool{}, handler.EnqueueRequestsFromMapFunc(r.poolToServiceChains), specOrLabelsChanged).
+		Watches(&nvipamv1.CIDRPool{}, handler.EnqueueRequestsFromMapFunc(r.poolToServiceChains), specOrLabelsChanged).
+		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(r.podToServiceChains), builder.WithPredicates(podDigestInputsChangedPredicate())).
 		Complete(r)
+}
+
+// notInInitialList drops the create events of an informer's initial list. Workers start once all watches have
+// synced, and the ServiceChain watch alone already enqueues every ServiceChain at that point.
+var notInInitialList = predicate.Funcs{
+	CreateFunc: func(e event.CreateEvent) bool {
+		return !e.IsInInitialList
+	},
+}
+
+// podDigestInputsChangedPredicate accepts Pod updates that change the digest annotation or another Pod input of the
+// digest. PodIpam sets the digest with a server-side apply on the existing Pod, which arrives as an update, so creates
+// are ignored.
+func podDigestInputsChangedPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(event.CreateEvent) bool {
+			return false
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldPod, newPod := e.ObjectOld.(*corev1.Pod), e.ObjectNew.(*corev1.Pod)
+			if newPod.Spec.NodeName == "" {
+				return false
+			}
+			return oldPod.Annotations[NetworkDigestAnnotation] != newPod.Annotations[NetworkDigestAnnotation] ||
+				oldPod.Annotations[NetworkAttachmentAnnot] != newPod.Annotations[NetworkAttachmentAnnot] ||
+				oldPod.Labels[dpuservicev1.DPFServiceIDLabelKey] != newPod.Labels[dpuservicev1.DPFServiceIDLabelKey]
+		},
+		DeleteFunc: func(event.DeleteEvent) bool {
+			return false
+		},
+		GenericFunc: func(event.GenericEvent) bool {
+			return false
+		},
+	}
+}
+
+// serviceChainPredicate accepts ServiceChains that have a node, and on update only spec changes.
+func serviceChainPredicate() predicate.Predicate {
+	hasNode := func(o client.Object) bool {
+		return o.(*dpuservicev1.ServiceChain).Spec.Node != nil
+	}
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			return hasNode(e.Object)
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			return hasNode(e.ObjectOld) && hasNode(e.ObjectNew) &&
+				e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration()
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return hasNode(e.Object)
+		},
+		GenericFunc: func(e event.GenericEvent) bool {
+			return hasNode(e.Object)
+		},
+	}
+}
+
+// serviceChainsOnNode returns a request for every ServiceChain on nodeName, in namespace if it isn't empty.
+func (r *PodRestartController) serviceChainsOnNode(ctx context.Context, nodeName, namespace string) []reconcile.Request {
+	opts := []client.ListOption{client.MatchingFields{utils.ServiceChainNodeFieldKey: nodeName}, client.UnsafeDisableDeepCopy}
+	if namespace != "" {
+		opts = append(opts, client.InNamespace(namespace))
+	}
+	serviceChains := &dpuservicev1.ServiceChainList{}
+	if err := r.List(ctx, serviceChains, opts...); err != nil {
+		ctrllog.FromContext(ctx).Error(err, "failed to list ServiceChains", "node", nodeName, "namespace", namespace)
+		return nil
+	}
+	requests := make([]reconcile.Request, 0, len(serviceChains.Items))
+	for i := range serviceChains.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&serviceChains.Items[i])})
+	}
+	return requests
+}
+
+// podToServiceChains maps a Pod to the ServiceChains in its namespace on its node.
+func (r *PodRestartController) podToServiceChains(ctx context.Context, obj client.Object) []reconcile.Request {
+	pod := obj.(*corev1.Pod)
+	if pod.Spec.NodeName == "" {
+		return nil
+	}
+	return r.serviceChainsOnNode(ctx, pod.Spec.NodeName, pod.Namespace)
+}
+
+// serviceInterfaceToServiceChains maps a ServiceInterface to the ServiceChains in its namespace on its node.
+func (r *PodRestartController) serviceInterfaceToServiceChains(ctx context.Context, obj client.Object) []reconcile.Request {
+	si := obj.(*dpuservicev1.ServiceInterface)
+	if si.Spec.Node == nil {
+		return nil
+	}
+	return r.serviceChainsOnNode(ctx, *si.Spec.Node, si.Namespace)
+}
+
+// nodeServiceInterfacesToServiceChains maps a NodeServiceInterfaces shard to all ServiceChains on its node. The
+// shard lives in the DPF namespace while its entries belong to ServiceChains in any namespace.
+func (r *PodRestartController) nodeServiceInterfacesToServiceChains(ctx context.Context, obj client.Object) []reconcile.Request {
+	return r.serviceChainsOnNode(ctx, obj.(*dpuservicev1.NodeServiceInterfaces).Spec.Node, "")
+}
+
+// poolToServiceChains maps an IPPool or CIDRPool to the ServiceChains with a node and a port whose IPAM matchLabels
+// select the pool.
+func (r *PodRestartController) poolToServiceChains(ctx context.Context, obj client.Object) []reconcile.Request {
+	poolLabels := labels.Set(obj.GetLabels())
+	serviceChains := &dpuservicev1.ServiceChainList{}
+	if err := r.List(ctx, serviceChains, client.UnsafeDisableDeepCopy); err != nil {
+		ctrllog.FromContext(ctx).Error(err, "failed to list ServiceChains")
+		return nil
+	}
+	var requests []reconcile.Request
+	for i := range serviceChains.Items {
+		sc := &serviceChains.Items[i]
+		if sc.Spec.Node != nil && serviceChainSelectsPool(sc, poolLabels) {
+			requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(sc)})
+		}
+	}
+	return requests
+}
+
+// serviceChainSelectsPool reports whether a port of sc has IPAM matchLabels that select a pool with poolLabels.
+func serviceChainSelectsPool(sc *dpuservicev1.ServiceChain, poolLabels labels.Set) bool {
+	for _, sw := range sc.Spec.Switches {
+		for _, port := range sw.Ports {
+			ipam := port.ServiceInterface.IPAM
+			if ipam != nil && labels.SelectorFromSet(ipam.MatchLabels).Matches(poolLabels) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // reconcilePods finds and reconciles all pods in the namespace that need to be restarted due to network digest changes.

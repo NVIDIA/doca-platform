@@ -23,6 +23,7 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/digest"
+	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -178,7 +179,7 @@ func getServiceChainForNode(ctx context.Context, cl client.Client, set *dpuservi
 			ServiceChainSetNamespaceLabel: set.GetNamespace(),
 		}),
 		client.InNamespace(set.GetNamespace()),
-		client.MatchingFields{nodeFieldKey: nodeName},
+		client.MatchingFields{utils.ServiceChainNodeFieldKey: nodeName},
 	); err != nil {
 		return nil, err
 	}
@@ -295,17 +296,7 @@ func (r *ServiceChainSetReconciler) setReadyStatus(serviceSet client.Object, num
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ServiceChainSetReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(
-		ctx,
-		&dpuservicev1.ServiceChain{},
-		nodeFieldKey,
-		func(o client.Object) []string {
-			if sc, ok := o.(*dpuservicev1.ServiceChain); ok && sc.Spec.Node != nil {
-				return []string{*sc.Spec.Node}
-			}
-			return nil
-		},
-	); err != nil {
+	if err := utils.SetupServiceChainNodeIndexer(ctx, mgr); err != nil {
 		return err
 	}
 

@@ -35,6 +35,9 @@ const (
 
 	// NSITypeFieldKey is the cache field-index key for NodeServiceInterfaces.spec.type.
 	NSITypeFieldKey = "spec.type"
+
+	// ServiceChainNodeFieldKey is the cache field-index key for ServiceChain spec.node.
+	ServiceChainNodeFieldKey = "spec.node"
 )
 
 // NSINodeIndexFunc extracts the node name from a NodeServiceInterfaces object for field indexing.
@@ -72,6 +75,28 @@ func SetupNSINodeIndexer(ctx context.Context, mgr ctrl.Manager) error {
 		NSITypeIndexFunc,
 	); err != nil {
 		return fmt.Errorf("register NSI spec.type index: %w", err)
+	}
+	return nil
+}
+
+// ServiceChainNodeIndexFunc extracts the node name from a ServiceChain for field indexing.
+func ServiceChainNodeIndexFunc(o client.Object) []string {
+	sc := o.(*dpuservicev1.ServiceChain)
+	if sc.Spec.Node == nil {
+		return nil
+	}
+	return []string{*sc.Spec.Node}
+}
+
+// SetupServiceChainNodeIndexer registers the ServiceChain spec.node field index. A manager accepts it only once.
+func SetupServiceChainNodeIndexer(ctx context.Context, mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(
+		ctx,
+		&dpuservicev1.ServiceChain{},
+		ServiceChainNodeFieldKey,
+		ServiceChainNodeIndexFunc,
+	); err != nil {
+		return fmt.Errorf("register ServiceChain spec.node index: %w", err)
 	}
 	return nil
 }

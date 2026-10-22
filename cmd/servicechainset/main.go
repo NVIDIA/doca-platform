@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -33,6 +34,7 @@ import (
 	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
 
 	"github.com/spf13/pflag"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -43,6 +45,7 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -172,14 +175,12 @@ func main() {
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                 scheme,
-		Metrics:                metricsOpts,
-		PprofBindAddress:       pprofBindAddr,
-		WebhookServer:          webhookServer,
-		HealthProbeBindAddress: probeAddr,
-		Cache: cache.Options{
-			SyncPeriod: &syncPeriod,
-		},
+		Scheme:                  scheme,
+		Metrics:                 metricsOpts,
+		PprofBindAddress:        pprofBindAddr,
+		WebhookServer:           webhookServer,
+		HealthProbeBindAddress:  probeAddr,
+		Cache:                   managerCacheOptions(syncPeriod),
 		LeaderElection:          enableLeaderElection,
 		LeaderElectionID:        "servicechainset.dpu.nvidia.com",
 		LeaderElectionNamespace: leaderElectionNamespace,
@@ -192,32 +193,8 @@ func main() {
 		os.Exit(1)
 	}
 	ctx := ctrl.SetupSignalHandler()
-	if err = (&sfcsetcontroller.ServiceInterfaceSetReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(ctx, mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ServiceInterfaceSet")
-		os.Exit(1)
-	}
-	if err = (&sfcsetcontroller.ServiceChainSetReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(ctx, mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ServiceChainSet")
-		os.Exit(1)
-	}
-	if err = (&ipamcontroller.PodIpamReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "PodIpam")
-		os.Exit(1)
-	}
-	if err = (&ipamcontroller.PodRestartController{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "PodRestart")
+	if err := setupControllers(ctx, mgr); err != nil {
+		setupLog.Error(err, "unable to create controller")
 		os.Exit(1)
 	}
 
@@ -235,4 +212,43 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// managerCacheOptions returns the cache options of the manager.
+func managerCacheOptions(syncPeriod time.Duration) cache.Options {
+	return cache.Options{
+		SyncPeriod: &syncPeriod,
+		ByObject: map[client.Object]cache.ByObject{
+			&corev1.Pod{}: {Transform: ipamcontroller.TransformPodForCache()},
+		},
+	}
+}
+
+// setupControllers registers all the controllers of this binary with mgr.
+func setupControllers(ctx context.Context, mgr ctrl.Manager) error {
+	if err := (&sfcsetcontroller.ServiceInterfaceSetReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(ctx, mgr); err != nil {
+		return fmt.Errorf("ServiceInterfaceSet: %w", err)
+	}
+	if err := (&sfcsetcontroller.ServiceChainSetReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(ctx, mgr); err != nil {
+		return fmt.Errorf("ServiceChainSet: %w", err)
+	}
+	if err := (&ipamcontroller.PodIpamReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("PodIpam: %w", err)
+	}
+	if err := (&ipamcontroller.PodRestartController{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("PodRestart: %w", err)
+	}
+	return nil
 }

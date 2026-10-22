@@ -35,6 +35,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -88,6 +89,11 @@ var _ = BeforeSuite(func() {
 	testManager, err := ctrl.NewManager(cfg,
 		ctrl.Options{
 			Scheme: scheme.Scheme,
+			Cache: cache.Options{
+				ByObject: map[client.Object]cache.ByObject{
+					&corev1.Pod{}: {Transform: TransformPodForCache()},
+				},
+			},
 			// Set metrics server bind address to 0 to disable it.
 			Metrics: server.Options{
 				BindAddress: "0",
@@ -109,8 +115,10 @@ var _ = BeforeSuite(func() {
 	err = reconciler.SetupWithManager(testManager)
 	Expect(err).ToNot(HaveOccurred())
 
-	// In production ServiceInterfaceSetReconciler registers this index; it's not set up in this suite.
+	// In production ServiceInterfaceSetReconciler and ServiceChainSetReconciler register these indexes; they're not
+	// set up in this suite.
 	Expect(utils.SetupServiceInterfaceNodeIndexer(ctx, testManager)).To(Succeed())
+	Expect(utils.SetupServiceChainNodeIndexer(ctx, testManager)).To(Succeed())
 
 	// Set up PodRestartController
 	podRestartReconciler := &PodRestartController{
