@@ -210,7 +210,7 @@ Some failures are reported only as gRPC errors (no persisted object), for exampl
 
 ### VirtualNetwork
 
-A `VirtualNetwork` is the isolation boundary for east-west overlay traffic. It is defined by a subnet and a VXLAN VNI. One `VirtualNetwork` on a DPU can be used by multiple attachments on that DPU, including across NICs. Overlay connectivity between two PF attachments on the same node is not yet supported (see [Limitations](#limitations)).
+A `VirtualNetwork` is the isolation boundary for east-west overlay traffic. It is defined by a subnet and a VXLAN VNI. One `VirtualNetwork` on a DPU can be used by multiple attachments on that DPU, including across NICs. Two PF attachments on the same node reach each other over the underlay, the traffic leaves the NIC and hairpins back from the switch.
 
 | Field | Description |
 |-------|-------------|
@@ -732,6 +732,5 @@ On each worker pod, `list-attachment` and `list-vnet` should no longer list thes
 
 * Address family - IPv4 or IPv6, one family per deployment. Overlay and underlay always use the same family, dual-stack is not supported (see [Address family](#address-family)).
 * Attachments - Only `attachment_type` `pf` and `ovs` are supported for `VirtualNetworkAttachment`.
-* Same-node PFs - Overlay connectivity between two PF attachments on the same node is not yet supported, even when they share the same `VirtualNetwork` and VNI.
 * VNI - Bits 20-23 of the 24-bit VNI are reserved (see [VirtualNetwork](#virtualnetwork)).
 * Identifiers - `nicId` / `--nic-id` and `attachmentPf.pfId` / `--pf` support MAC addresses only.
