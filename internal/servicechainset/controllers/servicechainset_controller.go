@@ -27,6 +27,7 @@ import (
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -191,6 +192,10 @@ func getServiceChainForNode(ctx context.Context, cl client.Client, set *dpuservi
 	}
 }
 
+func serviceChainUpToDate(cached, desired *dpuservicev1.ServiceChain) bool {
+	return childMetadataUpToDate(cached, desired) && equality.Semantic.DeepEqual(cached.Spec, desired.Spec)
+}
+
 func (r *ServiceChainSetReconciler) createOrUpdateChild(ctx context.Context, set client.Object, nodeName string) error {
 	log := ctrllog.FromContext(ctx)
 
@@ -238,6 +243,9 @@ func (r *ServiceChainSetReconciler) createOrUpdateChild(ctx context.Context, set
 	}
 	serviceChain.SetManagedFields(nil)
 	serviceChain.SetGroupVersionKind(dpuservicev1.GroupVersion.WithKind("ServiceChain"))
+	if sc != nil && serviceChainUpToDate(sc, serviceChain) {
+		return nil
+	}
 	if err := r.Client.Patch(ctx, serviceChain, client.Apply, client.ForceOwnership, client.FieldOwner(serviceChainSetControllerName)); err != nil {
 		return err
 	}

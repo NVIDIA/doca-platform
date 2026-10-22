@@ -19,6 +19,7 @@ package controller //nolint:dupl
 import (
 	"context"
 	"sort"
+	"testing"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
@@ -31,9 +32,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 const (
@@ -473,6 +477,109 @@ var _ = Describe("ServiceInterfaceSet Controller", func() {
 				g.Expect(entry).NotTo(BeNil())
 				g.Expect(entry.Annotations).To(HaveKeyWithValue(fooAnnotKey, fooAnnotValue))
 				g.Expect(entry.Labels).To(HaveKeyWithValue(fooLabelKey, fooLabelValue))
+			}, timeout*3, interval).Should(Succeed())
+		})
+		It("should not patch NSI entries that are already up to date", func() {
+			labels := map[string]string{"role": "firewall"}
+			cleanupObjects = append(cleanupObjects, createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{MatchLabels: labels}))
+			cleanupObjects = append(cleanupObjects, createNode(ctx, "node1", labels))
+			cleanupObjects = append(cleanupObjects, createNode(ctx, "node2", labels))
+
+			By("Waiting for the NSI entries to be created")
+			Eventually(func(g Gomega) {
+				g.Expect(nodesWithActiveNSIEntry(g, testNS.Name, svcIfcSetName)).To(ConsistOf("node1", "node2"))
+			}, timeout*3, interval).Should(Succeed())
+
+			By("Reconciling again and expecting no NSI PATCH")
+			var childPatches []string
+			c, err := client.NewWithWatch(cfg, client.Options{Scheme: testClient.Scheme(), Cache: &client.CacheOptions{Reader: testClient}})
+			Expect(err).NotTo(HaveOccurred())
+			r := &ServiceInterfaceSetReconciler{
+				Client: interceptor.NewClient(c, interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if _, ok := obj.(*dpuservicev1.ServiceInterfaceSet); !ok {
+							childPatches = append(childPatches, client.ObjectKeyFromObject(obj).String())
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}),
+				Scheme: testClient.Scheme(),
+			}
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: testNS.Name, Name: svcIfcSetName}}
+			Eventually(func(g Gomega) {
+				childPatches = nil
+				_, err := r.Reconcile(ctx, req)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(childPatches).To(BeEmpty())
+			}, timeout, interval).Should(Succeed())
+		})
+		It("should restore an NSI entry that drifted from the template", func() {
+			labels := map[string]string{"role": "firewall"}
+			cleanupObjects = append(cleanupObjects, createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{MatchLabels: labels}))
+			cleanupObjects = append(cleanupObjects, createNode(ctx, "node1", labels))
+
+			By("Waiting for the NSI entry to be created")
+			Eventually(func(g Gomega) {
+				g.Expect(nodesWithActiveNSIEntry(g, testNS.Name, svcIfcSetName)).To(ConsistOf("node1"))
+			}, timeout*3, interval).Should(Succeed())
+
+			entryName := interfaceEntryName(testNS.Name, svcIfcSetName)
+			nsiKey := client.ObjectKey{Namespace: utils.NSIObjectsNamespace, Name: nsiName("node1", dpuservicev1.NSITypeSFC)}
+			nsi := &dpuservicev1.NodeServiceInterfaces{}
+			Expect(testClient.Get(ctx, nsiKey, nsi)).To(Succeed())
+
+			By("Changing the entry's VF ID with another field manager")
+			drifted := nsi.DeepCopy()
+			changed := 0
+			for i := range drifted.Spec.Interfaces {
+				if drifted.Spec.Interfaces[i].Name == entryName {
+					drifted.Spec.Interfaces[i].VF.VFID = 7
+					changed++
+				}
+			}
+			Expect(changed).To(Equal(1))
+			Expect(testClient.Patch(ctx, drifted, client.MergeFrom(nsi), client.FieldOwner("test-drift"))).To(Succeed())
+
+			By("Expecting the controller to restore the entry")
+			Eventually(func(g Gomega) {
+				got := &dpuservicev1.NodeServiceInterfaces{}
+				g.Expect(testClient.Get(ctx, nsiKey, got)).To(Succeed())
+				g.Expect(got.Spec.Interfaces).To(ContainElement(And(
+					HaveField("Name", entryName),
+					HaveField("VF.VFID", 0),
+				)))
+			}, timeout*3, interval).Should(Succeed())
+		})
+		It("should reactivate a terminating NSI entry when its node is selected again", func() {
+			labels := map[string]string{"role": "firewall"}
+			cleanupObjects = append(cleanupObjects, createServiceInterfaceSet(ctx, testNS.Name, &metav1.LabelSelector{MatchLabels: labels}))
+			cleanupObjects = append(cleanupObjects, createNode(ctx, "node1", labels))
+			cleanupObjects = append(cleanupObjects, createNode(ctx, "node2", labels))
+
+			Eventually(func(g Gomega) {
+				g.Expect(nodesWithActiveNSIEntry(g, testNS.Name, svcIfcSetName)).To(ConsistOf("node1", "node2"))
+			}, timeout*3, interval).Should(Succeed())
+
+			setNodeLabels := func(name string, nodeLabels map[string]string) {
+				node := &corev1.Node{}
+				Expect(testClient.Get(ctx, client.ObjectKey{Name: name}, node)).To(Succeed())
+				patch := node.DeepCopy()
+				patch.Labels = nodeLabels
+				Eventually(func() error {
+					return testClient.Patch(ctx, patch, client.MergeFrom(node))
+				}, timeout, interval).Should(Succeed())
+			}
+
+			By("Deselecting node2")
+			setNodeLabels("node2", map[string]string{})
+			Eventually(func(g Gomega) {
+				g.Expect(nodesWithActiveNSIEntry(g, testNS.Name, svcIfcSetName)).To(ConsistOf("node1"))
+			}, timeout*3, interval).Should(Succeed())
+
+			By("Selecting node2 again")
+			setNodeLabels("node2", labels)
+			Eventually(func(g Gomega) {
+				g.Expect(nodesWithActiveNSIEntry(g, testNS.Name, svcIfcSetName)).To(ConsistOf("node1", "node2"))
 			}, timeout*3, interval).Should(Succeed())
 		})
 	})
@@ -915,4 +1022,140 @@ func getInvalidTestServiceInterfaceSpec(typ string) dpuservicev1.ServiceInterfac
 		sfc.Patch = nil
 	}
 	return sfc
+}
+
+func testServiceInterface() *dpuservicev1.ServiceInterface {
+	return &dpuservicev1.ServiceInterface{
+		ObjectMeta: testChildMeta(),
+		Spec: dpuservicev1.ServiceInterfaceSpec{
+			Node:          ptr.To("node1"),
+			InterfaceType: dpuservicev1.InterfaceTypeVF,
+			VF:            &dpuservicev1.VF{VFID: 0, PFID: 1, VirtualNetwork: ptr.To("vnet")},
+		},
+	}
+}
+
+func TestServiceInterfaceUpToDate(t *testing.T) {
+	tests := []struct {
+		name   string
+		cached func(*dpuservicev1.ServiceInterface)
+		want   bool
+	}{
+		{name: "identical", want: true},
+		{
+			name:   "spec field differs",
+			cached: func(si *dpuservicev1.ServiceInterface) { si.Spec.VF.VFID = 7 },
+			want:   false,
+		},
+		{
+			name: "extra spec field on cached",
+			cached: func(si *dpuservicev1.ServiceInterface) {
+				si.Spec.Vlan = &dpuservicev1.VLAN{VlanID: 100, ParentInterfaceRef: "p0-node1"}
+			},
+			want: false,
+		},
+		{
+			name:   "metadata differs",
+			cached: func(si *dpuservicev1.ServiceInterface) { si.Annotations["x"] = "2" },
+			want:   false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			cached, desired := testServiceInterface(), testServiceInterface()
+			if tt.cached != nil {
+				tt.cached(cached)
+			}
+			g.Expect(serviceInterfaceUpToDate(cached, desired)).To(Equal(tt.want))
+		})
+	}
+}
+
+func testInterfaceEntry() dpuservicev1.InterfaceEntry {
+	return dpuservicev1.InterfaceEntry{
+		Name:          "ns_set",
+		Labels:        map[string]string{"a": "1"},
+		InterfaceType: dpuservicev1.InterfaceTypeVF,
+		VF:            &dpuservicev1.VF{VFID: 0, PFID: 1},
+	}
+}
+
+func testOwnedNSIEntry() ownedNSIEntry {
+	return ownedNSIEntry{
+		NSI: &dpuservicev1.NodeServiceInterfaces{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: nsiName("node1", dpuservicev1.NSITypeSFC),
+				Labels: map[string]string{
+					nsiNodeLabel: "node1",
+					nsiTypeLabel: dpuservicev1.NSITypeSFC,
+				},
+			},
+			Spec: dpuservicev1.NodeServiceInterfacesSpec{
+				Node:       "node1",
+				Type:       dpuservicev1.NSITypeSFC,
+				Interfaces: []dpuservicev1.InterfaceEntry{testInterfaceEntry()},
+			},
+		},
+		Entry: testInterfaceEntry(),
+	}
+}
+
+func TestNSIEntryUpToDate(t *testing.T) {
+	tests := []struct {
+		name    string
+		owned   func(*ownedNSIEntry)
+		desired func(*dpuservicev1.InterfaceEntry)
+		nsiType string
+		want    bool
+	}{
+		{name: "identical", want: true},
+		{
+			name:    "nil and empty annotations are equal",
+			desired: func(e *dpuservicev1.InterfaceEntry) { e.Annotations = map[string]string{} },
+			want:    true,
+		},
+		{
+			name:  "entry terminating",
+			owned: func(o *ownedNSIEntry) { o.Entry.Terminating = true },
+			want:  false,
+		},
+		{
+			name:  "entry field differs",
+			owned: func(o *ownedNSIEntry) { o.Entry.VF.VFID = 7 },
+			want:  false,
+		},
+		{
+			name:    "NSI type differs",
+			nsiType: dpuservicev1.NSITypeVPC,
+			want:    false,
+		},
+		{
+			name:  "type label missing",
+			owned: func(o *ownedNSIEntry) { delete(o.NSI.Labels, nsiTypeLabel) },
+			want:  false,
+		},
+		{
+			name:  "node label differs",
+			owned: func(o *ownedNSIEntry) { o.NSI.Labels[nsiNodeLabel] = "node2" },
+			want:  false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			owned, desired := testOwnedNSIEntry(), testInterfaceEntry()
+			if tt.owned != nil {
+				tt.owned(&owned)
+			}
+			if tt.desired != nil {
+				tt.desired(&desired)
+			}
+			nsiType := dpuservicev1.NSITypeSFC
+			if tt.nsiType != "" {
+				nsiType = tt.nsiType
+			}
+			g.Expect(nsiEntryUpToDate(owned, desired, "node1", nsiType)).To(Equal(tt.want))
+		})
+	}
 }
