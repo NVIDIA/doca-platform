@@ -247,6 +247,29 @@ write_files:
             dhcp4: false
 {{- end}}
 
+{{- if not .OOBNetwork}}
+  # BFB images may ship an earlier-sorting 02-oob.network with DHCP enabled.
+  # Override it in /etc so host-trusted DPUs use br-comm-ch exclusively for
+  # management traffic.
+  - path: /etc/systemd/network/02-oob.network
+    permissions: '0644'
+    content: |
+      [Match]
+      Name=oob_net0
+
+      [Network]
+      DHCP=no
+      LinkLocalAddressing=no
+      IPv6AcceptRA=no
+
+  # Prevent ARP flux when oob_net0 and br-comm-ch are attached to the same L2.
+  - path: /etc/sysctl.d/99-z-dpf-oob-arp.conf
+    permissions: '0644'
+    content: |
+      net.ipv4.conf.all.arp_ignore=1
+      net.ipv4.conf.all.arp_announce=2
+{{- end}}
+
 {{- range .ConfigFiles}}
   - path: {{.Path}}
     {{if .IsAppend}}append: true
@@ -306,6 +329,13 @@ write_files:
       set -euo pipefail
 
       netplan apply
+{{- if not .OOBNetwork}}
+      # Load the host-trusted override into the running networkd and remove any
+      # DHCP address acquired from the BFB-provided 02-oob.network.
+      sysctl --load /etc/sysctl.d/99-z-dpf-oob-arp.conf
+      networkctl reload
+      networkctl reconfigure oob_net0
+{{- end}}
 
       # Install dpu-agent with retry.
       # Using "if" so that apt-get failures don't trigger "set -e" exit;

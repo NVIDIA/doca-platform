@@ -76,13 +76,21 @@ var _ = Describe("Netplan", func() {
 
 			applied := false
 			operation := &ConfigureNetwork{
-				netplanRoot: tempDir,
+				netplanRoot:        tempDir,
+				systemdNetworkRoot: filepath.Join(tempDir, "systemd-network"),
+				sysctlRoot:         filepath.Join(tempDir, "sysctl.d"),
 				applyNetplanFunc: func() error {
 					applied = true
 					return nil
 				},
 				listPFRepsFunc: func() ([]string, error) {
 					return nil, nil
+				},
+				applyOOBARPFunc: func(string) error {
+					return fmt.Errorf("must not apply host-trusted ARP settings in zero-trust mode")
+				},
+				reconfigureOOBFunc: func() error {
+					return fmt.Errorf("must not reconfigure OOB in zero-trust mode")
 				},
 			}
 			Expect(operation.Execute(ctx, &operations.Context{
@@ -127,14 +135,27 @@ var _ = Describe("Netplan", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			applied := false
+			arpApplied := false
+			oobReconfigured := false
 			operation := &ConfigureNetwork{
-				netplanRoot: tempDir,
+				netplanRoot:        tempDir,
+				systemdNetworkRoot: filepath.Join(tempDir, "systemd-network"),
+				sysctlRoot:         filepath.Join(tempDir, "sysctl.d"),
 				applyNetplanFunc: func() error {
 					applied = true
 					return nil
 				},
 				listPFRepsFunc: func() ([]string, error) {
 					return nil, nil
+				},
+				applyOOBARPFunc: func(path string) error {
+					arpApplied = true
+					Expect(path).To(Equal(filepath.Join(tempDir, "sysctl.d", oobARPConfigFile)))
+					return nil
+				},
+				reconfigureOOBFunc: func() error {
+					oobReconfigured = true
+					return nil
 				},
 			}
 			Expect(operation.Execute(ctx, &operations.Context{
@@ -166,7 +187,17 @@ var _ = Describe("Netplan", func() {
 			_, err = os.Stat(filepath.Join(tempDir, "97-pf-mtu.yaml"))
 			Expect(err).NotTo(HaveOccurred())
 
+			oobOverride, err := os.ReadFile(filepath.Join(tempDir, "systemd-network", oobNetworkOverrideFile))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(oobOverride)).To(Equal(oobNetworkOverride))
+
+			arpConfig, err := os.ReadFile(filepath.Join(tempDir, "sysctl.d", oobARPConfigFile))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(arpConfig)).To(Equal(oobARPConfig))
+
 			Expect(applied).To(BeTrue())
+			Expect(arpApplied).To(BeTrue())
+			Expect(oobReconfigured).To(BeTrue())
 		})
 
 		It("[BF4] should create PF MTU config for N/S uplinks and PF representors", func() {
@@ -179,6 +210,12 @@ var _ = Describe("Netplan", func() {
 				},
 				listPFRepsFunc: func() ([]string, error) {
 					return []string{"B21c1pf0", "B61c1pf1", "B21c2pf0", "B61c2pf1"}, nil
+				},
+				applyOOBARPFunc: func(string) error {
+					return fmt.Errorf("must not apply host-trusted ARP settings in zero-trust mode")
+				},
+				reconfigureOOBFunc: func() error {
+					return fmt.Errorf("must not reconfigure OOB in zero-trust mode")
 				},
 			}
 			Expect(operation.Execute(ctx, &operations.Context{
