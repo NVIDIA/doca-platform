@@ -27,11 +27,13 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/ecpf"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
 
 	"github.com/fluxcd/pkg/runtime/patch"
+	"go.opentelemetry.io/otel/attribute"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -552,6 +554,7 @@ func (r *ServiceInterfaceReconciler) reconcileDelete(ctx context.Context, servic
 	if err != nil {
 		log.Error(err, "failed to check NSI handoff ownership")
 		setFalseServiceInterfaceReconciledCondition(err, serviceInterface)
+		tracing.Fail(ctx, err)
 		return requeueError()
 	}
 	// Hashed patch port names include SI metadata (namespace/name). NSI hashes
@@ -563,10 +566,11 @@ func (r *ServiceInterfaceReconciler) reconcileDelete(ctx context.Context, servic
 		if ownedByNSI {
 			log.Info("tearing down hashed SI patch ports; NSI uses a different port name")
 		}
-		err = DeleteInterfacesFromOvs(ctx, r.OVS, r.ECPFManager, serviceInterface, req.NamespacedName.String())
+		err = deleteInterfacesFromOvsTraced(ctx, r.OVS, r.ECPFManager, serviceInterface, req.NamespacedName.String())
 		if err != nil {
 			log.Error(err, "failed to delete DeleteInterfacesFromOvs")
 			setFalseServiceInterfaceReconciledCondition(err, serviceInterface)
+			tracing.Fail(ctx, err)
 			return requeueError()
 		}
 	}
@@ -592,6 +596,9 @@ func (r *ServiceInterfaceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		log.Error(err, "failed to get ServiceInterface")
 		return requeueError()
 	}
+
+	ctx, endSpan := tracing.ReconcileSpan(ctx, ServiceInterfaceController, serviceInterface)
+	defer endSpan(&reterr)
 
 	patcher := patch.NewSerialPatcher(serviceInterface, r.Client)
 
@@ -621,15 +628,51 @@ func (r *ServiceInterfaceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, nil
 	}
 
-	err := AddInterfacesToOvs(ctx, r.OVS, r.ECPFManager, serviceInterface, req.NamespacedName.String())
+	reconciled := serviceInterface.Status.ObservedGeneration == serviceInterface.Generation &&
+		conditions.IsTrue(serviceInterface, dpuservicev1.ServiceInterfaceReconciled)
+	err := addInterfacesToOvsTraced(ctx, r.OVS, r.ECPFManager, serviceInterface, req.NamespacedName.String(), reconciled)
 	if err != nil {
 		log.Info("failed to add AddInterfacesToOvs")
 		setFalseServiceInterfaceReconciledCondition(err, serviceInterface)
+		tracing.Fail(ctx, err)
 		return requeueError()
 	}
 
 	setTrueServiceInterfaceReconciledCondition(serviceInterface)
 	return requeueSuccess()
+}
+
+// addInterfacesToOvsTraced runs AddInterfacesToOvs in a child span. The interfaces are applied on
+// every reconcile, so the span is marked unchanged when reconciled says they already were.
+func addInterfacesToOvsTraced(
+	ctx context.Context,
+	ovs ovsutils.API,
+	ecpfManager ecpf.ECPFManager,
+	spec interfaceEntrySpec,
+	metadata string,
+	reconciled bool,
+) error {
+	ctx, span := tracing.StartSpan(ctx, "sfc.ovs-add-interface", attribute.String("interface.name", metadata))
+	err := AddInterfacesToOvs(ctx, ovs, ecpfManager, spec, metadata)
+	if err == nil && reconciled {
+		tracing.MarkUnchanged(ctx)
+	}
+	tracing.EndSpan(span, err)
+	return err
+}
+
+// deleteInterfacesFromOvsTraced runs DeleteInterfacesFromOvs in a child span.
+func deleteInterfacesFromOvsTraced(
+	ctx context.Context,
+	ovs ovsutils.API,
+	ecpfManager ecpf.ECPFManager,
+	spec interfaceEntrySpec,
+	metadata string,
+) error {
+	ctx, span := tracing.StartSpan(ctx, "sfc.ovs-delete-interface", attribute.String("interface.name", metadata))
+	err := DeleteInterfacesFromOvs(ctx, ovs, ecpfManager, spec, metadata)
+	tracing.EndSpan(span, err)
+	return err
 }
 
 // SetupWithManager sets up the controller with the Manager.

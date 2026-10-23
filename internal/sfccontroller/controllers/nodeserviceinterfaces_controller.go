@@ -23,6 +23,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/features"
 	"github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/pkg/ecpf"
 	"github.com/nvidia/doca-platform/pkg/ovsutils"
@@ -103,7 +104,7 @@ func (r *NodeServiceInterfacesReconciler) reconcileDelete(ctx context.Context, n
 	var errs []error
 	for i := range nsi.Spec.Interfaces {
 		entry := &nsi.Spec.Interfaces[i]
-		if err := DeleteInterfacesFromOvs(ctx, r.OVS, r.ECPFManager, entry, entry.Name); err != nil {
+		if err := deleteInterfacesFromOvsTraced(ctx, r.OVS, r.ECPFManager, entry, entry.Name); err != nil {
 			log.Error(err, "failed to delete interface from OVS", "entry", entry.Name)
 			errs = append(errs, err)
 		}
@@ -112,6 +113,7 @@ func (r *NodeServiceInterfacesReconciler) reconcileDelete(ctx context.Context, n
 	if len(errs) > 0 {
 		err := kerrors.NewAggregate(errs)
 		setFalseNodeServiceInterfacesReconciledCondition(err, nsi)
+		tracing.Fail(ctx, err)
 		return requeueError()
 	}
 
@@ -129,7 +131,7 @@ func (r *NodeServiceInterfacesReconciler) reconcileEntry(ctx context.Context, ns
 		if nsi.IsEntryResourceReleased(entry) {
 			return nil
 		}
-		if err := DeleteInterfacesFromOvs(ctx, r.OVS, r.ECPFManager, entry, entry.Name); err != nil {
+		if err := deleteInterfacesFromOvsTraced(ctx, r.OVS, r.ECPFManager, entry, entry.Name); err != nil {
 			log.Error(err, "failed to release interface", "entry", entry.Name)
 			return err
 		}
@@ -138,7 +140,7 @@ func (r *NodeServiceInterfacesReconciler) reconcileEntry(ctx context.Context, ns
 		return nil
 	}
 
-	if err := AddInterfacesToOvs(ctx, r.OVS, r.ECPFManager, entry, entry.Name); err != nil {
+	if err := addInterfacesToOvsTraced(ctx, r.OVS, r.ECPFManager, entry, entry.Name, nsi.IsEntryReady(entry)); err != nil {
 		log.Error(err, "failed to reconcile interface", "entry", entry.Name)
 		conditions.AddFalse(condView, conditions.TypeReady, conditions.ReasonError, conditions.ConditionMessage(fmt.Sprintf("Error occurred: %v", err)))
 		entryStatus.SetObservedSpecHash(entry)
@@ -165,6 +167,9 @@ func (r *NodeServiceInterfacesReconciler) Reconcile(ctx context.Context, req ctr
 		log.Error(err, "failed to get NodeServiceInterfaces")
 		return requeueError()
 	}
+
+	ctx, endSpan := tracing.ReconcileSpan(ctx, NodeServiceInterfacesController, nsi)
+	defer endSpan(&reterr)
 
 	patcher := patch.NewSerialPatcher(nsi, r.Client)
 	conditions.EnsureConditions(nsi, dpuservicev1.NodeServiceInterfacesConditions)
@@ -206,6 +211,7 @@ func (r *NodeServiceInterfacesReconciler) Reconcile(ctx context.Context, req ctr
 	if len(errs) > 0 {
 		err := kerrors.NewAggregate(errs)
 		setFalseNodeServiceInterfacesReconciledCondition(err, nsi)
+		tracing.Fail(ctx, err)
 		return requeueError()
 	}
 

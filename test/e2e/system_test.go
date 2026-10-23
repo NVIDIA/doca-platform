@@ -756,6 +756,13 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 				It("should export controller reconcile spans to Tempo", func() {
 					ValidateManagementClusterTraceFlow(ctx, input)
 				})
+
+				It("should forward sfc-controller spans from the DPU cluster to Tempo", Labels{Domain.RequiresNodes}, func() {
+					if !input.hasDpuNodes() {
+						Skip("Skip test as there are no DPU nodes")
+					}
+					ValidateDPUClusterTraceFlow(ctx, input)
+				})
 			})
 		})
 	})

@@ -29,6 +29,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/digest"
 	"github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
 
 	multusclient "gopkg.in/k8snetworkplumbingwg/multus-cni.v4/pkg/k8sclient"
@@ -76,7 +77,7 @@ var (
 // +kubebuilder:rbac:groups=nv-ipam.nvidia.com,resources=cidrpools,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch
 
-func (r *PodIpamReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *PodIpamReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	log := log.FromContext(ctx)
 	log.Info("Reconciling")
 	pod := &corev1.Pod{}
@@ -97,6 +98,10 @@ func (r *PodIpamReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		log.Info("Skipping pod", "pod", pod.Name)
 		return ctrl.Result{}, nil
 	}
+
+	// Started after the skip check: this controller sees every Pod in the cluster.
+	ctx, endSpan := tracing.ReconcileSpan(ctx, podIpamControllerName, pod, tracing.NoIdle())
+	defer endSpan(&reterr)
 
 	populatedNetworks, changed, err := getPopulatedNetworks(ctx, r.Client, pod, networks, nil)
 	if err != nil {
@@ -445,7 +450,7 @@ func mutateNetworksWithSettings(networks []*multustypes.NetworkSelectionElement,
 
 // patchPodWithoutInvalidNetworkAnnotationAndWithDigestAnnotation updates a Pod's network and digest annotations with the given networks.
 // The apply body carries only those two annotations: pod comes from the cache, which strips most Pod fields.
-func patchPodWithoutInvalidNetworkAnnotationAndWithDigestAnnotation(ctx context.Context, c client.Client, pod *corev1.Pod, networks []*multustypes.NetworkSelectionElement) error {
+func patchPodWithoutInvalidNetworkAnnotationAndWithDigestAnnotation(ctx context.Context, c client.Client, pod *corev1.Pod, networks []*multustypes.NetworkSelectionElement) (err error) {
 	filteredNetworks := filterInvalidNetwork(networks)
 
 	// Calculate digest from filtered networks (same as restart controller)
@@ -465,6 +470,8 @@ func patchPodWithoutInvalidNetworkAnnotationAndWithDigestAnnotation(ctx context.
 			NetworkDigestAnnotation: digestValue,
 		})
 
+	_, span := tracing.StartSpan(ctx, "podipam.patch-pod")
+	defer func() { tracing.EndSpan(span, err) }()
 	return c.Apply(ctx, podApply, client.ForceOwnership, client.FieldOwner(podIpamControllerName))
 }
 

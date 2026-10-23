@@ -885,3 +885,35 @@ func Test_serviceChainSetControllerTracingValues(t *testing.T) {
 		},
 	}))
 }
+
+func Test_sfcControllerEditsTracingValues(t *testing.T) {
+	tracingOf := func(g Gomega, vars Variables) interface{} {
+		edits, err := sfcControllerEdits(vars)
+		g.Expect(err).NotTo(HaveOccurred())
+		values := tracingValues(g, edits)
+		return values["sfc-controller"].(map[string]interface{})["tracing"]
+	}
+
+	configured := func() Variables {
+		vars := Variables{
+			Namespace:               "dpf-operator-system",
+			DisableSystemComponents: map[operatorv1.ComponentName]bool{operatorv1.OpenTelemetryCollectorName: false},
+		}
+		vars.OpenTelemetryCollector.Tracing.Endpoint = "http://10.0.0.1:30050"
+		return vars
+	}
+
+	t.Run("uses the DPU cluster collector", func(t *testing.T) {
+		g := NewWithT(t)
+		g.Expect(tracingOf(g, configured())).To(Equal(map[string]interface{}{
+			"dpuCollector": true, "transport": "http",
+		}))
+	})
+
+	t.Run("sets none when the collector is not deployed", func(t *testing.T) {
+		g := NewWithT(t)
+		vars := configured()
+		vars.DisableSystemComponents[operatorv1.OpenTelemetryCollectorName] = true
+		g.Expect(tracingOf(g, vars)).To(BeNil())
+	})
+}

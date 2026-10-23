@@ -28,6 +28,7 @@ import (
 	dpuservicecontroller "github.com/nvidia/doca-platform/internal/dpuservice/controllers"
 	dpuservicechaincontroller "github.com/nvidia/doca-platform/internal/dpuservicechain/controllers"
 	sfcsetcontroller "github.com/nvidia/doca-platform/internal/servicechainset/controllers"
+	sfccontroller "github.com/nvidia/doca-platform/internal/sfccontroller/controllers"
 	"github.com/nvidia/doca-platform/test/utils/loki"
 	"github.com/nvidia/doca-platform/test/utils/prometheus"
 	"github.com/nvidia/doca-platform/test/utils/tempo"
@@ -583,6 +584,23 @@ func missingControllers(spans []tempo.Span, want []string) []string {
 		}
 	}
 	return missing
+}
+
+// ValidateDPUClusterTraceFlow verifies spans from the sfc-controller running on the DPUs reach
+// Tempo: the DPU cluster collector receives them and forwards them to the management collector.
+// The match is on the binary's service.name alone, because which of its reconcilers runs first
+// depends on the ServiceInterfaces and ServiceChains the test suite created.
+func ValidateDPUClusterTraceFlow(ctx context.Context, input *systemTestInput) {
+	tempoClient := tempo.NewClient(hostClusterRESTClient, dpfOperatorSystemNamespace)
+
+	By(fmt.Sprintf("Waiting for spans from %s to appear in Tempo", sfccontroller.TracingServiceName))
+	Eventually(func(g Gomega) {
+		traces, err := tempoClient.SearchByTags(ctx, map[string]string{
+			"service.name": sfccontroller.TracingServiceName,
+		}, traceLookback)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(traces).NotTo(BeEmpty(), "No spans from %s found in Tempo", sfccontroller.TracingServiceName)
+	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
 // traceSource is a controller whose reconcile spans are expected in Tempo.

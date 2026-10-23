@@ -27,6 +27,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/features"
 	"github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	oflow "github.com/nvidia/doca-platform/pkg/openflow"
 	"github.com/nvidia/doca-platform/pkg/ovsmodel"
@@ -36,6 +37,7 @@ import (
 	"github.com/fluxcd/pkg/runtime/patch"
 	model "github.com/ovn-org/libovsdb/model"
 	ovsdb "github.com/ovn-org/libovsdb/ovsdb"
+	"go.opentelemetry.io/otel/attribute"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -84,6 +86,9 @@ const (
 	serviceChainNodeNameKey    = "spec.node"
 	ServiceChainFinalizer      = dpuservicev1.SvcDpuGroupName + "/ServiceChain-finalizer"
 	serviceChainControllerName = "servicechaincontroller"
+
+	// TracingServiceName is the service.name of the spans the SFC controller binary exports.
+	TracingServiceName = "dpf-sfc-controller"
 
 	LearningTable  = 0
 	SwitchingTable = 1
@@ -426,7 +431,7 @@ func (r *ServiceChainReconciler) reconcileDelete(ctx context.Context, sc *dpuser
 	log := ctrllog.FromContext(ctx)
 	log.Info("Reconciling delete")
 
-	if err := r.OFBridge.DeleteFlowsByCookie(hashedName, math.MaxUint64); err != nil {
+	if err := r.deleteFlows(ctx, hashedName); err != nil {
 		log.Error(err, "failed to delete flows")
 		return err
 	}
@@ -435,6 +440,26 @@ func (r *ServiceChainReconciler) reconcileDelete(ctx context.Context, sc *dpuser
 	log.Info("Removing finalizer")
 	controllerutil.RemoveFinalizer(sc, ServiceChainFinalizer)
 	return nil
+}
+
+// deleteFlows deletes all OpenFlow flows of the chain.
+func (r *ServiceChainReconciler) deleteFlows(ctx context.Context, hashedName uint64) (err error) {
+	_, span := tracing.StartSpan(ctx, "sfc.delete-flows")
+	defer func() { tracing.EndSpan(span, err) }()
+	return r.OFBridge.DeleteFlowsByCookie(hashedName, math.MaxUint64)
+}
+
+// applyFlows reconciles the chain's flows. They are applied on every reconcile, so the span is
+// marked unchanged when the chain was already reconciled for its current generation.
+func (r *ServiceChainReconciler) applyFlows(ctx context.Context, sc *dpuservicev1.ServiceChain, nsi *dpuservicev1.NodeServiceInterfaces, hashedName uint64) error {
+	reconciled := sc.Status.ObservedGeneration == sc.Generation && conditions.IsTrue(sc, dpuservicev1.ServiceChainReconciled)
+	ctx, span := tracing.StartSpan(ctx, "sfc.apply-flows", attribute.Bool("flows.reconciled", reconciled))
+	err := r.reconcileFlows(ctx, sc, nsi, hashedName)
+	if err == nil && reconciled {
+		tracing.MarkUnchanged(ctx)
+	}
+	tracing.EndSpan(span, err)
+	return err
 }
 
 // resolveSwitchPort resolves port to a validated interface's OVS interface name, legacy or NSI.
@@ -514,6 +539,9 @@ func (r *ServiceChainReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
+	ctx, endSpan := tracing.ReconcileSpan(ctx, serviceChainControllerName, sc)
+	defer endSpan(&reterr)
+
 	patcher := patch.NewSerialPatcher(sc, r.Client)
 	conditions.EnsureConditions(sc, dpuservicev1.ServiceChainConditions)
 	// Defer a patch call to always patch the object when Reconcile exits.
@@ -543,7 +571,7 @@ func (r *ServiceChainReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// On updates delete all OpenFlow flows with the same service chain name
 	if sc.Generation != sc.Status.ObservedGeneration {
-		if flowErrors := r.OFBridge.DeleteFlowsByCookie(hashedName, math.MaxUint64); flowErrors != nil {
+		if flowErrors := r.deleteFlows(ctx, hashedName); flowErrors != nil {
 			log.Error(flowErrors, "failed to delete flows")
 			return ctrl.Result{}, flowErrors
 		}
@@ -558,7 +586,7 @@ func (r *ServiceChainReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	if err := r.reconcileFlows(ctx, sc, nsi, hashedName); err != nil {
+	if err := r.applyFlows(ctx, sc, nsi, hashedName); err != nil {
 		setFalseServiceChainReconciledCondition(err, sc)
 		return ctrl.Result{}, err
 	}
