@@ -358,3 +358,36 @@ dpu:
       SNAP_SPDK_SOCK: "/var/lib/nvidia/storage/snap/providers/nvidia/snap.sock"
     snapRpcInitConf: ""
     spdkRpcInitConf: ""
+
+  ### cmx-initiator ###
+  cmxInitiator:
+    # enable deployment of the cmx-initiator component
+    # Note: Only one component can be enabled at a time.
+    enabled: false
+    # name of the SNAP provider served by the component, lower case letters, digits and '-'. The RPC socket is
+    # created at /var/lib/nvidia/storage/snap/providers/<providerName>/snap.sock, and a storage vendor DPU plugin
+    # that attaches volumes through this component must return the same name from GetSNAPProvider.
+    providerName: "cmx"
+    # image of the CMX initiator service, required
+    image:
+      repository: ""
+      tag: ""
+    tolerations: []
+    imagePullSecrets: []
+    hostNetwork: false
+    imagePullPolicy: IfNotPresent
+    # podSecurityContext to add to the Pod spec
+    podSecurityContext: {}
+    securityContext:
+      privileged: true
+      capabilities:
+        add:
+          - "IPC_LOCK"
+          - "SYS_RAWIO"
+          - "SYS_NICE"
+    # arguments passed to the service in the APP_ARGS environment variable. The chart appends
+    # "-s /var/lib/nvidia/storage/snap/providers/<providerName>/snap.sock", the RPC socket of the provider,
+    # so appArgs must not set -s.
+    appArgs: "-m 0xff"
+    # additional environment variables for the service container
+    env: {}

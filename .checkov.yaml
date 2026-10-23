@@ -473,3 +473,18 @@ exclusions: # Is used to define exclusions on a per-chart basis when analyzing a
     resource: DaemonSet.default.release-name-doca-snap
     evaluated_keys:
       - spec/template/spec/containers/[0]/readinessProbe
+
+  storage-dpu-cmx-initiator:
+  # Note: image tag including digest, pod securityContext and resource limits can be set via values.
+  # The container runs privileged as root to drive the DPU emulation devices.
+  - check_id: CKV_K8S_40 # Containers should run as a high UID to avoid host conflict
+    resource: DaemonSet.default.release-name-cmx-initiator
+  # Pod does not provide a liveness or readiness probe.
+  - check_id: CKV_K8S_8 # Liveness Probe Should be Configured
+    resource: DaemonSet.default.release-name-cmx-initiator
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/livenessProbe
+  - check_id: CKV_K8S_9 # Readiness Probe Should be Configured
+    resource: DaemonSet.default.release-name-cmx-initiator
+    evaluated_keys:
+      - spec/template/spec/containers/[0]/readinessProbe
