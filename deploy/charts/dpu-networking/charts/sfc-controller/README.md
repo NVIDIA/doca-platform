@@ -28,4 +28,9 @@ A Helm chart for Kubernetes
 | openvSwitchRunDir | string | `"/var/run/openvswitch"` |  |
 | openvSwitchSharedLibrary64Dir | string | `""` |  |
 | openvSwitchSharedLibraryDir | string | `"/lib"` |  |
+| tracing | object | `{"caPEM":"","dpuCollector":false,"endpoint":"","transport":""}` | tracing configures the sfc-controller's own OTLP trace export. When DPFOperatorConfig spec.monitoring.openTelemetryCollector.tracing is set, the operator points it at the DPU cluster opentelemetry-collector Service, which forwards the spans to the management cluster. |
+| tracing.caPEM | string | `""` | caPEM is a PEM-encoded CA certificate bundle used to verify the endpoint's TLS certificate. If empty, TLS endpoints are verified against the system CA pool. |
+| tracing.dpuCollector | bool | `false` | dpuCollector sends the spans to the DPU cluster opentelemetry-collector Service of the same cluster. It is ignored when endpoint is set. |
+| tracing.endpoint | string | `""` | endpoint is the OTLP endpoint to export trace spans to. If empty and dpuCollector is false, tracing is disabled. |
+| tracing.transport | string | `""` | transport is the OTLP transport used to export trace spans: "http" (default) or "grpc". |
 

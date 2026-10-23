@@ -31,6 +31,22 @@ controllerManager:
     annotations: {}
 imagePullSecrets: []
 
+# -- tracing configures the sfc-controller's own OTLP trace export. When
+# DPFOperatorConfig spec.monitoring.openTelemetryCollector.tracing is set, the operator points it at
+# the DPU cluster opentelemetry-collector Service, which forwards the spans to the management cluster.
+tracing:
+  # -- endpoint is the OTLP endpoint to export trace spans to. If empty and dpuCollector is false,
+  # tracing is disabled.
+  endpoint: ""
+  # -- dpuCollector sends the spans to the DPU cluster opentelemetry-collector Service of the same
+  # cluster. It is ignored when endpoint is set.
+  dpuCollector: false
+  # -- transport is the OTLP transport used to export trace spans: "http" (default) or "grpc".
+  transport: ""
+  # -- caPEM is a PEM-encoded CA certificate bundle used to verify the endpoint's TLS
+  # certificate. If empty, TLS endpoints are verified against the system CA pool.
+  caPEM: ""
+
 openvSwitchRunDir: /var/run/openvswitch
 openvSwitchBinDir: /usr/bin
 openvSwitchSharedLibraryDir: /lib

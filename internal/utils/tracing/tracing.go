@@ -86,6 +86,9 @@ type incomingKey struct{}
 // StartSpan.
 type childSpansKey struct{}
 
+// failureKey is the Context key holding the failure a reconcile reported with Fail.
+type failureKey struct{}
+
 // countedSpanKey is the Context key holding the countedSpan StartSpan returned the context for.
 type countedSpanKey struct{}
 
@@ -153,6 +156,7 @@ type ReconcileOption func(*reconcileOptions)
 type reconcileOptions struct {
 	workflowRoot bool
 	revision     string
+	noIdle       bool
 	// idle is set by ReconcileSpan: the reconcile starts at the state the last successful one left behind.
 	idle bool
 }
@@ -163,6 +167,13 @@ type reconcileOptions struct {
 // workflow derived by DPF.
 func Revision(revision string) ReconcileOption {
 	return func(o *reconcileOptions) { o.revision = revision }
+}
+
+// NoIdle keeps ReconcileSpan from treating a reconcile at an unchanged resourceVersion as idle. Use
+// it for a controller whose work depends on more than obj and its revision, such as other objects it
+// lists, so the retry of a reconcile that did nothing is still traced when it does something.
+func NoIdle() ReconcileOption {
+	return func(o *reconcileOptions) { o.noIdle = true }
 }
 
 // WorkflowRoot marks the controller of an object whose change starts a workflow, such as a
@@ -384,7 +395,7 @@ func ReconcileSpan(ctx context.Context, controller string, obj client.Object, op
 	}
 	startResourceVersion, start := obj.GetResourceVersion(), time.Now()
 	// Decided once, as a span that is not recording may also have been dropped by sampling.
-	o.idle = reconciles.Load().idle(controller, obj.GetUID(), reconcileState(obj, o.revision))
+	o.idle = !o.noIdle && reconciles.Load().idle(controller, obj.GetUID(), reconcileState(obj, o.revision))
 	ctx, span := traceObject(ctx, controller, obj, o)
 	ctx = withTraceLogger(ctx, span)
 	var before objectState
@@ -393,10 +404,15 @@ func ReconcileSpan(ctx context.Context, controller string, obj client.Object, op
 	}
 	var childSpans atomic.Int64
 	ctx = context.WithValue(ctx, childSpansKey{}, &childSpans)
+	var failure atomic.Pointer[error]
+	ctx = context.WithValue(ctx, failureKey{}, &failure)
 	return ctx, func(errp *error) {
 		var err error
 		if errp != nil {
 			err = *errp
+		}
+		if failed := failure.Load(); err == nil && failed != nil {
+			err = *failed
 		}
 		if span.IsRecording() {
 			changes := before.changes(newObjectState(obj))
@@ -412,6 +428,15 @@ func ReconcileSpan(ctx context.Context, controller string, obj client.Object, op
 			recordIdleReconcile(ctx, controller, obj, o.revision, start, err)
 		}
 		reconciles.Load().finish(controller, obj.GetUID(), reconcileState(obj, o.revision), err == nil)
+	}
+}
+
+// Fail reports that the reconcile failed although it returns no error, as a controller does that
+// requeues itself. The span records err and the reconcile does not count as succeeded, so the retry
+// is traced. Call it with the context ReconcileSpan returned. It does nothing for any other context.
+func Fail(ctx context.Context, err error) {
+	if failure, ok := ctx.Value(failureKey{}).(*atomic.Pointer[error]); ok && err != nil {
+		failure.Store(&err)
 	}
 }
 

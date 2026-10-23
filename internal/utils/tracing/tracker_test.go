@@ -83,6 +83,47 @@ func TestReconcileSpan_IdleReconcileIsNotRecorded(t *testing.T) {
 	require.Empty(t, exporter.GetSpans(), "same resourceVersion after a success is idle, with its child spans")
 }
 
+func TestReconcileSpan_NoIdleRecordsRetryAtSameResourceVersion(t *testing.T) {
+	exporter := useInMemoryTracerProvider(t)
+	useTracker(t)
+
+	reconcile := func() {
+		obj := newTestObject(nil)
+		obj.ResourceVersion = "1"
+		ctx, endSpan := ReconcileSpan(context.Background(), "dpuset", obj, NoIdle())
+		_, child := StartSpan(ctx, "child")
+		child.End()
+		endSpan(nil)
+	}
+	reconcile()
+	exporter.Reset()
+	reconcile()
+	require.Equal(t, []string{"child", "dpuset.reconcile"}, spanNames(exporter))
+}
+
+func TestReconcileSpan_FailMarksSpanAndKeepsRetryOutOfIdle(t *testing.T) {
+	exporter := useInMemoryTracerProvider(t)
+	useTracker(t)
+
+	reconcile := func() {
+		obj := newTestObject(nil)
+		obj.ResourceVersion = "1"
+		ctx, endSpan := ReconcileSpan(context.Background(), "dpuset", obj)
+		_, child := StartSpan(ctx, "child")
+		child.End()
+		Fail(ctx, errors.New("boom"))
+		var err error
+		endSpan(&err)
+	}
+	reconcile()
+	exporter.Reset()
+	reconcile()
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 2, "a reconcile that failed is not idle, the retry keeps its child span")
+	require.Equal(t, codes.Error, spans[1].Status.Code)
+}
+
 func TestReconcileSpan_IdleReconcileOfWorkflowIsNotRecorded(t *testing.T) {
 	exporter := useInMemoryTracerProvider(t)
 	useTracker(t)

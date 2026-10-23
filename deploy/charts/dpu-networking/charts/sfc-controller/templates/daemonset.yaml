@@ -38,6 +38,8 @@ spec:
           effect: NoSchedule
       serviceAccountName: {{ include "sfc-controller.fullname" . }}-node
       hostNetwork: true
+      # Resolve cluster Service names despite host networking (the OTLP collector Service).
+      dnsPolicy: ClusterFirstWithHostNet
       securityContext:
         runAsUser: 0
       containers:
@@ -47,6 +49,20 @@ spec:
         - --health-probe-bind-address=:{{ .Values.controllerManager.manager.ports.health }}
         {{- with .Values.controllerManager.manager.args }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- $tracingEndpoint := .Values.tracing.endpoint }}
+        {{- if and (not $tracingEndpoint) .Values.tracing.dpuCollector }}
+        {{- /* The collector release is {cluster}-opentelemetry-collector, next to {cluster}-sfc-controller. */}}
+        {{- $tracingEndpoint = printf "http://%s-opentelemetry-collector.%s.svc:4318" (trimSuffix "-sfc-controller" .Release.Name) .Release.Namespace }}
+        {{- end }}
+        {{- if $tracingEndpoint }}
+        - --otel-tracing-endpoint={{ $tracingEndpoint }}
+        {{- if .Values.tracing.transport }}
+        - --otel-tracing-transport={{ .Values.tracing.transport }}
+        {{- end }}
+        {{- if .Values.tracing.caPEM }}
+        - {{ printf "--otel-tracing-ca-pem=%s" .Values.tracing.caPEM | quote }}
+        {{- end }}
         {{- end }}
         command:
         - /sfc-controller

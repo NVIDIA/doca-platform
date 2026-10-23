@@ -27,6 +27,7 @@ import (
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/features"
 	sfccontroller "github.com/nvidia/doca-platform/internal/sfccontroller/controllers"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/ecpf"
 	"github.com/nvidia/doca-platform/pkg/health"
 	oflow "github.com/nvidia/doca-platform/pkg/openflow"
@@ -84,6 +85,7 @@ func main() {
 	var insecureMetrics bool
 	var enableHTTP2 bool
 	var staleFlowsRemovalPeriod, secureFlowDeletionTimeout time.Duration
+	var tracingOpts tracing.FlagOptions
 	fs.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	fs.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	fs.StringVar(&pprofAddr, "pprof-bind-address", "", "The address the pprof endpoint binds to.")
@@ -96,6 +98,7 @@ func main() {
 	fs.DurationVar(&secureFlowDeletionTimeout, "secure-flow-deletion-timeout", 0*time.Second,
 		"If greater than zero, the timeout for which the API server is unreachable,"+
 			"after which all the flows are deleted to prevent unintended packet leaks.")
+	tracing.AddFlags(&tracingOpts, fs)
 	logsv1.AddFlags(logOptions, fs)
 	features.MutableGates.AddFlag(fs)
 
@@ -105,6 +108,13 @@ func main() {
 		os.Exit(1)
 	}
 	ctrl.SetLogger(klog.Background())
+
+	shutdownTracing, err := tracing.SetupTracerProviderFromFlags(context.Background(), sfccontroller.TracingServiceName, tracingOpts)
+	if err != nil {
+		setupLog.Error(err, "unable to set up tracing")
+		os.Exit(1)
+	}
+	defer shutdownTracing()
 
 	// validate required env variables
 	nodeName := os.Getenv("SFC_NODE_NAME")

@@ -22,8 +22,10 @@ import (
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/utils"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
 
+	"go.opentelemetry.io/otel/attribute"
 	multustypes "gopkg.in/k8snetworkplumbingwg/multus-cni.v4/pkg/types"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -63,7 +65,7 @@ type PodRestartController struct {
 // +kubebuilder:rbac:groups=nv-ipam.nvidia.com,resources=cidrpools,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
-func (r *PodRestartController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *PodRestartController) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	log := ctrllog.FromContext(ctx)
 	log.Info("Checking ServiceChain for network digest changes")
 
@@ -75,6 +77,9 @@ func (r *PodRestartController) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		return ctrl.Result{}, err
 	}
+
+	ctx, endSpan := tracing.ReconcileSpan(ctx, PodRestartControllerName, serviceChain, tracing.NoIdle())
+	defer endSpan(&reterr)
 
 	// Check if ServiceChain is being deleted
 	if serviceChain.DeletionTimestamp != nil && !serviceChain.DeletionTimestamp.IsZero() {
@@ -105,7 +110,10 @@ func (r *PodRestartController) handlePodRestart(ctx context.Context, pod *corev1
 
 	// The digest annotation has already been updated in reconcilePods
 	// Just delete the pod to trigger restart
-	if err := r.Delete(ctx, pod); err != nil {
+	_, span := tracing.StartSpan(ctx, "podrestart.restart-pod", attribute.String("pod.name", pod.Name))
+	err := r.Delete(ctx, pod)
+	tracing.EndSpan(span, err)
+	if err != nil {
 		return fmt.Errorf("error deleting pod for restart: %w", err)
 	}
 

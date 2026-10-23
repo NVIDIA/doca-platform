@@ -297,6 +297,13 @@ func sfcControllerEdits(vars Variables) ([]StructuredEdit, error) {
 		dpuServiceAddValueEdit(vars.DPUOpenvSwitchSharedLibPath, operatorv1.SFCControllerName.String(), openvSwitchSharedLibraryDirPathKey),
 		dpuServiceAddValueEdit(vars.SFCController.SecureFlowDeletionTimeout.String(), operatorv1.SFCControllerName.String(), "controllerManager", "manager", "secureFlowDeletionTimeout"),
 	}
+	// The DPU cluster collector forwards the spans to the management cluster. The chart resolves
+	// the collector Service of its own cluster.
+	if vars.OpenTelemetryCollector.Tracing.Endpoint != "" && !vars.DisableSystemComponents[operatorv1.OpenTelemetryCollectorName] {
+		edits = append(edits,
+			dpuServiceAddValueEdit(true, operatorv1.SFCControllerName.String(), "tracing", "dpuCollector"),
+			dpuServiceAddValueEdit("http", operatorv1.SFCControllerName.String(), "tracing", "transport"))
+	}
 	if vars.DPUOpenvSwitchSharedLib64Path != nil {
 		edits = append(edits, dpuServiceAddValueEdit(*vars.DPUOpenvSwitchSharedLib64Path, operatorv1.SFCControllerName.String(), openvSwitchSharedLibrary64DirPathKey))
 	}
