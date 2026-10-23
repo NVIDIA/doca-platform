@@ -27,3 +27,4 @@ This page contains advanced configuration documentation for the DOCA Platform Fr
 * [Kamaji Encryption at Rest](kamaji-encryption-at-rest.md) - Configuration for encrypting Secrets and ConfigMaps in Kamaji-managed DPU cluster etcd datastores
 * [Telemetry Level Labels](telemetry-level-labels.md) - Per-DPU generation of the DOCA telemetry `level_labels.ini` from DPUDevice values with a DPUFlavorTemplate
 * [Service Readiness](service-readiness.md) - Holding a DPU out of service, and optionally holding the host at the start of its OS initialization, until the DPU reaches a chosen readiness gate
+* [In-Place Reconfiguration on DPUFlavor Change](inplace-reconfig.md) - Applying config-only DPUFlavor changes to provisioned DPUs without reimaging, triggered by a DPUSet annotation
