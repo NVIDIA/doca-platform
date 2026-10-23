@@ -846,7 +846,7 @@ $(ARTIFACTS_RENDERED_MANIFESTS_DIR): $(ARTIFACTS_DIR)
 	@mkdir -p $(ARTIFACTS_RENDERED_MANIFESTS_DIR)
 
 # Not yet enabled charts: dpu-networking ovn-kubernetes ovn-kubernetes-resource-injector
-VERIFY_MANIFEST_TARGETS ?= operator kamaji-keepalived vpc-ovn-host vpc-ovn-dpu weave-flow-controllers weave-dhcp-agent storage-host-snap-csi-plugin storage-host-snap-host-controller storage-dpu-snap-node-driver storage-dpu-block-storage-vendor-dpu-plugin storage-dpu-fs-storage-vendor-dpu-plugin storage-dpu-nfs-storage-vendor-dpu-plugin storage-dpu-doca-snap
+VERIFY_MANIFEST_TARGETS ?= operator kamaji-keepalived vpc-ovn-host vpc-ovn-dpu weave-flow-controllers weave-dhcp-agent storage-host-snap-csi-plugin storage-host-snap-host-controller storage-dpu-snap-node-driver storage-dpu-block-storage-vendor-dpu-plugin storage-dpu-fs-storage-vendor-dpu-plugin storage-dpu-nfs-storage-vendor-dpu-plugin storage-dpu-doca-snap storage-dpu-cmx-initiator
 
 # Manifest verification runs checkov in a container, so it needs a working docker daemon.
 # Setting this to false turns the verify-manifests-all command into a noop.
@@ -1216,6 +1216,20 @@ verify-manifest-storage-dpu-doca-snap: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) 
 	  > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-doca-snap-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-doca-snap-$(TAG).yaml" \
 	  MANIFEST_NAME="storage-dpu-doca-snap" \
+	  hack/scripts/validate-manifest-checkov.sh
+
+.PHONY: verify-manifest-storage-dpu-cmx-initiator
+verify-manifest-storage-dpu-cmx-initiator: helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the storage chart's dpu cmx-initiator component
+	$Q $(HELM) template dpuservices/storage/chart \
+	 --set dpu.cmxInitiator.enabled=true \
+	 --set dpu.cmxInitiator.podSecurityContext.runAsNonRoot=false \
+	 --set serviceDaemonSet.resources.cpu=1m \
+	 --set serviceDaemonSet.resources.memory=1Mi \
+	 --set dpu.cmxInitiator.image.repository=a/b \
+	 --set dpu.cmxInitiator.image.tag=c@sha256:d \
+	  > $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-cmx-initiator-$(TAG).yaml
+	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/storage-dpu-cmx-initiator-$(TAG).yaml" \
+	  MANIFEST_NAME="storage-dpu-cmx-initiator" \
 	  hack/scripts/validate-manifest-checkov.sh
 
 .PHONY: lint-helm

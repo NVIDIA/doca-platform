@@ -18,6 +18,21 @@ A Helm chart for DPF storage subsystem
 | dpu.blockStorageVendorDpuPlugin.imagePullSecrets | list | `[]` |  |
 | dpu.blockStorageVendorDpuPlugin.securityContext.runAsUser | int | `0` |  |
 | dpu.blockStorageVendorDpuPlugin.tolerations | list | `[]` |  |
+| dpu.cmxInitiator.appArgs | string | `"-m 0xff"` |  |
+| dpu.cmxInitiator.enabled | bool | `false` |  |
+| dpu.cmxInitiator.env | object | `{}` |  |
+| dpu.cmxInitiator.hostNetwork | bool | `false` |  |
+| dpu.cmxInitiator.image.repository | string | `""` |  |
+| dpu.cmxInitiator.image.tag | string | `""` |  |
+| dpu.cmxInitiator.imagePullPolicy | string | `"IfNotPresent"` |  |
+| dpu.cmxInitiator.imagePullSecrets | list | `[]` |  |
+| dpu.cmxInitiator.podSecurityContext | object | `{}` |  |
+| dpu.cmxInitiator.providerName | string | `"cmx"` |  |
+| dpu.cmxInitiator.securityContext.capabilities.add[0] | string | `"IPC_LOCK"` |  |
+| dpu.cmxInitiator.securityContext.capabilities.add[1] | string | `"SYS_RAWIO"` |  |
+| dpu.cmxInitiator.securityContext.capabilities.add[2] | string | `"SYS_NICE"` |  |
+| dpu.cmxInitiator.securityContext.privileged | bool | `true` |  |
+| dpu.cmxInitiator.tolerations | list | `[]` |  |
 | dpu.deployCrds | bool | `false` |  |
 | dpu.docaSnap.enabled | bool | `false` |  |
 | dpu.docaSnap.env.APP_ARGS | string | `"-m 0xff"` |  |

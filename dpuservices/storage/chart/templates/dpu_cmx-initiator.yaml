@@ -1,0 +1,114 @@
+{{ include "validate" . }}
+{{- if .Values.dpu.cmxInitiator.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "cmx-initiator.fullname" . }}
+  labels:
+    {{- include "cmx-initiator.labels" . | nindent 4 }}
+    {{- with .Values.serviceDaemonSet.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    {{- with .Values.serviceDaemonSet.annotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "cmx-initiator.selectorLabels" . | nindent 6 }}
+  {{- with .Values.serviceDaemonSet.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "cmx-initiator.selectorLabels" . | nindent 8 }}
+        {{- with .Values.serviceDaemonSet.labels }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- with .Values.serviceDaemonSet.annotations }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.dpu.cmxInitiator.imagePullSecrets | default .Values.imagePullSecrets | default list }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      {{- with .Values.dpu.cmxInitiator.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      hostNetwork: {{ .Values.dpu.cmxInitiator.hostNetwork | default false }}
+      volumes:
+        - name: hugepages
+          emptyDir:
+            medium: HugePages
+        - name: shm
+          hostPath:
+            path: /dev/shm
+            type: DirectoryOrCreate
+        - name: infiniband
+          hostPath:
+            path: /dev/infiniband
+            type: DirectoryOrCreate
+        - name: vfio
+          hostPath:
+            path: /dev/vfio
+            type: DirectoryOrCreate
+        - name: workdir
+          hostPath:
+            path: {{ include "cmx-initiator.providerDir" . }}
+            type: DirectoryOrCreate
+      {{- with toYaml .Values.serviceDaemonSet.nodeSelector }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+              {{- . | nindent 12 }}
+      {{- end }}
+      {{- with .Values.dpu.cmxInitiator.tolerations | default list }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: cmx-initiator
+          image: "{{ required "dpu.cmxInitiator.image.repository is required" .Values.dpu.cmxInitiator.image.repository }}:{{ required "dpu.cmxInitiator.image.tag is required" .Values.dpu.cmxInitiator.image.tag }}"
+          imagePullPolicy: {{ .Values.dpu.cmxInitiator.imagePullPolicy }}
+          securityContext:
+            {{- toYaml .Values.dpu.cmxInitiator.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: hugepages
+              mountPath: /dev/hugepages
+            - name: shm
+              mountPath: /dev/shm
+            - name: infiniband
+              mountPath: /dev/infiniband
+            - name: vfio
+              mountPath: /dev/vfio
+            - name: workdir
+              mountPath: {{ include "cmx-initiator.providerDir" . }}
+              mountPropagation: "HostToContainer"
+          {{- with toYaml .Values.serviceDaemonSet.resources }}
+          resources:
+            limits:
+              {{- . | nindent 14 }}
+            requests:
+              {{- . | nindent 14 }}
+          {{- end }}
+          env:
+            {{- $env := .Values.dpu.cmxInitiator.env | default dict }}
+            {{- if hasKey $env "APP_ARGS" }}
+            {{- fail "dpu.cmxInitiator.env.APP_ARGS is not supported, set dpu.cmxInitiator.appArgs instead" }}
+            {{- end }}
+            {{- range $key, $val := $env }}
+            {{- if not (kindIs "invalid" $val) }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+            {{- end }}
+            - name: APP_ARGS
+              value: {{ include "cmx-initiator.appArgs" . | quote }}
+{{- end }}

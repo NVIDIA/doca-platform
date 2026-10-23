@@ -7,6 +7,7 @@ This is required to avoid misusage of the chart.
 {{- define "validate" -}}
 {{- $enabledCount := 0 }}
 {{- if .Values.dpu.docaSnap.enabled }}{{ $enabledCount = add1 $enabledCount }}{{- end }}
+{{- if .Values.dpu.cmxInitiator.enabled }}{{ $enabledCount = add1 $enabledCount }}{{- end }}
 {{- if .Values.dpu.snapNodeDriver.enabled }}{{ $enabledCount = add1 $enabledCount }}{{- end }}
 {{- if .Values.dpu.blockStorageVendorDpuPlugin.enabled }}{{ $enabledCount = add1 $enabledCount }}{{- end }}
 {{- if .Values.dpu.fsStorageVendorDpuPlugin.enabled }}{{ $enabledCount = add1 $enabledCount }}{{- end }}
