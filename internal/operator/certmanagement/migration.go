@@ -113,7 +113,8 @@ type MigrationState struct {
 //
 // An external issuer anchors the PKI to an authority that owns its own keys, and the trust material
 // under it is curated by whoever owns that authority rather than published by DPF, so there is
-// nothing for DPF to collapse and the legacy chain is left where it is.
+// nothing for DPF to collapse and the legacy chain is left where it is. A subject already carried
+// over is still requested under it, so the identity the leaves name survives the change of anchor.
 func MigrateProvisioningCA(ctx context.Context, c client.Client, config *operatorv1.DPFOperatorConfig, anchor certmanager.IssuerReference) (MigrationState, error) {
 	state, err := migrateProvisioningCA(ctx, c, config, anchor)
 	if err != nil {
@@ -138,15 +139,13 @@ func migrateProvisioningCA(ctx context.Context, c client.Client, config *operato
 	// migration runs at all and the leaves the CA signed are nobody's to reissue.
 	state := MigrationState{LegacyChainRetained: legacy != nil}
 
-	// An external issuer anchors the PKI to an authority that owns its own keys, so there is nothing
-	// for DPF to collapse.
-	if anchor.IsExternalIssuer() {
-		return state, nil
-	}
-
-	if legacy == nil {
-		// Nothing to migrate: a fresh install, or one this already ran on. The subject is read back
-		// from the platform CA itself so a migrated identity outlives the Secret it came from.
+	// Nothing to migrate: a fresh install, one this already ran on, or one anchored to an external
+	// issuer, which owns its own keys and leaves DPF nothing to collapse. The subject is read back
+	// from the platform CA itself on every one of them, so a migrated identity outlives the Secret it
+	// came from and the anchor it was carried over under: the external issuer re-signs the platform
+	// CA over the same key, and requesting the subject of the manifest then would leave every
+	// certificate it signed naming an issuer that no longer chains to the new anchor.
+	if anchor.IsExternalIssuer() || legacy == nil {
 		commonName, err := migratedCACommonName(ctx, c, config.Namespace)
 		if err != nil {
 			return state, err
