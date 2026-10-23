@@ -24,6 +24,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"math/big"
@@ -31,6 +32,7 @@ import (
 	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/operator/certmanagement"
 	"github.com/nvidia/doca-platform/pkg/certmanager"
 
@@ -38,6 +40,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -291,6 +295,215 @@ func TestPruneSupersededCertificates(t *testing.T) {
 		out, _, err := pruneSupersededCertificates(bundle, published...)
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(string(out)).To(Equal(string(bundle)))
+	})
+}
+
+// testLeafCert mints a leaf signed by issuer, as cert-manager returns one for a Certificate or a
+// CertificateRequest.
+func testLeafCert(t *testing.T, issuer *x509.Certificate, issuerKey *ecdsa.PrivateKey) []byte {
+	t.Helper()
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(100),
+		Subject:      pkix.Name{CommonName: "root"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, issuer, &testCAKey(t).PublicKey, issuerKey)
+	if err != nil {
+		t.Fatalf("failed to create a leaf certificate: %v", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+}
+
+// TestPruneTransientPlatformCA covers the platform intermediate CA the upgrade migration issues in
+// passing: over the key of the legacy CA, under the subject of the manifest, for the seconds before
+// the subject of the legacy CA is requested.
+func TestPruneTransientPlatformCA(t *testing.T) {
+	const namespace = "dpf-operator-system"
+	legacyCN := operatorv1.LegacyProvisioningCACertificateName
+
+	rootKey, legacyKey := testCAKey(t), testCAKey(t)
+	rootPEM, root := testCACert(t, "dpf-global-root-ca", 1, rootKey, nil, nil)
+	legacyPEM, _ := testCACert(t, legacyCN, 2, legacyKey, nil, nil)
+	transientPEM, transient := testCACert(t, operatorv1.PlatformIntermediateCAName, 3, legacyKey, root, rootKey)
+	migratedPEM, migrated := testCACert(t, legacyCN, 4, legacyKey, root, rootKey)
+	platformChain := append(append([]byte{}, rootPEM...), migratedPEM...)
+
+	gvk := certificateRequestListGVK
+	newScheme := func(g *WithT) *runtime.Scheme {
+		s := runtime.NewScheme()
+		g.Expect(corev1.AddToScheme(s)).To(Succeed())
+		g.Expect(provisioningv1.AddToScheme(s)).To(Succeed())
+		s.AddKnownTypeWithName(gvk.GroupVersion().WithKind("CertificateRequest"), &unstructured.Unstructured{})
+		s.AddKnownTypeWithName(gvk, &unstructured.UnstructuredList{})
+		return s
+	}
+	leafSecret := func(name string, cert []byte) *corev1.Secret {
+		return &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:   namespace,
+				Name:        name,
+				Annotations: map[string]string{certManagerIssuerNameAnnotation: operatorv1.PlatformIssuerName},
+			},
+			Data: map[string][]byte{corev1.TLSCertKey: cert},
+		}
+	}
+	certificateRequest := func(name string, cert []byte) *unstructured.Unstructured {
+		cr := &unstructured.Unstructured{}
+		cr.SetGroupVersionKind(gvk.GroupVersion().WithKind("CertificateRequest"))
+		cr.SetNamespace(namespace)
+		cr.SetName(name)
+		cr.Object["status"] = map[string]interface{}{"certificate": base64.StdEncoding.EncodeToString(cert)}
+		return cr
+	}
+	prune := func(g *WithT, bundle []byte, objs ...client.Object) ([]byte, []prunedCertificate) {
+		r := &DPFOperatorConfigReconciler{
+			Client: fake.NewClientBuilder().WithScheme(newScheme(g)).WithObjects(objs...).Build(),
+		}
+		out, pruned, err := r.pruneTransientPlatformCA(ctx, namespace, bundle, platformChain)
+		g.Expect(err).NotTo(HaveOccurred())
+		return out, pruned
+	}
+
+	bundle, err := mergeCABundle(nil, legacyPEM, rootPEM, transientPEM, migratedPEM)
+	if err != nil {
+		t.Fatalf("failed to stage the bundle: %v", err)
+	}
+
+	t.Run("drops it once no leaf names it", func(t *testing.T) {
+		g := NewWithT(t)
+		// The leaves reissued after the migration name the subject the intermediate carried over,
+		// which has the same key, so the key alone does not keep the transient certificate.
+		out, pruned := prune(g, bundle,
+			leafSecret("dpf-provisioning-redfish-client-secret", testLeafCert(t, migrated, legacyKey)))
+
+		g.Expect(string(out)).NotTo(ContainSubstring(string(transientPEM)))
+		g.Expect(string(out)).To(ContainSubstring(string(migratedPEM)))
+		g.Expect(string(out)).To(ContainSubstring(string(rootPEM)))
+		// The legacy authority is the retirement's to prune, not this one's.
+		g.Expect(string(out)).To(ContainSubstring(string(legacyPEM)))
+		g.Expect(pruned).To(HaveLen(1))
+		g.Expect(pruned[0].Subject).To(ContainSubstring(operatorv1.PlatformIntermediateCAName))
+	})
+
+	t.Run("keeps it while a leaf Secret names it", func(t *testing.T) {
+		g := NewWithT(t)
+		out, pruned := prune(g, bundle,
+			leafSecret("dpf-provisioning-redfish-client-secret", testLeafCert(t, transient, legacyKey)))
+		g.Expect(string(out)).To(Equal(string(bundle)))
+		g.Expect(pruned).To(BeEmpty())
+	})
+
+	t.Run("keeps it while a CertificateRequest returned a leaf naming it", func(t *testing.T) {
+		g := NewWithT(t)
+		out, _ := prune(g, bundle, certificateRequest("bmc-server-cert", testLeafCert(t, transient, legacyKey)))
+		g.Expect(string(out)).To(Equal(string(bundle)))
+	})
+
+	t.Run("does not read a Secret cert-manager did not issue into", func(t *testing.T) {
+		g := NewWithT(t)
+		secret := leafSecret("someone-elses-secret", testLeafCert(t, transient, legacyKey))
+		secret.Annotations = nil
+		out, _ := prune(g, bundle, secret)
+		g.Expect(string(out)).NotTo(ContainSubstring(string(transientPEM)))
+	})
+
+	dpuDevice := func(name string, condition *metav1.Condition) *provisioningv1.DPUDevice {
+		device := &provisioningv1.DPUDevice{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+			Status: provisioningv1.DPUDeviceStatus{
+				BMCServerCertificate: &provisioningv1.CertificateStatus{},
+			},
+		}
+		if condition != nil {
+			device.Status.Conditions = []metav1.Condition{*condition}
+		}
+		return device
+	}
+	serverCertReady := &metav1.Condition{
+		Type:   string(provisioningv1.ConditionDpuDeviceBMCServerCertificateReady),
+		Status: metav1.ConditionTrue,
+		Reason: "Success",
+	}
+	serverCertRotating := &metav1.Condition{
+		Type:   string(provisioningv1.ConditionDpuDeviceBMCServerCertificateReady),
+		Status: metav1.ConditionFalse,
+		Reason: provisioningv1.ReasonBMCServerCertificateRotating,
+	}
+
+	// The provisioning controller deletes the request of a BMC before the replacement is installed,
+	// so while it rotates, the certificate the BMC serves may be one the transient CA signed.
+	t.Run("keeps it while a BMC server certificate is rotating", func(t *testing.T) {
+		g := NewWithT(t)
+		out, _ := prune(g, bundle, dpuDevice("dpu-a", serverCertRotating))
+		g.Expect(string(out)).To(Equal(string(bundle)))
+	})
+
+	t.Run("keeps it while a BMC server certificate rotation is pending", func(t *testing.T) {
+		g := NewWithT(t)
+		pending := serverCertRotating.DeepCopy()
+		pending.Reason = provisioningv1.ReasonBMCServerCertificateRotationPending
+		out, _ := prune(g, bundle, dpuDevice("dpu-a", pending))
+		g.Expect(string(out)).To(Equal(string(bundle)))
+	})
+
+	// A failed rotation or an unreachable BMC may never settle, and holding the transient CA for it
+	// would keep a truststore slot on every BMC.
+	t.Run("does not wait on a BMC whose rotation failed", func(t *testing.T) {
+		g := NewWithT(t)
+		failed := serverCertRotating.DeepCopy()
+		failed.Reason = provisioningv1.ReasonBMCServerCertificateRotationFailed
+		out, _ := prune(g, bundle, dpuDevice("dpu-a", failed))
+		g.Expect(string(out)).NotTo(ContainSubstring(string(transientPEM)))
+	})
+
+	t.Run("drops it for a ready backfilled BMC certificate with no request", func(t *testing.T) {
+		g := NewWithT(t)
+		out, _ := prune(g, bundle, dpuDevice("dpu-a", serverCertReady))
+		g.Expect(string(out)).NotTo(ContainSubstring(string(transientPEM)))
+	})
+
+	t.Run("drops it once every BMC server certificate is ready", func(t *testing.T) {
+		g := NewWithT(t)
+		out, _ := prune(g, bundle,
+			dpuDevice("dpu-a", serverCertReady),
+			certificateRequest("dpu-a-server", testLeafCert(t, migrated, legacyKey)))
+		g.Expect(string(out)).NotTo(ContainSubstring(string(transientPEM)))
+	})
+
+	t.Run("does not wait on a device DPF never installed a server certificate on", func(t *testing.T) {
+		g := NewWithT(t)
+		device := dpuDevice("dpu-a", nil)
+		device.Status.BMCServerCertificate = nil
+		out, _ := prune(g, bundle, device)
+		g.Expect(string(out)).NotTo(ContainSubstring(string(transientPEM)))
+	})
+
+	// What every cluster installed since the platform CA has: its intermediate keeps the subject of
+	// the manifest, and an earlier certificate of that subject is the sweep of superseded ones'.
+	t.Run("leaves a cluster nothing was migrated on alone", func(t *testing.T) {
+		g := NewWithT(t)
+		ownKey := testCAKey(t)
+		ownPEM, _ := testCACert(t, operatorv1.PlatformIntermediateCAName, 5, ownKey, root, rootKey)
+		renewedPEM, _ := testCACert(t, operatorv1.PlatformIntermediateCAName, 6, ownKey, root, rootKey)
+		fresh, err := mergeCABundle(nil, rootPEM, ownPEM, renewedPEM)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		r := &DPFOperatorConfigReconciler{Client: fake.NewClientBuilder().WithScheme(newScheme(g)).Build()}
+		out, _, err := r.pruneTransientPlatformCA(ctx, namespace, fresh, append(append([]byte{}, rootPEM...), renewedPEM...))
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(string(out)).To(Equal(string(fresh)))
+	})
+
+	// An intermediate of that subject under another key is the one an earlier release ran before the
+	// migration replaced its key, and its leaves do not keep the transient certificate.
+	t.Run("does not mistake a leaf of an intermediate under another key for one of the transient CA", func(t *testing.T) {
+		g := NewWithT(t)
+		earlierKey := testCAKey(t)
+		_, earlier := testCACert(t, operatorv1.PlatformIntermediateCAName, 7, earlierKey, root, rootKey)
+		out, _ := prune(g, bundle, leafSecret("stale-leaf", testLeafCert(t, earlier, earlierKey)))
+		g.Expect(string(out)).NotTo(ContainSubstring(string(transientPEM)))
 	})
 }
 

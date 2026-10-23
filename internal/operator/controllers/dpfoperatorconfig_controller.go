@@ -641,6 +641,7 @@ func (r *DPFOperatorConfigReconciler) reconcileSystemComponents(ctx context.Cont
 	vars.PlatformCAIssuerRef = caIssuerRef
 	vars.PlatformCACommonName = migration.CACommonName
 	vars.RetainLegacyProvisioningCA = migration.LegacyChainRetained
+	vars.HoldLeavesOnLegacyProvisioningIssuer = migration.LeavesHeldOnLegacyIssuer
 	caErr := r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)
 	if caErr != nil {
 		errs = append(errs, caErr)

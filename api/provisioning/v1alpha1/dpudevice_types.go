@@ -89,6 +89,9 @@ const (
 
 // BMCServerCertificateReady condition reasons
 const (
+	// ReasonBMCServerCertificateRotationPending indicates a rotation was requested and its condition
+	// is being persisted before the controller replaces the CertificateRequest.
+	ReasonBMCServerCertificateRotationPending = "BMCServerCertificateRotationPending"
 	// ReasonBMCServerCertificateRotating indicates a rotation is in progress (CSR generated / CR pending).
 	ReasonBMCServerCertificateRotating = "BMCServerCertificateRotating"
 	// ReasonBMCServerCertificateRotationFailed indicates the last rotation attempt failed.

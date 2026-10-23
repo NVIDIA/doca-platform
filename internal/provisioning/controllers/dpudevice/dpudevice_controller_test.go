@@ -3165,6 +3165,61 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(cond.Reason).To(Equal(provisioningv1.ReasonBMCServerCertificateRotating))
 		})
 
+		It("marks a fresh rotation before creating its CertificateRequest", func() {
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-start-rotation")
+			dpuDevice.UID = types.UID("test-dpudevice-start-rotation")
+			dpuDevice.Status.BMCServerCertificate = &provisioningv1.CertificateStatus{
+				NotAfter: &metav1.Time{Time: time.Now().Add(time.Hour)},
+			}
+
+			// The first pass only marks the device Rotating. The reconciler's deferred patch persists
+			// this before a later pass deletes the request that records the certificate still served.
+			result, err := reconciler.reconcileServerCertRotation(ctx, dpuDevice, defaultBMCServerCertRenewBefore)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(serverCertStatePersistRequeue))
+			cond := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceBMCServerCertificateReady))
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal(provisioningv1.ReasonBMCServerCertificateRotationPending))
+
+			cr := newServerCertRequest(dpuDevice)
+			err = reconciler.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("keeps the served certificate's request until the pending rotation is persisted", func() {
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-two-step-rotation")
+			dpuDevice.UID = types.UID("test-dpudevice-two-step-rotation")
+			dpuDevice.Status.BMCServerCertificate = &provisioningv1.CertificateStatus{
+				NotAfter: &metav1.Time{Time: time.Now().Add(time.Hour)},
+			}
+			Expect(reconciler.createServerCertCR(ctx, dpuDevice, "served-csr")).To(Succeed())
+			served := newServerCertRequest(dpuDevice)
+			Expect(reconciler.Client.Get(ctx, client.ObjectKeyFromObject(served), served)).To(Succeed())
+
+			result, err := reconciler.reconcileServerCertRotation(ctx, dpuDevice, defaultBMCServerCertRenewBefore)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(serverCertStatePersistRequeue))
+			cond := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceBMCServerCertificateReady))
+			Expect(cond.Reason).To(Equal(provisioningv1.ReasonBMCServerCertificateRotationPending))
+			cr := newServerCertRequest(dpuDevice)
+			Expect(reconciler.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+			Expect(cr.GetUID()).To(Equal(served.GetUID()))
+
+			// The second pass starts the rotation as a fresh one: it deletes the request before asking
+			// the BMC for a CSR. GenerateCSR always dials port 443, which the mock does not serve, so
+			// the pass ends there; an in-progress rotation would have kept the request and waited.
+			_, err = reconciler.reconcileServerCertRotation(ctx, dpuDevice, defaultBMCServerCertRenewBefore)
+			Expect(err).To(MatchError(ContainSubstring("failed to generate CSR")))
+			err = reconciler.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
 		It("backfills the expiry on cold start instead of rotating", func() {
 			mockServer, reconciler := setupDiscoveryTest()
 			defer mockServer.Stop()

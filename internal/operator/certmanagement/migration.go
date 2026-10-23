@@ -81,6 +81,14 @@ type MigrationState struct {
 	// from a migration that still needs all three. It is set for as long as the CA Secret of that
 	// chain exists, which the migration deletes last.
 	LegacyChainRetained bool
+
+	// LeavesHeldOnLegacyIssuer keeps the provisioning leaf certificates, and the ones the
+	// provisioning controller mints at runtime, signed by the legacy provisioning issuer until the
+	// platform intermediate CA carries the identity of the legacy CA. Seeding the key and requesting
+	// the subject happen on separate reconciles, and cert-manager issues the platform CA under the
+	// subject of the manifest in between. A leaf signed in that window names an issuer that exists
+	// only for those seconds, which a BMC that never received it rejects with HTTP 401.
+	LeavesHeldOnLegacyIssuer bool
 }
 
 // MigrateProvisioningCA carries the keypair of the legacy provisioning CA into the platform
@@ -156,6 +164,7 @@ func migrateProvisioningCA(ctx context.Context, c client.Client, config *operato
 		// leaves, and seeding a key without the subject that goes with it would produce a CA that
 		// cannot stand in for it.
 		state.Pending = true
+		state.LeavesHeldOnLegacyIssuer = true
 		return state, nil
 	}
 
@@ -171,6 +180,7 @@ func migrateProvisioningCA(ctx context.Context, c client.Client, config *operato
 		SetMigrationBlocked(config, pinnedTo)
 		state.Blocked = true
 		state.LegacyAuthority = legacyPEM
+		state.LeavesHeldOnLegacyIssuer = true
 		return state, nil
 	}
 
@@ -205,6 +215,10 @@ func migrateProvisioningCA(ctx context.Context, c client.Client, config *operato
 	}
 	state.LegacyAuthority = legacyPEM
 	state.LegacyAuthorityRetired = migrated
+	// The leaves move onto the platform issuer only once its CA validates everything the legacy one
+	// did, so cert-manager reissues them under the subject they already name and the move is not a
+	// change of trust the BMCs have to converge on.
+	state.LeavesHeldOnLegacyIssuer = !migrated
 	if !migrated {
 		state.Pending = true
 		return state, nil

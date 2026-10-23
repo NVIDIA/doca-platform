@@ -21,6 +21,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
@@ -28,13 +29,17 @@ import (
 	"strings"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/operator/certmanagement"
 	"github.com/nvidia/doca-platform/pkg/certmanager"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -56,7 +61,16 @@ const (
 	// under a different key depending on which path logged it.
 	logKeyConfigMap = "configMap"
 	logKeySecret    = "secret"
+	// certManagerIssuerNameAnnotation is set by cert-manager on every Secret it issues a certificate
+	// into, which is what tells a leaf it signed from a Secret that merely holds a tls.crt.
+	certManagerIssuerNameAnnotation = "cert-manager.io/issuer-name"
 )
+
+var certificateRequestListGVK = schema.GroupVersionKind{
+	Group:   "cert-manager.io",
+	Version: "v1",
+	Kind:    "CertificateRequestList",
+}
 
 // caTrustBundlePendingError indicates the CA trust bundle cannot be reconciled yet because
 // something it is assembled from is still missing: the provisioning CA Secret cert-manager issues
@@ -229,6 +243,15 @@ func (r *DPFOperatorConfigReconciler) reconcileSelfSignedCATrustBundle(ctx conte
 		ctrllog.FromContext(ctx).V(2).Info("Pruned superseded certificates from the CA trust bundle",
 			logKeyConfigMap, client.ObjectKey{Namespace: config.Namespace, Name: bundleName},
 			"certificates", superseded)
+	}
+	merged, transient, err := r.pruneTransientPlatformCA(ctx, config.Namespace, merged, platformChain)
+	if err != nil {
+		return fmt.Errorf("failed to prune the transient platform intermediate CA from the CA trust bundle: %w", err)
+	}
+	if len(transient) > 0 {
+		ctrllog.FromContext(ctx).Info("Pruned the transient platform intermediate CA from the CA trust bundle",
+			logKeyConfigMap, client.ObjectKey{Namespace: config.Namespace, Name: bundleName},
+			"certificates", transient)
 	}
 
 	if !found {
@@ -520,6 +543,166 @@ func pruneSupersededCertificates(bundle []byte, published ...[]byte) ([]byte, []
 		return nil, nil, err
 	}
 	return out, pruned, nil
+}
+
+// pruneTransientPlatformCA drops the platform intermediate CA the upgrade migration issued in
+// passing. The migration seeds the key of the legacy CA into the platform intermediate one reconcile
+// before it requests the subject of the legacy CA, and cert-manager issues the intermediate under the
+// subject of the manifest in between. That certificate reaches the bundle, and every BMC truststore
+// synced from it, but the sweep above never matches it: it shares the key of the published
+// intermediate under another subject. It is what is left of a CA that no longer exists, and it holds
+// one of the ten slots of a BlueField BMC truststore.
+//
+// A certificate qualifies when it carries the subject of the manifest and the key of a published
+// certificate whose subject differs, which only a migrated intermediate has. It stays while any leaf
+// in namespace still names it, since such a leaf validates only through it: one signed in the window
+// before the leaves were held on the legacy issuer during the migration keeps doing so until it is
+// reissued. It also stays while any BMC server certificate is rotating, because the BMC continues
+// serving the old certificate until its replacement is installed.
+func (r *DPFOperatorConfigReconciler) pruneTransientPlatformCA(ctx context.Context, namespace string, bundle, platformChain []byte) ([]byte, []prunedCertificate, error) {
+	publishedKeys := map[string]struct{}{}
+	publishedCertificates := map[[sha256.Size]byte]struct{}{}
+	eachCertificate(platformChain, func(fingerprint [sha256.Size]byte, cert *x509.Certificate) {
+		publishedCertificates[fingerprint] = struct{}{}
+		if cert.Subject.CommonName != operatorv1.PlatformIntermediateCAName {
+			publishedKeys[string(cert.RawSubjectPublicKeyInfo)] = struct{}{}
+		}
+	})
+
+	candidates := map[[sha256.Size]byte]*x509.Certificate{}
+	eachCertificate(bundle, func(fingerprint [sha256.Size]byte, cert *x509.Certificate) {
+		if _, keep := publishedCertificates[fingerprint]; keep {
+			return
+		}
+		if cert.Subject.CommonName != operatorv1.PlatformIntermediateCAName {
+			return
+		}
+		if _, migrated := publishedKeys[string(cert.RawSubjectPublicKeyInfo)]; !migrated {
+			return
+		}
+		candidates[fingerprint] = cert
+	})
+	if len(candidates) == 0 {
+		return bundle, nil, nil
+	}
+
+	leaves, err := r.listIssuedLeafCertificates(ctx, namespace)
+	if err != nil {
+		return nil, nil, err
+	}
+	settled, err := r.bmcServerCertificatesSettled(ctx, namespace)
+	if err != nil || !settled {
+		return bundle, nil, err
+	}
+	transient := map[[sha256.Size]byte]bool{}
+	pruned := make([]prunedCertificate, 0, len(candidates))
+	for fingerprint, ca := range candidates {
+		if namesIssuer(leaves, ca) {
+			continue
+		}
+		transient[fingerprint] = true
+		pruned = append(pruned, prunedCertificate{
+			Subject:     ca.Subject.String(),
+			Fingerprint: hex.EncodeToString(fingerprint[:]),
+		})
+	}
+	if len(transient) == 0 {
+		return bundle, nil, nil
+	}
+
+	out, err := pruneCABundleByFingerprint(bundle, transient)
+	if err != nil {
+		return nil, nil, err
+	}
+	return out, pruned, nil
+}
+
+// bmcServerCertificatesSettled reports whether no BMC server certificate rotation is in flight. The
+// provisioning controller persists RotationPending one reconcile before it deletes the
+// CertificateRequest of the certificate a BMC still serves, and keeps Rotating until the replacement
+// is installed, so between the two the served certificate is accounted for by neither a request nor
+// a Ready condition.
+//
+// Any other state does not hold the prune. A failed rotation or an unreachable BMC retries through
+// RotationPending again and may never settle, and holding the transient CA for it would keep a BMC
+// truststore slot occupied indefinitely. A BMC left serving a certificate the transient CA signed is
+// detected as untrusted on the next connection and re-bootstrapped over basic auth.
+func (r *DPFOperatorConfigReconciler) bmcServerCertificatesSettled(ctx context.Context, namespace string) (bool, error) {
+	devices := &provisioningv1.DPUDeviceList{}
+	if err := r.Client.List(ctx, devices, client.InNamespace(namespace)); err != nil {
+		return false, fmt.Errorf("failed to list DPUDevices in %s: %w", namespace, err)
+	}
+	for i := range devices.Items {
+		condition := conditions.Get(&devices.Items[i], provisioningv1.ConditionDpuDeviceBMCServerCertificateReady)
+		if condition == nil || condition.Status == metav1.ConditionTrue {
+			continue
+		}
+		switch condition.Reason {
+		case provisioningv1.ReasonBMCServerCertificateRotationPending, provisioningv1.ReasonBMCServerCertificateRotating:
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// listIssuedLeafCertificates returns the certificates cert-manager issued in namespace: the ones it
+// stored in Secrets for a Certificate, and the ones it returned on a CertificateRequest, which is how
+// the provisioning controller has the BMC server certificates signed.
+func (r *DPFOperatorConfigReconciler) listIssuedLeafCertificates(ctx context.Context, namespace string) ([]*x509.Certificate, error) {
+	leaves := make([]*x509.Certificate, 0)
+	collect := func(data []byte) {
+		eachCertificate(data, func(_ [sha256.Size]byte, cert *x509.Certificate) {
+			leaves = append(leaves, cert)
+		})
+	}
+
+	secrets := &corev1.SecretList{}
+	if err := r.Client.List(ctx, secrets, client.InNamespace(namespace)); err != nil {
+		return nil, fmt.Errorf("failed to list Secrets in %s: %w", namespace, err)
+	}
+	for i := range secrets.Items {
+		if _, issued := secrets.Items[i].Annotations[certManagerIssuerNameAnnotation]; !issued {
+			continue
+		}
+		collect(secrets.Items[i].Data[corev1.TLSCertKey])
+	}
+
+	requests := &unstructured.UnstructuredList{}
+	requests.SetGroupVersionKind(certificateRequestListGVK)
+	if err := r.Client.List(ctx, requests, client.InNamespace(namespace)); err != nil {
+		// Without the cert-manager CRDs nothing can have been issued through a CertificateRequest.
+		if meta.IsNoMatchError(err) {
+			return leaves, nil
+		}
+		return nil, fmt.Errorf("failed to list CertificateRequests in %s: %w", namespace, err)
+	}
+	for i := range requests.Items {
+		encoded, _, err := unstructured.NestedString(requests.Items[i].Object, "status", "certificate")
+		if err != nil || encoded == "" {
+			continue
+		}
+		data, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			continue
+		}
+		collect(data)
+	}
+	return leaves, nil
+}
+
+// namesIssuer reports whether any of leaves was signed by ca, by the subject the leaf names as its
+// issuer and the key it names as the one that signed it. The subject alone does not single ca out
+// on a cluster that ran an intermediate of that subject under another key before the migration.
+func namesIssuer(leaves []*x509.Certificate, ca *x509.Certificate) bool {
+	for _, leaf := range leaves {
+		if !bytes.Equal(leaf.RawIssuer, ca.RawSubject) {
+			continue
+		}
+		if len(leaf.AuthorityKeyId) == 0 || len(ca.SubjectKeyId) == 0 || bytes.Equal(leaf.AuthorityKeyId, ca.SubjectKeyId) {
+			return true
+		}
+	}
+	return false
 }
 
 // prunedCertificate names a certificate the sweep took away, for the log line that records it. The
