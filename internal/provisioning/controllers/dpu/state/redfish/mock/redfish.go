@@ -177,13 +177,13 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	mux.HandleFunc("/redfish/v1/Chassis/BlueField_ERoT_BMC_0", mock.handleGetErotChassis)
 
 	// UpdateService
-	mux.HandleFunc("/"+client.APIUpdateFW, mock.handleUpdateService)
+	mux.HandleFunc("/"+client.RedfishAPIs.Path("APIUpdateFW"), mock.handleUpdateService)
 	mux.HandleFunc("/redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate", mock.handleInstallBFB)
 
 	// FirmwareInventory (prefix handler avoids Go ServeMux wildcard conflicts between inventory IDs)
 	mux.HandleFunc("/redfish/v1/UpdateService/FirmwareInventory/", mock.handleCheckFirmwareInventory)
-	mux.HandleFunc("/"+client.APIUpdateBluefieldFWMultipart, mock.handleUpdateBluefieldFirmwareMultipart)
-	mux.HandleFunc("/"+client.APIActivatePendingBundle, mock.handleActivatePendingBundle)
+	mux.HandleFunc("/"+client.RedfishAPIs.Path("APIUpdateBluefieldFWMultipart"), mock.handleUpdateBluefieldFirmwareMultipart)
+	mux.HandleFunc("/"+client.RedfishAPIs.Path("APIActivatePendingBundle"), mock.handleActivatePendingBundle)
 
 	// TaskService
 	mux.HandleFunc("/redfish/v1/TaskService/Tasks/", mock.handleGetTask)
@@ -205,8 +205,8 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	mux.HandleFunc("/redfish/v1/Managers/Bluefield_BMC/NetworkProtocol/HTTPS/Certificates/1", mock.handleGetServerCert)
 	mux.HandleFunc("/redfish/v1/Managers/Bluefield_BMC/Truststore/Certificates", mock.handleInstallTruststoreCert)
 	mux.HandleFunc("/redfish/v1/Managers/Bluefield_BMC/Truststore/Certificates/", mock.handleTruststoreCert)
-	mux.HandleFunc("/"+client.APIReplaceCert, mock.handleReplaceCert)
-	mux.HandleFunc("/"+client.APIEnableMTLS, mock.handleEnableMTLS)
+	mux.HandleFunc("/"+client.RedfishAPIs.Path("APIReplaceCert"), mock.handleReplaceCert)
+	mux.HandleFunc("/"+client.RedfishAPIs.Path("APIEnableMTLS"), mock.handleEnableMTLS)
 
 	// NetworkDeviceFunctions
 	mux.HandleFunc("/redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/NetworkDeviceFunctions/eth0f0", mock.handleGetNetworkDeviceFunction)
@@ -228,10 +228,10 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	}
 
 	// Host Privilege Config
-	mux.HandleFunc("/"+client.APIHostPrivilegeConfigSettings, mock.handleHostPrivilegeConfigSettings)
+	mux.HandleFunc("/"+client.RedfishAPIs.Path("APIHostPrivilegeConfigSettings"), mock.handleHostPrivilegeConfigSettings)
 
 	// BMC RShim Oem (BF3 Zero Trust enable / status poll)
-	mux.HandleFunc("/"+client.APIEnableBMCRshim, mock.handleBMCRShimOem)
+	mux.HandleFunc("/"+client.RedfishAPIs.Path("APIEnableBMCRshim"), mock.handleBMCRShimOem)
 
 	// BlueField 4 OS install (virtual media, boot settings, chassis reset)
 	mux.HandleFunc("/redfish/v1/Managers/Bluefield_BMC/VirtualMedia/", mock.handleVirtualMedia)
@@ -450,7 +450,7 @@ func (r *RedfishMockServer) handleRootService(w http.ResponseWriter, req *http.R
 			"@odata.id": "/redfish/v1/Managers",
 		},
 		"UpdateService": map[string]interface{}{
-			"@odata.id": client.APIUpdateFW,
+			"@odata.id": client.RedfishAPIs.Path("APIUpdateFW"),
 		},
 		"TaskService": map[string]interface{}{
 			"@odata.id": "/redfish/v1/TaskService",
@@ -618,7 +618,7 @@ func (r *RedfishMockServer) handleUpdateService(w http.ResponseWriter, req *http
 	case http.MethodGet:
 		response := map[string]interface{}{
 			"@odata.context": "/redfish/v1/$metadata#UpdateService.UpdateService",
-			"@odata.id":      client.APIUpdateFW,
+			"@odata.id":      client.RedfishAPIs.Path("APIUpdateFW"),
 			"@odata.type":    "#UpdateService.v1_10_0.UpdateService",
 			"Id":             "UpdateService",
 			"Name":           "Update Service",
@@ -763,7 +763,7 @@ func (r *RedfishMockServer) handleActivatePendingBundle(w http.ResponseWriter, r
 
 	w.WriteHeader(http.StatusOK)
 	writeJSONResponse(w, map[string]interface{}{
-		"@odata.id": "/" + client.APIActivatePendingBundle,
+		"@odata.id": "/" + client.RedfishAPIs.Path("APIActivatePendingBundle"),
 	})
 }
 
@@ -823,7 +823,7 @@ func (r *RedfishMockServer) handleGetSELEntries(w http.ResponseWriter, req *http
 	}
 
 	systemID := "Bluefield"
-	url := strings.ReplaceAll(client.APIGetSELEntries, "{SYSTEM_ID}", systemID)
+	url := strings.ReplaceAll(client.RedfishAPIs.Path("APIGetSELEntries"), "{SYSTEM_ID}", systemID)
 	writeJSONResponse(w, map[string]interface{}{
 		"@odata.id":           "/" + url,
 		"@odata.type":         "#LogEntryCollection.LogEntryCollection",

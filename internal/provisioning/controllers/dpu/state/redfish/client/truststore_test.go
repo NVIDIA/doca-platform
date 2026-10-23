@@ -138,7 +138,7 @@ func TestDeleteTruststoreCert(t *testing.T) {
 		Client: resty.New().SetBaseURL(server.URL),
 	}
 
-	resp, info, err := client.DeleteTruststoreCert("/redfish/v1/Managers/BMC/Truststore/Certificates/1")
+	resp, info, err := client.DeleteTruststoreCert(context.Background(), "/redfish/v1/Managers/BMC/Truststore/Certificates/1")
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(info).To(BeNil())
 	g.Expect(resp.StatusCode()).To(Equal(http.StatusNoContent))

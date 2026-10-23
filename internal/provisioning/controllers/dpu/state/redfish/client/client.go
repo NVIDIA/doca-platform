@@ -41,72 +41,72 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// managerIDPlaceholder is the token substituted with the resolved BMC manager ID in Manager-scoped
-// Redfish API paths.
-const managerIDPlaceholder = "{MANAGER_ID}"
-
-const (
-	APIChangePasswd                 = "redfish/v1/AccountService/Accounts/{USER}"
-	APICheckBMCFW                   = "redfish/v1/UpdateService/FirmwareInventory/{BMC_FW_ID}"
-	APICheckBMCEROTFW               = "redfish/v1/UpdateService/FirmwareInventory/BlueField_FW_ERoT_BMC_0"
-	APICheckDpuBoardFW              = "redfish/v1/UpdateService/FirmwareInventory/DPU_BOARD"
-	APICheckDPUBSP                  = "redfish/v1/UpdateService/FirmwareInventory/DPU_BSP"
-	APICheckDPUNIC                  = "redfish/v1/UpdateService/FirmwareInventory/{DPU_NIC_ID}"
-	APICheckDPUOS                   = "redfish/v1/UpdateService/FirmwareInventory/DPU_OS"
-	APICheckDPUUEFI                 = "redfish/v1/UpdateService/FirmwareInventory/{DPU_UEFI_ID}"
-	APICheckPendingBundle           = "redfish/v1/UpdateService/FirmwareInventory/Pending_Bundle"
-	APICheckPendingBMCFW            = "redfish/v1/UpdateService/FirmwareInventory/BlueField_FW_BMC_0_pending"
-	APICheckPendingBMCEROTFW        = "redfish/v1/UpdateService/FirmwareInventory/BlueField_FW_ERoT_BMC_0_pending"
-	APICheckPendingDPUUEFI          = "redfish/v1/UpdateService/FirmwareInventory/BlueField_FW_CPU_0_pending"
-	APICheckPendingDPUNIC           = "redfish/v1/UpdateService/FirmwareInventory/BlueField_FW_NIC_0_pending"
-	APICheckOSImage                 = "redfish/v1/UpdateService/FirmwareInventory/BlueField_OS_Image_CPU_0"
-	APICheckConfigImage             = "redfish/v1/UpdateService/FirmwareInventory/BlueField_OS_Config_CPU_0"
-	APIInstallBFB                   = "redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate"
-	APIGetVirtualMedia              = "redfish/v1/Managers/{MANAGER_ID}/VirtualMedia/{MEDIA_ID}"
-	APIInsertVirtualMedia           = "redfish/v1/Managers/{MANAGER_ID}/VirtualMedia/{MEDIA_ID}/Actions/VirtualMedia.InsertMedia"
-	APIEjectVirtualMedia            = "redfish/v1/Managers/{MANAGER_ID}/VirtualMedia/{MEDIA_ID}/Actions/VirtualMedia.EjectMedia"
-	APIUpdateFW                     = "redfish/v1/UpdateService"
-	APICheckProgress                = "redfish/v1/TaskService/Tasks"
-	APIGetManagers                  = "redfish/v1/Managers"
-	APIGetSystems                   = "redfish/v1/Systems"
-	APIGetBMCManager                = "redfish/v1/Managers/{MANAGER_ID}"
-	APIFactoryResetBMC              = "redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.ResetToDefaults"
-	APIResetBMC                     = "redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.Reset"
-	APIEnableBMCRshim               = "redfish/v1/Managers/Bluefield_BMC/Oem/Nvidia"
-	APIGetSystem                    = "redfish/v1/Systems/{SYSTEM_ID}"
-	APIBluefieldSettings            = "redfish/v1/Systems/{SYSTEM_ID}/Settings"
-	APIDisableHostRshim             = "redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/HostRshim.Set"
-	APIInstallCert                  = "redfish/v1/Managers/{MANAGER_ID}/Truststore/Certificates"
-	APIServerCert                   = "redfish/v1/Managers/{MANAGER_ID}/NetworkProtocol/HTTPS/Certificates/1"
-	APIReplaceCert                  = "redfish/v1/CertificateService/Actions/CertificateService.ReplaceCertificate"
-	APIUpdateBluefieldFWMultipart   = "redfish/v1/UpdateService/update-multipart"
-	APIActivatePendingBundle        = "redfish/v1/UpdateService/Actions/UpdateService.Activate"
-	APIGetBios                      = "redfish/v1/Systems/{SYSTEM_ID}/Bios"
-	APISetBiosSettings              = "redfish/v1/Systems/{SYSTEM_ID}/Bios/Settings"
-	APISetMode                      = "/redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/Mode.Set"
-	APIGenerateCSR                  = "redfish/v1/CertificateService/Actions/CertificateService.GenerateCSR"
-	APIEnableMTLS                   = "redfish/v1/AccountService"
-	APIProductDescription           = "redfish/v1/Systems/{SYSTEM_ID}/Oem/Nvidia"
-	APIGetChassis                   = "redfish/v1/Chassis/{CHASSIS_ID}"
-	APIChassisReset                 = "redfish/v1/Chassis/{CHASSIS_ID}/Actions/Oem/NvidiaChassis.Reset"
-	APIGetNetworkDeviceFunctions    = "redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/NetworkDeviceFunctions/{PF_ID}"
-	APIGetNetworkDeviceFunctionsBF4 = "redfish/v1/Chassis/BlueField_0/NetworkAdapters/BlueField_NIC_0/NetworkDeviceFunctions/{PF_ID}"
-	APIRootService                  = "redfish/v1"
-	APISystemRoot                   = APIRootService + "/Systems/{SYSTEM_ID}"
-	APISecureBoot                   = APISystemRoot + "/SecureBoot"
-	APIResetSystem                  = APISystemRoot + "/Actions/ComputerSystem.Reset"
+// RedfishAPIs maps each API name to its request path.
+// Path reads the path for a name. Name recovers the name from a request path.
+// A {TOKEN} segment is filled by resty path parameters after the tracing hook reads the template.
+var RedfishAPIs = newRedfishAPIMap(map[string]string{
+	"APIChangePasswd":                 "redfish/v1/AccountService/Accounts/{USER}",
+	"APICheckBMCFW":                   "redfish/v1/UpdateService/FirmwareInventory/{BMC_FW_ID}",
+	"APICheckBMCEROTFW":               "redfish/v1/UpdateService/FirmwareInventory/BlueField_FW_ERoT_BMC_0",
+	"APICheckDpuBoardFW":              "redfish/v1/UpdateService/FirmwareInventory/DPU_BOARD",
+	"APICheckDPUBSP":                  "redfish/v1/UpdateService/FirmwareInventory/DPU_BSP",
+	"APICheckDPUNIC":                  "redfish/v1/UpdateService/FirmwareInventory/{DPU_NIC_ID}",
+	"APICheckDPUOS":                   "redfish/v1/UpdateService/FirmwareInventory/DPU_OS",
+	"APICheckDPUUEFI":                 "redfish/v1/UpdateService/FirmwareInventory/{DPU_UEFI_ID}",
+	"APICheckPendingBundle":           "redfish/v1/UpdateService/FirmwareInventory/Pending_Bundle",
+	"APICheckPendingBMCFW":            "redfish/v1/UpdateService/FirmwareInventory/BlueField_FW_BMC_0_pending",
+	"APICheckPendingBMCEROTFW":        "redfish/v1/UpdateService/FirmwareInventory/BlueField_FW_ERoT_BMC_0_pending",
+	"APICheckPendingDPUUEFI":          "redfish/v1/UpdateService/FirmwareInventory/BlueField_FW_CPU_0_pending",
+	"APICheckPendingDPUNIC":           "redfish/v1/UpdateService/FirmwareInventory/BlueField_FW_NIC_0_pending",
+	"APICheckOSImage":                 "redfish/v1/UpdateService/FirmwareInventory/BlueField_OS_Image_CPU_0",
+	"APICheckConfigImage":             "redfish/v1/UpdateService/FirmwareInventory/BlueField_OS_Config_CPU_0",
+	"APIInstallBFB":                   "redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate",
+	"APIGetVirtualMedia":              "redfish/v1/Managers/{MANAGER_ID}/VirtualMedia/{MEDIA_ID}",
+	"APIInsertVirtualMedia":           "redfish/v1/Managers/{MANAGER_ID}/VirtualMedia/{MEDIA_ID}/Actions/VirtualMedia.InsertMedia",
+	"APIEjectVirtualMedia":            "redfish/v1/Managers/{MANAGER_ID}/VirtualMedia/{MEDIA_ID}/Actions/VirtualMedia.EjectMedia",
+	"APIUpdateFW":                     "redfish/v1/UpdateService",
+	"APICheckProgress":                "redfish/v1/TaskService/Tasks/{TASK_ID}",
+	"APIGetManagers":                  "redfish/v1/Managers",
+	"APIGetSystems":                   "redfish/v1/Systems",
+	"APIGetBMCManager":                "redfish/v1/Managers/{MANAGER_ID}",
+	"APIFactoryResetBMC":              "redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.ResetToDefaults",
+	"APIResetBMC":                     "redfish/v1/Managers/{MANAGER_ID}/Actions/Manager.Reset",
+	"APIEnableBMCRshim":               "redfish/v1/Managers/Bluefield_BMC/Oem/Nvidia",
+	"APIGetSystem":                    "redfish/v1/Systems/{SYSTEM_ID}",
+	"APIBluefieldSettings":            "redfish/v1/Systems/{SYSTEM_ID}/Settings",
+	"APIDisableHostRshim":             "redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/HostRshim.Set",
+	"APIInstallCert":                  "redfish/v1/Managers/{MANAGER_ID}/Truststore/Certificates",
+	"APITruststoreCert":               "redfish/v1/Managers/{MANAGER_ID}/Truststore/Certificates/{CERT_ID}",
+	"APIServerCert":                   "redfish/v1/Managers/{MANAGER_ID}/NetworkProtocol/HTTPS/Certificates/1",
+	"APIReplaceCert":                  "redfish/v1/CertificateService/Actions/CertificateService.ReplaceCertificate",
+	"APIUpdateBluefieldFWMultipart":   "redfish/v1/UpdateService/update-multipart",
+	"APIActivatePendingBundle":        "redfish/v1/UpdateService/Actions/UpdateService.Activate",
+	"APIGetBios":                      "redfish/v1/Systems/{SYSTEM_ID}/Bios",
+	"APISetBiosSettings":              "redfish/v1/Systems/{SYSTEM_ID}/Bios/Settings",
+	"APISetMode":                      "/redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/Mode.Set",
+	"APIGenerateCSR":                  "redfish/v1/CertificateService/Actions/CertificateService.GenerateCSR",
+	"APIEnableMTLS":                   "redfish/v1/AccountService",
+	"APIProductDescription":           "redfish/v1/Systems/{SYSTEM_ID}/Oem/Nvidia",
+	"APIGetChassis":                   "redfish/v1/Chassis/{CHASSIS_ID}",
+	"APIChassisReset":                 "redfish/v1/Chassis/{CHASSIS_ID}/Actions/Oem/NvidiaChassis.Reset",
+	"APIGetNetworkDeviceFunctions":    "redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/NetworkDeviceFunctions/{PF_ID}",
+	"APIGetNetworkDeviceFunctionsBF4": "redfish/v1/Chassis/BlueField_0/NetworkAdapters/BlueField_NIC_0/NetworkDeviceFunctions/{PF_ID}",
+	"APIRootService":                  "redfish/v1",
+	"APISecureBoot":                   "redfish/v1/Systems/{SYSTEM_ID}/SecureBoot",
+	"APIResetSystem":                  "redfish/v1/Systems/{SYSTEM_ID}/Actions/ComputerSystem.Reset",
 	// APISOCForceReset resets the SoC/NIC without waiting for host PERST.
 	// Used for hostless (CMX) reboot so NVConfig takes effect.
-	APISOCForceReset = APISystemRoot + "/Oem/Nvidia/SOC.ForceReset"
+	"APISOCForceReset": "redfish/v1/Systems/{SYSTEM_ID}/Oem/Nvidia/SOC.ForceReset",
 	// APIGetSELEntries is the Redfish System Event Log entries collection. The BMC
 	// records sensor-threshold events (e.g., 12V_ATX low) here, which we surface
 	// as best-effort hints when an install task fails.
 	// Reference: https://docs.nvidia.com/networking/display/bfswtroubleshooting/bmc
-	APIGetSELEntries = APISystemRoot + "/LogServices/SEL/Entries"
-
+	"APIGetSELEntries": "redfish/v1/Systems/{SYSTEM_ID}/LogServices/SEL/Entries",
 	// APIHostPrivilegeConfigSettings is the Settings URI for host privilege configuration (BF4).
-	APIHostPrivilegeConfigSettings = APIRootService + "/Chassis/BlueField_0/NetworkAdapters/BlueField_NIC_0/Oem/Nvidia/HostPrivilegeConfig/Settings"
+	"APIHostPrivilegeConfigSettings": "redfish/v1/Chassis/BlueField_0/NetworkAdapters/BlueField_NIC_0/Oem/Nvidia/HostPrivilegeConfig/Settings",
+})
 
+const (
 	// CATrustBundleKey is the data key containing PEM certificate bundle.
 	CATrustBundleKey = "ca.crt"
 	// ClientCertSecret and ClientCertSecretBF4 are created by the cert-manager Certificates deployed
@@ -382,6 +382,12 @@ type Client struct {
 	reader   *resty.Client
 	IsBF4    bool
 	ids      stableIDs
+	// traceParent is the span active when the client was created, detached from
+	// that context's cancellation. Requests with no span of their own use it.
+	traceParent context.Context
+	// mtlsUser is the BMC account the mTLS client certificate is issued for. It is empty for
+	// basic-auth clients, which carry their user in UserInfo, and for unauthenticated clients.
+	mtlsUser string
 }
 
 // stableIDs memoizes the Redfish System and Manager identifiers, which do not change for the life
@@ -435,7 +441,7 @@ func (c *Client) GetBmcManager(ctx context.Context) (*resty.Response, *BmcManage
 	if err != nil {
 		return nil, nil, err
 	}
-	return read[BmcManager](ctx, c, strings.Replace(APIGetBMCManager, "{MANAGER_ID}", *managerID, 1))
+	return read[BmcManager](ctx, c, RedfishAPIs.Path("APIGetBMCManager"), map[string]string{"MANAGER_ID": *managerID})
 }
 
 // ChangeBMCPassword sets newPassword on every BMC account DPF manages, so that no managed account
@@ -451,7 +457,7 @@ func (c *Client) GetBmcManager(ctx context.Context) (*resty.Response, *BmcManage
 // For more information, refer to
 // https://docs.nvidia.com/networking/display/bluefieldbmcv2410/connecting+to+bmc+interfaces#src-704886267_ConnectingtoBMCInterfaces-ChangingDefaultPassword
 func (c *Client) ChangeBMCPassword(ctx context.Context, newPassword string, user string) (*resty.Response, *ExtendedInfo, error) {
-	resp, info, err := c.SetRedfishUserPassword(user, newPassword)
+	resp, info, err := c.SetRedfishUserPassword(ctx, user, newPassword)
 	if err != nil || !PasswordChangeAccepted(resp) || !c.IsBF4 {
 		return resp, info, err
 	}
@@ -472,8 +478,8 @@ func (c *Client) ChangeBMCPassword(ctx context.Context, newPassword string, user
 // SetRedfishUserPassword changes the password of the Redfish user only (root on BF3, admin on BF4),
 // leaving other managed accounts alone. Callers that want every managed account hardened should use
 // ChangeBMCPassword instead.
-func (c *Client) SetRedfishUserPassword(user, newPassword string) (*resty.Response, *ExtendedInfo, error) {
-	return c.patchAccountPassword(user, newPassword)
+func (c *Client) SetRedfishUserPassword(ctx context.Context, user, newPassword string) (*resty.Response, *ExtendedInfo, error) {
+	return c.patchAccountPassword(ctx, user, newPassword)
 }
 
 // SetServiceAccountPassword sets the password of the BF4 ssh-only service account. It is a no-op on
@@ -484,7 +490,7 @@ func (c *Client) SetServiceAccountPassword(ctx context.Context, newPassword stri
 		return nil
 	}
 
-	resp, _, err := c.patchAccountPassword(BF4ServiceUser, newPassword)
+	resp, _, err := c.patchAccountPassword(ctx, BF4ServiceUser, newPassword)
 	if err != nil {
 		return fmt.Errorf("failed to set the password of BMC account %q: %w", BF4ServiceUser, err)
 	}
@@ -512,13 +518,14 @@ func PasswordChangeAccepted(resp *resty.Response) bool {
 // patchAccountPassword PATCHes a single Redfish account with a new password. A rejection can carry
 // a body that is not a Redfish payload, so a decode failure yields a nil ExtendedInfo instead of an
 // error: the caller decides on the status code.
-func (c *Client) patchAccountPassword(user, newPassword string) (*resty.Response, *ExtendedInfo, error) {
-	resp, err := c.Client.R().
+func (c *Client) patchAccountPassword(ctx context.Context, user, newPassword string) (*resty.Response, *ExtendedInfo, error) {
+	resp, err := c.Client.R().SetContext(ctx).
 		SetHeader("Content-Type", "application/json").
 		SetBody(map[string]string{
 			"Password": newPassword,
 		}).
-		Patch(strings.Replace(APIChangePasswd, "{USER}", user, 1))
+		SetPathParam("USER", user).
+		Patch(RedfishAPIs.Path("APIChangePasswd"))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -551,10 +558,11 @@ func (c *Client) InstallCert(ctx context.Context, caCert string) (*resty.Respons
 		"CertificateType":   "PEM",
 	}
 	return do[ExtendedInfo](func() (*resty.Response, error) {
-		return c.Client.R().
+		return c.Client.R().SetContext(ctx).
 			SetHeader("Content-Type", "application/json").
 			SetBody(caCertJSON).
-			Post(strings.Replace(APIInstallCert, managerIDPlaceholder, *managerID, 1))
+			SetPathParam("MANAGER_ID", *managerID).
+			Post(RedfishAPIs.Path("APIInstallCert"))
 	})
 }
 
@@ -568,8 +576,7 @@ func (c *Client) ListTruststoreCerts(ctx context.Context) ([]TruststoreCert, err
 		return nil, err
 	}
 
-	collectionURI := strings.Replace(APIInstallCert, "{MANAGER_ID}", *managerID, 1)
-	_, collection, err := read[TruststoreCollection](ctx, c, collectionURI)
+	_, collection, err := read[TruststoreCollection](ctx, c, RedfishAPIs.Path("APIInstallCert"), map[string]string{"MANAGER_ID": *managerID})
 	if err != nil {
 		return nil, err
 	}
@@ -598,8 +605,8 @@ func (c *Client) ListTruststoreCerts(ctx context.Context) ([]TruststoreCert, err
 }
 
 // DeleteTruststoreCert deletes a truststore certificate at the given Redfish URI.
-func (c *Client) DeleteTruststoreCert(certURI string) (*resty.Response, *ExtendedInfo, error) {
-	resp, err := c.Client.R().Delete(normalizeRedfishURI(certURI))
+func (c *Client) DeleteTruststoreCert(ctx context.Context, certURI string) (*resty.Response, *ExtendedInfo, error) {
+	resp, err := c.Client.R().SetContext(ctx).Delete(normalizeRedfishURI(certURI))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -628,7 +635,7 @@ func (c *Client) ReplaceCACert(ctx context.Context, caCert string) (*resty.Respo
 			"@odata.id": fmt.Sprintf("/redfish/v1/Managers/%s/Truststore/Certificates/1", *managerID),
 		},
 	}
-	return c.ReplaceCert(caCertJSON)
+	return c.ReplaceCert(ctx, caCertJSON)
 }
 
 // ReplaceServerCert replaces the server certificate used by BMC APIs
@@ -645,7 +652,7 @@ func (c *Client) ReplaceServerCert(ctx context.Context, srvCert string) (*resty.
 			"@odata.id": fmt.Sprintf("/redfish/v1/Managers/%s/NetworkProtocol/HTTPS/Certificates/1", *managerID),
 		},
 	}
-	return c.ReplaceCert(srvCertJSON)
+	return c.ReplaceCert(ctx, srvCertJSON)
 }
 
 // ServerCertInfo carries the certificate the BMC is currently serving for HTTPS.
@@ -664,17 +671,17 @@ func (c *Client) GetServerCert(ctx context.Context) (*resty.Response, *ServerCer
 	if err != nil {
 		return nil, nil, err
 	}
-	return read[ServerCertInfo](ctx, c, strings.Replace(APIServerCert, managerIDPlaceholder, *managerID, 1))
+	return read[ServerCertInfo](ctx, c, RedfishAPIs.Path("APIServerCert"), map[string]string{"MANAGER_ID": *managerID})
 }
 
 // ReplaceCert replaces existing certificate. For more information, refer to
 // https://docs.nvidia.com/networking/display/bluefieldbmcv2410/redfish+certificate+management#src-704886301_RedfishCertificateManagement-third
-func (c *Client) ReplaceCert(body map[string]interface{}) (*resty.Response, *ExtendedInfo, error) {
+func (c *Client) ReplaceCert(ctx context.Context, body map[string]interface{}) (*resty.Response, *ExtendedInfo, error) {
 	return do[ExtendedInfo](func() (*resty.Response, error) {
-		return c.Client.R().
+		return c.Client.R().SetContext(ctx).
 			SetHeader("Content-Type", "application/json").
 			SetBody(body).
-			Post(APIReplaceCert)
+			Post(RedfishAPIs.Path("APIReplaceCert"))
 	})
 }
 
@@ -689,7 +696,7 @@ func (c *Client) GenerateCSR(ctx context.Context, cn string) (*resty.Response, *
 	if err != nil {
 		return nil, nil, err
 	}
-	urlString, err := url.JoinPath("https://", cn, APIGenerateCSR)
+	urlString, err := url.JoinPath("https://", cn, RedfishAPIs.Path("APIGenerateCSR"))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -710,7 +717,7 @@ func (c *Client) GenerateCSR(ctx context.Context, cn string) (*resty.Response, *
 		},
 	}
 	return do[CSRInfo](func() (*resty.Response, error) {
-		return c.Client.R().
+		return c.Client.R().SetContext(ctx).
 			SetHeader("Content-Type", "application/json").
 			SetBody(CSRRequest).
 			Post(urlString)
@@ -718,12 +725,12 @@ func (c *Client) GenerateCSR(ctx context.Context, cn string) (*resty.Response, *
 }
 
 // EnableMTLS activates mTLS on BMC
-func (c *Client) EnableMTLS() (*resty.Response, *ExtendedInfo, error) {
+func (c *Client) EnableMTLS(ctx context.Context) (*resty.Response, *ExtendedInfo, error) {
 	reqBody := `{"Oem": {"OpenBMC": {"AuthMethods": {"TLS": true}}}}`
 	return do[ExtendedInfo](func() (*resty.Response, error) {
-		return c.Client.R().
+		return c.Client.R().SetContext(ctx).
 			SetBody(reqBody).
-			Patch(APIEnableMTLS)
+			Patch(RedfishAPIs.Path("APIEnableMTLS"))
 	})
 }
 
@@ -735,17 +742,15 @@ func (c *Client) CheckBMCFirmware(ctx context.Context) (*resty.Response, *Versio
 		bmcFwID = "BlueField_FW_BMC_0"
 	}
 
-	url := strings.Replace(APICheckBMCFW, "{BMC_FW_ID}", bmcFwID, 1)
-
-	return read[VersionInfo](ctx, c, url)
+	return read[VersionInfo](ctx, c, RedfishAPIs.Path("APICheckBMCFW"), map[string]string{"BMC_FW_ID": bmcFwID})
 }
 
 func (c *Client) CheckDpuBoardFW(ctx context.Context) (*resty.Response, *VersionInfo, error) {
-	return read[VersionInfo](ctx, c, APICheckDpuBoardFW)
+	return read[VersionInfo](ctx, c, RedfishAPIs.Path("APICheckDpuBoardFW"))
 }
 
 func (c *Client) CheckBMCEROTFW(ctx context.Context) (*resty.Response, *VersionInfo, error) {
-	return read[VersionInfo](ctx, c, APICheckBMCEROTFW)
+	return read[VersionInfo](ctx, c, RedfishAPIs.Path("APICheckBMCEROTFW"))
 }
 
 func (c *Client) GetSystem(ctx context.Context) (*resty.Response, *SystemInfo, error) {
@@ -756,7 +761,7 @@ func (c *Client) GetSystem(ctx context.Context) (*resty.Response, *SystemInfo, e
 		return nil, nil, err
 	}
 
-	return read[SystemInfo](ctx, c, strings.Replace(APIGetSystem, "{SYSTEM_ID}", systemID, 1))
+	return read[SystemInfo](ctx, c, RedfishAPIs.Path("APIGetSystem"), map[string]string{"SYSTEM_ID": systemID})
 }
 
 // CheckDPUNIC fetches DPU NIC version
@@ -766,14 +771,12 @@ func (c *Client) CheckDPUNIC(ctx context.Context) (*resty.Response, *VersionInfo
 		dpuNicID = "BlueField_FW_NIC_0"
 	}
 
-	url := strings.Replace(APICheckDPUNIC, "{DPU_NIC_ID}", dpuNicID, 1)
-
-	return read[VersionInfo](ctx, c, url)
+	return read[VersionInfo](ctx, c, RedfishAPIs.Path("APICheckDPUNIC"), map[string]string{"DPU_NIC_ID": dpuNicID})
 }
 
 // CheckDPUOS fetches DPU OS version
 func (c *Client) CheckDPUOS(ctx context.Context) (*resty.Response, *VersionInfo, error) {
-	return read[VersionInfo](ctx, c, APICheckDPUOS)
+	return read[VersionInfo](ctx, c, RedfishAPIs.Path("APICheckDPUOS"))
 }
 
 func (c *Client) CheckDPUUEFI(ctx context.Context) (*resty.Response, *VersionInfo, error) {
@@ -782,29 +785,27 @@ func (c *Client) CheckDPUUEFI(ctx context.Context) (*resty.Response, *VersionInf
 		uefiID = "BlueField_FW_CPU_0"
 	}
 
-	url := strings.Replace(APICheckDPUUEFI, "{DPU_UEFI_ID}", uefiID, 1)
-
-	return read[VersionInfo](ctx, c, url)
+	return read[VersionInfo](ctx, c, RedfishAPIs.Path("APICheckDPUUEFI"), map[string]string{"DPU_UEFI_ID": uefiID})
 }
 
 func (c *Client) CheckDPUBSP(ctx context.Context) (*resty.Response, *VersionInfo, error) {
-	return read[VersionInfo](ctx, c, APICheckDPUBSP)
+	return read[VersionInfo](ctx, c, RedfishAPIs.Path("APICheckDPUBSP"))
 }
 
 // UpdateBMCFirmware using HttpPushUri method. For more information, refer to
 // https://docs.nvidia.com/networking/display/bluefieldbmcv2410/cec+and+bmc+firmware+operations#src-704886294_CECandBMCFirmwareOperations-UpdatingBMCFirmware
-func (c *Client) UpdateBMCFirmware(fwFile *os.File) (*resty.Response, *TaskInfo, error) {
+func (c *Client) UpdateBMCFirmware(ctx context.Context, fwFile *os.File) (*resty.Response, *TaskInfo, error) {
 	return do[TaskInfo](func() (*resty.Response, error) {
-		return c.Client.R().
+		return c.Client.R().SetContext(ctx).
 			SetBody(fwFile).
 			SetHeader("Content-Type", "application/octet-stream").
-			Post(APIUpdateFW)
+			Post(RedfishAPIs.Path("APIUpdateFW"))
 	})
 }
 
 // InstallBFB installs BFB to DPU via BMC. For more information, refer to
 // https://docs.nvidia.com/networking/display/bluefieldbmcv2410/deploying+bluefield+software+using+bfb+from+bmc
-func (c *Client) InstallBFB(imageURI string) (*resty.Response, *TaskInfo, error) {
+func (c *Client) InstallBFB(ctx context.Context, imageURI string) (*resty.Response, *TaskInfo, error) {
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
@@ -814,17 +815,17 @@ func (c *Client) InstallBFB(imageURI string) (*resty.Response, *TaskInfo, error)
 		"Targets":          []string{"redfish/v1/UpdateService/FirmwareInventory/DPU_OS"},
 	}
 	return do[TaskInfo](func() (*resty.Response, error) {
-		return c.Client.R().
+		return c.Client.R().SetContext(ctx).
 			SetHeaders(headers).
 			SetBody(reqBody).
-			Post(APIInstallBFB)
+			Post(RedfishAPIs.Path("APIInstallBFB"))
 	})
 }
 
 func (c *Client) GetManagers(ctx context.Context) (*resty.Response, *Managers, error) {
-	resp, managers, err := read[Managers](ctx, c, APIGetManagers)
+	resp, managers, err := read[Managers](ctx, c, RedfishAPIs.Path("APIGetManagers"))
 	if err != nil {
-		return resp, nil, fmt.Errorf("get managers from %q failed: %w", APIGetManagers, err)
+		return resp, nil, fmt.Errorf("get managers from %q failed: %w", RedfishAPIs.Path("APIGetManagers"), err)
 	}
 	return resp, managers, nil
 }
@@ -892,9 +893,10 @@ func (c *Client) FactoryResetBMC(ctx context.Context) (*resty.Response, *Extende
 	}
 	reqBody := `{"ResetToDefaultsType": "ResetAll"}`
 	return do[ExtendedInfo](func() (*resty.Response, error) {
-		return c.Client.R().
+		return c.Client.R().SetContext(ctx).
 			SetBody(reqBody).
-			Post(strings.Replace(APIFactoryResetBMC, managerIDPlaceholder, *managerID, 1))
+			SetPathParam("MANAGER_ID", *managerID).
+			Post(RedfishAPIs.Path("APIFactoryResetBMC"))
 	})
 }
 
@@ -907,15 +909,16 @@ func (c *Client) ResetBMC(ctx context.Context) (*resty.Response, *ExtendedInfo, 
 	}
 	reqBody := `{"ResetType": "GracefulRestart"}`
 	return do[ExtendedInfo](func() (*resty.Response, error) {
-		return c.Client.R().
+		return c.Client.R().SetContext(ctx).
 			SetBody(reqBody).
-			Post(strings.Replace(APIResetBMC, managerIDPlaceholder, *managerID, 1))
+			SetPathParam("MANAGER_ID", *managerID).
+			Post(RedfishAPIs.Path("APIResetBMC"))
 	})
 }
 
 // CheckTaskProgress fetches progress of the given task
 func (c *Client) CheckTaskProgress(ctx context.Context, taskID string) (*resty.Response, *TaskProgress, error) {
-	return read[TaskProgress](ctx, c, fmt.Sprintf("%s/%s", APICheckProgress, taskID))
+	return read[TaskProgress](ctx, c, RedfishAPIs.Path("APICheckProgress"), map[string]string{"TASK_ID": taskID})
 }
 
 // GetSELEntries fetches the BMC System Event Log entries collection. Used by
@@ -930,18 +933,17 @@ func (c *Client) GetSELEntries(ctx context.Context) (*resty.Response, *SELEntrie
 	if err != nil {
 		return nil, nil, err
 	}
-	url := strings.Replace(APIGetSELEntries, "{SYSTEM_ID}", systemID, 1)
-	return read[SELEntries](ctx, c, url)
+	return read[SELEntries](ctx, c, RedfishAPIs.Path("APIGetSELEntries"), map[string]string{"SYSTEM_ID": systemID})
 }
 
 // DisableHostRshim disables host RShim. For more information, refer to
 // https://docs.nvidia.com/networking/display/bluefieldbmcv2410/nic+subsystem+management#src-704886345_NICSubsystemManagement-DisablingHostRShim
-func (c *Client) DisableHostRshim() (*resty.Response, *ExtendedInfo, error) {
+func (c *Client) DisableHostRshim(ctx context.Context) (*resty.Response, *ExtendedInfo, error) {
 	reqBody := `{"HostRshim":"Disabled"}`
 	return do[ExtendedInfo](func() (*resty.Response, error) {
-		return c.Client.R().
+		return c.Client.R().SetContext(ctx).
 			SetBody(reqBody).
-			Post(APIDisableHostRshim)
+			Post(RedfishAPIs.Path("APIDisableHostRshim"))
 	})
 }
 
@@ -949,26 +951,26 @@ func (c *Client) DisableHostRshim() (*resty.Response, *ExtendedInfo, error) {
 // Currently only BF4 is supported. BF3 uses a different path:
 //
 //	redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/Oem/Nvidia/HostPrivilegeConfig/Settings
-func (c *Client) SetHostPrivilegeRestricted() (*resty.Response, *ExtendedInfo, error) {
+func (c *Client) SetHostPrivilegeRestricted(ctx context.Context) (*resty.Response, *ExtendedInfo, error) {
 	payload := map[string]interface{}{
 		"PrivilegeMode": "Restricted",
 	}
 	return do[ExtendedInfo](func() (*resty.Response, error) {
-		return c.Client.R().
+		return c.Client.R().SetContext(ctx).
 			SetHeader("Content-Type", "application/json").
 			SetBody(payload).
-			Patch(APIHostPrivilegeConfigSettings)
+			Patch(RedfishAPIs.Path("APIHostPrivilegeConfigSettings"))
 	})
 }
 
 // EnableBMCRShim enables the RShim on BMC OS. For more information, refer to
 // https://docs.nvidia.com/networking/display/bluefieldbmcv2410/rshim+over+usb#src-704886337_RShimOverUSB-EnablingRShimonBlueFieldBMC
-func (c *Client) EnableBMCRShim() (*resty.Response, *ExtendedInfo, error) {
+func (c *Client) EnableBMCRShim(ctx context.Context) (*resty.Response, *ExtendedInfo, error) {
 	reqBody := `{"BmcRShim": {"BmcRShimEnabled":true}}`
 	return do[ExtendedInfo](func() (*resty.Response, error) {
-		return c.Client.R().
+		return c.Client.R().SetContext(ctx).
 			SetBody(reqBody).
-			Patch(APIEnableBMCRshim)
+			Patch(RedfishAPIs.Path("APIEnableBMCRshim"))
 	})
 }
 
@@ -980,7 +982,7 @@ type BMCRShimOem struct {
 
 // GetBMCRShimEnabled GETs Managers/Bluefield_BMC/Oem/Nvidia and returns BmcRShimEnabled.
 func (c *Client) GetBMCRShimEnabled(ctx context.Context) (bool, *resty.Response, error) {
-	resp, oem, err := read[BMCRShimOem](ctx, c, APIEnableBMCRshim)
+	resp, oem, err := read[BMCRShimOem](ctx, c, RedfishAPIs.Path("APIEnableBMCRshim"))
 	if err != nil {
 		return false, resp, err
 	}
@@ -1063,17 +1065,15 @@ func (c *Client) GetChassis(ctx context.Context) (*resty.Response, *ChassisInfo,
 		chassisID = "BlueField_0"
 	}
 
-	return read[ChassisInfo](ctx, c, strings.Replace(APIGetChassis, "{CHASSIS_ID}", chassisID, 1))
+	return read[ChassisInfo](ctx, c, RedfishAPIs.Path("APIGetChassis"), map[string]string{"CHASSIS_ID": chassisID})
 }
 
 func (c *Client) GetErotChassis(ctx context.Context) (*resty.Response, *ChassisInfo, error) {
-	chassisID := "BlueField_ERoT_BMC_0"
-	url := strings.Replace(APIGetChassis, "{CHASSIS_ID}", chassisID, 1)
-	return read[ChassisInfo](ctx, c, url)
+	return read[ChassisInfo](ctx, c, RedfishAPIs.Path("APIGetChassis"), map[string]string{"CHASSIS_ID": "BlueField_ERoT_BMC_0"})
 }
 
 func (c *Client) GetSystems(ctx context.Context) (*resty.Response, *Systems, error) {
-	return read[Systems](ctx, c, APIGetSystems)
+	return read[Systems](ctx, c, RedfishAPIs.Path("APIGetSystems"))
 }
 
 func getSystemID(ctx context.Context, c *Client) (string, error) {
@@ -1110,7 +1110,7 @@ func (c *Client) GetProductDescription(ctx context.Context) (*resty.Response, *P
 	if err != nil {
 		return nil, nil, err
 	}
-	return read[ProductSpecInfo](ctx, c, strings.Replace(APIProductDescription, "{SYSTEM_ID}", systemID, 1))
+	return read[ProductSpecInfo](ctx, c, RedfishAPIs.Path("APIProductDescription"), map[string]string{"SYSTEM_ID": systemID})
 }
 
 // GetBios returns a Bios information for current DPU
@@ -1121,7 +1121,7 @@ func (c *Client) GetBios(ctx context.Context) (*resty.Response, *Bios, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return read[Bios](ctx, c, strings.Replace(APIGetBios, "{SYSTEM_ID}", systemID, 1))
+	return read[Bios](ctx, c, RedfishAPIs.Path("APIGetBios"), map[string]string{"SYSTEM_ID": systemID})
 }
 
 type NetworkDeviceFunction struct {
@@ -1137,13 +1137,11 @@ type Ethernet struct {
 }
 
 func (c *Client) GetNetworkDeviceFunction(ctx context.Context, pfID string) (*resty.Response, *NetworkDeviceFunction, error) {
-	url := APIGetNetworkDeviceFunctions
+	path := RedfishAPIs.Path("APIGetNetworkDeviceFunctions")
 	if c.IsBF4 {
-		url = APIGetNetworkDeviceFunctionsBF4
+		path = RedfishAPIs.Path("APIGetNetworkDeviceFunctionsBF4")
 	}
-
-	url = strings.Replace(url, "{PF_ID}", pfID, 1)
-	return read[NetworkDeviceFunction](ctx, c, url)
+	return read[NetworkDeviceFunction](ctx, c, path, map[string]string{"PF_ID": pfID})
 }
 
 // SetDpuMode returns a Bios information for current DPU
@@ -1156,7 +1154,7 @@ func (c *Client) SetDpuMode(ctx context.Context, desiredMode provisioningv1.DpuM
 	switch desiredMode {
 	case provisioningv1.DpuMode:
 		body = []byte(`{ "Attributes": {"InternalCPUModel": "Privileged" } }`)
-		resp, err := c.Client.R().SetBody(body).Patch(strings.Replace(APISetBiosSettings, "{SYSTEM_ID}", systemID, 1))
+		resp, err := c.Client.R().SetContext(ctx).SetBody(body).SetPathParam("SYSTEM_ID", systemID).Patch(RedfishAPIs.Path("APISetBiosSettings"))
 		if err != nil {
 			return resp, err
 		}
@@ -1165,7 +1163,7 @@ func (c *Client) SetDpuMode(ctx context.Context, desiredMode provisioningv1.DpuM
 		return nil, fmt.Errorf("unsupported DPU mode: %s", desiredMode)
 	}
 
-	return c.Client.R().SetBody(body).Post(APISetMode)
+	return c.Client.R().SetContext(ctx).SetBody(body).Post(RedfishAPIs.Path("APISetMode"))
 }
 
 // reqFunc is a function that sends a request
@@ -1214,12 +1212,14 @@ func NewRawClient(bmcAddress string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{Client: resty.New().SetBaseURL(u.String()).SetTLSClientConfig(tlsCfg)}, nil
+	c := &Client{Client: resty.New().SetBaseURL(u.String()).SetTLSClientConfig(tlsCfg)}
+	c.installRedfishTracing(c.Client)
+	return c, nil
 }
 
 // GetRootService returns the root service of the BMC
 func (c *Client) GetRootService(ctx context.Context) (*resty.Response, *RootServiceInfo, error) {
-	return read[RootServiceInfo](ctx, c, APIRootService)
+	return read[RootServiceInfo](ctx, c, RedfishAPIs.Path("APIRootService"))
 }
 
 // BMCCredentialResult contains the resolved BMC credential information.
@@ -1499,6 +1499,7 @@ func RotatePassword(ctx context.Context, bmcAddress string, newPassword, oldPass
 
 // NewBasicAuthClient returns a Client using basic auth
 func NewBasicAuthClient(ctx context.Context, bmcAddress, user, passwd string) (*Client, error) {
+	traceParent := traceParentFrom(ctx)
 	ctx, cancel := ReadContext(ctx)
 	defer cancel()
 	if !strings.HasPrefix(bmcAddress, httpsPrefix) {
@@ -1518,7 +1519,12 @@ func NewBasicAuthClient(ctx context.Context, bmcAddress, user, passwd string) (*
 		SetBaseURL(bmcAddress).
 		SetBasicAuth(user, passwd)
 
-	client := &Client{Client: c, IsBF4: false}
+	client := &Client{
+		Client:      c,
+		IsBF4:       false,
+		traceParent: traceParent,
+	}
+	client.installRedfishTracing(c)
 
 	resp, rootServiceInfo, err := client.GetRootService(ctx)
 	// Root authentication rejection is not a constructor failure: the credential
@@ -1549,8 +1555,7 @@ func (c *Client) GetSecureBoot(ctx context.Context) (*resty.Response, *SecureBoo
 	if err != nil {
 		return nil, nil, err
 	}
-	url := strings.Replace(APISecureBoot, "{SYSTEM_ID}", systemID, 1)
-	return read[SecureBootInfo](ctx, c, url)
+	return read[SecureBootInfo](ctx, c, RedfishAPIs.Path("APISecureBoot"), map[string]string{"SYSTEM_ID": systemID})
 }
 
 // EnableSecureBoot configures Secure Boot to enabled
@@ -1559,14 +1564,13 @@ func (c *Client) EnableSecureBoot(ctx context.Context) (*resty.Response, error) 
 	if err != nil {
 		return nil, err
 	}
-	url := strings.Replace(APISecureBoot, "{SYSTEM_ID}", systemID, 1)
-
 	payload := map[string]interface{}{
 		"SecureBootEnable": true,
 	}
-	resp, err := c.Client.R().
+	resp, err := c.Client.R().SetContext(ctx).
 		SetBody(payload).
-		Patch(url)
+		SetPathParam("SYSTEM_ID", systemID).
+		Patch(RedfishAPIs.Path("APISecureBoot"))
 	if err != nil {
 		return resp, fmt.Errorf("failed to enable Secure Boot: %w", err)
 	}
@@ -1583,15 +1587,13 @@ func (c *Client) DisableSecureBoot(ctx context.Context) (*resty.Response, error)
 	if err != nil {
 		return nil, err
 	}
-
-	url := strings.Replace(APISecureBoot, "{SYSTEM_ID}", systemID, 1)
-
 	payload := map[string]interface{}{
 		"SecureBootEnable": false,
 	}
-	resp, err := c.Client.R().
+	resp, err := c.Client.R().SetContext(ctx).
 		SetBody(payload).
-		Patch(url)
+		SetPathParam("SYSTEM_ID", systemID).
+		Patch(RedfishAPIs.Path("APISecureBoot"))
 	if err != nil {
 		return resp, fmt.Errorf("failed to disable Secure Boot: %w", err)
 	}
@@ -1615,8 +1617,7 @@ func (c *Client) ForceResetSOC(ctx context.Context) (*resty.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	url := strings.Replace(APISOCForceReset, "{SYSTEM_ID}", systemID, 1)
-	resp, err := c.Client.R().Post(url)
+	resp, err := c.Client.R().SetContext(ctx).SetPathParam("SYSTEM_ID", systemID).Post(RedfishAPIs.Path("APISOCForceReset"))
 	if err != nil {
 		return resp, fmt.Errorf("failed to SOC.ForceReset DPU: %w", err)
 	}
@@ -1636,12 +1637,11 @@ func (c *Client) resetDPUArm(ctx context.Context, resetType string) (*resty.Resp
 	if err != nil {
 		return nil, err
 	}
-	url := strings.Replace(APIResetSystem, "{SYSTEM_ID}", systemID, 1)
-
 	payload := ResetRequest{ResetType: resetType}
-	resp, err := c.Client.R().
+	resp, err := c.Client.R().SetContext(ctx).
 		SetBody(payload).
-		Post(url)
+		SetPathParam("SYSTEM_ID", systemID).
+		Post(RedfishAPIs.Path("APIResetSystem"))
 	if err != nil {
 		return resp, fmt.Errorf("failed to reset DPU ARM with %s: %w", resetType, err)
 	}
@@ -1652,7 +1652,7 @@ func (c *Client) resetDPUArm(ctx context.Context, resetType string) (*resty.Resp
 	return resp, nil
 }
 
-func (c *Client) InstallBluefieldArmImage(imageURI string) (*resty.Response, *TaskInfo, error) {
+func (c *Client) InstallBluefieldArmImage(ctx context.Context, imageURI string) (*resty.Response, *TaskInfo, error) {
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
@@ -1660,17 +1660,17 @@ func (c *Client) InstallBluefieldArmImage(imageURI string) (*resty.Response, *Ta
 	reqBody := map[string]interface{}{
 		"TransferProtocol": "HTTPS",
 		"ImageURI":         imageURI,
-		"Targets":          []string{APICheckOSImage},
+		"Targets":          []string{RedfishAPIs.Path("APICheckOSImage")},
 	}
 	return do[TaskInfo](func() (*resty.Response, error) {
-		return c.Client.R().
+		return c.Client.R().SetContext(ctx).
 			SetHeaders(headers).
 			SetBody(reqBody).
-			Post(APIInstallBFB)
+			Post(RedfishAPIs.Path("APIInstallBFB"))
 	})
 }
 
-func (c *Client) InstallBluefieldArmConfig(imageURI string) (*resty.Response, *TaskInfo, error) {
+func (c *Client) InstallBluefieldArmConfig(ctx context.Context, imageURI string) (*resty.Response, *TaskInfo, error) {
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
@@ -1678,17 +1678,17 @@ func (c *Client) InstallBluefieldArmConfig(imageURI string) (*resty.Response, *T
 	reqBody := map[string]interface{}{
 		"TransferProtocol": "HTTPS",
 		"ImageURI":         imageURI,
-		"Targets":          []string{APICheckConfigImage},
+		"Targets":          []string{RedfishAPIs.Path("APICheckConfigImage")},
 	}
 	return do[TaskInfo](func() (*resty.Response, error) {
-		return c.Client.R().
+		return c.Client.R().SetContext(ctx).
 			SetHeaders(headers).
 			SetBody(reqBody).
-			Post(APIInstallBFB)
+			Post(RedfishAPIs.Path("APIInstallBFB"))
 	})
 }
 
-func (c *Client) SetBootTarget(target string, bootSourceOverride bool) (*resty.Response, error) {
+func (c *Client) SetBootTarget(ctx context.Context, target string, bootSourceOverride bool) (*resty.Response, error) {
 	bootSourceOverrideEnabled := "Disabled"
 	if bootSourceOverride {
 		bootSourceOverrideEnabled = "Once"
@@ -1707,12 +1707,11 @@ func (c *Client) SetBootTarget(target string, bootSourceOverride bool) (*resty.R
 		},
 	}
 
-	systemID, err := legacyBootSystemID(c)
+	systemID, err := legacyBootSystemID(ctx, c)
 	if err != nil {
 		return nil, err
 	}
-	bluefieldSettingsURL := strings.Replace(APIBluefieldSettings, "{SYSTEM_ID}", systemID, 1)
-	resp, err := c.Client.R().SetHeaders(headers).SetBody(reqBody).Patch(bluefieldSettingsURL)
+	resp, err := c.Client.R().SetContext(ctx).SetHeaders(headers).SetBody(reqBody).SetPathParam("SYSTEM_ID", systemID).Patch(RedfishAPIs.Path("APIBluefieldSettings"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to set boot target: %w", err)
 	}
@@ -1729,12 +1728,11 @@ func (c *Client) GetSettings(ctx context.Context) (*resty.Response, *Settings, e
 	if err != nil {
 		return nil, nil, err
 	}
-	url := strings.Replace(APIBluefieldSettings, "{SYSTEM_ID}", systemID, 1)
-	return read[Settings](ctx, c, url)
+	return read[Settings](ctx, c, RedfishAPIs.Path("APIBluefieldSettings"), map[string]string{"SYSTEM_ID": systemID})
 }
 
-func insertVirtualMedia(c *Client, reqBody map[string]interface{}, mediaID string) (*resty.Response, error) {
-	managerID, err := legacyBootManagerID(c)
+func insertVirtualMedia(ctx context.Context, c *Client, reqBody map[string]interface{}, mediaID string) (*resty.Response, error) {
+	managerID, err := legacyBootManagerID(ctx, c)
 	if err != nil {
 		return nil, err
 	}
@@ -1743,18 +1741,17 @@ func insertVirtualMedia(c *Client, reqBody map[string]interface{}, mediaID strin
 		"Content-Type": "application/json",
 	}
 
-	ejectVirtualMediaURL := strings.Replace(APIEjectVirtualMedia, managerIDPlaceholder, *managerID, 1)
-	ejectVirtualMediaURL = strings.Replace(ejectVirtualMediaURL, "{MEDIA_ID}", mediaID, 1)
-	resp, err := c.Client.R().
+	resp, err := c.Client.R().SetContext(ctx).
 		SetHeaders(headers).
-		Post(ejectVirtualMediaURL)
+		SetPathParams(map[string]string{"MANAGER_ID": *managerID, "MEDIA_ID": mediaID}).
+		Post(RedfishAPIs.Path("APIEjectVirtualMedia"))
 	if err != nil {
 		return nil, err
 	}
 	if resp.StatusCode() != http.StatusOK {
 		return nil, fmt.Errorf("failed to eject virtual media %s: %s", mediaID, resp.Status())
 	}
-	resp, virtualMedia, err := c.legacyBootVirtualMedia(mediaID)
+	resp, virtualMedia, err := c.legacyBootVirtualMedia(ctx, mediaID)
 	if err != nil {
 		return nil, err
 	}
@@ -1765,13 +1762,11 @@ func insertVirtualMedia(c *Client, reqBody map[string]interface{}, mediaID strin
 		return nil, fmt.Errorf("failed to eject virtual media %s: virtual media is still inserted", mediaID)
 	}
 
-	virtualMediaURL := strings.Replace(APIInsertVirtualMedia, managerIDPlaceholder, *managerID, 1)
-	virtualMediaURL = strings.Replace(virtualMediaURL, "{MEDIA_ID}", mediaID, 1)
-
-	resp, err = c.Client.R().
+	resp, err = c.Client.R().SetContext(ctx).
 		SetHeaders(headers).
 		SetBody(reqBody).
-		Post(virtualMediaURL)
+		SetPathParams(map[string]string{"MANAGER_ID": *managerID, "MEDIA_ID": mediaID}).
+		Post(RedfishAPIs.Path("APIInsertVirtualMedia"))
 
 	if err != nil {
 		return nil, err
@@ -1780,7 +1775,7 @@ func insertVirtualMedia(c *Client, reqBody map[string]interface{}, mediaID strin
 		return nil, fmt.Errorf("failed to insert virtual media %s: %s", mediaID, resp.Status())
 	}
 
-	resp, virtualMedia, err = c.legacyBootVirtualMedia(mediaID)
+	resp, virtualMedia, err = c.legacyBootVirtualMedia(ctx, mediaID)
 	if err != nil {
 		return nil, err
 	}
@@ -1795,31 +1790,32 @@ func insertVirtualMedia(c *Client, reqBody map[string]interface{}, mediaID strin
 	return resp, nil
 }
 
-func (c *Client) InsertVirtualMediaConfig() (*resty.Response, error) {
+func (c *Client) InsertVirtualMediaConfig(ctx context.Context) (*resty.Response, error) {
 
 	reqBody := map[string]interface{}{
 		"Image":          "file:///media/bf_arm_os/config/config.iso",
 		"TransferMethod": "Stream",
 	}
 
-	return insertVirtualMedia(c, reqBody, "CONFIG")
+	return insertVirtualMedia(ctx, c, reqBody, "CONFIG")
 
 }
 
-func (c *Client) InsertVirtualMediaImage() (*resty.Response, error) {
+func (c *Client) InsertVirtualMediaImage(ctx context.Context) (*resty.Response, error) {
 
 	reqBody := map[string]interface{}{
 		"Image":          "file:///media/bf_arm_os/image/image.iso",
 		"TransferMethod": "Stream",
 	}
 
-	return insertVirtualMedia(c, reqBody, "IMAGE")
+	return insertVirtualMedia(ctx, c, reqBody, "IMAGE")
 }
 
-func (c *Client) chassisReset(data map[string]interface{}) (*resty.Response, error) {
-	resp, err := c.Client.R().
+func (c *Client) chassisReset(ctx context.Context, data map[string]interface{}) (*resty.Response, error) {
+	resp, err := c.Client.R().SetContext(ctx).
 		SetBody(data).
-		Post(strings.Replace(APIChassisReset, "{CHASSIS_ID}", "BlueField_0", 1))
+		SetPathParam("CHASSIS_ID", "BlueField_0").
+		Post(RedfishAPIs.Path("APIChassisReset"))
 	if err != nil {
 		return resp, fmt.Errorf("failed to reset chassis: %w", err)
 	}
@@ -1829,21 +1825,21 @@ func (c *Client) chassisReset(data map[string]interface{}) (*resty.Response, err
 	return resp, nil
 }
 
-func (c *Client) ChassisReset() (*resty.Response, error) {
+func (c *Client) ChassisReset(ctx context.Context) (*resty.Response, error) {
 	data := map[string]interface{}{
 		"ResetType": "ArmReset",
 	}
-	return c.chassisReset(data)
+	return c.chassisReset(ctx, data)
 }
 
-func (c *Client) ArmShutdown() (*resty.Response, error) {
+func (c *Client) ArmShutdown(ctx context.Context) (*resty.Response, error) {
 	data := map[string]interface{}{
 		"ResetType": "ArmShutdown",
 	}
-	return c.chassisReset(data)
+	return c.chassisReset(ctx, data)
 }
 
-func (c *Client) UpdateBluefieldFirmwareMultipart(fwFile *os.File, force bool) (*resty.Response, *TaskInfo, error) {
+func (c *Client) UpdateBluefieldFirmwareMultipart(ctx context.Context, fwFile *os.File, force bool) (*resty.Response, *TaskInfo, error) {
 	updateParameters := make(map[string]interface{})
 	if force {
 		updateParameters["ForceUpdate"] = true
@@ -1853,53 +1849,53 @@ func (c *Client) UpdateBluefieldFirmwareMultipart(fwFile *os.File, force bool) (
 		return nil, nil, err
 	}
 	return do[TaskInfo](func() (*resty.Response, error) {
-		return c.Client.R().
+		return c.Client.R().SetContext(ctx).
 			SetFileReader("UpdateFile", fwFile.Name(), fwFile).
 			SetMultipartField("UpdateParameters", "", "application/json", strings.NewReader(string(updateParametersJSON))).
-			Post(APIUpdateBluefieldFWMultipart)
+			Post(RedfishAPIs.Path("APIUpdateBluefieldFWMultipart"))
 	})
 }
 
-func (c *Client) ActivatePendingBundle() (*resty.Response, error) {
+func (c *Client) ActivatePendingBundle(ctx context.Context) (*resty.Response, error) {
 	reqBody := map[string]interface{}{
 		"Targets": []Manager{
-			{ODataID: "/" + APICheckPendingBundle},
+			{ODataID: "/" + RedfishAPIs.Path("APICheckPendingBundle")},
 		},
 	}
-	return c.Client.R().
+	return c.Client.R().SetContext(ctx).
 		SetHeader("Content-Type", "application/json").
 		SetBody(reqBody).
-		Post(APIActivatePendingBundle)
+		Post(RedfishAPIs.Path("APIActivatePendingBundle"))
 }
 
 // CheckOSImage returns the BlueField Arm OS image member of the BMC firmware inventory.
 func (c *Client) CheckOSImage(ctx context.Context) (*VersionInfo, error) {
-	return c.getFirmwareInventory(ctx, APICheckOSImage)
+	return c.getFirmwareInventory(ctx, RedfishAPIs.Path("APICheckOSImage"))
 }
 
 // CheckConfigImage returns the BlueField Arm OS config member of the BMC firmware inventory.
 func (c *Client) CheckConfigImage(ctx context.Context) (*VersionInfo, error) {
-	return c.getFirmwareInventory(ctx, APICheckConfigImage)
+	return c.getFirmwareInventory(ctx, RedfishAPIs.Path("APICheckConfigImage"))
 }
 
 // CheckPendingBMCFirmware returns the BMC firmware version staged by a BF4 PLDM update.
 func (c *Client) CheckPendingBMCFirmware(ctx context.Context) (*resty.Response, *VersionInfo, error) {
-	return read[VersionInfo](ctx, c, APICheckPendingBMCFW)
+	return read[VersionInfo](ctx, c, RedfishAPIs.Path("APICheckPendingBMCFW"))
 }
 
 // CheckPendingBMCEROTFW returns the BMC ERoT firmware version staged by a BF4 PLDM update.
 func (c *Client) CheckPendingBMCEROTFW(ctx context.Context) (*resty.Response, *VersionInfo, error) {
-	return read[VersionInfo](ctx, c, APICheckPendingBMCEROTFW)
+	return read[VersionInfo](ctx, c, RedfishAPIs.Path("APICheckPendingBMCEROTFW"))
 }
 
 // CheckPendingDPUUEFI returns the DPU UEFI version staged by a BF4 PLDM update.
 func (c *Client) CheckPendingDPUUEFI(ctx context.Context) (*resty.Response, *VersionInfo, error) {
-	return read[VersionInfo](ctx, c, APICheckPendingDPUUEFI)
+	return read[VersionInfo](ctx, c, RedfishAPIs.Path("APICheckPendingDPUUEFI"))
 }
 
 // CheckPendingDPUNIC returns the DPU NIC firmware version staged by a BF4 PLDM update.
 func (c *Client) CheckPendingDPUNIC(ctx context.Context) (*resty.Response, *VersionInfo, error) {
-	return read[VersionInfo](ctx, c, APICheckPendingDPUNIC)
+	return read[VersionInfo](ctx, c, RedfishAPIs.Path("APICheckPendingDPUNIC"))
 }
 
 // getFirmwareInventory reads a single firmware inventory member, preserving
@@ -1915,8 +1911,10 @@ func (c *Client) getFirmwareInventory(ctx context.Context, uri string) (*Version
 // legacyBootSystemID keeps the original transport and lifetime for BF4 boot reads.
 // The caller restarts installation on failure without durable command
 // checkpoints, so a new read timeout could replay an already accepted mutation.
-func legacyBootSystemID(c *Client) (string, error) {
-	response, systems, err := do[Systems](func() (*resty.Response, error) { return c.Client.R().Get(APIGetSystems) })
+func legacyBootSystemID(ctx context.Context, c *Client) (string, error) {
+	response, systems, err := do[Systems](func() (*resty.Response, error) {
+		return c.Client.R().SetContext(ctx).Get(RedfishAPIs.Path("APIGetSystems"))
+	})
 	if err != nil {
 		return "", err
 	}
@@ -1927,8 +1925,10 @@ func legacyBootSystemID(c *Client) (string, error) {
 }
 
 // legacyBootManagerID discovers the BMC manager without changing boot-mutation timeouts.
-func legacyBootManagerID(c *Client) (*string, error) {
-	_, managers, err := do[Managers](func() (*resty.Response, error) { return c.Client.R().Get(APIGetManagers) })
+func legacyBootManagerID(ctx context.Context, c *Client) (*string, error) {
+	_, managers, err := do[Managers](func() (*resty.Response, error) {
+		return c.Client.R().SetContext(ctx).Get(RedfishAPIs.Path("APIGetManagers"))
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1936,26 +1936,25 @@ func legacyBootManagerID(c *Client) (*string, error) {
 }
 
 // GetSettingsForBootMutation reads boot settings with the mutation client's original lifetime.
-func (c *Client) GetSettingsForBootMutation() (*resty.Response, *Settings, error) {
-	systemID, err := legacyBootSystemID(c)
+func (c *Client) GetSettingsForBootMutation(ctx context.Context) (*resty.Response, *Settings, error) {
+	systemID, err := legacyBootSystemID(ctx, c)
 	if err != nil {
 		return nil, nil, err
 	}
-	url := strings.Replace(APIBluefieldSettings, "{SYSTEM_ID}", systemID, 1)
 	return do[Settings](func() (*resty.Response, error) {
-		return c.Client.R().Get(url)
+		return c.Client.R().SetContext(ctx).SetPathParam("SYSTEM_ID", systemID).Get(RedfishAPIs.Path("APIBluefieldSettings"))
 	})
 }
 
 // legacyBootVirtualMedia reads virtual media without changing boot-mutation timeouts.
-func (c *Client) legacyBootVirtualMedia(mediaID string) (*resty.Response, *VirtualMedia, error) {
-	managerID, err := legacyBootManagerID(c)
+func (c *Client) legacyBootVirtualMedia(ctx context.Context, mediaID string) (*resty.Response, *VirtualMedia, error) {
+	managerID, err := legacyBootManagerID(ctx, c)
 	if err != nil {
 		return nil, nil, err
 	}
-	url := strings.Replace(APIGetVirtualMedia, managerIDPlaceholder, *managerID, 1)
-	url = strings.Replace(url, "{MEDIA_ID}", mediaID, 1)
 	return do[VirtualMedia](func() (*resty.Response, error) {
-		return c.Client.R().Get(url)
+		return c.Client.R().SetContext(ctx).
+			SetPathParams(map[string]string{"MANAGER_ID": *managerID, "MEDIA_ID": mediaID}).
+			Get(RedfishAPIs.Path("APIGetVirtualMedia"))
 	})
 }

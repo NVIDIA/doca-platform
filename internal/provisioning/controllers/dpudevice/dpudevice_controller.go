@@ -1020,7 +1020,7 @@ func (r *DPUDeviceReconciler) reconcileCATrustBundle(ctx context.Context, dpuDev
 		if _, keep := desiredByFingerprint[fingerprint]; keep {
 			continue
 		}
-		resp, _, err := tlsClient.DeleteTruststoreCert(cert.URI)
+		resp, _, err := tlsClient.DeleteTruststoreCert(ctx, cert.URI)
 		if err != nil {
 			log.Error(err, "Failed to delete truststore certificate", "dpudevice", dpuDevice.Name, "fingerprint", fingerprint, "uri", cert.URI)
 			setCATrustBundleCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonCATrustBundleSyncFailed, fmt.Sprintf("failed to delete truststore cert %s (%s): %v", fingerprint, cert.URI, err))
@@ -1344,7 +1344,7 @@ func (r *DPUDeviceReconciler) setUpMTLS(ctx context.Context, dpudevice *provisio
 
 	// step 3: enable mTLS
 	log.FromContext(ctx).Info("enable mTLS...")
-	resp, _, err := basicAuthClient.EnableMTLS()
+	resp, _, err := basicAuthClient.EnableMTLS(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to enable mTLS, err: %v", err)
 	} else if resp.StatusCode() != http.StatusOK {
@@ -1468,7 +1468,7 @@ func (r *DPUDeviceReconciler) installBootstrapCA(ctx context.Context, basicAuthC
 		if _, keep := desiredByFingerprint[fingerprint]; keep {
 			continue
 		}
-		resp, _, err := basicAuthClient.DeleteTruststoreCert(cert.URI)
+		resp, _, err := basicAuthClient.DeleteTruststoreCert(ctx, cert.URI)
 		if err != nil {
 			return fmt.Errorf("failed to delete stale CA cert %s (%s) from BMC truststore: %w", fingerprint, cert.URI, err)
 		}
@@ -2575,7 +2575,7 @@ func (r *DPUDeviceReconciler) checkAndUpdateBmcFw(ctx context.Context, dpuDevice
 			defer func() {
 				_ = fwFile.Close()
 			}()
-			resp, taskInfo, err := basicAuthClient.UpdateBMCFirmware(fwFile)
+			resp, taskInfo, err := basicAuthClient.UpdateBMCFirmware(ctx, fwFile)
 			if err != nil {
 				err = fmt.Errorf("failed to update BMC firmware: %w", err)
 				log.Error(err, "Failed to update BMC firmware")

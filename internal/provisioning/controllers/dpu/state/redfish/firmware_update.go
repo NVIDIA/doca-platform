@@ -421,7 +421,7 @@ func submitPldmFirmwareUpdate(ctx context.Context, state *provisioningv1.DPUStat
 		return *state, err
 	}
 	defer func() { _ = fwFile.Close() }()
-	resp, taskInfo, err := client.UpdateBluefieldFirmwareMultipart(fwFile, force)
+	resp, taskInfo, err := client.UpdateBluefieldFirmwareMultipart(ctx, fwFile, force)
 	if err != nil {
 		err = fmt.Errorf("failed to update PLDM firmware: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToUpdatePldmFwBundle", err.Error()))
@@ -519,7 +519,7 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 			armShutdownCondition := cutil.NewCondition(provisioningv1.DPUCondFwBundleArmShutdown.String(), nil, "ArmShutdown", "Arming DPU for shutdown")
 			_, existingCond := cutil.GetDPUCondition(&dpu.Status, armShutdownCondition.Type)
 			if existingCond == nil || existingCond.Status != metav1.ConditionTrue {
-				_, err := client.ArmShutdown()
+				_, err := client.ArmShutdown(ctx)
 				if err != nil {
 					cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToArmShutdown", err.Error()))
 					return *state, err
@@ -533,7 +533,7 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 
 		_, existingCond := cutil.GetDPUCondition(&dpu.Status, activatedCondition.Type)
 		if existingCond == nil || existingCond.Status != metav1.ConditionTrue {
-			resp, err := client.ActivatePendingBundle()
+			resp, err := client.ActivatePendingBundle(ctx)
 			if err != nil {
 				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleActivated.String(), err, "FailedToActivatePendingBundle", err.Error()))
 				return *state, err

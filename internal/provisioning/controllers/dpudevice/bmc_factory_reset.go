@@ -210,7 +210,7 @@ func (r *DPUDeviceReconciler) privilegedClientForFactoryReset(ctx context.Contex
 	defer defaultClient.CloseIdleConnections()
 
 	log.Info("BMC still holds the factory default password; setting the Secret password before the reset", "user", user)
-	resp, _, err := defaultClient.SetRedfishUserPassword(user, cred.Password)
+	resp, _, err := defaultClient.SetRedfishUserPassword(ctx, user, cred.Password)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set the BMC password for account %q: %w", user, err)
 	}

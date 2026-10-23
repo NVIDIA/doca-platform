@@ -69,7 +69,7 @@ func TestTaskReadFailureKeepsIdentity(t *testing.T) {
 			dpu := &provisioningv1.DPU{}
 			state := &provisioningv1.DPUStatus{Phase: provisioningv1.DPUOSInstalling, RedfishTaskID: &taskID}
 			submissions := 0
-			install := func(string) (*resty.Response, *rc.TaskInfo, error) {
+			install := func(context.Context, string) (*resty.Response, *rc.TaskInfo, error) {
 				submissions++
 				return nil, nil, errors.New("must not submit")
 			}

@@ -71,7 +71,7 @@ func TestCheckOSImageReturnsErrorOnMissingMember(t *testing.T) {
 	info, err := client.CheckOSImage(context.Background())
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(info).To(BeNil())
-	g.Expect(err.Error()).To(ContainSubstring(APICheckOSImage))
+	g.Expect(err.Error()).To(ContainSubstring(RedfishAPIs.Path("APICheckOSImage")))
 	g.Expect(HasHTTPStatus(err, http.StatusNotFound)).To(BeTrue())
 	var requestErr *RequestError
 	g.Expect(errors.As(err, &requestErr)).To(BeTrue())
@@ -86,7 +86,7 @@ func TestCheckOSImageReturnsErrorOnUndecodableBody(t *testing.T) {
 	info, err := client.CheckOSImage(context.Background())
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(info).To(BeNil())
-	g.Expect(err.Error()).To(ContainSubstring(APICheckOSImage))
+	g.Expect(err.Error()).To(ContainSubstring(RedfishAPIs.Path("APICheckOSImage")))
 }
 
 func TestCheckConfigImage(t *testing.T) {
@@ -107,6 +107,6 @@ func TestCheckConfigImageReturnsErrorOnMissingMember(t *testing.T) {
 	info, err := client.CheckConfigImage(context.Background())
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(info).To(BeNil())
-	g.Expect(err.Error()).To(ContainSubstring(APICheckConfigImage))
+	g.Expect(err.Error()).To(ContainSubstring(RedfishAPIs.Path("APICheckConfigImage")))
 	g.Expect(HasHTTPStatus(err, http.StatusNotFound)).To(BeTrue())
 }

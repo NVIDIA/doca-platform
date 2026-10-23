@@ -117,6 +117,7 @@ func (c *Client) readClient() *resty.Client {
 		}
 		hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 		c.reader = resty.NewWithClient(&hc).SetBaseURL(c.BaseURL)
+		c.installRedfishTracing(c.reader)
 		c.reader.Header = c.Header.Clone()
 		if c.UserInfo != nil {
 			c.reader.SetBasicAuth(c.UserInfo.Username, c.UserInfo.Password)
@@ -142,7 +143,8 @@ func withCtxErr(ctx context.Context, err error) error {
 }
 
 // read performs one bounded GET and decodes a non-null HTTP 200 payload.
-func read[T any](ctx context.Context, c *Client, path string) (*resty.Response, *T, error) {
+// params supplies resty path parameters. The tracing hook reads path before resty substitutes them.
+func read[T any](ctx context.Context, c *Client, path string, params ...map[string]string) (*resty.Response, *T, error) {
 	// Composite operations supply an earlier shared deadline; this also bounds
 	// standalone requests without repeating timeout setup in every GET method.
 	ctx, cancel := ReadContext(ctx)
@@ -155,7 +157,11 @@ func read[T any](ctx context.Context, c *Client, path string) (*resty.Response, 
 	if err != nil || u.IsAbs() || u.Host != "" || strings.HasPrefix(path, "//") {
 		return nil, nil, requestError(nil, errors.New("expected a relative Redfish resource URI"))
 	}
-	resp, err := c.readClient().R().SetContext(ctx).Get(path)
+	req := c.readClient().R().SetContext(ctx)
+	if len(params) > 0 {
+		req.SetPathParams(params[0])
+	}
+	resp, err := req.Get(path)
 	if err != nil {
 		return resp, nil, requestError(resp, withCtxErr(ctx, err))
 	}

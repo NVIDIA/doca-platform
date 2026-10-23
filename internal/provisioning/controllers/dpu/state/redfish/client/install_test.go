@@ -17,6 +17,7 @@ limitations under the License.
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -37,7 +38,7 @@ var _ = Describe("BFB install over HTTPS", func() {
 		lastBody = nil
 		server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			Expect(req.Method).To(Equal(http.MethodPost))
-			Expect(req.URL.Path).To(Equal("/" + APIInstallBFB))
+			Expect(req.URL.Path).To(Equal("/" + RedfishAPIs.Path("APIInstallBFB")))
 			Expect(json.NewDecoder(req.Body).Decode(&lastBody)).To(Succeed())
 			w.WriteHeader(http.StatusAccepted)
 			_, _ = w.Write([]byte(`{"Id":"task-1"}`))
@@ -52,7 +53,7 @@ var _ = Describe("BFB install over HTTPS", func() {
 	const imageURI = "10.0.110.1:30443/bfb/??x.bfb,bfcfg/y.cfg?/bfb-to-install"
 
 	It("submits the BFB install with TransferProtocol HTTPS", func() {
-		resp, task, err := client.InstallBFB(imageURI)
+		resp, task, err := client.InstallBFB(context.Background(), imageURI)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.StatusCode()).To(Equal(http.StatusAccepted))
 		Expect(task.ID).To(Equal("task-1"))
@@ -63,7 +64,7 @@ var _ = Describe("BFB install over HTTPS", func() {
 	})
 
 	It("submits the BlueField ARM image with TransferProtocol HTTPS", func() {
-		_, _, err := client.InstallBluefieldArmImage(imageURI)
+		_, _, err := client.InstallBluefieldArmImage(context.Background(), imageURI)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(lastBody).To(HaveKeyWithValue("TransferProtocol", "HTTPS"))
 		Expect(lastBody).To(HaveKeyWithValue("ImageURI", imageURI))
@@ -71,7 +72,7 @@ var _ = Describe("BFB install over HTTPS", func() {
 	})
 
 	It("submits the BlueField ARM config with TransferProtocol HTTPS", func() {
-		_, _, err := client.InstallBluefieldArmConfig(imageURI)
+		_, _, err := client.InstallBluefieldArmConfig(context.Background(), imageURI)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(lastBody).To(HaveKeyWithValue("TransferProtocol", "HTTPS"))
 		Expect(lastBody).To(HaveKeyWithValue("ImageURI", imageURI))

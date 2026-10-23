@@ -18,6 +18,8 @@ package client
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -25,12 +27,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/http/httptrace"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
+
 	"github.com/go-resty/resty/v2"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 func testReadClient(t *testing.T, handler http.HandlerFunc) *Client {
@@ -475,7 +483,7 @@ func TestReadCancellationDoesNotChangeMutationLifetime(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("read did not reach cancellation: %T %v ctx=%v", err, err, ctx.Err())
 	}
-	if _, _, err := c.EnableMTLS(); err != nil {
+	if _, _, err := c.EnableMTLS(context.Background()); err != nil {
 		t.Fatalf("read cancellation leaked into mutation: %v", err)
 	}
 }
@@ -493,7 +501,7 @@ func TestLegacyBootObservationDoesNotUseReadTransport(t *testing.T) {
 	// A failed bounded-read transport must not affect the explicitly deferred
 	// observation inside a BF4 mutation sequence.
 	c.readClient().GetClient().Transport = failingReadTransport{}
-	_, settings, err := c.GetSettingsForBootMutation()
+	_, settings, err := c.GetSettingsForBootMutation(context.Background())
 	if err != nil || settings.Boot.BootSourceOverrideTarget != "Usb" || reads.Load() != 2 {
 		t.Fatalf("legacy boot observation changed: settings=%v err=%v reads=%d", settings, err, reads.Load())
 	}
@@ -520,7 +528,7 @@ func TestLegacyVirtualMediaSequenceDoesNotUseReadTransport(t *testing.T) {
 		_, _ = fmt.Fprintf(w, `{"Inserted":%t}`, writes.Load() == 2)
 	})
 	c.readClient().GetClient().Transport = failingReadTransport{}
-	if _, err := c.InsertVirtualMediaImage(); err != nil || writes.Load() != 2 {
+	if _, err := c.InsertVirtualMediaImage(context.Background()); err != nil || writes.Load() != 2 {
 		t.Fatalf("legacy eject/observe/insert/observe changed: err=%v writes=%d", err, writes.Load())
 	}
 }
@@ -622,3 +630,245 @@ type iotestErrReader struct{}
 
 // Read always returns a connection error.
 func (iotestErrReader) Read([]byte) (int, error) { return 0, errors.New("connection reset") }
+
+// TestBMCHostPortStripsCredentials checks that a BMC URL keeps only host and port.
+func TestBMCHostPortStripsCredentials(t *testing.T) {
+	host, port := bmcHostPort("https://root:0penBmc@10.0.0.8:443/redfish?token=secret")
+	if host != "10.0.0.8" || port != "443" {
+		t.Fatalf("bmcHostPort() = %s %s", host, port)
+	}
+	host, port = bmcHostPort("bmc.example:443")
+	if host != "bmc.example" || port != "443" {
+		t.Fatalf("bmcHostPort(host:port) = %s %s", host, port)
+	}
+	if host, port := bmcHostPort(""); host != "" || port != "" {
+		t.Fatalf("bmcHostPort(empty) = %s %s", host, port)
+	}
+	if user := redfishUser(nil, "https://root:0penBmc@10.0.0.8:443", ""); user != "root" {
+		t.Fatalf("redfishUser() = %q", user)
+	}
+}
+
+// TestRedfishAPINameUsesMap checks that a request path returns the API name stored for that path.
+func TestRedfishAPINameUsesMap(t *testing.T) {
+	tests := []struct {
+		path string
+		want string
+	}{
+		{RedfishAPIs.Path("APIInstallBFB") + "?token=secret", "APIInstallBFB"},
+		{RedfishAPIs.Path("APICheckOSImage"), "APICheckOSImage"},
+		{RedfishAPIs.Path("APIRootService"), "APIRootService"},
+		{RedfishAPIs.Path("APICheckBMCFW"), "APICheckBMCFW"},
+		{RedfishAPIs.Path("APICheckDPUUEFI"), "APICheckDPUUEFI"},
+		{RedfishAPIs.Path("APICheckDPUNIC"), "APICheckDPUNIC"},
+		{"redfish/v1/TaskService/Tasks/1", "APICheckProgress"},
+		{"redfish/v1/Managers/Bluefield_BMC/VirtualMedia/IMAGE/Actions/VirtualMedia.EjectMedia", "APIEjectVirtualMedia"},
+		{"redfish/v1/Systems/Bluefield/Settings", "APIBluefieldSettings"},
+		{"redfish/v1/Chassis/BlueField_0/Actions/Oem/NvidiaChassis.Reset", "APIChassisReset"},
+		{"redfish/v1/Managers/Bluefield_BMC/Truststore/Certificates/1", "APITruststoreCert"},
+	}
+	for _, tt := range tests {
+		if got := RedfishAPIs.Name(tt.path); got != tt.want {
+			t.Errorf("Name(%q) = %q, want %q", tt.path, got, tt.want)
+		}
+	}
+}
+
+// TestRedfishHookNestsUnderPhaseSpan checks that a POST with no request context is a child of the
+// span captured when the client was created, and that the span name is the API constant.
+// Templated GETs are named from the unsubstituted path, while the BMC receives the filled-in path.
+func TestRedfishHookNestsUnderPhaseSpan(t *testing.T) {
+	rec := tracetest.NewSpanRecorder()
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec)))
+	t.Cleanup(func() { otel.SetTracerProvider(prev) })
+
+	var gotPaths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPaths = append(gotPaths, r.URL.Path)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	t.Cleanup(server.Close)
+
+	phaseCtx, phaseSpan := tracing.StartSpan(context.Background(), "dpu.phase.OSInstalling")
+	base, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base.User = url.UserPassword("root", "0penBmc")
+	c := &Client{
+		Client:      resty.New().SetBaseURL(base.String()),
+		traceParent: traceParentFrom(phaseCtx),
+	}
+	c.installRedfishTracing(c.Client)
+
+	if _, err := c.R().Post(RedfishAPIs.Path("APIInstallBFB") + "?token=secret"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name  string
+		param string
+		value string
+	}{
+		{"APICheckBMCFW", "BMC_FW_ID", "BlueField_FW_BMC_0"},
+		{"APICheckDPUUEFI", "DPU_UEFI_ID", "BlueField_FW_CPU_0"},
+		{"APICheckDPUNIC", "DPU_NIC_ID", "BlueField_FW_NIC_0"},
+	} {
+		if _, err := c.R().SetPathParam(tt.param, tt.value).Get(RedfishAPIs.Path(tt.name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	phaseSpan.End()
+
+	var child sdktrace.ReadOnlySpan
+	for _, span := range rec.Ended() {
+		if span.Name() == "dpu.redfish.APIInstallBFB" {
+			child = span
+		}
+	}
+	if child == nil {
+		names := make([]string, 0, len(rec.Ended()))
+		for _, span := range rec.Ended() {
+			names = append(names, span.Name())
+		}
+		t.Fatalf("missing redfish span in %v", names)
+	}
+	if child.Parent().SpanID() != phaseSpan.SpanContext().SpanID() {
+		t.Fatalf("parent = %s, want phase span %s", child.Parent().SpanID(), phaseSpan.SpanContext().SpanID())
+	}
+	names := map[string]struct{}{}
+	for _, span := range rec.Ended() {
+		names[span.Name()] = struct{}{}
+	}
+	for _, name := range []string{"dpu.redfish.APICheckBMCFW", "dpu.redfish.APICheckDPUUEFI", "dpu.redfish.APICheckDPUNIC"} {
+		if _, ok := names[name]; !ok {
+			t.Errorf("missing span %s in %v", name, names)
+		}
+	}
+	wantPath := "/redfish/v1/UpdateService/FirmwareInventory/BlueField_FW_BMC_0"
+	foundPath := false
+	for _, path := range gotPaths {
+		if path == wantPath {
+			foundPath = true
+		}
+		if strings.Contains(path, "{") {
+			t.Errorf("BMC received unsubstituted path %s", path)
+		}
+	}
+	if !foundPath {
+		t.Errorf("paths = %v, want %s", gotPaths, wantPath)
+	}
+	if path := spanStringAttr(rec, "dpu.redfish.APICheckBMCFW", "path"); path != wantPath {
+		t.Errorf("templated GET path = %s, want %s", path, wantPath)
+	}
+	got := map[string]string{}
+	for _, attr := range child.Attributes() {
+		switch string(attr.Key) {
+		case "method", "host", "port", "user", "path":
+			got[string(attr.Key)] = attr.Value.AsString()
+		}
+		if string(attr.Key) == "http.response.status_code" && attr.Value.AsInt64() != http.StatusAccepted {
+			t.Fatalf("status = %d", attr.Value.AsInt64())
+		}
+	}
+	bmc, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["method"] != http.MethodPost || got["host"] != bmc.Hostname() || got["port"] != bmc.Port() || got["user"] != "root" ||
+		got["path"] != "/"+RedfishAPIs.Path("APIInstallBFB") {
+		t.Fatalf("attributes = %v", got)
+	}
+}
+
+// TestMTLSClientSpanUser checks that spans from the verified mTLS client report the BMC account of
+// the client's BlueField family as user, since that client has no basic-auth username.
+func TestMTLSClientSpanUser(t *testing.T) {
+	rec := tracetest.NewSpanRecorder()
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec)))
+	t.Cleanup(func() { otel.SetTracerProvider(prev) })
+
+	authority := newCA(t, "test-ca")
+	server := newBMC(t, authority, nil)
+	certPEM, keyPEM := authority.clientPair(t)
+	pair, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(authority.cert)
+	for _, tt := range []struct {
+		isBF4 bool
+		want  string
+	}{
+		{false, BF3BMCUser},
+		{true, BF4BMCUser},
+	} {
+		rec.Reset()
+		c, err := newVerifiedTLSClient(server.URL, pool, pair, tt.isBF4)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := c.GetRootService(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		c.CloseIdleConnections()
+		if got := spanStringAttr(rec, "dpu.redfish.APIRootService", "user"); got != tt.want {
+			t.Errorf("isBF4=%t: user = %q, want %q", tt.isBF4, got, tt.want)
+		}
+	}
+}
+
+// spanStringAttr returns the string attribute key of the first ended span named name, or "" when
+// there is no such span or attribute.
+func spanStringAttr(rec *tracetest.SpanRecorder, name, key string) string {
+	for _, span := range rec.Ended() {
+		if span.Name() != name {
+			continue
+		}
+		for _, attr := range span.Attributes() {
+			if string(attr.Key) == key {
+				return attr.Value.AsString()
+			}
+		}
+		return ""
+	}
+	return ""
+}
+
+// TestSharedClientMutationJoinsCallerSpan checks that a mutation on a client with no traceParent,
+// as the shared mTLS clients are, is a child of the span on the caller's context.
+func TestSharedClientMutationJoinsCallerSpan(t *testing.T) {
+	rec := tracetest.NewSpanRecorder()
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec)))
+	t.Cleanup(func() { otel.SetTracerProvider(prev) })
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(w, `{"Id":"1"}`)
+	}))
+	t.Cleanup(server.Close)
+	c := &Client{
+		Client: resty.New().SetBaseURL(server.URL),
+	}
+	c.installRedfishTracing(c.Client)
+
+	phaseCtx, phaseSpan := tracing.StartSpan(context.Background(), "dpu.phase.OSInstalling")
+	if _, _, err := c.InstallBFB(phaseCtx, "bfb.example/image.bfb"); err != nil {
+		t.Fatal(err)
+	}
+	phaseSpan.End()
+
+	for _, span := range rec.Ended() {
+		if span.Name() != "dpu.redfish.APIInstallBFB" {
+			continue
+		}
+		if span.Parent().SpanID() != phaseSpan.SpanContext().SpanID() {
+			t.Fatalf("parent = %s, want phase span %s", span.Parent().SpanID(), phaseSpan.SpanContext().SpanID())
+		}
+		return
+	}
+	t.Fatalf("missing dpu.redfish.APIInstallBFB span")
+}
