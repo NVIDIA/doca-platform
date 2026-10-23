@@ -45,10 +45,10 @@ func (rt route) pattern() string {
 // after the resource; the README lists the table.
 var routes = []route{
 	// Service root and collections.
-	{"ServiceRoot", http.MethodGet, "/" + rfclient.APIRootService, (*Server).handleRoot},
-	{"ServiceRoot", http.MethodGet, "/" + rfclient.APIRootService + "/{$}", (*Server).handleRoot},
-	{"Systems", http.MethodGet, "/" + rfclient.APIGetSystems, (*Server).handleSystems},
-	{"Managers", http.MethodGet, "/" + rfclient.APIGetManagers, (*Server).handleManagers},
+	{"ServiceRoot", http.MethodGet, "/" + rfclient.RedfishAPIs.Path("APIRootService"), (*Server).handleRoot},
+	{"ServiceRoot", http.MethodGet, "/" + rfclient.RedfishAPIs.Path("APIRootService") + "/{$}", (*Server).handleRoot},
+	{"Systems", http.MethodGet, "/" + rfclient.RedfishAPIs.Path("APIGetSystems"), (*Server).handleSystems},
+	{"Managers", http.MethodGet, "/" + rfclient.RedfishAPIs.Path("APIGetManagers"), (*Server).handleManagers},
 	{"Manager", http.MethodGet, "/redfish/v1/Managers/{manager}", (*Server).handleManager},
 
 	// Chassis, system and NIC resources.
@@ -72,19 +72,19 @@ var routes = []route{
 
 	// Firmware parameters.
 	{"HostRshim.Set", http.MethodPost, "/redfish/v1/Systems/{system}/Oem/Nvidia/Actions/HostRshim.Set", (*Server).handleHostRshimSet},
-	{"BMCRshim", http.MethodGet, "/" + rfclient.APIEnableBMCRshim, (*Server).handleBMCRShimOem},
-	{"BMCRshim", http.MethodPatch, "/" + rfclient.APIEnableBMCRshim, (*Server).handleBMCRShimOem},
-	{"HostPrivilegeConfig", http.MethodPatch, "/" + rfclient.APIHostPrivilegeConfigSettings, (*Server).handleHostPrivilegeConfig},
+	{"BMCRshim", http.MethodGet, "/" + rfclient.RedfishAPIs.Path("APIEnableBMCRshim"), (*Server).handleBMCRShimOem},
+	{"BMCRshim", http.MethodPatch, "/" + rfclient.RedfishAPIs.Path("APIEnableBMCRshim"), (*Server).handleBMCRShimOem},
+	{"HostPrivilegeConfig", http.MethodPatch, "/" + rfclient.RedfishAPIs.Path("APIHostPrivilegeConfigSettings"), (*Server).handleHostPrivilegeConfig},
 
 	// Accounts, factory reset, BMC reset, mTLS.
 	{"Account", http.MethodPatch, "/redfish/v1/AccountService/Accounts/{user}", (*Server).handleAccountPatch},
-	{"AccountService", http.MethodPatch, "/" + rfclient.APIEnableMTLS, (*Server).handleEnableMTLS},
+	{"AccountService", http.MethodPatch, "/" + rfclient.RedfishAPIs.Path("APIEnableMTLS"), (*Server).handleEnableMTLS},
 	{"Manager.ResetToDefaults", http.MethodPost, "/redfish/v1/Managers/{manager}/Actions/Manager.ResetToDefaults", (*Server).handleFactoryReset},
 	{"Manager.Reset", http.MethodPost, "/redfish/v1/Managers/{manager}/Actions/Manager.Reset", (*Server).handleResetBMC},
 
 	// Certificates.
-	{"CertificateService.GenerateCSR", http.MethodPost, "/" + rfclient.APIGenerateCSR, (*Server).handleGenerateCSR},
-	{"CertificateService.ReplaceCertificate", http.MethodPost, "/" + rfclient.APIReplaceCert, (*Server).handleReplaceCertificate},
+	{"CertificateService.GenerateCSR", http.MethodPost, "/" + rfclient.RedfishAPIs.Path("APIGenerateCSR"), (*Server).handleGenerateCSR},
+	{"CertificateService.ReplaceCertificate", http.MethodPost, "/" + rfclient.RedfishAPIs.Path("APIReplaceCert"), (*Server).handleReplaceCertificate},
 	{"ServerCertificate", http.MethodGet, "/redfish/v1/Managers/{manager}/NetworkProtocol/HTTPS/Certificates/1", (*Server).handleServerCert},
 	{"TruststoreCertificates", http.MethodGet, "/redfish/v1/Managers/{manager}/Truststore/Certificates", (*Server).handleTruststoreCollection},
 	{"TruststoreCertificates", http.MethodPost, "/redfish/v1/Managers/{manager}/Truststore/Certificates", (*Server).handleTruststoreCollection},
@@ -92,12 +92,12 @@ var routes = []route{
 	{"TruststoreCertificates", http.MethodDelete, "/redfish/v1/Managers/{manager}/Truststore/Certificates/{id}", (*Server).handleTruststoreCert},
 
 	// Update service and tasks.
-	{"UpdateService", http.MethodGet, "/" + rfclient.APIUpdateFW, (*Server).handleUpdateServiceGet},
-	{"UpdateService", http.MethodPost, "/" + rfclient.APIUpdateFW, (*Server).handleBMCFirmwarePush},
-	{"UpdateService.SimpleUpdate", http.MethodPost, "/" + rfclient.APIInstallBFB, (*Server).handleSimpleUpdate},
+	{"UpdateService", http.MethodGet, "/" + rfclient.RedfishAPIs.Path("APIUpdateFW"), (*Server).handleUpdateServiceGet},
+	{"UpdateService", http.MethodPost, "/" + rfclient.RedfishAPIs.Path("APIUpdateFW"), (*Server).handleBMCFirmwarePush},
+	{"UpdateService.SimpleUpdate", http.MethodPost, "/" + rfclient.RedfishAPIs.Path("APIInstallBFB"), (*Server).handleSimpleUpdate},
 	{"FirmwareInventory", http.MethodGet, "/redfish/v1/UpdateService/FirmwareInventory/{id}", (*Server).handleFirmwareInventory},
-	{"UpdateMultipart", http.MethodPost, "/" + rfclient.APIUpdateBluefieldFWMultipart, (*Server).handleUpdateMultipart},
-	{"UpdateService.Activate", http.MethodPost, "/" + rfclient.APIActivatePendingBundle, (*Server).handleActivatePendingBundle},
+	{"UpdateMultipart", http.MethodPost, "/" + rfclient.RedfishAPIs.Path("APIUpdateBluefieldFWMultipart"), (*Server).handleUpdateMultipart},
+	{"UpdateService.Activate", http.MethodPost, "/" + rfclient.RedfishAPIs.Path("APIActivatePendingBundle"), (*Server).handleActivatePendingBundle},
 	{"Task", http.MethodGet, "/redfish/v1/TaskService/Tasks/{id}", (*Server).handleTask},
 
 	// Virtual media.

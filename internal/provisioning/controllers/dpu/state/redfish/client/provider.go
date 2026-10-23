@@ -430,10 +430,19 @@ func newVerifiedTLSClient(endpoint string, caPool *x509.CertPool, pair tls.Certi
 		}
 		return nil
 	})
-	return &Client{
-		Client: rc,
-		IsBF4:  isBF4,
-	}, nil
+	// No traceParent: the client is shared across reconciles, so a span captured at creation would
+	// parent other DPUs' calls. Its spans take their parent from the request context only.
+	mtlsUser := BF3BMCUser
+	if isBF4 {
+		mtlsUser = BF4BMCUser
+	}
+	c := &Client{
+		Client:   rc,
+		IsBF4:    isBF4,
+		mtlsUser: mtlsUser,
+	}
+	c.installRedfishTracing(rc)
+	return c, nil
 }
 
 // deviceKey builds the cache identity for a DPUDevice: its BMC address, the owning namespace, the

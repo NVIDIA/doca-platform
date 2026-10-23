@@ -469,28 +469,28 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 
 	logger.Info("Config transferred, starting to insert virtual media", "configImage", configImage.Version)
 
-	_, err = client.InsertVirtualMediaImage()
+	_, err = client.InsertVirtualMediaImage(ctx)
 	if err != nil {
 		err = fmt.Errorf("failed to insert virtual media image: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondVirtualMediaInserted), err, "FailToInsertVirtualMediaImage", "Failed to insert virtual media image"))
 		return *state, newRestartOSInstallError(err)
 	}
 
-	_, err = client.InsertVirtualMediaConfig()
+	_, err = client.InsertVirtualMediaConfig(ctx)
 	if err != nil {
 		err = fmt.Errorf("failed to insert virtual media config: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondVirtualMediaInserted), err, "FailToInsertVirtualMediaConfig", "Failed to insert virtual media config"))
 		return *state, newRestartOSInstallError(err)
 	}
 
-	_, err = client.SetBootTarget("None", false)
+	_, err = client.SetBootTarget(ctx, "None", false)
 	if err != nil {
 		err = fmt.Errorf("failed to set boot target: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "FailToSetBootTarget", "Failed to set boot target to None"))
 		return *state, newRestartOSInstallError(err)
 	}
 
-	_, settings, err := client.GetSettingsForBootMutation()
+	_, settings, err := client.GetSettingsForBootMutation(ctx)
 	if err != nil {
 		err = fmt.Errorf("failed to get settings: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "FailToGetSettings", "Failed to get settings"))
@@ -503,14 +503,14 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		return *state, newRestartOSInstallError(err)
 	}
 
-	_, err = client.SetBootTarget("Usb", true)
+	_, err = client.SetBootTarget(ctx, "Usb", true)
 	if err != nil {
 		err = fmt.Errorf("failed to set boot target: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "FailToSetBootTarget", "Failed to set boot target to USB"))
 		return *state, newRestartOSInstallError(err)
 	}
 
-	_, settings, err = client.GetSettingsForBootMutation()
+	_, settings, err = client.GetSettingsForBootMutation(ctx)
 	if err != nil {
 		err = fmt.Errorf("failed to get settings: %w", err)
 		cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChangeBootTarget), err, "FailToGetSettings", "Failed to get settings"))
@@ -542,7 +542,7 @@ func installOsBf4(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.C
 		}
 	} else {
 		logger.Info("No pending FW update, resetting chassis")
-		_, err = client.ChassisReset()
+		_, err = client.ChassisReset(ctx)
 		if err != nil {
 			err = fmt.Errorf("failed to reset chassis: %w", err)
 			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondChassisReset), err, "FailToResetChassis", "Failed to reset chassis"))
@@ -566,7 +566,7 @@ func reconcileBf4ArmTransfer(
 	client *rc.Client,
 	condType provisioningv1.DPUConditionType,
 	uri string,
-	install func(string) (*resty.Response, *rc.TaskInfo, error),
+	install func(context.Context, string) (*resty.Response, *rc.TaskInfo, error),
 	installDesc string,
 ) error {
 	_, cond := cutil.GetDPUCondition(state, string(condType))
@@ -577,7 +577,7 @@ func reconcileBf4ArmTransfer(
 	condKey := string(condType)
 
 	if state.RedfishTaskID == nil {
-		resp, taskInfo, err := install(uri)
+		resp, taskInfo, err := install(ctx, uri)
 		if err != nil {
 			err = fmt.Errorf("failed to install %s: %w", installDesc, err)
 			cutil.SetDPUCondition(state, cutil.NewCondition(condKey, err, "FailToInstall", err.Error()))
@@ -653,7 +653,7 @@ func submitAndMonitorBfbInstallTask(ctx context.Context, dpu *provisioningv1.DPU
 			return *state, err
 		}
 		logger.Info("submit BFB install task", "will use bfbRegistry", bfbRegistryAddr, "bfbFile", dpu.Status.BFBFile, "bfcfgFile", dpu.Status.BFCFGFile)
-		resp, taskInfo, err := client.InstallBFB(concatBFBAndBFCFGPath(bfbRegistryAddr, dpu.Status.BFBFile, dpu.Status.BFCFGFile))
+		resp, taskInfo, err := client.InstallBFB(ctx, concatBFBAndBFCFGPath(bfbRegistryAddr, dpu.Status.BFBFile, dpu.Status.BFCFGFile))
 		if err != nil {
 			err = fmt.Errorf("failed to install BFB: %w", err)
 			cutil.SetDPUCondition(state, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred), err, "FailToInstall", err.Error()))

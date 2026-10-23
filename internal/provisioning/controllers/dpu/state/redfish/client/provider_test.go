@@ -115,7 +115,7 @@ func TestRootDiscoveryHappensOncePerGeneration(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		acquire(t, p, known)
 	}
-	if got := server.count("/" + APIRootService); got != 0 {
+	if got := server.count("/" + RedfishAPIs.Path("APIRootService")); got != 0 {
 		t.Errorf("root reads = %d, want 0: a recorded family needs no discovery", got)
 	}
 
@@ -124,7 +124,7 @@ func TestRootDiscoveryHappensOncePerGeneration(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		acquire(t, p, unknown)
 	}
-	if got := server.count("/" + APIRootService); got != 1 {
+	if got := server.count("/" + RedfishAPIs.Path("APIRootService")); got != 1 {
 		t.Errorf("root reads = %d, want 1: discovery belongs to the cached client, not the read", got)
 	}
 }
@@ -260,7 +260,7 @@ func TestFailedConstructionRetriesOnlyOnALaterAcquire(t *testing.T) {
 		t.Errorf("entries = %d after a failed construction, want 0", got)
 	}
 	// One attempt, one request: no internal retry loop.
-	if got := server.count("/" + APIRootService); got != 1 {
+	if got := server.count("/" + RedfishAPIs.Path("APIRootService")); got != 1 {
 		t.Errorf("root reads = %d, want 1: the HTTP layer must not retry", got)
 	}
 
@@ -322,7 +322,7 @@ func TestStaleConstructionIsNotCached(t *testing.T) {
 	var held atomic.Bool
 	server := newBMC(t, ca, func(w http.ResponseWriter, r *http.Request) {
 		// Hold only the first construction open; later ones must not wait behind it.
-		if r.URL.Path == "/"+APIRootService && held.CompareAndSwap(false, true) {
+		if r.URL.Path == "/"+RedfishAPIs.Path("APIRootService") && held.CompareAndSwap(false, true) {
 			started <- struct{}{}
 			<-admit
 		}
@@ -370,7 +370,7 @@ func TestRetirementDuringConstructionIsNotUndone(t *testing.T) {
 	admit := make(chan struct{})
 	var held atomic.Bool
 	server := newBMC(t, ca, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/"+APIRootService && held.CompareAndSwap(false, true) {
+		if r.URL.Path == "/"+RedfishAPIs.Path("APIRootService") && held.CompareAndSwap(false, true) {
 			started <- struct{}{}
 			<-admit
 		}

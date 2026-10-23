@@ -95,7 +95,7 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 	}
 
 	if dpu.Status.DPUType == provisioningv1.DPUTypeBlueField4 {
-		resp, _, err := client.SetHostPrivilegeRestricted()
+		resp, _, err := client.SetHostPrivilegeRestricted(ctx)
 		if err != nil {
 			err = fmt.Errorf("failed to set host privilege to restricted: %w", err)
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToSetHostPrivilege", err.Error()))
@@ -164,7 +164,7 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 	_, requested := cutil.GetDPUCondition(state, provisioningv1.DPUCondFWBMCRShimRequested.String())
 	if requested == nil {
 		// Note: this does NOT terminate running rshim on host
-		resp, _, err := client.DisableHostRshim()
+		resp, _, err := client.DisableHostRshim(ctx)
 		if err != nil {
 			err = fmt.Errorf("failed to disable host Rshim: %w", err)
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToDisableHostRshim", err.Error()))
@@ -176,7 +176,7 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		}
 		logger.Info("successfully disabled host RShim")
 
-		resp, _, err = client.EnableBMCRShim()
+		resp, _, err = client.EnableBMCRShim(ctx)
 		if err != nil {
 			err = fmt.Errorf("failed to enable BMC Rshim: %w", err)
 			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToEnableBMCRshim", err.Error()))

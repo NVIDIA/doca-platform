@@ -30,7 +30,7 @@ var _ = Describe("GetBMCRShimEnabled", func() {
 	It("returns true when BmcRShimEnabled is true", func() {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			Expect(req.Method).To(Equal(http.MethodGet))
-			Expect(req.URL.Path).To(Equal("/" + APIEnableBMCRshim))
+			Expect(req.URL.Path).To(Equal("/" + RedfishAPIs.Path("APIEnableBMCRshim")))
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"BmcRShim":{"BmcRShimEnabled":true}}`))
 		}))

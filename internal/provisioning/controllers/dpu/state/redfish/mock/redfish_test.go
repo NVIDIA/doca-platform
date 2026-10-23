@@ -70,7 +70,7 @@ func testSetBootTarget(t *testing.T, client *client.Client) {
 		t.Errorf("Expected boot target None, got %s", settings.Boot.BootSourceOverrideTarget)
 	}
 
-	resp, err = client.SetBootTarget("Usb", true)
+	resp, err = client.SetBootTarget(context.Background(), "Usb", true)
 	if err != nil {
 		t.Fatalf("SetBootTarget failed: %v", err)
 	}

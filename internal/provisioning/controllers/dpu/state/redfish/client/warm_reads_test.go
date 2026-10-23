@@ -27,11 +27,11 @@ import (
 func redfishRoutes(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch r.URL.Path {
-	case "/" + APIRootService:
+	case "/" + RedfishAPIs.Path("APIRootService"):
 		_, _ = w.Write([]byte(`{"Product":"BlueField-3"}`))
-	case "/" + APIGetSystems:
+	case "/" + RedfishAPIs.Path("APIGetSystems"):
 		_, _ = w.Write([]byte(`{"Members":[{"@odata.id":"/redfish/v1/Systems/Bluefield"}]}`))
-	case "/" + APIGetManagers:
+	case "/" + RedfishAPIs.Path("APIGetManagers"):
 		_, _ = w.Write([]byte(`{"Members":[{"@odata.id":"/redfish/v1/Managers/Bluefield_BMC"}]}`))
 	case "/redfish/v1/Systems/Bluefield":
 		_, _ = w.Write([]byte(`{"PowerState":"On","BootProgress":{"OemLastState":"OSRunning"}}`))
@@ -50,7 +50,7 @@ func TestWarmTaskPollingMakesOnlyTheTaskGET(t *testing.T) {
 	server := newBMC(t, ca, redfishRoutes)
 	p, _ := newTestProvider(t, caConfigMap(providerNamespace, ca.pem))
 	key := bf3Key(server.URL)
-	taskPath := "/" + APICheckProgress + "/42"
+	taskPath := "/redfish/v1/TaskService/Tasks/42"
 
 	const polls = 6
 	for i := 0; i < polls; i++ {
@@ -64,7 +64,7 @@ func TestWarmTaskPollingMakesOnlyTheTaskGET(t *testing.T) {
 	if got := server.count(taskPath); got != polls {
 		t.Errorf("task reads = %d, want %d", got, polls)
 	}
-	for _, path := range []string{"/" + APIRootService, "/" + APIGetSystems, "/" + APIGetManagers} {
+	for _, path := range []string{"/" + RedfishAPIs.Path("APIRootService"), "/" + RedfishAPIs.Path("APIGetSystems"), "/" + RedfishAPIs.Path("APIGetManagers")} {
 		if got := server.count(path); got != 0 {
 			t.Errorf("%s reads = %d, want 0: warm task polling must not rediscover anything", path, got)
 		}
@@ -153,10 +153,10 @@ func TestWarmStableResourceReadsSkipRedundantCollectionDiscovery(t *testing.T) {
 		}
 	}
 
-	if got := server.count("/" + APIGetSystems); got != 1 {
+	if got := server.count("/" + RedfishAPIs.Path("APIGetSystems")); got != 1 {
 		t.Errorf("Systems collection reads = %d, want 1 for %d reconciles", got, reconciles)
 	}
-	if got := server.count("/" + APIGetManagers); got != 1 {
+	if got := server.count("/" + RedfishAPIs.Path("APIGetManagers")); got != 1 {
 		t.Errorf("Managers collection reads = %d, want 1 for %d reconciles", got, reconciles)
 	}
 	if got := server.count("/redfish/v1/Systems/Bluefield"); got != reconciles {
@@ -169,7 +169,7 @@ func TestWarmStableResourceReadsSkipRedundantCollectionDiscovery(t *testing.T) {
 	if _, _, err := c.GetSystem(context.Background()); err != nil {
 		t.Fatalf("system read after retirement: %v", err)
 	}
-	if got := server.count("/" + APIGetSystems); got != 2 {
+	if got := server.count("/" + RedfishAPIs.Path("APIGetSystems")); got != 2 {
 		t.Errorf("Systems collection reads = %d after retirement, want 2", got)
 	}
 }
@@ -194,7 +194,7 @@ func TestStaleResourceEvidenceForcesRediscovery(t *testing.T) {
 	if _, _, err := c.GetSystem(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := server.count("/" + APIGetSystems); got != 1 {
+	if got := server.count("/" + RedfishAPIs.Path("APIGetSystems")); got != 1 {
 		t.Fatalf("Systems collection reads = %d, want 1", got)
 	}
 
@@ -206,7 +206,7 @@ func TestStaleResourceEvidenceForcesRediscovery(t *testing.T) {
 	if _, _, err := c.GetSystem(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := server.count("/" + APIGetSystems); got != 2 {
+	if got := server.count("/" + RedfishAPIs.Path("APIGetSystems")); got != 2 {
 		t.Errorf("Systems collection reads = %d, want 2: a 404 must force rediscovery", got)
 	}
 }

@@ -177,9 +177,9 @@ func TestBF3Discovery(t *testing.T) {
 	}
 	resp, _, err = c.FactoryResetBMC(context.Background())
 	mustOK(t, "FactoryResetBMC", resp.StatusCode(), err)
-	resp, _, err = c.SetRedfishUserPassword(rfclient.BF3BMCUser, "new-password")
+	resp, _, err = c.SetRedfishUserPassword(context.Background(), rfclient.BF3BMCUser, "new-password")
 	mustOK(t, "SetRedfishUserPassword", resp.StatusCode(), err)
-	resp, _, err = c.EnableMTLS()
+	resp, _, err = c.EnableMTLS(context.Background())
 	mustOK(t, "EnableMTLS", resp.StatusCode(), err)
 }
 
@@ -205,7 +205,7 @@ func TestBF3BMCFirmwareUpgrade(t *testing.T) {
 	if _, err := fwFile.Seek(0, 0); err != nil {
 		t.Fatal(err)
 	}
-	resp, task, err := c.UpdateBMCFirmware(fwFile)
+	resp, task, err := c.UpdateBMCFirmware(context.Background(), fwFile)
 	if err != nil || resp.StatusCode() != http.StatusAccepted {
 		t.Fatalf("UpdateBMCFirmware: %v %v", resp.Status(), err)
 	}
@@ -233,13 +233,13 @@ func TestBF3ConfigFWParametersAndInstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, _, err := c.DisableHostRshim()
+	resp, _, err := c.DisableHostRshim(context.Background())
 	mustOK(t, "DisableHostRshim", resp.StatusCode(), err)
 	enabled, _, err := c.GetBMCRShimEnabled(context.Background())
 	if err != nil || enabled {
 		t.Fatalf("rshim before enable: %v %v", enabled, err)
 	}
-	resp, _, err = c.EnableBMCRShim()
+	resp, _, err = c.EnableBMCRShim(context.Background())
 	mustOK(t, "EnableBMCRShim", resp.StatusCode(), err)
 	enabled, _, err = c.GetBMCRShimEnabled(context.Background())
 	if err != nil || !enabled {
@@ -264,7 +264,7 @@ func TestBF3ConfigFWParametersAndInstall(t *testing.T) {
 	defer registry.Close()
 	imageURI := strings.TrimPrefix(registry.URL, "https://") + "/bfb/??bf-bundle.bfb,bfcfg/dpu-1.cfg?/bfb-to-install"
 
-	resp, task, err := c.InstallBFB(imageURI)
+	resp, task, err := c.InstallBFB(context.Background(), imageURI)
 	if err != nil || resp.StatusCode() != http.StatusAccepted {
 		t.Fatalf("InstallBFB: %v %v", resp.Status(), err)
 	}
@@ -290,7 +290,7 @@ func TestBF3ConfigFWParametersAndInstall(t *testing.T) {
 	}
 
 	// A broken download ends in an Exception task with a message.
-	resp, task, err = c.InstallBFB(strings.TrimPrefix(registry.URL, "https://") + "/missing")
+	resp, task, err = c.InstallBFB(context.Background(), strings.TrimPrefix(registry.URL, "https://")+"/missing")
 	if err != nil || resp.StatusCode() != http.StatusAccepted {
 		t.Fatalf("InstallBFB: %v %v", resp.Status(), err)
 	}
@@ -384,7 +384,7 @@ func TestBF4Discovery(t *testing.T) {
 	if desc.Mode != nil {
 		t.Fatalf("BF4 must not expose Mode: %+v", desc)
 	}
-	resp, _, err = c.SetHostPrivilegeRestricted()
+	resp, _, err = c.SetHostPrivilegeRestricted(context.Background())
 	mustOK(t, "SetHostPrivilegeRestricted", resp.StatusCode(), err)
 	if state.HostPrivilegeMode() != "Restricted" {
 		t.Fatalf("host privilege %s", state.HostPrivilegeMode())
@@ -408,7 +408,7 @@ func TestBF4FirmwareUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = pldm.Close() }()
-	resp, task, err := c.UpdateBluefieldFirmwareMultipart(pldm, true)
+	resp, task, err := c.UpdateBluefieldFirmwareMultipart(context.Background(), pldm, true)
 	if err != nil || resp.StatusCode() != http.StatusAccepted {
 		t.Fatalf("UpdateBluefieldFirmwareMultipart: %v %v", resp.Status(), err)
 	}
@@ -416,14 +416,14 @@ func TestBF4FirmwareUpdate(t *testing.T) {
 	if err != nil || prog.TaskState != TaskStateCompleted {
 		t.Fatalf("task %+v %v", prog, err)
 	}
-	if _, err := c.ArmShutdown(); err != nil {
+	if _, err := c.ArmShutdown(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	_, system, _ := c.GetSystem(context.Background())
 	if system.PowerState != "Paused" {
 		t.Fatalf("expected Paused after ArmShutdown, got %s", system.PowerState)
 	}
-	resp, err = c.ActivatePendingBundle()
+	resp, err = c.ActivatePendingBundle(context.Background())
 	mustOK(t, "ActivatePendingBundle", resp.StatusCode(), err)
 	// Versions switch only when the host reboots.
 	if _, info, err := c.CheckBMCFirmware(context.Background()); err != nil || info.Version != config.BMCMinSupportedVersion {
@@ -473,11 +473,11 @@ func TestBF4OSInstall(t *testing.T) {
 		uri     string
 	}{
 		{func(u string) (interface{}, *rfclient.TaskInfo, error) {
-			r, t, e := c.InstallBluefieldArmImage(u)
+			r, t, e := c.InstallBluefieldArmImage(context.Background(), u)
 			return r, t, e
 		}, host + "/bfb/bf4/os.iso"},
 		{func(u string) (interface{}, *rfclient.TaskInfo, error) {
-			r, t, e := c.InstallBluefieldArmConfig(u)
+			r, t, e := c.InstallBluefieldArmConfig(context.Background(), u)
 			return r, t, e
 		}, host + "/bfb/user-data/ns_dpu_uid/seed.iso"},
 	} {
@@ -503,25 +503,25 @@ func TestBF4OSInstall(t *testing.T) {
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
-	if _, err := c.InsertVirtualMediaImage(); err != nil {
+	if _, err := c.InsertVirtualMediaImage(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.InsertVirtualMediaConfig(); err != nil {
+	if _, err := c.InsertVirtualMediaConfig(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.SetBootTarget("None", false); err != nil {
+	if _, err := c.SetBootTarget(context.Background(), "None", false); err != nil {
 		t.Fatal(err)
 	}
 	if _, settings, err := c.GetSettings(context.Background()); err != nil || settings.Boot.BootSourceOverrideTarget != "None" {
 		t.Fatalf("settings %+v %v", settings, err)
 	}
-	if _, err := c.SetBootTarget("Usb", true); err != nil {
+	if _, err := c.SetBootTarget(context.Background(), "Usb", true); err != nil {
 		t.Fatal(err)
 	}
 	if _, settings, err := c.GetSettings(context.Background()); err != nil || settings.Boot.BootSourceOverrideTarget != "Usb" || settings.Boot.BootSourceOverrideEnabled != "Once" {
 		t.Fatalf("settings %+v %v", settings, err)
 	}
-	if _, err := c.ChassisReset(); err != nil {
+	if _, err := c.ChassisReset(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	sup.wait(t)
@@ -532,7 +532,7 @@ func TestBF4OSInstall(t *testing.T) {
 		t.Fatalf("boots=%d reboots=%d", len(boots), reboots)
 	}
 	// A second ArmReset with no pending seed.iso is a plain reboot.
-	if _, err := c.ChassisReset(); err != nil {
+	if _, err := c.ChassisReset(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	sup.wait(t)
@@ -565,7 +565,7 @@ func TestCertificateLifecycle(t *testing.T) {
 	if err != nil || len(certs) != 1 {
 		t.Fatalf("truststore after install %+v %v", certs, err)
 	}
-	resp, _, err = c.DeleteTruststoreCert(certs[0].URI)
+	resp, _, err = c.DeleteTruststoreCert(context.Background(), certs[0].URI)
 	mustOK(t, "DeleteTruststoreCert", resp.StatusCode(), err)
 	if certs, _ = c.ListTruststoreCerts(context.Background()); len(certs) != 0 {
 		t.Fatalf("truststore after delete %+v", certs)
@@ -576,7 +576,7 @@ func TestCertificateLifecycle(t *testing.T) {
 	csrResp, err := c.R().SetHeader("Content-Type", "application/json").SetBody(map[string]interface{}{
 		"CommonName":       bmcIP,
 		"AlternativeNames": []string{"IP: " + bmcIP, "DNS: localhost", "IP: 127.0.0.1"},
-	}).Post(rfclient.APIGenerateCSR)
+	}).Post(rfclient.RedfishAPIs.Path("APIGenerateCSR"))
 	if err != nil || csrResp.StatusCode() != http.StatusOK {
 		t.Fatalf("GenerateCSR: %v %v", csrResp.Status(), err)
 	}
