@@ -449,6 +449,43 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		g.Expect(issuerNames).NotTo(HaveKey("dpf-provisioning-client-cert"))
 	})
 
+	t.Run("test the provisioning leaves are held on the legacy issuer while the migration runs", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: ptr.To("pvc"),
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
+		}
+		vars.RetainLegacyProvisioningCA = true
+		vars.HoldLeavesOnLegacyProvisioningIssuer = true
+
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		issuerNames := map[string]string{}
+		for _, obj := range generatedObjs {
+			if obj.GetObjectKind().GroupVersionKind().Kind != string(CertificateKind) {
+				continue
+			}
+			uns, ok := obj.(*unstructured.Unstructured)
+			g.Expect(ok).To(BeTrue())
+			name, _, err := unstructured.NestedString(uns.UnstructuredContent(), "spec", "issuerRef", "name")
+			g.Expect(err).NotTo(HaveOccurred())
+			issuerNames[obj.GetName()] = name
+		}
+
+		g.Expect(issuerNames).To(HaveKeyWithValue("dpf-provisioning-redfish-client-cert", operatorv1.LegacyProvisioningIssuerName))
+		g.Expect(issuerNames).To(HaveKeyWithValue("dpf-provisioning-redfish-client-cert-bf4", operatorv1.LegacyProvisioningIssuerName))
+		// The platform CA itself is what the migration is reissuing, under the anchor above it.
+		g.Expect(issuerNames).To(HaveKeyWithValue(operatorv1.PlatformIntermediateCAName, vars.PlatformCAIssuerRef.Name))
+		g.Expect(issuerNames).To(HaveKeyWithValue("dpf-provisioning-serving-cert", "dpf-webhook-issuer"))
+
+		// The certificates the controller has signed at runtime are held with them.
+		container := getProvisioningManagerContainer(g, generatedObjs)
+		g.Expect(container.Args).To(ContainElement(fmt.Sprintf("--ca-issuer-name=%s", operatorv1.LegacyProvisioningIssuerName)))
+		g.Expect(container.Args).NotTo(ContainElement(fmt.Sprintf("--ca-issuer-name=%s", operatorv1.PlatformIssuerName)))
+	})
+
 	t.Run("test the platform CA is requested with the subject it carries", func(t *testing.T) {
 		g := NewGomegaWithT(t)
 		vars := newDefaultVariables(defaults)

@@ -90,6 +90,9 @@ const (
 	// serverCertIssuanceRequeue is how long to wait for cert-manager to issue a CertificateRequest
 	// when the Owns watch does not fire first.
 	serverCertIssuanceRequeue = 30 * time.Second
+	// serverCertStatePersistRequeue lets the Rotating condition persist before certificate rotation
+	// starts in the following reconciliation.
+	serverCertStatePersistRequeue = time.Second
 	// serverCertRotationBackoff is used when the mTLS client cannot be opened for rotation.
 	serverCertRotationBackoff = 5 * time.Minute
 	// basicAuthFallbackLogMsg is logged at error level whenever the controller authenticates to a
@@ -1672,11 +1675,13 @@ func (r *DPUDeviceReconciler) reconcileServerCertRotation(ctx context.Context, d
 
 	// Capture whether a rotation was already in progress before we mutate the condition below, so a
 	// fresh rotation regenerates the CSR/CR while in-progress rotations only wait for issuance.
-	rotationInProgress := false
+	rotationPending, rotationInProgress := false, false
 	if cond := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceBMCServerCertificateReady); cond != nil &&
-		cond.Status == metav1.ConditionFalse && cond.Reason == provisioningv1.ReasonBMCServerCertificateRotating {
-		rotationInProgress = true
+		cond.Status == metav1.ConditionFalse {
+		rotationPending = cond.Reason == provisioningv1.ReasonBMCServerCertificateRotationPending
+		rotationInProgress = cond.Reason == provisioningv1.ReasonBMCServerCertificateRotating
 	}
+	rotationActive := rotationPending || rotationInProgress
 
 	manualTrigger := dpuDevice.Annotations[provisioningv1.RotateBMCServerCertificateAnnotation]
 	observedTrigger := ""
@@ -1689,7 +1694,7 @@ func (r *DPUDeviceReconciler) reconcileServerCertRotation(ctx context.Context, d
 	inWindow := notAfter != nil && time.Now().After(notAfter.Time.Add(-renewBefore))
 
 	// Nothing to do: expiry known, outside the renew window, no manual request, and no pending rotation.
-	if notAfter != nil && !inWindow && !manualRequested && !rotationInProgress {
+	if notAfter != nil && !inWindow && !manualRequested && !rotationActive {
 		conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceBMCServerCertificateReady)
 		return ctrl.Result{RequeueAfter: requeueUntil(notAfter.Time, renewBefore)}, nil
 	}
@@ -1722,13 +1727,25 @@ func (r *DPUDeviceReconciler) reconcileServerCertRotation(ctx context.Context, d
 	// Skip it when a rotation is already in progress: notAfter is recorded only once rotation
 	// completes, so backfilling here would re-fetch the (old) served cert on every requeue while we
 	// wait for issuance.
-	if notAfter == nil && !manualRequested && !rotationInProgress {
+	if notAfter == nil && !manualRequested && !rotationActive {
 		if handled, result := r.backfillServerCertExpiry(ctx, dpuDevice, mtlsClient, renewBefore); handled {
 			return result, nil
 		}
 	}
 
 	// Rotation needed.
+	// Persist the Rotating condition before deleting the CertificateRequest that records the
+	// certificate the BMC still serves. The CA trust-bundle controller uses this condition to retain
+	// an authority until no BMC can still depend on it. Starting the rotation in this reconcile
+	// would leave a window between the deletion and the deferred status patch in which the device
+	// still appears Ready and that authority could be pruned.
+	if !rotationActive {
+		conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceBMCServerCertificateReady,
+			conditions.ConditionReason(provisioningv1.ReasonBMCServerCertificateRotationPending),
+			conditions.ConditionMessage("BMC mTLS server certificate rotation pending"))
+		return ctrl.Result{RequeueAfter: serverCertStatePersistRequeue}, nil
+	}
+
 	conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceBMCServerCertificateReady,
 		conditions.ConditionReason(provisioningv1.ReasonBMCServerCertificateRotating),
 		conditions.ConditionMessage("BMC mTLS server certificate rotation in progress"))

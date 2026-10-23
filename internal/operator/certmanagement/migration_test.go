@@ -185,6 +185,9 @@ func TestMigrateProvisioningCA(t *testing.T) {
 		// Nothing on the cluster wakes the reconcile when cert-manager issues over what was just
 		// seeded, so the caller has to come back on its own or the next step waits out the resync.
 		g.Expect(state.Pending).To(BeTrue())
+		// cert-manager is about to issue the platform CA under the subject of the manifest, which no
+		// leaf may be signed under.
+		g.Expect(state.LeavesHeldOnLegacyIssuer).To(BeTrue())
 
 		seeded := &corev1.Secret{}
 		g.Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: operatorv1.PlatformIntermediateCAName}, seeded)).To(Succeed())
@@ -239,6 +242,7 @@ func TestMigrateProvisioningCA(t *testing.T) {
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(state.LegacyAuthorityRetired).To(BeTrue())
 		g.Expect(state.CACommonName).To(Equal(legacyCN))
+		g.Expect(state.LeavesHeldOnLegacyIssuer).To(BeFalse())
 
 		// The bundle still carries the legacy certificate, so the chain it came from stays until the
 		// prune has reached the peers.
@@ -311,6 +315,9 @@ func TestMigrateProvisioningCA(t *testing.T) {
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(state.Blocked).To(BeTrue())
 		g.Expect(state.LegacyChainRetained).To(BeTrue())
+		// The platform CA already carries the identity of the legacy one, so the leaves have nothing
+		// to be held from.
+		g.Expect(state.LeavesHeldOnLegacyIssuer).To(BeFalse())
 		// The apply goes on to request this subject, which is the identity the peers hold. Left
 		// empty it would ask for the one in the manifest and discard what is being protected here.
 		g.Expect(state.CACommonName).To(Equal(legacyCN))
@@ -342,6 +349,7 @@ func TestMigrateProvisioningCA(t *testing.T) {
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(state.CACommonName).To(BeEmpty())
 		g.Expect(state.Pending).To(BeTrue())
+		g.Expect(state.LeavesHeldOnLegacyIssuer).To(BeTrue())
 
 		// Having kept the seeded key, cert-manager reissues under the manifest subject. Only now is
 		// the carried one requested, and the issuance it provokes is over a key already adopted.
@@ -355,6 +363,18 @@ func TestMigrateProvisioningCA(t *testing.T) {
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(state.CACommonName).To(Equal(legacyCN))
 		g.Expect(state.LegacyAuthorityRetired).To(BeFalse())
+		// This is the certificate a leaf moved onto the platform issuer now would name as its issuer,
+		// and it lasts only until cert-manager issues under the subject just requested.
+		g.Expect(state.LeavesHeldOnLegacyIssuer).To(BeTrue())
+
+		carried := client.MergeFrom(platform.DeepCopy())
+		platform.Data[corev1.TLSCertKey] = reissue(t, legacy, legacyCN)
+		g.Expect(c.Patch(ctx, platform, carried)).To(Succeed())
+
+		state, err = MigrateProvisioningCA(ctx, c, newMigrationConfig(), selfSignedAnchor)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(state.LegacyAuthorityRetired).To(BeTrue())
+		g.Expect(state.LeavesHeldOnLegacyIssuer).To(BeFalse())
 	})
 
 	t.Run("re-seeds a platform CA whose seeded key cert-manager replaced", func(t *testing.T) {
@@ -482,6 +502,7 @@ func TestMigrateProvisioningCA(t *testing.T) {
 		// Carried to the chain check at the end of the reconcile, which would otherwise report the
 		// chain a rotation leaves perfectly ready over the block reported here.
 		g.Expect(state.Blocked).To(BeTrue())
+		g.Expect(state.LeavesHeldOnLegacyIssuer).To(BeTrue())
 
 		condition := conditions.Get(config, operatorv1.CertManagementReadyCondition)
 		g.Expect(condition).NotTo(BeNil())

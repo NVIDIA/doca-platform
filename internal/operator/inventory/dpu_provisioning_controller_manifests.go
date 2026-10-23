@@ -201,6 +201,7 @@ func (p *provisioningControllerObjects) GenerateManifests(_ context.Context, var
 		AddForAll(NamespaceEdit(vars.Namespace),
 			LabelsEdit(labelsToAdd)).
 		AddForKind(CertificateKind, p.setPlatformCAEdit(vars)).
+		AddForKind(CertificateKind, p.holdLeafIssuerEdit(vars)).
 		AddForKind(IssuerKind, p.setLegacyProvisioningIssuerCAEdit(vars)).
 		AddForKindS(DeploymentKind, ImagePullSecretsEditForDeploymentEdit(vars.ImagePullSecrets...)).
 		AddForKindS(DeploymentKind, p.dpfProvisioningDeploymentEdit(vars)).
@@ -294,6 +295,33 @@ func (p *provisioningControllerObjects) setPlatformCAEdit(vars Variables) Unstru
 		}
 		return unstructured.SetNestedField(obj.Object, vars.PlatformCACommonName, "spec", "commonName")
 	}
+}
+
+// holdLeafIssuerEdit signs the leaf certificates that reference the platform issuer with the legacy
+// provisioning issuer while the upgrade migration carries the legacy CA into the platform
+// intermediate CA. Until the intermediate holds that identity, cert-manager can issue it under the
+// subject of the manifest, and a leaf signed then names an issuer no peer is guaranteed to trust.
+func (p *provisioningControllerObjects) holdLeafIssuerEdit(vars Variables) UnstructuredEdit {
+	return func(obj *unstructured.Unstructured) error {
+		if !vars.HoldLeavesOnLegacyProvisioningIssuer {
+			return nil
+		}
+		name, _, err := unstructured.NestedString(obj.Object, "spec", "issuerRef", "name")
+		if err != nil || name != operatorv1.PlatformIssuerName {
+			return err
+		}
+		return unstructured.SetNestedField(obj.Object, operatorv1.LegacyProvisioningIssuerName, "spec", "issuerRef", "name")
+	}
+}
+
+// leafIssuerRef is the issuer the provisioning leaf certificates are signed by: the platform issuer,
+// or the legacy provisioning issuer while holdLeafIssuerEdit holds them on it.
+func leafIssuerRef(vars Variables) certmanager.IssuerReference {
+	ref := certmanager.PlatformLeafIssuerRef()
+	if vars.HoldLeavesOnLegacyProvisioningIssuer {
+		ref.Name = operatorv1.LegacyProvisioningIssuerName
+	}
+	return ref
 }
 
 func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Variables) StructuredEdit {
@@ -833,13 +861,14 @@ func (p *provisioningControllerObjects) setNodeEffectRemovalTimeout(deploy *apps
 //
 // The value is the platform issuer in both CA modes, since only the anchor above the intermediate CA
 // differs between them. It is templated all the same so that renaming the issuer rolls the
-// controller out with the new name instead of requiring a matching change in its binary.
-func (p *provisioningControllerObjects) setCAIssuer(deploy *appsv1.Deployment, _ Variables) error {
+// controller out with the new name instead of requiring a matching change in its binary, and so
+// that the upgrade migration can hold these certificates on the legacy issuer like the others.
+func (p *provisioningControllerObjects) setCAIssuer(deploy *appsv1.Deployment, vars Variables) error {
 	c := getManagerContainer(deploy)
 	if c == nil {
 		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
 	}
-	issuerRef := certmanager.PlatformLeafIssuerRef()
+	issuerRef := leafIssuerRef(vars)
 	return setFlags(c,
 		fmt.Sprintf("--ca-issuer-name=%s", issuerRef.Name),
 		fmt.Sprintf("--ca-issuer-kind=%s", issuerRef.Kind),

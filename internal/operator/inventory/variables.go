@@ -191,6 +191,11 @@ type Variables struct {
 	// under a migration that still needs it. It is set for as long as the CA Secret of that chain
 	// exists, which the migration deletes last, and is false on every cluster installed since.
 	RetainLegacyProvisioningCA bool
+	// HoldLeavesOnLegacyProvisioningIssuer signs the provisioning leaf certificates, and the ones the
+	// provisioning controller mints at runtime, with the legacy provisioning issuer instead of the
+	// platform issuer. It is set while the upgrade migration carries the legacy CA into the platform
+	// intermediate CA, and false on every cluster installed since.
+	HoldLeavesOnLegacyProvisioningIssuer bool
 	// LegacyProvisioningIssuerCASecretName is the Secret the retained legacy provisioning Issuer
 	// signs with, when a CA rotation has it pinned to one other than its own. Empty leaves the
 	// Secret of its own chain, which is every cluster not in the middle of a rotation.
