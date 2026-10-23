@@ -1950,7 +1950,7 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 		secret := ensureClusterSecret(kamajiCluster)
 
 		dpu1, node1 := createDPU("dpu-multi-error-1", kamajiCluster, ptr.To("v1.30.0"))
-		dpu2, node2 := createDPU("dpu-multi-error-2", kamajiCluster, ptr.To("v1.36.0"))
+		dpu2, node2 := createDPU("dpu-multi-error-2", kamajiCluster, ptr.To("v1.37.0"))
 
 		dpuClusters := []*dpucluster.Config{
 			dpucluster.NewConfig(testClient, kamajiCluster),

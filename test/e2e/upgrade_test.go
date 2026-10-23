@@ -31,6 +31,9 @@ var _ = Describe("DPF Upgrade", func() {
 		label:               Domain.DPFUpgrade,
 		artifactsKey:        "before",
 		expectedDPUServices: expectedDPUServicesCurrent,
+		// The previous GA (LAST_STABLE_DPF_VERSION, default v26.8.0-latest-stable) pins
+		// its own Kubernetes version, which differs from HEAD's util.KubernetesVersion.
+		expectedKubernetesVersion: "v1.35.6",
 	})
 
 	validationPhase("current", validationPhaseInput{
@@ -58,6 +61,9 @@ var _ = Describe("DPF Upgrade Using LTS BFB", func() {
 		label:               Domain.DPFUpgradeUsingLTSBFB,
 		artifactsKey:        "before",
 		expectedDPUServices: expectedDPUServicesCurrent,
+		// The previous GA (LAST_STABLE_DPF_VERSION, default v26.8.0-latest-stable) pins
+		// its own Kubernetes version, which differs from HEAD's util.KubernetesVersion.
+		expectedKubernetesVersion: "v1.35.6",
 	})
 
 	validationPhase("current-using-lts-bfb", validationPhaseInput{
