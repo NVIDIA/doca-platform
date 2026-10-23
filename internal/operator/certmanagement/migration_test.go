@@ -608,6 +608,42 @@ func TestMigrateProvisioningCA(t *testing.T) {
 			&corev1.Secret{})).To(Succeed())
 	})
 
+	t.Run("keeps the carried over subject when an external issuer anchors the PKI", func(t *testing.T) {
+		g := NewWithT(t)
+		migrated := newSelfSignedCA(t, legacyCN)
+		c := fake.NewClientBuilder().WithScheme(testScheme(t)).
+			WithObjects(caSecret(operatorv1.PlatformIntermediateCAName, migrated.keyPEM, reissue(t, migrated, legacyCN))).
+			Build()
+
+		// The external issuer re-signs the platform CA over the same key. Under the subject of the
+		// manifest the leaves it signed before the switch would name an issuer that no longer chains
+		// to the new anchor, and stop validating as soon as the previous root leaves the bundle.
+		state, err := MigrateProvisioningCA(ctx, c, newMigrationConfig(), externalAnchor)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(state).To(Equal(MigrationState{CACommonName: legacyCN}))
+	})
+
+	t.Run("keeps the carried over subject when an external issuer anchors the PKI mid-migration", func(t *testing.T) {
+		g := NewWithT(t)
+		legacy := newSelfSignedCA(t, legacyCN)
+		c := fake.NewClientBuilder().WithScheme(testScheme(t)).
+			WithObjects(
+				caSecret(operatorv1.LegacyProvisioningCASecretName, legacy.keyPEM, legacy.certPEM),
+				caSecret(operatorv1.PlatformIntermediateCAName, legacy.keyPEM, reissue(t, legacy, legacyCN)),
+			).WithObjects(toObjects(legacyChain())...).Build()
+
+		state, err := MigrateProvisioningCA(ctx, c, newMigrationConfig(), externalAnchor)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(state).To(Equal(MigrationState{
+			CACommonName:        legacyCN,
+			LegacyChainRetained: true,
+		}))
+		g.Expect(c.Get(ctx, client.ObjectKey{
+			Namespace: testNamespace,
+			Name:      operatorv1.LegacyProvisioningCASecretName,
+		}, &corev1.Secret{})).To(Succeed())
+	})
+
 	t.Run("is idempotent while cert-manager has not issued over the adopted key", func(t *testing.T) {
 		g := NewWithT(t)
 		legacy := newSelfSignedCA(t, legacyCN)
