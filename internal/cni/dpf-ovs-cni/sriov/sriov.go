@@ -32,6 +32,7 @@ import (
 	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/k8snetworkplumbingwg/sriovnet"
 	"github.com/vishvananda/netlink"
+	"golang.org/x/sys/unix"
 )
 
 var (
@@ -364,7 +365,13 @@ func (ops DefaultOps) SetupSriovInterface(contNetns ns.NetNS, containerID, ifNam
 		if err != nil {
 			return nil, nil, err
 		}
-		pfLink, err = netlink.LinkByName(pfIface)
+		// Package-level lookups do not collect VF information in this netlink version.
+		handle, err := netlink.NewHandle(unix.NETLINK_ROUTE)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create netlink handle: %w", err)
+		}
+		defer handle.Close()
+		pfLink, err = handle.LinkByName(pfIface)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -374,7 +381,7 @@ func (ops DefaultOps) SetupSriovInterface(contNetns ns.NetNS, containerID, ifNam
 		}
 
 		// make sure PF netlink and VF index are valid
-		if len(pfLink.Attrs().Vfs) < vfIdx || pfLink.Attrs().Vfs[vfIdx].ID != vfIdx {
+		if vfIdx < 0 || vfIdx >= len(pfLink.Attrs().Vfs) || pfLink.Attrs().Vfs[vfIdx].ID != vfIdx {
 			return nil, nil, fmt.Errorf("failed to get vf info from %s at index %d with Vfs %v", pfIface, vfIdx, pfLink.Attrs().Vfs)
 		}
 	}
