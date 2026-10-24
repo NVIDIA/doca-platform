@@ -157,6 +157,10 @@ type reconcileOptions struct {
 	workflowRoot bool
 	revision     string
 	noIdle       bool
+	// candidates returns the objects whose workflow a reconcile joins when the reconciled object has none.
+	candidates func() []client.Object
+	// source is set by ReconcileSpan: the object whose workflow the reconcile continues.
+	source client.Object
 	// idle is set by ReconcileSpan: the reconcile starts at the state the last successful one left behind.
 	idle bool
 }
@@ -174,6 +178,14 @@ func Revision(revision string) ReconcileOption {
 // lists, so the retry of a reconcile that did nothing is still traced when it does something.
 func NoIdle() ReconcileOption {
 	return func(o *reconcileOptions) { o.noIdle = true }
+}
+
+// JoinWorkflowOf makes the reconcile of an object without a trace context join the workflow of the
+// first object candidates returns that has one, for an object no DPF controller creates, such as a Pod.
+// candidates is only called when tracing is on and the object has no context. Without a match the
+// reconcile starts a trace of its own.
+func JoinWorkflowOf(candidates func() []client.Object) ReconcileOption {
+	return func(o *reconcileOptions) { o.candidates = candidates }
 }
 
 // WorkflowRoot marks the controller of an object whose change starts a workflow, such as a
@@ -396,6 +408,11 @@ func ReconcileSpan(ctx context.Context, controller string, obj client.Object, op
 	startResourceVersion, start := obj.GetResourceVersion(), time.Now()
 	// Decided once, as a span that is not recording may also have been dropped by sampling.
 	o.idle = !o.noIdle && reconciles.Load().idle(controller, obj.GetUID(), reconcileState(obj, o.revision))
+	// Resolved once, so the span continues the same workflow everywhere. An idle reconcile is not
+	// recorded, so its workflow is only looked up if it fails or changes its object after all.
+	if !o.idle {
+		o.source = workflowSource(obj, o)
+	}
 	ctx, span := traceObject(ctx, controller, obj, o)
 	ctx = withTraceLogger(ctx, span)
 	var before objectState
@@ -425,7 +442,7 @@ func ReconcileSpan(ctx context.Context, controller string, obj client.Object, op
 		EndSpan(span, err)
 		// An idle reconcile is not recorded, unless it failed or changed obj after all.
 		if o.idle && (err != nil || obj.GetResourceVersion() != startResourceVersion) {
-			recordIdleReconcile(ctx, controller, obj, o.revision, start, err)
+			recordIdleReconcile(ctx, controller, obj, workflowSource(obj, reconcileOptions{candidates: o.candidates}), o.revision, start, err)
 		}
 		reconciles.Load().finish(controller, obj.GetUID(), reconcileState(obj, o.revision), err == nil)
 	}
@@ -459,7 +476,7 @@ func withTraceLogger(ctx context.Context, span trace.Span) context.Context {
 
 // traceObject starts the reconcile span and returns it, see ReconcileSpan.
 func traceObject(ctx context.Context, controller string, obj client.Object, opts reconcileOptions) (context.Context, trace.Span) {
-	in := incomingContext(ctx, obj, opts.revision)
+	in := incomingContext(ctx, workflowSource(obj, opts), opts.revision)
 	// A span in ctx must not become the parent, the workflow decides it.
 	rootCtx := trace.ContextWithSpanContext(ctx, trace.SpanContext{})
 	attrs := make([]attribute.KeyValue, 0, 8)
@@ -491,12 +508,35 @@ func traceObject(ctx context.Context, controller string, obj client.Object, opts
 	)
 }
 
+// workflowSource returns the object whose workflow a reconcile of obj continues: obj, else the first
+// candidate of JoinWorkflowOf with a context. An idle reconcile is not recorded, so it gets obj.
+func workflowSource(obj client.Object, opts reconcileOptions) client.Object {
+	if opts.source != nil {
+		return opts.source
+	}
+	if opts.idle || hasTraceContext(obj) || opts.candidates == nil {
+		return obj
+	}
+	for _, candidate := range opts.candidates() {
+		if candidate != nil && hasTraceContext(candidate) {
+			return candidate
+		}
+	}
+	return obj
+}
+
+// hasTraceContext reports whether obj carries a valid trace context on its annotations.
+func hasTraceContext(obj client.Object) bool {
+	return trace.SpanContextFromContext(ContextFromObject(context.Background(), obj)).IsValid()
+}
+
 // recordIdleReconcile exports the span of a reconcile that was thought to be idle when it started
-// but failed or changed obj. The spans started below it are lost.
-func recordIdleReconcile(ctx context.Context, controller string, obj client.Object, revision string, start time.Time, err error) {
+// but failed or changed obj. The spans started below it are lost. source is the object whose workflow
+// the reconcile continued, see workflowSource.
+func recordIdleReconcile(ctx context.Context, controller string, obj, source client.Object, revision string, start time.Time, err error) {
 	attrs := append(ObjectAttributes(controller, obj), attribute.Bool("reconcile.idle_at_start", true))
 	parentCtx := trace.ContextWithSpanContext(ctx, trace.SpanContext{})
-	if workflow := incomingContext(ctx, obj, revision).spanContext; workflow.IsValid() {
+	if workflow := incomingContext(ctx, source, revision).spanContext; workflow.IsValid() {
 		attrs = append(attrs, attribute.String(attrWorkflowID, workflow.TraceID().String()))
 	}
 	var links []trace.Link
