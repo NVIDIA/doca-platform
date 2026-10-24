@@ -837,7 +837,9 @@ func buildInterfaceEntry(set *dpuservicev1.ServiceInterfaceSet, name, nodeName s
 			VirtualNetwork: tmpl.Spec.Service.VirtualNetwork,
 		}
 	case dpuservicev1.InterfaceTypeOVN:
-		entry.OVN = &dpuservicev1.OVN{ExternalBridge: tmpl.Spec.OVN.ExternalBridge}
+		if tmpl.Spec.OVN != nil {
+			entry.OVN = &dpuservicev1.OVN{ExternalBridge: tmpl.Spec.OVN.ExternalBridge}
+		}
 	case dpuservicev1.InterfaceTypePatch:
 		entry.Patch = &dpuservicev1.PatchDef{
 			PeerBridge:      tmpl.Spec.Patch.PeerBridge,
