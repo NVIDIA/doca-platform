@@ -719,7 +719,7 @@ var _ = Describe("FirmwareUpdate", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(status.Phase).To(Equal(provisioningv1.DPURebooting))
 		Expect(status.RebootStatus).NotTo(BeNil())
-		Expect(*status.RebootStatus.Method).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+		Expect(*status.RebootStatus.Method).To(Equal(provisioningv1.RebootMethodPowerCycle))
 	})
 
 	It("should resubmit PLDM firmware update when the task is in Exception", func() {

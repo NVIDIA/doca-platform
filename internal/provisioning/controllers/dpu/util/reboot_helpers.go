@@ -159,10 +159,11 @@ func InitializeDPURebootStatus(ctx context.Context, dpu *provisioningv1.DPU, sta
 
 	switch {
 	case sourcePhase == provisioningv1.DPUUpdateFirmware:
-		slr := provisioningv1.RebootMethodSystemLevelReset
-		method = &slr
-		reason = "FirmwareUpdateRequiresSystemLevelReset"
-		message = "firmware update requires system level reset to activate"
+		// TODO(5260059): use SLR once BMC FW activation will be supported.
+		powerCycle := provisioningv1.RebootMethodPowerCycle
+		method = &powerCycle
+		reason = "FirmwareUpdateRequiresPowerCycle"
+		message = "firmware update requires power cycle to activate"
 	case sourcePhase == provisioningv1.DPUInitializeInterface:
 		// Mode transition reboot always requires a host power cycle.
 		powerCycle := provisioningv1.RebootMethodPowerCycle
