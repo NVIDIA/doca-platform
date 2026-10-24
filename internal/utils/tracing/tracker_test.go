@@ -19,6 +19,7 @@ package tracing
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -30,6 +31,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // useTracker installs a tracker whose clock is the returned pointer for the duration of the test.
@@ -99,6 +101,133 @@ func TestReconcileSpan_NoIdleRecordsRetryAtSameResourceVersion(t *testing.T) {
 	exporter.Reset()
 	reconcile()
 	require.Equal(t, []string{"child", "dpuset.reconcile"}, spanNames(exporter))
+}
+
+// TestReconcileSpan_JoinWorkflowOf checks which workflow a reconcile joins: the object's own, else
+// the first candidate that has one, else a trace of its own.
+func TestReconcileSpan_JoinWorkflowOf(t *testing.T) {
+	chain := newTestObject(map[string]string{
+		TraceParentAnnotation: fmt.Sprintf("00-%s-%s-01", testTraceID, testSpanID),
+	})
+	plain := newTestObject(nil)
+
+	tests := []struct {
+		name       string
+		obj        *corev1.ConfigMap
+		candidates []client.Object
+		wantJoined bool
+	}{
+		{
+			name:       "joins the first candidate with a context",
+			obj:        newTestObject(nil),
+			candidates: []client.Object{plain, chain},
+			wantJoined: true,
+		},
+		{
+			name: "keeps the context of the object",
+			obj: newTestObject(map[string]string{
+				TraceParentAnnotation: fmt.Sprintf("00-%s-%s-01", "11111111111111111111111111111111", testSpanID),
+			}),
+			candidates: []client.Object{chain},
+		},
+		{
+			name:       "starts its own trace without a candidate with a context",
+			obj:        newTestObject(nil),
+			candidates: []client.Object{plain},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			exporter := useInMemoryTracerProvider(t)
+
+			_, endSpan := ReconcileSpan(context.Background(), "podipam", tt.obj, JoinWorkflowOf(func() []client.Object { return tt.candidates }))
+			endSpan(nil)
+
+			spans := exporter.GetSpans()
+			require.Len(t, spans, 1)
+			require.Equal(t, tt.wantJoined, spans[0].SpanContext.TraceID().String() == testTraceID)
+		})
+	}
+}
+
+// TestReconcileSpan_JoinWorkflowOfLooksUpLazily checks that the candidates are only looked up when
+// tracing is on and the object carries no trace context.
+func TestReconcileSpan_JoinWorkflowOfLooksUpLazily(t *testing.T) {
+	lookups := 0
+	candidates := func() []client.Object {
+		lookups++
+		return nil
+	}
+
+	_, endSpan := ReconcileSpan(context.Background(), "podipam", newTestObject(nil), JoinWorkflowOf(candidates))
+	endSpan(nil)
+	require.Zero(t, lookups, "tracing is off")
+
+	useInMemoryTracerProvider(t)
+	withContext := newTestObject(map[string]string{
+		TraceParentAnnotation: fmt.Sprintf("00-%s-%s-01", testTraceID, testSpanID),
+	})
+	_, endSpan = ReconcileSpan(context.Background(), "podipam", withContext, JoinWorkflowOf(candidates))
+	endSpan(nil)
+	require.Zero(t, lookups, "the object carries a context")
+
+	withoutContext := newTestObject(nil)
+	withoutContext.UID = "other-uid"
+	_, endSpan = ReconcileSpan(context.Background(), "podipam", withoutContext, JoinWorkflowOf(candidates))
+	endSpan(nil)
+	require.Equal(t, 1, lookups)
+}
+
+// TestReconcileSpan_JoinWorkflowOfSkipsLookupOfIdleReconcile checks that the candidates are not looked
+// up for an idle reconcile, which is not recorded, unless it fails after all.
+func TestReconcileSpan_JoinWorkflowOfSkipsLookupOfIdleReconcile(t *testing.T) {
+	useInMemoryTracerProvider(t)
+	chain := newTestObject(map[string]string{
+		TraceParentAnnotation: fmt.Sprintf("00-%s-%s-01", testTraceID, testSpanID),
+	})
+	lookups := 0
+	candidates := func() []client.Object {
+		lookups++
+		return []client.Object{chain}
+	}
+	reconcile := func(err error) {
+		obj := newTestObject(nil)
+		obj.ResourceVersion = "1"
+		_, endSpan := ReconcileSpan(context.Background(), "podipam", obj, JoinWorkflowOf(candidates))
+		endSpan(&err)
+	}
+
+	reconcile(nil)
+	require.Equal(t, 1, lookups)
+	reconcile(nil)
+	require.Equal(t, 1, lookups, "the idle reconcile does not look up the candidates")
+	reconcile(errors.New("boom"))
+	require.Equal(t, 2, lookups, "an idle reconcile that fails is recorded with its workflow")
+}
+
+// TestReconcileSpan_JoinWorkflowOfKeepsWorkflowOfLateIdleReconcile checks that an idle reconcile that
+// fails after all is exported with the workflow it joined, not with one derived from its object.
+func TestReconcileSpan_JoinWorkflowOfKeepsWorkflowOfLateIdleReconcile(t *testing.T) {
+	exporter := useInMemoryTracerProvider(t)
+	chain := newTestObject(map[string]string{
+		TraceParentAnnotation: fmt.Sprintf("00-%s-%s-01", testTraceID, testSpanID),
+	})
+	candidates := func() []client.Object { return []client.Object{chain} }
+
+	reconcile := func(err error) {
+		obj := newTestObject(nil)
+		obj.ResourceVersion = "1"
+		_, endSpan := ReconcileSpan(context.Background(), "podipam", obj, JoinWorkflowOf(candidates))
+		endSpan(&err)
+	}
+	reconcile(nil)
+	exporter.Reset()
+	reconcile(errors.New("boom"))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 1)
+	require.True(t, attrValue(t, spans[0].Attributes, "reconcile.idle_at_start").AsBool())
+	require.Equal(t, testTraceID, attrValue(t, spans[0].Attributes, "workflow.id").AsString())
 }
 
 func TestReconcileSpan_FailMarksSpanAndKeepsRetryOutOfIdle(t *testing.T) {

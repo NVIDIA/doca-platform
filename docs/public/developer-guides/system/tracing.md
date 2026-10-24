@@ -97,6 +97,16 @@ nothing. It removes the generated annotations from the object instead, so the
 on. Keep the call before every write of a child for that reason. An object a
 controller does not write anymore keeps its annotations.
 
+An object that no DPF controller creates, such as a Pod, never gets the
+annotations. To let its reconcile join the trace of a related object, pass
+`tracing.JoinWorkflowOf` to `ReconcileSpan` with a function that returns the
+candidates. The reconcile joins the first candidate that carries a trace, and
+starts a trace of its own when none does. The function only runs when tracing
+is on and the object carries none, so it can look the candidates up. The Pod
+IPAM injector passes the ServiceChains of the Pod's service, then its
+ServiceInterfaces. A Pod with neither, such as one that only uses virtual
+networks in NodeServiceInterfaces mode, keeps a trace of its own.
+
 ## Idle reconciles
 
 A reconcile that starts at the `resourceVersion` the last successful reconcile

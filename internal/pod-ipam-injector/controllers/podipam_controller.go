@@ -100,7 +100,8 @@ func (r *PodIpamReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 	}
 
 	// Started after the skip check: this controller sees every Pod in the cluster.
-	ctx, endSpan := tracing.ReconcileSpan(ctx, podIpamControllerName, pod, tracing.NoIdle())
+	ctx, endSpan := tracing.ReconcileSpan(ctx, podIpamControllerName, pod, tracing.NoIdle(),
+		tracing.JoinWorkflowOf(func() []client.Object { return r.workflowCandidatesOfPod(ctx, pod) }))
 	defer endSpan(&reterr)
 
 	populatedNetworks, changed, err := getPopulatedNetworks(ctx, r.Client, pod, networks, nil)
@@ -139,6 +140,78 @@ func (r *PodIpamReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 	// need to implement logic to understand that via the NAD).
 	log.Info("Requeuing pod", "pod", pod.Name)
 	return reconcile.Result{RequeueAfter: reconcileRetryTime}, nil
+}
+
+// workflowCandidatesOfPod returns the objects whose workflow the pod reconcile can join: the chains
+// of its service, then its ServiceInterfaces, which a pod that only uses virtual networks has.
+func (r *PodIpamReconciler) workflowCandidatesOfPod(ctx context.Context, pod *corev1.Pod) []client.Object {
+	return append(r.serviceChainsOfPod(ctx, pod), r.serviceInterfacesOfPod(ctx, pod)...)
+}
+
+// serviceChainsOfPod returns the ServiceChains of the pod's node with a port for its service, newest
+// first. It returns none without a service ID or on a failed lookup, as tracing must not fail the reconcile.
+func (r *PodIpamReconciler) serviceChainsOfPod(ctx context.Context, pod *corev1.Pod) []client.Object {
+	serviceID, ok := pod.Labels[dpuservicev1.DPFServiceIDLabelKey]
+	if !ok {
+		return nil
+	}
+	serviceChains := &dpuservicev1.ServiceChainList{}
+	if err := r.List(ctx, serviceChains, client.InNamespace(pod.Namespace),
+		client.MatchingFields{utils.ServiceChainNodeFieldKey: pod.Spec.NodeName}, client.UnsafeDisableDeepCopy); err != nil {
+		return nil
+	}
+	slices.SortFunc(serviceChains.Items, func(a, b dpuservicev1.ServiceChain) int {
+		return b.CreationTimestamp.Time.Compare(a.CreationTimestamp.Time)
+	})
+	var candidates []client.Object
+	for i := range serviceChains.Items {
+		if r.hasPortOfService(ctx, pod, &serviceChains.Items[i], serviceID) {
+			candidates = append(candidates, &serviceChains.Items[i])
+		}
+	}
+	return candidates
+}
+
+// hasPortOfService reports whether a port of serviceChain is an interface of the service with serviceID.
+func (r *PodIpamReconciler) hasPortOfService(ctx context.Context, pod *corev1.Pod, serviceChain *dpuservicev1.ServiceChain, serviceID string) bool {
+	for _, sw := range serviceChain.Spec.Switches {
+		for _, port := range sw.Ports {
+			ifc, err := getServiceInterfaceWithLabels(ctx, r.Client, pod.Spec.NodeName, pod.Namespace, port.ServiceInterface.MatchLabels)
+			if err != nil {
+				continue
+			}
+			if svc := ifc.GetService(); svc != nil && svc.ServiceID == serviceID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// serviceInterfacesOfPod returns the ServiceInterfaces of the pod's node that belong to its service,
+// newest first. NodeServiceInterfaces shards are not used, they carry the trace of the last service
+// that wrote them.
+func (r *PodIpamReconciler) serviceInterfacesOfPod(ctx context.Context, pod *corev1.Pod) []client.Object {
+	serviceID, ok := pod.Labels[dpuservicev1.DPFServiceIDLabelKey]
+	if !ok {
+		return nil
+	}
+	var candidates []client.Object
+
+	serviceInterfaces := &dpuservicev1.ServiceInterfaceList{}
+	if err := r.List(ctx, serviceInterfaces, client.InNamespace(pod.Namespace),
+		client.MatchingFields{utils.ServiceInterfaceNodeFieldKey: pod.Spec.NodeName}, client.UnsafeDisableDeepCopy); err != nil {
+		return nil
+	}
+	slices.SortFunc(serviceInterfaces.Items, func(a, b dpuservicev1.ServiceInterface) int {
+		return b.CreationTimestamp.Time.Compare(a.CreationTimestamp.Time)
+	})
+	for i := range serviceInterfaces.Items {
+		if svc := serviceInterfaces.Items[i].GetService(); svc != nil && svc.ServiceID == serviceID {
+			candidates = append(candidates, &serviceInterfaces.Items[i])
+		}
+	}
+	return candidates
 }
 
 // getPopulatedNetworks returns the populated networks with the settings the Pod IPAM Injector applies.
