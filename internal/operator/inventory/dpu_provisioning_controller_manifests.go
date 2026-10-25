@@ -360,7 +360,7 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 			p.setReplicas,
 			p.setCAIssuer,
 			p.setCATrustBundleConfigMapName,
-			setTracingFlags,
+			tracingFlagsFor(operatorv1.ProvisioningControllerName),
 		}
 		for _, mod := range mods {
 			if err := mod(deployment, vars); err != nil {

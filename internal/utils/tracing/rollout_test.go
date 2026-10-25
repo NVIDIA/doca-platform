@@ -175,6 +175,24 @@ func TestObserveRollout_TimeoutIsConfigurable(t *testing.T) {
 	require.Equal(t, "not ready after 10s", rollouts[0].Status.Description)
 }
 
+// TestObserveRollout_ZeroTimeoutNeverTimesOut checks that a zero timeout leaves the rollout open
+// until the change is ready.
+func TestObserveRollout_ZeroTimeoutNeverTimesOut(t *testing.T) {
+	exporter := useInMemoryTracerProvider(t)
+	now := useTrackerWith(t, FlagOptions{RolloutTimeout: 0})
+	obj := newTestObject(nil)
+
+	observe(obj, false)
+	*now = now.Add(100 * time.Hour)
+	observe(obj, false)
+	require.Empty(t, spansNamed(exporter, "dpudeployment.rollout"))
+
+	observe(obj, true)
+	rollouts := spansNamed(exporter, "dpudeployment.rollout")
+	require.Len(t, rollouts, 1)
+	require.Equal(t, "ready", attrValue(t, rollouts[0].Attributes, "rollout.result").AsString())
+}
+
 func TestObserveRollout_LateReconcileEndsRolloutAtItsDeadline(t *testing.T) {
 	exporter := useInMemoryTracerProvider(t)
 	now := useTracker(t)

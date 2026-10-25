@@ -2252,9 +2252,11 @@ func TestResolveOpenTelemetryCollectorCACerts(t *testing.T) {
 		vars := inventory.Variables{}
 
 		config := newConfig(ns, nil)
-		config.Spec.Monitoring.OpenTelemetryCollector.Tracing = &operatorv1.OpenTelemetryCollectorExportConfiguration{
-			Endpoint:    "https://otel.example.com:4320",
-			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-tracing-ca"},
+		config.Spec.Monitoring.OpenTelemetryCollector.Tracing = &operatorv1.OpenTelemetryCollectorTracingConfiguration{
+			OpenTelemetryCollectorExportConfiguration: operatorv1.OpenTelemetryCollectorExportConfiguration{
+				Endpoint:    "https://otel.example.com:4320",
+				CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-tracing-ca"},
+			},
 		}
 		g.Expect(r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)).To(Succeed())
 		g.Expect(vars.OpenTelemetryCollector.Tracing.CACert).To(Equal(caCertPEM))
@@ -2270,9 +2272,11 @@ func TestResolveOpenTelemetryCollectorCACerts(t *testing.T) {
 		vars := inventory.Variables{}
 
 		config := newConfig(ns, nil)
-		config.Spec.Monitoring.OpenTelemetryCollector.Tracing = &operatorv1.OpenTelemetryCollectorExportConfiguration{
-			Endpoint:    "https://otel.example.com:4320",
-			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-tracing-ca"},
+		config.Spec.Monitoring.OpenTelemetryCollector.Tracing = &operatorv1.OpenTelemetryCollectorTracingConfiguration{
+			OpenTelemetryCollectorExportConfiguration: operatorv1.OpenTelemetryCollectorExportConfiguration{
+				Endpoint:    "https://otel.example.com:4320",
+				CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-tracing-ca"},
+			},
 		}
 		err := r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)
 		g.Expect(err).To(HaveOccurred())
@@ -2293,9 +2297,11 @@ func TestResolveOpenTelemetryCollectorCACerts(t *testing.T) {
 
 		config := newConfig(ns, nil)
 		config.Spec.Monitoring.OpenTelemetryCollector.Disable = ptr.To(true)
-		config.Spec.Monitoring.OpenTelemetryCollector.Tracing = &operatorv1.OpenTelemetryCollectorExportConfiguration{
-			Endpoint:    "https://otel.example.com:4320",
-			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-tracing-ca"},
+		config.Spec.Monitoring.OpenTelemetryCollector.Tracing = &operatorv1.OpenTelemetryCollectorTracingConfiguration{
+			OpenTelemetryCollectorExportConfiguration: operatorv1.OpenTelemetryCollectorExportConfiguration{
+				Endpoint:    "https://otel.example.com:4320",
+				CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-tracing-ca"},
+			},
 		}
 		g.Expect(r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)).To(Succeed())
 		g.Expect(vars.OpenTelemetryCollector.Tracing.CACert).To(Equal(caCertPEM))

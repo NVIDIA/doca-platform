@@ -761,7 +761,20 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 					if !input.hasDpuNodes() {
 						Skip("Skip test as there are no DPU nodes")
 					}
+					if sfcTracingDisabled(input) {
+						Skip("Skip test as the SFC controller opted out of tracing")
+					}
 					ValidateDPUClusterTraceFlow(ctx, input)
+				})
+
+				It("should follow a provisioned DPU from its DPUDevice in one trace", Labels{Domain.RequiresNodes}, func() {
+					if !input.hasDpuNodes() {
+						Skip("Skip test as there are no DPU nodes")
+					}
+					if provisioningTracingDisabled(input) {
+						Skip("Skip test as the provisioning controller opted out of tracing")
+					}
+					ValidateDPUProvisioningTraceFlow(ctx)
 				})
 			})
 		})

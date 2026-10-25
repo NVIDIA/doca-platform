@@ -224,7 +224,7 @@ func (d *dpuServiceControllerObjects) deploymentEdit(vars Variables) StructuredE
 		mods := []func(*appsv1.Deployment, Variables) error{
 			d.setDPUReadyController,
 			d.setFeatureGates,
-			setTracingFlags,
+			tracingFlagsFor(operatorv1.DPUServiceControllerName),
 		}
 		for _, mod := range mods {
 			if err := mod(deployment, vars); err != nil {

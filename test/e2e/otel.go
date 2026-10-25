@@ -27,6 +27,10 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dpuservicecontroller "github.com/nvidia/doca-platform/internal/dpuservice/controllers"
 	dpuservicechaincontroller "github.com/nvidia/doca-platform/internal/dpuservicechain/controllers"
+	nodesriovdeviceplugincontrollers "github.com/nvidia/doca-platform/internal/nodesriovdeviceplugin/controllers"
+	dpucontroller "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu"
+	dpudevicecontroller "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpudevice"
+	dpusetcontroller "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpuset"
 	sfcsetcontroller "github.com/nvidia/doca-platform/internal/servicechainset/controllers"
 	sfccontroller "github.com/nvidia/doca-platform/internal/sfccontroller/controllers"
 	"github.com/nvidia/doca-platform/test/utils/loki"
@@ -127,8 +131,11 @@ func openTelemetryCollectorConfiguration(ctx context.Context, c client.Client, d
 			// DPF controllers run inside this cluster, so without DPU nodes they dial the
 			// collector's in-cluster Service. With DPU nodes the DPU cluster collectors forward
 			// traces to this endpoint too, so it must be the external NodePort/VIP.
-			Tracing: &operatorv1.OpenTelemetryCollectorExportConfiguration{
-				Endpoint: otelTracingEndpoint(exportAddress, hasDPUNodes, false),
+			Tracing: &operatorv1.OpenTelemetryCollectorTracingConfiguration{
+				OpenTelemetryCollectorExportConfiguration: operatorv1.OpenTelemetryCollectorExportConfiguration{
+					Endpoint: otelTracingEndpoint(exportAddress, hasDPUNodes, false),
+				},
+				RecordUnchangedReconciles: ptr.To(true),
 			},
 		}
 	}
@@ -150,9 +157,12 @@ func openTelemetryCollectorConfiguration(ctx context.Context, c client.Client, d
 		// Tracing's clients are DPF controller binaries running in this cluster and, with DPU
 		// nodes, the DPU cluster collectors forwarding traces. See otelTracingEndpoint for which
 		// address each case needs.
-		Tracing: &operatorv1.OpenTelemetryCollectorExportConfiguration{
-			Endpoint:    otelTracingEndpoint(exportAddress, hasDPUNodes, true),
-			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: otelServingCertSecretName},
+		Tracing: &operatorv1.OpenTelemetryCollectorTracingConfiguration{
+			OpenTelemetryCollectorExportConfiguration: operatorv1.OpenTelemetryCollectorExportConfiguration{
+				Endpoint:    otelTracingEndpoint(exportAddress, hasDPUNodes, true),
+				CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: otelServingCertSecretName},
+			},
+			RecordUnchangedReconciles: ptr.To(true),
 		},
 	}
 }
@@ -505,15 +515,21 @@ func createTestNamespaceInCluster(ctx context.Context, c client.Client, namespac
 }
 
 // traceLookback is how far back the trace search looks. A stable cluster stops reconciling, so the
-// spans of the system DPUServices date from startup.
+// spans of the system DPUServices and the Node controller date from startup.
 const traceLookback = 2 * time.Hour
+
+// tracePollInterval is how often the specs ask Tempo. Each poll fetches whole traces, and Tempo is
+// OOM-killed when it is polled every second.
+const tracePollInterval = 5 * time.Second
 
 // ValidateManagementClusterTraceFlow verifies trace spans flow from DPF controller reconciles to
 // Tempo. DPF deploys several system DPUServices (kube-state-metrics, node-problem-detector,
 // opentelemetry-collector, ...) that the DPUService controller reconciles once tracing is
 // enabled, each producing a span tagged controller=dpuservice-manager; this waits for one to show
 // up rather than manufacturing a dedicated test DPUService. Reconciles that find nothing changed
-// are not recorded, so the spans can be older than the check and the lookback is generous.
+// are not recorded unless the DPFOperatorConfig asks for it, so the spans can be older than the
+// check and the lookback is generous. The e2e config records unchanged reconciles, so the SR-IOV
+// device plugin Node controller shows up too, although it has nothing to do on a bench without DPUs.
 //
 // The match is on the span's tags, not on a trace shared across controllers.
 func ValidateManagementClusterTraceFlow(ctx context.Context, input *systemTestInput) {
@@ -528,16 +544,16 @@ func ValidateManagementClusterTraceFlow(ctx context.Context, input *systemTestIn
 			}, traceLookback)
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(traces).NotTo(BeEmpty(), "No %s reconcile spans from %s found in Tempo", source.controller, source.serviceName)
-		}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
+		}).WithTimeout(5 * time.Minute).WithPolling(tracePollInterval).Should(Succeed())
 	}
 }
 
 // ValidateDPUDeploymentTraceFlow verifies that a DPUDeployment yields one trace across the
 // controllers that act on it, from the DPUDeployment down to the ServiceChainSet and
-// ServiceInterfaceSet it leads to. Nothing upstream sets a traceparent on the DPUDeployment, so DPF
+// ServiceInterfaceSet it leads to, and the DPUSet it creates. Nothing upstream sets a traceparent on the DPUDeployment, so DPF
 // derives the trace from its UID and generation and copies it onto every object it creates. A trace
 // that contains the spans of all these controllers shows that every hop passed the context on.
-func ValidateDPUDeploymentTraceFlow(ctx context.Context, dpuDeployment *dpuservicev1.DPUDeployment) {
+func ValidateDPUDeploymentTraceFlow(ctx context.Context, input *systemTestInput, dpuDeployment *dpuservicev1.DPUDeployment) {
 	tempoClient := tempo.NewClient(hostClusterRESTClient, dpfOperatorSystemNamespace)
 	wantControllers := []string{
 		dpuservicecontroller.DPUDeploymentControllerName,
@@ -546,6 +562,9 @@ func ValidateDPUDeploymentTraceFlow(ctx context.Context, dpuDeployment *dpuservi
 		dpuservicechaincontroller.DPUServiceInterfaceControllerName,
 		sfcsetcontroller.ServiceChainSetControllerName,
 		sfcsetcontroller.ServiceInterfaceSetControllerName,
+	}
+	if !provisioningTracingDisabled(input) {
+		wantControllers = append(wantControllers, dpusetcontroller.DPUSetControllerName)
 	}
 
 	By(fmt.Sprintf("Waiting for one trace of DPUDeployment %s to contain the spans of %v", dpuDeployment.Name, wantControllers))
@@ -568,7 +587,7 @@ func ValidateDPUDeploymentTraceFlow(ctx context.Context, dpuDeployment *dpuservi
 			}
 		}
 		g.Expect(missing).To(BeEmpty(), "Trace is missing the spans of these controllers")
-	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
+	}).WithTimeout(5 * time.Minute).WithPolling(tracePollInterval).Should(Succeed())
 }
 
 // missingControllers returns the controllers in want that no span of the trace is tagged with.
@@ -600,7 +619,7 @@ func ValidateDPUClusterTraceFlow(ctx context.Context, input *systemTestInput) {
 		}, traceLookback)
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(traces).NotTo(BeEmpty(), "No spans from %s found in Tempo", sfccontroller.TracingServiceName)
-	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
+	}).WithTimeout(5 * time.Minute).WithPolling(tracePollInterval).Should(Succeed())
 }
 
 // traceSource is a controller whose reconcile spans are expected in Tempo.
@@ -610,12 +629,94 @@ type traceSource struct {
 	serviceName string
 }
 
-// expectedTraceSources returns the controllers that export spans in this run. Only the DPUService
-// controller is checked. The SR-IOV device plugin Node controller is not checked yet: on a bench
-// without DPUs it has nothing to do, so its reconciles are dropped as unchanged. Enable the check
-// with the DPFOperatorConfig tracing settings, which let the e2e record unchanged reconciles.
-func expectedTraceSources(_ *systemTestInput) []traceSource {
-	return []traceSource{
-		{dpuservicecontroller.DPUServiceControllerName, dpuservicecontroller.TracingServiceName},
+// provisioningTracingDisabled reports whether the provisioning controller opted out of tracing, so
+// it exports no spans to wait for.
+func provisioningTracingDisabled(input *systemTestInput) bool {
+	provisioning := input.config.Spec.ProvisioningController
+	return provisioning != nil && ptr.Deref(provisioning.DisableTracing, false)
+}
+
+// sfcTracingDisabled reports whether the SFC controller opted out of tracing.
+func sfcTracingDisabled(input *systemTestInput) bool {
+	sfc := input.config.Spec.SFCController
+	return sfc != nil && ptr.Deref(sfc.DisableTracing, false)
+}
+
+// ValidateDPUProvisioningTraceFlow verifies the traces of a DPUSet that no caller traces, as the
+// suite creates it. A DPU then follows the workflow of its DPUDevice, so the trace of a provisioned
+// DPU has to contain the spans of the DPUDevice and the DPU. It looks at the trace of every DPU and
+// needs one of them to have both. The DPUSet exports spans of its own, in a trace of its own: only a
+// DPUSet with a trace from a caller, such as a DPUDeployment, shares it with its DPUs, see
+// ValidateDPUDeploymentTraceFlow. Provisioning happens early in a run, so the lookback is generous.
+func ValidateDPUProvisioningTraceFlow(ctx context.Context) {
+	tempoClient := tempo.NewClient(hostClusterRESTClient, dpfOperatorSystemNamespace)
+	wantControllers := []string{dpudevicecontroller.DPUDeviceControllerName, dpucontroller.DPUControllerName}
+
+	dpuList := &provisioningv1.DPUList{}
+	Expect(testClient.List(ctx, dpuList)).To(Succeed())
+	Expect(dpuList.Items).NotTo(BeEmpty(), "No DPUs to look for traces of")
+
+	By(fmt.Sprintf("Waiting for one trace of a DPU to contain the spans of %v", wantControllers))
+	Eventually(func(g Gomega) {
+		tracesFound := 0
+		var missing []string
+		for _, dpu := range dpuList.Items {
+			traces, err := tempoClient.SearchByTags(ctx, map[string]string{
+				"controller":     dpucontroller.DPUControllerName,
+				"k8s.object.uid": string(dpu.GetUID()),
+			}, traceLookback)
+			g.Expect(err).NotTo(HaveOccurred())
+			for _, trace := range traces {
+				spans, err := tempoClient.GetTrace(ctx, trace.TraceID)
+				g.Expect(err).NotTo(HaveOccurred())
+				tracesFound++
+				missing = missingControllers(spans, wantControllers)
+				if len(missing) == 0 {
+					return
+				}
+			}
+		}
+		// No trace had both controllers. Without any trace, missing is nil, so check that first.
+		g.Expect(tracesFound).NotTo(BeZero(), "No trace of a DPU found in Tempo")
+		g.Expect(missing).To(BeEmpty(), "No trace of a DPU contains the spans of these controllers")
+	}).WithTimeout(5 * time.Minute).WithPolling(tracePollInterval).Should(Succeed())
+
+	dpuSetList := &provisioningv1.DPUSetList{}
+	Expect(testClient.List(ctx, dpuSetList)).To(Succeed())
+	Expect(dpuSetList.Items).NotTo(BeEmpty(), "No DPUSets to look for traces of")
+
+	By("Waiting for the reconcile spans of a DPUSet in a trace of its own")
+	Eventually(func(g Gomega) {
+		tracesFound := 0
+		for _, dpuSet := range dpuSetList.Items {
+			traces, err := tempoClient.SearchByTags(ctx, map[string]string{
+				"controller":     dpusetcontroller.DPUSetControllerName,
+				"k8s.object.uid": string(dpuSet.GetUID()),
+			}, traceLookback)
+			g.Expect(err).NotTo(HaveOccurred())
+			tracesFound += len(traces)
+		}
+		g.Expect(tracesFound).NotTo(BeZero(), "No trace of a DPUSet found in Tempo")
+	}).WithTimeout(5 * time.Minute).WithPolling(tracePollInterval).Should(Succeed())
+}
+
+// expectedTraceSources returns the controllers that export spans in this run. The DPUService
+// controller does unless it opted out through disableTracing. The SR-IOV device plugin Node
+// controller reconciles on every Node event, but is disabled in some configurations (ZeroTrust) and
+// then exports nothing, as it does after an opt-out. The provisioning controller reconciles the DPUs,
+// so it exports spans once there are DPU nodes.
+func expectedTraceSources(input *systemTestInput) []traceSource {
+	sources := []traceSource{}
+	if input.hasDpuNodes() && !provisioningTracingDisabled(input) {
+		sources = append(sources, traceSource{dpucontroller.DPUControllerName, dpucontroller.TracingServiceName})
 	}
+	if dpuService := input.config.Spec.DPUServiceController; dpuService == nil || !ptr.Deref(dpuService.DisableTracing, false) {
+		sources = append(sources, traceSource{dpuservicecontroller.DPUServiceControllerName, dpuservicecontroller.TracingServiceName})
+	}
+	if nodeSRIOV := input.config.Spec.NodeSRIOVDevicePluginController; nodeSRIOV != nil && !nodeSRIOV.Disabled() && !ptr.Deref(nodeSRIOV.DisableTracing, false) {
+		sources = append(sources, traceSource{
+			nodesriovdeviceplugincontrollers.NodeControllerName, nodesriovdeviceplugincontrollers.TracingServiceName,
+		})
+	}
+	return sources
 }

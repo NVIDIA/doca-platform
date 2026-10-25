@@ -24,6 +24,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/internal/release"
+	"github.com/nvidia/doca-platform/internal/utils/tracing"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -359,6 +360,19 @@ func setFlags(c *corev1.Container, newFlags ...string) error {
 	return nil
 }
 
+// tracingFlagsFor returns the Deployment edit that applies setTracingFlags for component. It
+// applies nothing when the component opted out through spec.<component>.disableTracing:
+// without the flags the controller runs no exporter, but it still passes trace context on to the
+// objects it creates.
+func tracingFlagsFor(component operatorv1.ComponentName) func(*appsv1.Deployment, Variables) error {
+	return func(deploy *appsv1.Deployment, vars Variables) error {
+		if vars.DisableTracing[component] {
+			return nil
+		}
+		return setTracingFlags(deploy, vars)
+	}
+}
+
 // setTracingFlags passes the DPFOperatorConfig tracing settings to the "manager" container of a
 // component whose binary registers tracing.AddFlags. It does nothing when no endpoint is
 // configured. The CA is passed inline as PEM, see tracing.FlagOptions.
@@ -377,6 +391,18 @@ func setTracingFlags(deploy *appsv1.Deployment, vars Variables) error {
 	}
 	if vars.OpenTelemetryCollector.Tracing.CACert != "" {
 		flags = append(flags, fmt.Sprintf("--otel-tracing-ca-pem=%s", vars.OpenTelemetryCollector.Tracing.CACert))
+	}
+	if vars.OpenTelemetryCollector.Tracing.RecordIdleReconciles {
+		flags = append(flags, "--otel-tracing-record-idle-reconciles=true")
+	}
+	if vars.OpenTelemetryCollector.Tracing.RecordUnchangedReconciles {
+		flags = append(flags, "--otel-tracing-record-unchanged-reconciles=true")
+	}
+	if percent := vars.OpenTelemetryCollector.Tracing.SamplingPercent; percent != nil && *percent != tracing.DefaultSamplingPercent {
+		flags = append(flags, fmt.Sprintf("--otel-tracing-sampling-percent=%d", *percent))
+	}
+	if timeout := vars.OpenTelemetryCollector.Tracing.RolloutTimeout; timeout != nil && *timeout != tracing.DefaultRolloutTimeout {
+		flags = append(flags, fmt.Sprintf("--otel-tracing-rollout-timeout=%s", *timeout))
 	}
 
 	return setFlags(c, flags...)

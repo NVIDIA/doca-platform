@@ -78,7 +78,7 @@ func ValidateDPUDeploymentCreation(ctx context.Context, input *systemTestInput) 
 		g.Expect(VerifyDeploymentUnderlyingObjectsCreated(ctx, g, input.client, dpuDeployment)).To(BeTrue())
 	}).WithTimeout(15 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
-	ValidateDPUDeploymentTraceFlow(ctx, dpuDeployment)
+	ValidateDPUDeploymentTraceFlow(ctx, input, dpuDeployment)
 }
 
 func ValidateDPUDeploymentMetrics(ctx context.Context, input *systemTestInput) {

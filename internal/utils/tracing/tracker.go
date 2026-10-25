@@ -111,13 +111,19 @@ func (t *tracker) skipUnchanged() bool {
 	return t != nil && !t.opts.RecordUnchangedReconciles
 }
 
-// rolloutTimeout returns how long a change may take to become ready. A nil tracker, or one without
-// a setting, uses DefaultRolloutTimeout.
+// rolloutTimeout returns how long a change may take to become ready. A nil tracker uses
+// DefaultRolloutTimeout. Zero means no timeout, which timedOut reports as never.
 func (t *tracker) rolloutTimeout() time.Duration {
-	if t == nil || t.opts.RolloutTimeout <= 0 {
+	if t == nil {
 		return DefaultRolloutTimeout
 	}
 	return t.opts.RolloutTimeout
+}
+
+// timedOut reports whether a change that started at start has run out of time at now.
+func (t *tracker) timedOut(start, now time.Time) bool {
+	timeout := t.rolloutTimeout()
+	return timeout > 0 && now.Sub(start) >= timeout
 }
 
 // clock returns the current time. A nil tracker uses the system clock.
@@ -156,7 +162,7 @@ func (t *tracker) expired(traceID trace.TraceID) bool {
 		t.traces.Add(traceID, now)
 		return false
 	}
-	return now.Sub(first.(time.Time)) >= t.rolloutTimeout()
+	return t.timedOut(first.(time.Time), now)
 }
 
 // finish records the outcome of a reconcile by controller that started at resourceVersion. It does
@@ -198,8 +204,8 @@ func (t *tracker) observeRollout(controller string, uid types.UID, generation in
 	// out then, not when the reconcile noticed. A ready object does not wait for a reconcile.
 	end := func(outcome string) finishedRollout {
 		at := now
-		if deadline := state.in.started.Add(t.rolloutTimeout()); outcome != rolloutReady && !now.Before(deadline) {
-			outcome, at = rolloutTimedOut, deadline
+		if outcome != rolloutReady && t.timedOut(state.in.started, now) {
+			outcome, at = rolloutTimedOut, state.in.started.Add(t.rolloutTimeout())
 		}
 		return finishedRollout{state.generation, state.in, at, outcome}
 	}
@@ -218,7 +224,7 @@ func (t *tracker) observeRollout(controller string, uid types.UID, generation in
 	case ready:
 		state.ended = true
 		finished = append(finished, end(rolloutReady))
-	case now.Sub(state.in.started) >= t.rolloutTimeout():
+	case t.timedOut(state.in.started, now):
 		state.ended = true
 		finished = append(finished, end(rolloutTimedOut))
 	}

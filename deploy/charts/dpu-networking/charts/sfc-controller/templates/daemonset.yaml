@@ -63,6 +63,18 @@ spec:
         {{- if .Values.tracing.caPEM }}
         - {{ printf "--otel-tracing-ca-pem=%s" .Values.tracing.caPEM | quote }}
         {{- end }}
+        {{- if .Values.tracing.recordIdleReconciles }}
+        - --otel-tracing-record-idle-reconciles=true
+        {{- end }}
+        {{- if .Values.tracing.recordUnchangedReconciles }}
+        - --otel-tracing-record-unchanged-reconciles=true
+        {{- end }}
+        {{- if hasKey .Values.tracing "samplingPercent" }}
+        - {{ printf "--otel-tracing-sampling-percent=%d" (int .Values.tracing.samplingPercent) }}
+        {{- end }}
+        {{- with .Values.tracing.rolloutTimeout }}
+        - --otel-tracing-rollout-timeout={{ . }}
+        {{- end }}
         {{- end }}
         command:
         - /sfc-controller

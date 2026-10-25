@@ -76,6 +76,18 @@ The args to be passed to the manager
 {{- with .Values.tracing.caPEM }}
 {{- $args = append $args (printf "--otel-tracing-ca-pem=%s" .) }}
 {{- end }}
+{{- if .Values.tracing.recordIdleReconciles }}
+{{- $args = append $args "--otel-tracing-record-idle-reconciles=true" }}
+{{- end }}
+{{- if .Values.tracing.recordUnchangedReconciles }}
+{{- $args = append $args "--otel-tracing-record-unchanged-reconciles=true" }}
+{{- end }}
+{{- if hasKey .Values.tracing "samplingPercent" }}
+{{- $args = append $args (printf "--otel-tracing-sampling-percent=%d" (int .Values.tracing.samplingPercent)) }}
+{{- end }}
+{{- with .Values.tracing.rolloutTimeout }}
+{{- $args = append $args (printf "--otel-tracing-rollout-timeout=%s" .) }}
+{{- end }}
 {{- end }}
 {{- toYaml $args }}
 {{- end }}

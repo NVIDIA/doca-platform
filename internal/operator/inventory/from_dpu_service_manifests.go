@@ -29,6 +29,7 @@ import (
 	dpuserviceutils "github.com/nvidia/doca-platform/internal/dpuservice/utils"
 	"github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/internal/release"
+	tracingpkg "github.com/nvidia/doca-platform/internal/utils/tracing"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	corev1 "k8s.io/api/core/v1"
@@ -274,10 +275,11 @@ func additionalValuesForComponent(name operatorv1.ComponentName, vars Variables)
 }
 
 // tracingValueEdits is the Helm counterpart of setTracingFlags for a component deployed as a
-// DPUService. It returns no edits when no endpoint is configured.
+// DPUService. It returns no edits when no endpoint is configured or the component opted out
+// through spec.<component>.disableTracing.
 func tracingValueEdits(vars Variables, component operatorv1.ComponentName) []StructuredEdit {
 	tracing := vars.OpenTelemetryCollector.Tracing
-	if tracing.Endpoint == "" {
+	if tracing.Endpoint == "" || vars.DisableTracing[component] {
 		return nil
 	}
 	edits := []StructuredEdit{dpuServiceAddValueEdit(tracing.Endpoint, component.String(), "tracing", "endpoint")}
@@ -286,6 +288,25 @@ func tracingValueEdits(vars Variables, component operatorv1.ComponentName) []Str
 	}
 	if tracing.CACert != "" {
 		edits = append(edits, dpuServiceAddValueEdit(tracing.CACert, component.String(), "tracing", "caPEM"))
+	}
+	return append(edits, tracingSettingEdits(tracing, component)...)
+}
+
+// tracingSettingEdits returns the values of the settings that decide which spans a component
+// exports. Only the ones that differ from the controllers' defaults are set.
+func tracingSettingEdits(tracing OpenTelemetryCollectorTracingVariables, component operatorv1.ComponentName) []StructuredEdit {
+	var edits []StructuredEdit
+	if tracing.RecordIdleReconciles {
+		edits = append(edits, dpuServiceAddValueEdit(true, component.String(), "tracing", "recordIdleReconciles"))
+	}
+	if tracing.RecordUnchangedReconciles {
+		edits = append(edits, dpuServiceAddValueEdit(true, component.String(), "tracing", "recordUnchangedReconciles"))
+	}
+	if tracing.SamplingPercent != nil && *tracing.SamplingPercent != tracingpkg.DefaultSamplingPercent {
+		edits = append(edits, dpuServiceAddValueEdit(*tracing.SamplingPercent, component.String(), "tracing", "samplingPercent"))
+	}
+	if tracing.RolloutTimeout != nil && *tracing.RolloutTimeout != tracingpkg.DefaultRolloutTimeout {
+		edits = append(edits, dpuServiceAddValueEdit(tracing.RolloutTimeout.String(), component.String(), "tracing", "rolloutTimeout"))
 	}
 	return edits
 }
@@ -299,10 +320,12 @@ func sfcControllerEdits(vars Variables) ([]StructuredEdit, error) {
 	}
 	// The DPU cluster collector forwards the spans to the management cluster. The chart resolves
 	// the collector Service of its own cluster.
-	if vars.OpenTelemetryCollector.Tracing.Endpoint != "" && !vars.DisableSystemComponents[operatorv1.OpenTelemetryCollectorName] {
+	if vars.OpenTelemetryCollector.Tracing.Endpoint != "" && !vars.DisableTracing[operatorv1.SFCControllerName] &&
+		!vars.DisableSystemComponents[operatorv1.OpenTelemetryCollectorName] {
 		edits = append(edits,
 			dpuServiceAddValueEdit(true, operatorv1.SFCControllerName.String(), "tracing", "dpuCollector"),
 			dpuServiceAddValueEdit("http", operatorv1.SFCControllerName.String(), "tracing", "transport"))
+		edits = append(edits, tracingSettingEdits(vars.OpenTelemetryCollector.Tracing, operatorv1.SFCControllerName)...)
 	}
 	if vars.DPUOpenvSwitchSharedLib64Path != nil {
 		edits = append(edits, dpuServiceAddValueEdit(*vars.DPUOpenvSwitchSharedLib64Path, operatorv1.SFCControllerName.String(), openvSwitchSharedLibrary64DirPathKey))

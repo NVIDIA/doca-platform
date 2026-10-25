@@ -27,6 +27,12 @@ linters:
       - path-except: ^test/
         linters:
           - withpolling
+      # The trace specs poll Tempo every tracePollInterval. Each poll fetches whole traces and a 1s
+      # interval gets Tempo OOM-killed.
+      - path: ^test/e2e/otel\.go$
+        source: WithPolling\(tracePollInterval\)
+        linters:
+          - withpolling
     paths:
       - third_party
       - third_party$

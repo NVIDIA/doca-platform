@@ -137,6 +137,7 @@ section of the DPFOperatorConfig, see the
   which is in the sampled flag of the traceparent.
 * `--otel-tracing-rollout-timeout` is when an unfinished rollout is reported as
   timed out. It is also how long a trace keeps collecting reconciles, see below.
+  `0` turns it off.
 
 Add a new setting as a flag in `tracing.AddFlags` and a field of the DPFOperatorConfig
 the same way, and pass it from `setTracingFlags` and `tracingValueEdits` only
