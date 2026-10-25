@@ -36,6 +36,14 @@ tracing:
   # -- caPEM is a PEM-encoded CA certificate bundle used to verify the endpoint's TLS
   # certificate. If empty, TLS endpoints are verified against the system CA pool.
   caPEM: ""
+  # -- recordIdleReconciles exports the spans of idle reconciles. By default they are skipped.
+  recordIdleReconciles: false
+  # -- recordUnchangedReconciles exports the spans of reconciles that changed nothing on their object, did not fail and have no child spans. By default they are skipped.
+  recordUnchangedReconciles: false
+  # -- rolloutTimeout is how long a change may take to become ready before its rollout span is exported as timed out, for example "30m". "0s" turns the timeout off. If empty, the controller's default of 1h is used.
+  rolloutTimeout: ""
+  # samplingPercent is the share of the traces that is exported, from 0 to 100. If unset, all traces are exported.
+  # samplingPercent: 100
 serviceAccount:
   annotations: {}
   labels: {}

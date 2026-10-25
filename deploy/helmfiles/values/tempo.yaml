@@ -42,13 +42,17 @@ tempo:
           - service-graphs
           - span-metrics
 
+  # Go does not know the container limit, so without this the heap grows until Tempo is OOM-killed.
+  extraEnv:
+    - name: GOMEMLIMIT
+      value: 3GiB
+
   resources:
     limits:
-      cpu: 500m
-      memory: 1Gi
+      memory: 4Gi
     requests:
       cpu: 200m
-      memory: 512Mi
+      memory: 1Gi
 
 # Schedule on control-plane nodes, matching Loki/opentelemetry-collector.
 affinity:

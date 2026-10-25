@@ -34,13 +34,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// useTracker installs a tracker whose clock is the returned pointer for the duration of the test.
+// useTracker installs a tracker with the default rollout timeout, whose clock is the returned
+// pointer for the duration of the test.
 func useTracker(t *testing.T) *time.Time {
 	t.Helper()
-	return useTrackerWith(t, FlagOptions{})
+	return useTrackerWith(t, FlagOptions{RolloutTimeout: DefaultRolloutTimeout})
 }
 
-// useTrackerWith is useTracker for a tracker that follows opts.
+// useTrackerWith is useTracker for a tracker that follows opts. It fills in the default AddFlags
+// sets for an unset sampling percent. The rollout timeout is not defaulted, as zero turns it off.
 func useTrackerWith(t *testing.T, opts FlagOptions) *time.Time {
 	t.Helper()
 	if opts.SamplingPercent == 0 {
@@ -540,6 +542,32 @@ func TestReconcileSpan_SampledOutReconcileThatFailsStaysDropped(t *testing.T) {
 
 	reconcileAt("1", errors.New("boom"))
 	require.Empty(t, exporter.GetSpans(), "a reconcile dropped by sampling is not an idle reconcile and gets no second chance")
+}
+
+// TestReconcileSpan_ZeroTimeoutKeepsReconcilesInTheWorkflow checks that a zero rollout timeout also
+// turns off the window a trace collects reconciles in, so a late reconcile rejoins the workflow.
+func TestReconcileSpan_ZeroTimeoutKeepsReconcilesInTheWorkflow(t *testing.T) {
+	exporter := useInMemoryTracerProvider(t)
+	now := useTrackerWith(t, FlagOptions{RolloutTimeout: 0})
+
+	obj := newTestObject(nil)
+	obj.ResourceVersion = "1"
+	for i, wait := range []time.Duration{0, 100 * time.Hour} {
+		*now = now.Add(wait)
+		var err error
+		if i == 1 {
+			err = errors.New("boom")
+		}
+		_, endSpan := ReconcileSpan(context.Background(), "dpudeployment", obj, WorkflowRoot())
+		endSpan(&err)
+	}
+
+	workflow := newSpanContextForObject(obj, "")
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 2)
+	for _, s := range spans {
+		require.Equal(t, workflow.TraceID(), s.SpanContext.TraceID())
+	}
 }
 
 func TestReconcileSpan_LateIdleReconcileThatFailsGetsLinkedTrace(t *testing.T) {

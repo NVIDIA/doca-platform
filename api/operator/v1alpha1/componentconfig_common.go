@@ -220,6 +220,15 @@ func (b *BaseControllerConfig) SetReplicas(replicas *int32) {
 	b.Replicas = replicas
 }
 
+// TracingControllerConfig is embedded by the controllers that can opt out of exporting trace spans.
+type TracingControllerConfig struct {
+	// DisableTracing stops the controller from exporting trace spans although
+	// spec.monitoring.openTelemetryCollector.tracing is set. The controller then also stops
+	// passing the trace context on to the objects it creates, so a trace ends at this controller.
+	// +optional
+	DisableTracing *bool `json:"disableTracing,omitempty"`
+}
+
 // HelmComponentConfigurable is the shared config for helm components.
 //
 // +kubebuilder:object:generate=false

@@ -828,6 +828,62 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		}
 	})
 
+	t.Run("test tracing flags are not set when tracing is disabled", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: ptr.To("pvc"),
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
+		}
+		vars.OpenTelemetryCollector.Tracing.Endpoint = "http://collector:4318"
+		vars.DisableTracing = map[operatorv1.ComponentName]bool{operatorv1.ProvisioningControllerName: true}
+
+		objs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		checked := 0
+		for _, obj := range objs {
+			if obj.GetObjectKind().GroupVersionKind().Kind != string(DeploymentKind) {
+				continue
+			}
+			deployment := &appsv1.Deployment{}
+			uns, ok := obj.(*unstructured.Unstructured)
+			g.Expect(ok).To(BeTrue())
+			g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(uns.UnstructuredContent(), deployment)).To(Succeed())
+			g.Expect(getManagerContainer(deployment).Args).ToNot(ContainElement(HavePrefix("--otel-tracing-")))
+			checked++
+		}
+		g.Expect(checked).To(BeNumerically(">", 0), "no Deployment was generated")
+	})
+
+	t.Run("test tracing flags are set when only another controller opted out", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: ptr.To("pvc"),
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
+		}
+		vars.OpenTelemetryCollector.Tracing.Endpoint = "http://collector:4318"
+		vars.DisableTracing = map[operatorv1.ComponentName]bool{operatorv1.DPUServiceControllerName: true}
+
+		objs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		checked := 0
+		for _, obj := range objs {
+			if obj.GetObjectKind().GroupVersionKind().Kind != string(DeploymentKind) {
+				continue
+			}
+			deployment := &appsv1.Deployment{}
+			uns, ok := obj.(*unstructured.Unstructured)
+			g.Expect(ok).To(BeTrue())
+			g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(uns.UnstructuredContent(), deployment)).To(Succeed())
+			g.Expect(getManagerContainer(deployment).Args).To(ContainElement("--otel-tracing-endpoint=http://collector:4318"))
+			checked++
+		}
+		g.Expect(checked).To(BeNumerically(">", 0), "no Deployment was generated")
+	})
+
 	t.Run("test hostagent dns policy not set when nil", func(t *testing.T) {
 		g := NewGomegaWithT(t)
 		vars := newDefaultVariables(defaults)

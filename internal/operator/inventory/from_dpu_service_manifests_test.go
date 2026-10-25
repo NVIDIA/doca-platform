@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -848,15 +849,59 @@ func Test_tracingValueEdits(t *testing.T) {
 		g.Expect(tracingValueEdits(Variables{}, operatorv1.SFCControllerName)).To(BeEmpty())
 	})
 
+	t.Run("no edits when the component opted out", func(t *testing.T) {
+		g := NewWithT(t)
+		vars := Variables{DisableTracing: map[operatorv1.ComponentName]bool{operatorv1.SFCControllerName: true}}
+		vars.OpenTelemetryCollector.Tracing.Endpoint = "http://10.0.0.1:30050"
+		g.Expect(tracingValueEdits(vars, operatorv1.SFCControllerName)).To(BeEmpty())
+		g.Expect(tracingValueEdits(vars, operatorv1.ServiceSetControllerName)).NotTo(BeEmpty())
+	})
+
 	t.Run("sets endpoint, transport and CA under the component", func(t *testing.T) {
 		g := NewWithT(t)
 		vars := Variables{}
-		vars.OpenTelemetryCollector.Tracing = OpenTelemetryCollectorGenericVariables{
-			Endpoint: "http://10.0.0.1:30050", Transport: "grpc", CACert: "pem",
+		vars.OpenTelemetryCollector.Tracing = OpenTelemetryCollectorTracingVariables{
+			OpenTelemetryCollectorGenericVariables: OpenTelemetryCollectorGenericVariables{
+				Endpoint: "http://10.0.0.1:30050", Transport: "grpc", CACert: "pem",
+			},
 		}
 		g.Expect(tracingValues(g, tracingValueEdits(vars, operatorv1.SFCControllerName))).To(Equal(map[string]interface{}{
 			"sfc-controller": map[string]interface{}{
 				"tracing": map[string]interface{}{"endpoint": "http://10.0.0.1:30050", "transport": "grpc", "caPEM": "pem"},
+			},
+		}))
+	})
+
+	t.Run("sets the settings that differ from the controllers' defaults", func(t *testing.T) {
+		g := NewWithT(t)
+		vars := Variables{}
+		vars.OpenTelemetryCollector.Tracing.Endpoint = "http://10.0.0.1:30050"
+		vars.OpenTelemetryCollector.Tracing.RecordIdleReconciles = true
+		vars.OpenTelemetryCollector.Tracing.RecordUnchangedReconciles = true
+		vars.OpenTelemetryCollector.Tracing.SamplingPercent = ptr.To[int32](0)
+		vars.OpenTelemetryCollector.Tracing.RolloutTimeout = ptr.To(30 * time.Minute)
+		g.Expect(tracingValues(g, tracingValueEdits(vars, operatorv1.SFCControllerName))).To(Equal(map[string]interface{}{
+			"sfc-controller": map[string]interface{}{
+				"tracing": map[string]interface{}{
+					"endpoint":                  "http://10.0.0.1:30050",
+					"recordIdleReconciles":      true,
+					"recordUnchangedReconciles": true,
+					"samplingPercent":           int32(0),
+					"rolloutTimeout":            "30m0s",
+				},
+			},
+		}))
+	})
+
+	t.Run("sets no setting at the controllers' defaults", func(t *testing.T) {
+		g := NewWithT(t)
+		vars := Variables{}
+		vars.OpenTelemetryCollector.Tracing.Endpoint = "http://10.0.0.1:30050"
+		vars.OpenTelemetryCollector.Tracing.SamplingPercent = ptr.To[int32](100)
+		vars.OpenTelemetryCollector.Tracing.RolloutTimeout = ptr.To(time.Hour)
+		g.Expect(tracingValues(g, tracingValueEdits(vars, operatorv1.SFCControllerName))).To(Equal(map[string]interface{}{
+			"sfc-controller": map[string]interface{}{
+				"tracing": map[string]interface{}{"endpoint": "http://10.0.0.1:30050"},
 			},
 		}))
 	})
@@ -915,5 +960,24 @@ func Test_sfcControllerEditsTracingValues(t *testing.T) {
 		vars := configured()
 		vars.DisableSystemComponents[operatorv1.OpenTelemetryCollectorName] = true
 		g.Expect(tracingOf(g, vars)).To(BeNil())
+	})
+
+	t.Run("sets none when the controller opted out", func(t *testing.T) {
+		g := NewWithT(t)
+		vars := configured()
+		vars.DisableTracing = map[operatorv1.ComponentName]bool{operatorv1.SFCControllerName: true}
+		g.Expect(tracingOf(g, vars)).To(BeNil())
+	})
+
+	t.Run("passes the settings that differ from the defaults", func(t *testing.T) {
+		g := NewWithT(t)
+		vars := configured()
+		vars.OpenTelemetryCollector.Tracing.RecordUnchangedReconciles = true
+		vars.OpenTelemetryCollector.Tracing.SamplingPercent = ptr.To[int32](25)
+		vars.OpenTelemetryCollector.Tracing.RolloutTimeout = ptr.To(30 * time.Minute)
+		g.Expect(tracingOf(g, vars)).To(Equal(map[string]interface{}{
+			"dpuCollector": true, "transport": "http",
+			"recordUnchangedReconciles": true, "samplingPercent": int32(25), "rolloutTimeout": "30m0s",
+		}))
 	})
 }

@@ -19,6 +19,6 @@ package tracing
 // EnableForTest turns tracing on without an exporter, so a test of a controller sees the trace
 // annotations ReconcileSpan and InjectIntoObject handle. It returns the func that turns it off again.
 func EnableForTest() (disable func()) {
-	reconciles.Store(newTracker(FlagOptions{SamplingPercent: DefaultSamplingPercent}))
+	reconciles.Store(newTracker(FlagOptions{SamplingPercent: DefaultSamplingPercent, RolloutTimeout: DefaultRolloutTimeout}))
 	return func() { reconciles.Store(nil) }
 }

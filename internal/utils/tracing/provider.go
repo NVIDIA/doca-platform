@@ -83,7 +83,7 @@ type FlagOptions struct {
 	SamplingPercent int
 	// RolloutTimeout is how long a change may take to become ready before its rollout is reported as
 	// timed out, and how long its trace collects reconciles. AddFlags defaults it to
-	// DefaultRolloutTimeout, and so does zero.
+	// DefaultRolloutTimeout. Zero turns the timeout off.
 	RolloutTimeout time.Duration
 }
 
@@ -106,7 +106,7 @@ func AddFlags(opts *FlagOptions, fs *pflag.FlagSet) {
 	fs.BoolVar(&opts.RecordIdleReconciles, "otel-tracing-record-idle-reconciles", false, "Export the spans of idle reconciles, which start at the resourceVersion the last successful reconcile left behind.")
 	fs.BoolVar(&opts.RecordUnchangedReconciles, "otel-tracing-record-unchanged-reconciles", false, "Export the spans of reconciles that changed nothing on their object, did not fail and have no child spans.")
 	fs.IntVar(&opts.SamplingPercent, "otel-tracing-sampling-percent", DefaultSamplingPercent, "Share of the traces that is exported, from 0 to 100. The decision is made per trace.")
-	fs.DurationVar(&opts.RolloutTimeout, "otel-tracing-rollout-timeout", DefaultRolloutTimeout, "How long a change may take to become ready before its rollout span is exported as timed out.")
+	fs.DurationVar(&opts.RolloutTimeout, "otel-tracing-rollout-timeout", DefaultRolloutTimeout, "How long a change may take to become ready before its rollout span is exported as timed out. 0 turns the timeout off.")
 }
 
 // validate returns an error when opts holds a setting that cannot be applied.

@@ -168,6 +168,7 @@ type Variables struct {
 	Networking                             Networking
 	KataContainers                         KataContainersVariables
 	DisableSystemComponents                map[operatorv1.ComponentName]bool
+	DisableTracing                         map[operatorv1.ComponentName]bool
 	ImagePullSecrets                       []string
 	Images                                 map[string]string
 	HelmCharts                             map[operatorv1.ComponentName]string
@@ -257,6 +258,22 @@ type OpenTelemetryCollectorGenericVariables struct {
 	CACert    string
 }
 
+// OpenTelemetryCollectorTracingVariables holds the export destination of the trace spans of DPF
+// controllers and the settings that decide which spans they export. The settings are only passed to
+// the controllers when they differ from the controllers' own defaults, see internal/utils/tracing.
+type OpenTelemetryCollectorTracingVariables struct {
+	OpenTelemetryCollectorGenericVariables
+	// RecordIdleReconciles exports the spans of idle reconciles.
+	RecordIdleReconciles bool
+	// RecordUnchangedReconciles exports the spans of reconciles that changed nothing.
+	RecordUnchangedReconciles bool
+	// SamplingPercent is the share of the traces that is exported. Nil keeps the controllers' default.
+	SamplingPercent *int32
+	// RolloutTimeout is how long a change may take to become ready. Nil keeps the controllers' default,
+	// zero turns the timeout off.
+	RolloutTimeout *time.Duration
+}
+
 // OpenTelemetryCollectorVariables holds the OTLP export destinations for the three signals
 // spec.monitoring.openTelemetryCollector configures. Logging and Metrics are the DPU cluster
 // opentelemetry-collector's own forwarding targets. Tracing is shared by two consumers: DPF
@@ -266,7 +283,7 @@ type OpenTelemetryCollectorGenericVariables struct {
 type OpenTelemetryCollectorVariables struct {
 	Metrics OpenTelemetryCollectorGenericVariables
 	Logging OpenTelemetryCollectorGenericVariables
-	Tracing OpenTelemetryCollectorGenericVariables
+	Tracing OpenTelemetryCollectorTracingVariables
 }
 
 // KataContainersVariables holds variables specific to the Kata Containers component.
@@ -495,6 +512,27 @@ func setOverrideConfigs(variables Variables, config *operatorv1.DPFOperatorConfi
 	return variables
 }
 
+// disableTracingFromConfig collects the controllers that set disableTracing.
+func disableTracingFromConfig(config *operatorv1.DPFOperatorConfig) map[operatorv1.ComponentName]bool {
+	disabled := map[operatorv1.ComponentName]bool{}
+	if dsc := config.Spec.DPUServiceController; dsc != nil && dsc.DisableTracing != nil {
+		disabled[operatorv1.DPUServiceControllerName] = *dsc.DisableTracing
+	}
+	if pc := config.Spec.ProvisioningController; pc != nil && pc.DisableTracing != nil {
+		disabled[operatorv1.ProvisioningControllerName] = *pc.DisableTracing
+	}
+	if nsc := config.Spec.NodeSRIOVDevicePluginController; nsc != nil && nsc.DisableTracing != nil {
+		disabled[operatorv1.NodeSRIOVDevicePluginControllerName] = *nsc.DisableTracing
+	}
+	if ssc := config.Spec.ServiceSetController; ssc != nil && ssc.DisableTracing != nil {
+		disabled[operatorv1.ServiceSetControllerName] = *ssc.DisableTracing
+	}
+	if sfc := config.Spec.SFCController; sfc != nil && sfc.DisableTracing != nil {
+		disabled[operatorv1.SFCControllerName] = *sfc.DisableTracing
+	}
+	return disabled
+}
+
 // setAdditionalConfigs sets additional configuration values
 func setAdditionalConfigs(variables Variables, config *operatorv1.DPFOperatorConfig) Variables {
 	if config.Spec.Flannel != nil && config.Spec.Flannel.PodCIDR != nil {
@@ -505,6 +543,8 @@ func setAdditionalConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 			variables.SFCController.SecureFlowDeletionTimeout = config.Spec.SFCController.SecureFlowDeletionTimeout.Duration
 		}
 	}
+
+	variables.DisableTracing = disableTracingFromConfig(config)
 
 	if dsc := config.Spec.DPUServiceController; dsc != nil {
 		if dsc.DisableDPUReadyTaints != nil {
@@ -641,6 +681,13 @@ func setMonitoringConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 			variables.OpenTelemetryCollector.Tracing.Endpoint = otelConfig.Tracing.Endpoint
 			if otelConfig.Tracing.Transport != nil {
 				variables.OpenTelemetryCollector.Tracing.Transport = string(*otelConfig.Tracing.Transport)
+			}
+			tracingVars := &variables.OpenTelemetryCollector.Tracing
+			tracingVars.RecordIdleReconciles = ptr.Deref(otelConfig.Tracing.RecordIdleReconciles, false)
+			tracingVars.RecordUnchangedReconciles = ptr.Deref(otelConfig.Tracing.RecordUnchangedReconciles, false)
+			tracingVars.SamplingPercent = otelConfig.Tracing.SamplingPercent
+			if otelConfig.Tracing.RolloutTimeout != nil {
+				tracingVars.RolloutTimeout = ptr.To(otelConfig.Tracing.RolloutTimeout.Duration)
 			}
 		}
 	}

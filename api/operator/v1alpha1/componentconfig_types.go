@@ -35,8 +35,9 @@ type DefaultOverridesConfiguration struct {
 // +kubebuilder:validation:XValidation:rule="!(has(self.bfCFGTemplateConfigMap) && has(self.enableDynamicBFCFGTemplates) && self.enableDynamicBFCFGTemplates)",message="bfCFGTemplateConfigMap and enableDynamicBFCFGTemplates are mutually exclusive"
 
 type ProvisioningControllerConfiguration struct {
-	BaseComponentConfig  `json:",inline"`
-	BaseControllerConfig `json:",inline"`
+	BaseComponentConfig     `json:",inline"`
+	BaseControllerConfig    `json:",inline"`
+	TracingControllerConfig `json:",inline"`
 
 	// Image overrides the container image used by the Provisioning controller.
 	//
@@ -494,8 +495,9 @@ func (c *SPIFFECSIDriverConfiguration) GetImages() map[ContainerName]*string {
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
 
 type DPUServiceControllerConfiguration struct {
-	BaseComponentConfig  `json:",inline"`
-	BaseControllerConfig `json:",inline"`
+	BaseComponentConfig     `json:",inline"`
+	BaseControllerConfig    `json:",inline"`
+	TracingControllerConfig `json:",inline"`
 
 	// Image overrides the container image used by the DPUService controller.
 	//
@@ -745,9 +747,10 @@ func (c *StaticClusterManagerConfiguration) GetResources() map[ContainerName]*co
 // +kubebuilder:validation:XValidation:rule="!has(self.image) || !has(self.controller) || !has(self.controller.image)",message="only either 'image' (deprecated) or 'controller.image' can be set, but not both"
 
 type ServiceSetControllerConfiguration struct {
-	BaseComponentConfig  `json:",inline"`
-	BaseControllerConfig `json:",inline"`
-	HelmComponentConfig  `json:",inline"`
+	BaseComponentConfig     `json:",inline"`
+	BaseControllerConfig    `json:",inline"`
+	TracingControllerConfig `json:",inline"`
+	HelmComponentConfig     `json:",inline"`
 
 	// Image overrides the container image used by the ServiceChainSet Controller.
 	//
@@ -1094,8 +1097,9 @@ func (c *OVSCNIConfiguration) GetResources() map[ContainerName]*corev1.ResourceR
 // reconcilers); each pod exclusively owns its node's state, which makes leader
 // election unnecessary.
 type SFCControllerConfiguration struct {
-	BaseComponentConfig `json:",inline"`
-	HelmComponentConfig `json:",inline"`
+	BaseComponentConfig     `json:",inline"`
+	HelmComponentConfig     `json:",inline"`
+	TracingControllerConfig `json:",inline"`
 
 	// Image overrides the container image used by the SFC controller.
 	//
@@ -1247,8 +1251,9 @@ type NodeSRIOVDevicePluginSettings struct {
 // This controller manages per-node SRIOV device plugin pods based on DPU configurations.
 // The controller is disabled by default.
 type NodeSRIOVDevicePluginControllerConfiguration struct {
-	BaseComponentConfig  `json:",inline"`
-	BaseControllerConfig `json:",inline"`
+	BaseComponentConfig     `json:",inline"`
+	BaseControllerConfig    `json:",inline"`
+	TracingControllerConfig `json:",inline"`
 
 	// Controller contains the configuration for the NodeSRIOVDevicePlugin controller component.
 	// It contains the image for the controller and its resource requirements.
@@ -1369,7 +1374,45 @@ type OpenTelemetryCollectorConfiguration struct {
 	// Tracing contains the configuration for exporting distributed traces from DPF controllers.
 	// If not specified, DPF controllers will not export trace spans.
 	// +optional
-	Tracing *OpenTelemetryCollectorExportConfiguration `json:"tracing,omitempty"`
+	Tracing *OpenTelemetryCollectorTracingConfiguration `json:"tracing,omitempty"`
+}
+
+// OpenTelemetryCollectorTracingConfiguration configures where DPF controllers export their trace
+// spans and how many of them. It extends OpenTelemetryCollectorExportConfiguration.
+// The endpoint is used by the controllers of the management cluster and by the DPU cluster, so it
+// must be reachable from both, like the logging and metrics endpoints. Use an address of the
+// management cluster nodes, not a cluster-local Service name, which does not resolve on the DPUs.
+type OpenTelemetryCollectorTracingConfiguration struct {
+	OpenTelemetryCollectorExportConfiguration `json:",inline"`
+
+	// RecordIdleReconciles exports the spans of idle reconciles. A reconcile is idle when it starts
+	// at the resourceVersion the last successful reconcile of the object left behind, for example a
+	// requeue or a resync. An idle reconcile that fails or changes its object is always exported.
+	// When not set, idle reconciles are not exported.
+	// +optional
+	RecordIdleReconciles *bool `json:"recordIdleReconciles,omitempty"`
+
+	// RecordUnchangedReconciles exports the spans of reconciles that changed nothing on their object,
+	// did not fail and have no child spans. Such a span only says that the reconcile ran. When not
+	// set, they are not exported.
+	// +optional
+	RecordUnchangedReconciles *bool `json:"recordUnchangedReconciles,omitempty"`
+
+	// SamplingPercent is the share of the traces that is exported, in percent. The decision is made per
+	// trace, so all spans of a change are kept or dropped together. When not set, all of them are kept.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	SamplingPercent *int32 `json:"samplingPercent,omitempty"`
+
+	// RolloutTimeout is how long a change may take to become ready before its rollout span is exported
+	// as timed out. When not set, it is one hour. Set it to 0s to turn the timeout off, so a rollout
+	// ends once the change is ready or a newer change replaces it.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
+	// +kubebuilder:validation:Format=duration
+	// +optional
+	RolloutTimeout *metav1.Duration `json:"rolloutTimeout,omitempty"`
 }
 
 // OpenTelemetryCollectorCASecretKey is the default Secret data key that holds the PEM-encoded CA

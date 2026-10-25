@@ -18,12 +18,14 @@ package inventory
 
 import (
 	"testing"
+	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/release"
 
 	. "github.com/onsi/gomega"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/utils/ptr"
 )
@@ -182,6 +184,50 @@ func TestVariablesFromDPFOperatorConfig_NVIPAMImages(t *testing.T) {
 				"node":       map[string]any{"image": map[string]any{"repository": "mirror.example.com/nvidia-k8s-ipam"}},
 			}},
 		}}))
+	})
+}
+
+// TestVariablesFromDPFOperatorConfig_Tracing checks that the tracing settings of the DPFOperatorConfig
+// reach the Variables.
+func TestVariablesFromDPFOperatorConfig_Tracing(t *testing.T) {
+	defaults := &release.Defaults{}
+	NewWithT(t).Expect(defaults.Parse()).To(Succeed())
+
+	configWithTracing := func(tracing *operatorv1.OpenTelemetryCollectorTracingConfiguration) *operatorv1.DPFOperatorConfig {
+		return &operatorv1.DPFOperatorConfig{Spec: operatorv1.DPFOperatorConfigSpec{
+			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{},
+			Monitoring:             &operatorv1.MonitoringConfiguration{OpenTelemetryCollector: &operatorv1.OpenTelemetryCollectorConfiguration{Tracing: tracing}},
+		}}
+	}
+	endpoint := operatorv1.OpenTelemetryCollectorExportConfiguration{Endpoint: "http://collector:4318"}
+
+	t.Run("an unset setting keeps the controllers' defaults", func(t *testing.T) {
+		g := NewWithT(t)
+		vars := VariablesFromDPFOperatorConfig(defaults, configWithTracing(&operatorv1.OpenTelemetryCollectorTracingConfiguration{
+			OpenTelemetryCollectorExportConfiguration: endpoint,
+		}), nil)
+
+		g.Expect(vars.OpenTelemetryCollector.Tracing.Endpoint).To(Equal("http://collector:4318"))
+		g.Expect(vars.OpenTelemetryCollector.Tracing.RecordIdleReconciles).To(BeFalse())
+		g.Expect(vars.OpenTelemetryCollector.Tracing.RecordUnchangedReconciles).To(BeFalse())
+		g.Expect(vars.OpenTelemetryCollector.Tracing.SamplingPercent).To(BeNil())
+		g.Expect(vars.OpenTelemetryCollector.Tracing.RolloutTimeout).To(BeNil())
+	})
+
+	t.Run("the settings are passed on", func(t *testing.T) {
+		g := NewWithT(t)
+		vars := VariablesFromDPFOperatorConfig(defaults, configWithTracing(&operatorv1.OpenTelemetryCollectorTracingConfiguration{
+			OpenTelemetryCollectorExportConfiguration: endpoint,
+			RecordIdleReconciles:                      ptr.To(true),
+			RecordUnchangedReconciles:                 ptr.To(true),
+			SamplingPercent:                           ptr.To[int32](25),
+			RolloutTimeout:                            &metav1.Duration{Duration: 30 * time.Minute},
+		}), nil)
+
+		g.Expect(vars.OpenTelemetryCollector.Tracing.RecordIdleReconciles).To(BeTrue())
+		g.Expect(vars.OpenTelemetryCollector.Tracing.RecordUnchangedReconciles).To(BeTrue())
+		g.Expect(vars.OpenTelemetryCollector.Tracing.SamplingPercent).To(HaveValue(Equal(int32(25))))
+		g.Expect(vars.OpenTelemetryCollector.Tracing.RolloutTimeout).To(Equal(ptr.To(30 * time.Minute)))
 	})
 }
 

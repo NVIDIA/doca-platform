@@ -19,6 +19,7 @@ package apivalidation_test
 
 import (
 	"strings"
+	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	testutils "github.com/nvidia/doca-platform/test/utils"
@@ -410,6 +411,35 @@ var _ = Describe("Operator API Validation", func() {
 				Entry("invalid - loadBalancerAddress missing scheme", &operatorv1.RegistryConfiguration{
 					LoadBalancerAddress: ptr.To("10.0.110.2:31272"),
 				}, true, "should match '^https?://'"),
+			)
+		})
+
+		Context("Validate tracing settings", func() {
+			DescribeTable("DPFOperatorConfig tracing samplingPercent validation",
+				func(percent *int32, expectError bool, errorMessage string) {
+					config := getMinimalDPFOperatorConfig(testNs.Name)
+					setTracingConfig(config, &operatorv1.OpenTelemetryCollectorTracingConfiguration{SamplingPercent: percent})
+					validateConfigCreation(config, expectError, errorMessage, &cleanupObjs)
+				},
+				Entry("valid - unset", nil, false, ""),
+				Entry("valid - 0", ptr.To(int32(0)), false, ""),
+				Entry("valid - 50", ptr.To(int32(50)), false, ""),
+				Entry("valid - 100", ptr.To(int32(100)), false, ""),
+				Entry("invalid - negative", ptr.To(int32(-1)), true, "should be greater than or equal to 0"),
+				Entry("invalid - above 100", ptr.To(int32(101)), true, "should be less than or equal to 100"),
+			)
+
+			DescribeTable("DPFOperatorConfig tracing rolloutTimeout validation",
+				func(timeout *metav1.Duration, expectError bool, errorMessage string) {
+					config := getMinimalDPFOperatorConfig(testNs.Name)
+					setTracingConfig(config, &operatorv1.OpenTelemetryCollectorTracingConfiguration{RolloutTimeout: timeout})
+					validateConfigCreation(config, expectError, errorMessage, &cleanupObjs)
+				},
+				Entry("valid - unset", nil, false, ""),
+				Entry("valid - 30m", &metav1.Duration{Duration: 30 * time.Minute}, false, ""),
+				Entry("valid - 1h30m", &metav1.Duration{Duration: 90 * time.Minute}, false, ""),
+				Entry("valid - 0s turns the timeout off", &metav1.Duration{}, false, ""),
+				Entry("invalid - negative", &metav1.Duration{Duration: -time.Minute}, true, "should match"),
 			)
 		})
 
@@ -1152,6 +1182,14 @@ func setSPIFFEConfig(config *operatorv1.DPFOperatorConfig, spiffe *operatorv1.SP
 		config.Spec.Security = &operatorv1.SecurityConfiguration{}
 	}
 	config.Spec.Security.SPIFFE = spiffe
+}
+
+// setTracingConfig sets the tracing configuration, with an endpoint as the API requires one.
+func setTracingConfig(config *operatorv1.DPFOperatorConfig, tracing *operatorv1.OpenTelemetryCollectorTracingConfiguration) {
+	tracing.Endpoint = "http://collector:4318"
+	config.Spec.Monitoring = &operatorv1.MonitoringConfiguration{
+		OpenTelemetryCollector: &operatorv1.OpenTelemetryCollectorConfiguration{Tracing: tracing},
+	}
 }
 
 func setVaultKMSConfig(config *operatorv1.DPFOperatorConfig, vaultKMS *operatorv1.VaultKMSConfiguration) {

@@ -19,6 +19,10 @@ package inventory
 import (
 	"context"
 	"testing"
+	"time"
+
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/release"
 
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
@@ -26,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -99,9 +104,72 @@ func newManagerDeployment() *appsv1.Deployment {
 	}
 }
 
+// tracingVars returns tracing variables with the given export destination and default settings.
+func tracingVars(export OpenTelemetryCollectorGenericVariables) OpenTelemetryCollectorTracingVariables {
+	return OpenTelemetryCollectorTracingVariables{OpenTelemetryCollectorGenericVariables: export}
+}
+
 // Test_setTracingFlags checks the --otel-tracing-* flags set on the manager container for each
 // tracing configuration.
 func Test_setTracingFlags(t *testing.T) {
+	t.Run("sets the settings that differ from the controllers' defaults", func(t *testing.T) {
+		g := NewWithT(t)
+		deploy := newManagerDeployment()
+		tracing := tracingVars(OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318"})
+		tracing.RecordIdleReconciles = true
+		tracing.RecordUnchangedReconciles = true
+		tracing.SamplingPercent = ptr.To[int32](25)
+		tracing.RolloutTimeout = ptr.To(30 * time.Minute)
+		vars := Variables{OpenTelemetryCollector: OpenTelemetryCollectorVariables{Tracing: tracing}}
+
+		g.Expect(setTracingFlags(deploy, vars)).To(Succeed())
+
+		g.Expect(deploy.Spec.Template.Spec.Containers[0].Args).To(ConsistOf(
+			"--otel-tracing-endpoint=http://collector:4318",
+			"--otel-tracing-record-idle-reconciles=true",
+			"--otel-tracing-record-unchanged-reconciles=true",
+			"--otel-tracing-sampling-percent=25",
+			"--otel-tracing-rollout-timeout=30m0s",
+		))
+	})
+
+	t.Run("passes no flag for settings at the controllers' defaults", func(t *testing.T) {
+		g := NewWithT(t)
+		deploy := newManagerDeployment()
+		tracing := tracingVars(OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318"})
+		tracing.SamplingPercent = ptr.To[int32](100)
+		tracing.RolloutTimeout = ptr.To(time.Hour)
+		vars := Variables{OpenTelemetryCollector: OpenTelemetryCollectorVariables{Tracing: tracing}}
+
+		g.Expect(setTracingFlags(deploy, vars)).To(Succeed())
+
+		g.Expect(deploy.Spec.Template.Spec.Containers[0].Args).To(ConsistOf("--otel-tracing-endpoint=http://collector:4318"))
+	})
+
+	t.Run("passes 0 percent sampling", func(t *testing.T) {
+		g := NewWithT(t)
+		deploy := newManagerDeployment()
+		tracing := tracingVars(OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318"})
+		tracing.SamplingPercent = ptr.To[int32](0)
+		vars := Variables{OpenTelemetryCollector: OpenTelemetryCollectorVariables{Tracing: tracing}}
+
+		g.Expect(setTracingFlags(deploy, vars)).To(Succeed())
+
+		g.Expect(deploy.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--otel-tracing-sampling-percent=0"))
+	})
+
+	t.Run("passes a zero rollout timeout, which turns the timeout off", func(t *testing.T) {
+		g := NewWithT(t)
+		deploy := newManagerDeployment()
+		tracing := tracingVars(OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318"})
+		tracing.RolloutTimeout = ptr.To(time.Duration(0))
+		vars := Variables{OpenTelemetryCollector: OpenTelemetryCollectorVariables{Tracing: tracing}}
+
+		g.Expect(setTracingFlags(deploy, vars)).To(Succeed())
+
+		g.Expect(deploy.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--otel-tracing-rollout-timeout=0s"))
+	})
+
 	t.Run("no-op when endpoint is unset", func(t *testing.T) {
 		g := NewWithT(t)
 		deploy := newManagerDeployment()
@@ -115,7 +183,7 @@ func Test_setTracingFlags(t *testing.T) {
 		g := NewWithT(t)
 		deploy := newManagerDeployment()
 		vars := Variables{OpenTelemetryCollector: OpenTelemetryCollectorVariables{
-			Tracing: OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318"},
+			Tracing: tracingVars(OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318"}),
 		}}
 
 		g.Expect(setTracingFlags(deploy, vars)).To(Succeed())
@@ -129,11 +197,11 @@ func Test_setTracingFlags(t *testing.T) {
 		g := NewWithT(t)
 		deploy := newManagerDeployment()
 		vars := Variables{OpenTelemetryCollector: OpenTelemetryCollectorVariables{
-			Tracing: OpenTelemetryCollectorGenericVariables{
+			Tracing: tracingVars(OpenTelemetryCollectorGenericVariables{
 				Endpoint:  "https://collector:4317",
 				Transport: "grpc",
 				CACert:    "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
-			},
+			}),
 		}}
 
 		g.Expect(setTracingFlags(deploy, vars)).To(Succeed())
@@ -149,7 +217,7 @@ func Test_setTracingFlags(t *testing.T) {
 		g := NewWithT(t)
 		deploy := newManagerDeployment()
 		vars := Variables{OpenTelemetryCollector: OpenTelemetryCollectorVariables{
-			Tracing: OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318", CACert: "pem"},
+			Tracing: tracingVars(OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318", CACert: "pem"}),
 		}}
 
 		g.Expect(setTracingFlags(deploy, vars)).To(Succeed())
@@ -162,10 +230,105 @@ func Test_setTracingFlags(t *testing.T) {
 		g := NewWithT(t)
 		deploy := &appsv1.Deployment{}
 		vars := Variables{OpenTelemetryCollector: OpenTelemetryCollectorVariables{
-			Tracing: OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318"},
+			Tracing: tracingVars(OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318"}),
 		}}
 
 		g.Expect(setTracingFlags(deploy, vars)).To(MatchError(ContainSubstring("manager")))
+	})
+}
+
+// Test_tracingFlagsFor checks that the tracing flags are set unless the component opted out.
+func Test_tracingFlagsFor(t *testing.T) {
+	tracingVars := func(disabled map[operatorv1.ComponentName]bool) Variables {
+		return Variables{
+			DisableTracing: disabled,
+			OpenTelemetryCollector: OpenTelemetryCollectorVariables{
+				Tracing: OpenTelemetryCollectorTracingVariables{
+					OpenTelemetryCollectorGenericVariables: OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318"},
+				},
+			},
+		}
+	}
+
+	t.Run("sets the flags when the component did not opt out", func(t *testing.T) {
+		g := NewWithT(t)
+		deploy := newManagerDeployment()
+
+		g.Expect(tracingFlagsFor(operatorv1.DPUServiceControllerName)(deploy, tracingVars(nil))).To(Succeed())
+
+		g.Expect(deploy.Spec.Template.Spec.Containers[0].Args).To(ConsistOf("--otel-tracing-endpoint=http://collector:4318"))
+	})
+
+	t.Run("leaves the container untouched when the component opted out", func(t *testing.T) {
+		g := NewWithT(t)
+		deploy := newManagerDeployment()
+		vars := tracingVars(map[operatorv1.ComponentName]bool{operatorv1.DPUServiceControllerName: true})
+
+		g.Expect(tracingFlagsFor(operatorv1.DPUServiceControllerName)(deploy, vars)).To(Succeed())
+
+		g.Expect(deploy.Spec.Template.Spec.Containers[0].Args).To(BeEmpty())
+	})
+
+	t.Run("an opt-out of another component does not apply", func(t *testing.T) {
+		g := NewWithT(t)
+		deploy := newManagerDeployment()
+		vars := tracingVars(map[operatorv1.ComponentName]bool{operatorv1.NodeSRIOVDevicePluginControllerName: true})
+
+		g.Expect(tracingFlagsFor(operatorv1.DPUServiceControllerName)(deploy, vars)).To(Succeed())
+
+		g.Expect(deploy.Spec.Template.Spec.Containers[0].Args).To(ConsistOf("--otel-tracing-endpoint=http://collector:4318"))
+	})
+
+	t.Run("an explicit false keeps tracing on", func(t *testing.T) {
+		g := NewWithT(t)
+		deploy := newManagerDeployment()
+		vars := tracingVars(map[operatorv1.ComponentName]bool{operatorv1.DPUServiceControllerName: false})
+
+		g.Expect(tracingFlagsFor(operatorv1.DPUServiceControllerName)(deploy, vars)).To(Succeed())
+
+		g.Expect(deploy.Spec.Template.Spec.Containers[0].Args).To(ConsistOf("--otel-tracing-endpoint=http://collector:4318"))
+	})
+}
+
+// Test_variablesDisableTracing checks that Variables collect disableTracing from the controller configs.
+func Test_variablesDisableTracing(t *testing.T) {
+	defaults := &release.Defaults{}
+	NewWithT(t).Expect(defaults.Parse()).To(Succeed())
+
+	t.Run("empty when no controller opted out", func(t *testing.T) {
+		g := NewWithT(t)
+		vars := VariablesFromDPFOperatorConfig(defaults, spireTestConfig(nil), nil)
+		g.Expect(vars.DisableTracing).To(BeEmpty())
+	})
+
+	t.Run("follows disableTracing of the controllers that support tracing", func(t *testing.T) {
+		g := NewWithT(t)
+		config := spireTestConfig(nil)
+		config.Spec.DPUServiceController = &operatorv1.DPUServiceControllerConfiguration{
+			TracingControllerConfig: operatorv1.TracingControllerConfig{DisableTracing: ptr.To(true)},
+		}
+		config.Spec.ProvisioningController = &operatorv1.ProvisioningControllerConfiguration{
+			TracingControllerConfig: operatorv1.TracingControllerConfig{DisableTracing: ptr.To(true)},
+		}
+		config.Spec.NodeSRIOVDevicePluginController = &operatorv1.NodeSRIOVDevicePluginControllerConfiguration{
+			TracingControllerConfig: operatorv1.TracingControllerConfig{DisableTracing: ptr.To(false)},
+		}
+		config.Spec.ServiceSetController = &operatorv1.ServiceSetControllerConfiguration{
+			TracingControllerConfig: operatorv1.TracingControllerConfig{DisableTracing: ptr.To(true)},
+		}
+		config.Spec.SFCController = &operatorv1.SFCControllerConfiguration{
+			TracingControllerConfig: operatorv1.TracingControllerConfig{DisableTracing: ptr.To(true)},
+		}
+
+		vars := VariablesFromDPFOperatorConfig(defaults, config, nil)
+
+		g.Expect(vars.DisableTracing).To(Equal(map[operatorv1.ComponentName]bool{
+			operatorv1.DPUServiceControllerName:            true,
+			operatorv1.ProvisioningControllerName:          true,
+			operatorv1.NodeSRIOVDevicePluginControllerName: false,
+			operatorv1.ServiceSetControllerName:            true,
+			operatorv1.SFCControllerName:                   true,
+		}))
 	})
 }
 

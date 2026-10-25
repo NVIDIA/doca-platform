@@ -421,6 +421,19 @@ flowchart LR
     dpuc -- "OTLP" --> ep
 ```
 
+Both producers use the same address, so `tracing.endpoint` must be reachable from the Host Cluster and from the DPU cluster. Set it like the logging and metrics endpoints, to the NodePort or the VIP of the Host Cluster collector:
+
+```yaml
+spec:
+  monitoring:
+    openTelemetryCollector:
+      tracing:
+        endpoint: "http://<host-node-ip>:30050"
+```
+
+> [!NOTE]
+> Do not use the cluster-local Service name of the collector (`*.svc.cluster.local`). It resolves on the Host Cluster, so the controllers export, but not on the DPUs, so the spans of the DPU cluster never arrive.
+
 For how a DPF controller is instrumented, see [Tracing](../../../developer-guides/system/tracing.md) in the developer guide.
 
 ### Setting the trace context
@@ -481,11 +494,48 @@ spec:
 ```
 
 `tracing` takes the same `transport` and `caSecretRef` fields as `logging`/`metrics` — see [Transport](#transport)
-and [TLS and Custom CA Certificates](#tls-and-custom-ca-certificates) above. A separate collector deployed as its own
+and [TLS and Custom CA Certificates](#tls-and-custom-ca-certificates) above. It also decides how many spans DPF controllers export:
+
+* `recordIdleReconciles` (`false` by default): `true` also exports idle reconciles, which start at the `resourceVersion` the last successful reconcile left behind, for example requeues and resyncs. An idle reconcile that fails or changes its object is always exported.
+* `recordUnchangedReconciles` (`false` by default): `true` also exports reconciles that changed nothing on their object, did not fail and have no child spans. Such a span only says that the reconcile ran.
+* `samplingPercent` (`100` by default): the share of the traces that is exported. The decision is made per trace, so all spans of a change are kept or dropped together. It also applies to traces started by an upstream caller.
+* `rolloutTimeout` (`1h` by default): how long a change may take to become ready before its rollout span is exported as timed out. It is also how long a trace keeps collecting reconciles. A later reconcile starts a trace of its own with a span link to the change, and still carries its `workflow.id`. `0s` turns the timeout off: a rollout then ends only once the change is ready or a newer change replaces it, and a trace keeps collecting reconciles.
+
+```yaml
+spec:
+  monitoring:
+    openTelemetryCollector:
+      tracing:
+        endpoint: "http://<host-node-ip>:30050"
+        samplingPercent: 50
+        rolloutTimeout: 30m
+```
+
+Changing one of them restarts the controllers that export traces. A separate collector deployed as its own
 DPUService forwards only the pipelines in its own `config`.
 See [Custom Configuration](user-managed-components.md#custom-configuration).
 Disable the packaged collector with `spec.monitoring.openTelemetryCollector.disable: true` when the packaged trace
 forwarding should stop.
+
+### Opting a controller out
+
+With `tracing` set, every CR-driven controller exports spans. To switch tracing off for one of them, set `disableTracing` in its component configuration. These controllers support it:
+
+```yaml
+spec:
+  provisioningController:
+    disableTracing: true
+  dpuServiceController:
+    disableTracing: true
+  nodeSRIOVDevicePluginController:
+    disableTracing: true
+  serviceSetController:
+    disableTracing: true
+  sfcController:
+    disableTracing: true
+```
+
+The controller then runs without an exporter and exports no spans. It also stops writing the generated trace annotations onto the objects it creates and removes them from the ones it writes again, so a trace ends at this controller. `disableTracing` applies per controller deployment: `dpuServiceController` covers all the reconcilers of the DPUService controller (DPUDeployment, DPUService, DPUServiceChain, DPUServiceInterface, DPUServiceIPAM, DPUServiceNAD and so on).
 
 ### Viewing traces
 
@@ -494,7 +544,7 @@ DPF only exports the spans. The reference monitoring stack deploys [Tempo](https
 * **Explore → Tempo**, search by any span attribute (`controller`, `k8s.resource.kind`, `k8s.namespace.name`, `k8s.object.name`, ...) to find a trace.
 * Search `{ name = "dpudeploymentcontroller.change" }` to find the changes of DPUDeployments, and open one to see what ran for it. The trace has the reconciles of all controllers that ran for that change. Reconciles that find nothing changed are not recorded.
 * A reconcile span has `reconcile.changes`, what the reconcile changed on its own object: `none`, `status`, `spec` (the generation moved), `metadata` (labels, annotations or finalizers), or several joined with `+`. Controllers keep rewriting their status while children settle, so `{ span.reconcile.changes != "status" && span.reconcile.changes != "none" }` hides those reconciles.
-* A DPUDeployment and a DPUService also export one rollout span per generation, `dpudeploymentcontroller.rollout` and `dpuservice-manager.rollout`. It lasts from the change until it is ready and marks the end of the change, and it is the root with the real duration. While the change is in progress, an instant `dpudeploymentcontroller.change` span is the root of the trace. `rollout.result` is `ready`, `timeout` (not ready after an hour) or `superseded` (a newer generation came first). Search `{ name = "dpudeploymentcontroller.rollout" }` to see how long changes took.
+* A DPUDeployment and a DPUService also export one rollout span per generation, `dpudeploymentcontroller.rollout` and `dpuservice-manager.rollout`. It lasts from the change until it is ready and marks the end of the change, and it is the root with the real duration. While the change is in progress, an instant `dpudeploymentcontroller.change` span is the root of the trace. `rollout.result` is `ready`, `timeout` (not ready within `rolloutTimeout`) or `superseded` (a newer generation came first). Search `{ name = "dpudeploymentcontroller.rollout" }` to see how long changes took.
 * A DPUService reconcile has child spans for its slow steps: `dpuservice.argocd-application` (with `application.action` create, update or unchanged), `dpuservice.image-pull-secrets`, and for a DPUServiceCredentialRequest `credentialrequest.service-account` and `credentialrequest.secret`.
 * The DPUServiceChain, DPUServiceInterface, DPUServiceIPAM and DPUServiceNAD reconciles have a child span for each call to a DPU cluster: `dpucluster.apply`, `dpucluster.readiness` (with `objects.count` and `objects.unready`) and `dpucluster.delete`, all with `dpucluster.name`.
 * A Node reconcile of the node SR-IOV device plugin controller has a `nodesriovdeviceplugin.sync-pod` child span, with `pod.action` create, delete, recreate or none, so a reconcile that only looked at the node is still visible.
