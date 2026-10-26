@@ -23,6 +23,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
@@ -118,6 +119,50 @@ func (c *Client) GetPipelineSchedule(scheduleID int) (*PipelineSchedule, error) 
 	}
 
 	return &schedule, nil
+}
+
+// SchedulePipeline is a pipeline triggered by a pipeline schedule.
+type SchedulePipeline struct {
+	ID        int       `json:"id"`
+	Status    string    `json:"status"`
+	Source    string    `json:"source"`
+	Ref       string    `json:"ref"`
+	SHA       string    `json:"sha"`
+	WebURL    string    `json:"web_url"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ListSchedulePipelines retrieves the pipelines triggered by a schedule that
+// were created at or after since, oldest first. A zero since returns all of
+// them. The endpoint has no date filter and no documented order, so every
+// page is fetched and filtered here.
+func (c *Client) ListSchedulePipelines(scheduleID int, since time.Time) ([]SchedulePipeline, error) {
+	var all []SchedulePipeline
+	perPage := 100
+
+	for page := 1; ; page++ {
+		endpoint := fmt.Sprintf("%s/projects/%s/pipeline_schedules/%d/pipelines?page=%d&per_page=%d",
+			c.baseURL, c.projectID, scheduleID, page, perPage)
+
+		var pipelines []SchedulePipeline
+		if err := c.doJSONRequest("GET", endpoint, nil, &pipelines); err != nil {
+			return nil, err
+		}
+
+		for _, pipeline := range pipelines {
+			if since.IsZero() || !pipeline.CreatedAt.Before(since) {
+				all = append(all, pipeline)
+			}
+		}
+		if len(pipelines) < perPage {
+			break
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].CreatedAt.Before(all[j].CreatedAt) })
+
+	return all, nil
 }
 
 // CreatePipelineSchedule creates a new pipeline schedule owned by the
