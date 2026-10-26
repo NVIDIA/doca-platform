@@ -2943,7 +2943,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			// mtlsClient is nil because it must not be used on this path.
 			result, err := reconciler.installIssuedServerCert(context.Background(), nil, cr, apierrors.NewNotFound(schema.GroupResource{}, cr.GetName()))
 			Expect(result).To(BeNil())
-			Expect(err).To(MatchError(ContainSubstring("not found during rotation")))
+			Expect(err).To(MatchError(errServerCertRequestMissing))
 		})
 
 		It("returns errCertRequestPending while the request is unsigned", func() {
@@ -3055,7 +3055,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 
 			result, err := reconciler.rotateServerCert(ctx, dpuDevice, nil, true)
 			Expect(result).To(BeNil())
-			Expect(err).To(MatchError(ContainSubstring("not found during rotation")))
+			Expect(err).To(MatchError(errServerCertRequestMissing))
 		})
 
 		It("returns errCertRequestPending when the CertificateRequest exists but is unsigned", func() {
@@ -3215,9 +3215,92 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			// the BMC for a CSR. GenerateCSR always dials port 443, which the mock does not serve, so
 			// the pass ends there; an in-progress rotation would have kept the request and waited.
 			_, err = reconciler.reconcileServerCertRotation(ctx, dpuDevice, defaultBMCServerCertRenewBefore)
-			Expect(err).To(MatchError(ContainSubstring("failed to generate CSR")))
+			Expect(err).To(MatchError(errServerCertCSRFailed))
 			err = reconciler.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)
 			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("drops the old expiry when a manual rotation starts and keeps the trigger pending if it fails", func() {
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-rotation-start")
+			dpuDevice.UID = types.UID("test-dpudevice-rotation-start")
+			dpuDevice.Annotations = map[string]string{provisioningv1.RotateBMCServerCertificateAnnotation: "trigger-1"}
+			dpuDevice.Status.BMCServerCertificate = &provisioningv1.CertificateStatus{
+				NotAfter: &metav1.Time{Time: time.Now().Add(200 * 24 * time.Hour)},
+			}
+
+			// The pending pass leaves the trigger and expiry for the pass that starts the rotation.
+			result, err := reconciler.reconcileServerCertRotation(ctx, dpuDevice, defaultBMCServerCertRenewBefore)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(serverCertStatePersistRequeue))
+			Expect(dpuDevice.Status.BMCServerCertificate.NotAfter).NotTo(BeNil())
+			Expect(dpuDevice.Status.BMCServerCertificate.ObservedManualTrigger).To(BeNil())
+
+			// The mock BMC does not implement GenerateCSR, so the fresh rotation fails.
+			_, err = reconciler.reconcileServerCertRotation(ctx, dpuDevice, defaultBMCServerCertRenewBefore)
+			Expect(err).To(MatchError(errServerCertCSRFailed))
+			Expect(dpuDevice.Status.BMCServerCertificate.NotAfter).To(BeNil())
+			Expect(dpuDevice.Status.BMCServerCertificate.ObservedManualTrigger).To(BeNil())
+			Expect(findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceBMCServerCertificateReady)).Reason).
+				To(Equal(provisioningv1.ReasonBMCServerCertificateRotationFailed))
+		})
+
+		// The status patch writes conditions before the other status fields, so the reconcile after a
+		// completed rotation can see Ready=True next to the status recorded when the rotation started.
+		It("does not start a second rotation from a half-written completion status", func() {
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-half-written")
+			dpuDevice.UID = types.UID("test-dpudevice-half-written")
+			dpuDevice.Annotations = map[string]string{provisioningv1.RotateBMCServerCertificateAnnotation: "trigger-1"}
+			dpuDevice.Status.BMCServerCertificate = &provisioningv1.CertificateStatus{
+				ObservedManualTrigger: ptr.To("trigger-1"),
+			}
+			dpuDevice.Status.Conditions = []metav1.Condition{{
+				Type:   string(provisioningv1.ConditionDpuDeviceBMCServerCertificateReady),
+				Status: metav1.ConditionTrue,
+				Reason: "Success",
+			}}
+
+			_, err := reconciler.reconcileServerCertRotation(ctx, dpuDevice, defaultBMCServerCertRenewBefore)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(dpuDevice.Status.BMCServerCertificate.NotAfter).NotTo(BeNil())
+			Expect(findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceBMCServerCertificateReady)).Status).To(Equal(metav1.ConditionTrue))
+
+			cr := &unstructured.Unstructured{}
+			cr.SetGroupVersionKind(crGVK())
+			err = reconciler.Client.Get(ctx, types.NamespacedName{
+				Name:      cutil.GenerateBMCServerCertRequestName(dpuDevice.Name),
+				Namespace: dpuDevice.Namespace,
+			}, cr)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("un-observes the manual trigger when the rotation fails so it is retried", func() {
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-rotation-failed")
+			dpuDevice.UID = types.UID("test-dpudevice-rotation-failed")
+			dpuDevice.Annotations = map[string]string{provisioningv1.RotateBMCServerCertificateAnnotation: "trigger-1"}
+			dpuDevice.Status.BMCServerCertificate = &provisioningv1.CertificateStatus{
+				ObservedManualTrigger: ptr.To("trigger-1"),
+			}
+			// In progress with no CertificateRequest: the rotation fails terminally.
+			dpuDevice.Status.Conditions = []metav1.Condition{{
+				Type:   string(provisioningv1.ConditionDpuDeviceBMCServerCertificateReady),
+				Status: metav1.ConditionFalse,
+				Reason: provisioningv1.ReasonBMCServerCertificateRotating,
+			}}
+
+			_, err := reconciler.reconcileServerCertRotation(ctx, dpuDevice, defaultBMCServerCertRenewBefore)
+			Expect(err).To(MatchError(errServerCertRequestMissing))
+			Expect(dpuDevice.Status.BMCServerCertificate.ObservedManualTrigger).To(BeNil())
+			Expect(findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceBMCServerCertificateReady)).Reason).
+				To(Equal(provisioningv1.ReasonBMCServerCertificateRotationFailed))
 		})
 
 		It("backfills the expiry on cold start instead of rotating", func() {
@@ -3256,6 +3339,44 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 			Expect(cond.Reason).To(Equal(provisioningv1.ReasonBMCServerCertificateRotationFailed))
+		})
+
+		It("keeps a manual request pending when the mTLS client fails mid-rotation", func() {
+			scheme := runtime.NewScheme()
+			Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+			Expect(corev1.AddToScheme(scheme)).To(Succeed())
+			// No TLS secrets => client construction fails.
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+			reconciler := &DPUDeviceReconciler{Client: fakeClient, RedfishClients: rfclient.NewProvider(fakeClient)}
+
+			bmcIP := "127.0.0.1"
+			bmcPort := uint32(1) // nothing is listening here
+			dpuDevice := &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "test-dpudevice-midrotation-fail",
+					Namespace:   testNamespace,
+					Annotations: map[string]string{provisioningv1.RotateBMCServerCertificateAnnotation: "trigger-1"},
+				},
+				Status: provisioningv1.DPUDeviceStatus{
+					BMCIP:   &bmcIP,
+					BMCPort: &bmcPort,
+					// As recorded when the rotation started.
+					BMCServerCertificate: &provisioningv1.CertificateStatus{ObservedManualTrigger: ptr.To("trigger-1")},
+				},
+			}
+			dpuDevice.Status.Conditions = []metav1.Condition{{
+				Type:   string(provisioningv1.ConditionDpuDeviceBMCServerCertificateReady),
+				Status: metav1.ConditionFalse,
+				Reason: provisioningv1.ReasonBMCServerCertificateRotating,
+			}}
+
+			_, err := reconciler.reconcileServerCertRotation(ctx, dpuDevice, defaultBMCServerCertRenewBefore)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceBMCServerCertificateReady)).Reason).
+				To(Equal(provisioningv1.ReasonBMCServerCertificateRotationFailed))
+			// Once the connection recovers, the request must start a rotation rather than backfill
+			// the old certificate's expiry.
+			Expect(dpuDevice.Status.BMCServerCertificate.ObservedManualTrigger).To(BeNil())
 		})
 	})
 
