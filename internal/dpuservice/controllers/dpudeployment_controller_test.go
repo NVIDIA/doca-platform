@@ -6860,6 +6860,110 @@ var _ = Describe("DPUDeployment Controller", func() {
 					g.Expect(gotDPUService3.Spec.HelmChart.Values.Raw).To(Equal([]byte(gotValue)))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 			})
+			It("should report both the underlying failure and the dependency check failure when a dependency fails to be templated", func() {
+				By("Creating the dependencies")
+				dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)
+				dpuServiceConfiguration.Name = "service1"
+				dpuServiceConfiguration.Spec.DeploymentServiceName = "service1"
+				dpuServiceConfiguration.Spec.ServiceConfiguration.HelmChart.Values = &runtime.RawExtension{Raw: []byte(`{"key1":"value1"}`)}
+				Expect(testClient.Create(ctx, dpuServiceConfiguration)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceConfiguration)
+
+				dpuServiceTemplate := getMinimalDPUServiceTemplate(testNS.Name)
+				dpuServiceTemplate.Name = "service1"
+				dpuServiceTemplate.Spec.DeploymentServiceName = "service1"
+				Expect(testClient.Create(ctx, dpuServiceTemplate)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceTemplate)
+				patchDPUServiceTemplateWithStatus(dpuServiceTemplate)
+
+				// service2 depends on service1, but its values reference a field that does not
+				// exist on the template params, so templating always fails deterministically.
+				dpuServiceConfiguration = getMinimalDPUServiceConfiguration(testNS.Name)
+				dpuServiceConfiguration.Name = "service2"
+				dpuServiceConfiguration.Spec.DeploymentServiceName = "service2"
+				dpuServiceConfiguration.Spec.ServiceConfiguration.HelmChart.Values = &runtime.RawExtension{Raw: []byte(`{"key2":"{{.Services.service1.NoSuchField}}"}`)}
+				Expect(testClient.Create(ctx, dpuServiceConfiguration)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceConfiguration)
+
+				dpuServiceTemplate = getMinimalDPUServiceTemplate(testNS.Name)
+				dpuServiceTemplate.Name = "service2"
+				dpuServiceTemplate.Spec.DeploymentServiceName = "service2"
+				Expect(testClient.Create(ctx, dpuServiceTemplate)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceTemplate)
+				patchDPUServiceTemplateWithStatus(dpuServiceTemplate)
+
+				// service3 depends on service2, which will never be patched because it fails to template.
+				dpuServiceConfiguration = getMinimalDPUServiceConfiguration(testNS.Name)
+				dpuServiceConfiguration.Name = "service3"
+				dpuServiceConfiguration.Spec.DeploymentServiceName = "service3"
+				Expect(testClient.Create(ctx, dpuServiceConfiguration)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceConfiguration)
+
+				dpuServiceTemplate = getMinimalDPUServiceTemplate(testNS.Name)
+				dpuServiceTemplate.Name = "service3"
+				dpuServiceTemplate.Spec.DeploymentServiceName = "service3"
+				Expect(testClient.Create(ctx, dpuServiceTemplate)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceTemplate)
+				patchDPUServiceTemplateWithStatus(dpuServiceTemplate)
+
+				By("Creating the DPUDeployment")
+				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
+				dpuDeployment.Spec.Services = make(map[string]dpuservicev1.DPUDeploymentServiceConfiguration)
+				dpuDeployment.Spec.Services["service1"] = dpuservicev1.DPUDeploymentServiceConfiguration{
+					ServiceTemplate:      "service1",
+					ServiceConfiguration: "service1",
+				}
+				dpuDeployment.Spec.Services["service2"] = dpuservicev1.DPUDeploymentServiceConfiguration{
+					ServiceTemplate:      "service2",
+					ServiceConfiguration: "service2",
+					DependsOn: []dpuservicev1.LocalObjectDependency{
+						{
+							Name: "service1",
+						},
+					},
+				}
+				dpuDeployment.Spec.Services["service3"] = dpuservicev1.DPUDeploymentServiceConfiguration{
+					ServiceTemplate:      "service3",
+					ServiceConfiguration: "service3",
+					DependsOn: []dpuservicev1.LocalObjectDependency{
+						{
+							Name: "service2",
+						},
+					},
+				}
+				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
+
+				By("checking that the DPUServicesReconciled condition reports both failures")
+				Eventually(func(g Gomega) {
+					gotDPUDeployment := &dpuservicev1.DPUDeployment{}
+					g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(dpuDeployment), gotDPUDeployment)).To(Succeed())
+					g.Expect(gotDPUDeployment.Status.Conditions).To(ContainElement(
+						And(
+							HaveField("Type", string(dpuservicev1.ConditionDPUServicesReconciled)),
+							HaveField("Status", metav1.ConditionFalse),
+							HaveField("Reason", string(conditions.ReasonError)),
+							HaveField("Message", ContainSubstring("failed to template DPUService service2")),
+						),
+					))
+					g.Expect(gotDPUDeployment.Status.Conditions).To(ContainElement(
+						And(
+							HaveField("Type", string(dpuservicev1.ConditionDPUServicesReconciled)),
+							HaveField("Status", metav1.ConditionFalse),
+							HaveField("Reason", string(conditions.ReasonError)),
+							HaveField("Message", ContainSubstring("failed to check dependencies for DPUService service3")),
+						),
+					))
+
+					gotDPUServiceList := &dpuservicev1.DPUServiceList{}
+					g.Expect(testClient.List(ctx, gotDPUServiceList, &client.ListOptions{
+						Namespace: testNS.Name,
+					})).To(Succeed())
+					g.Expect(gotDPUServiceList.Items).To(HaveLen(1))
+					g.Expect(gotDPUServiceList.Items[0].Labels).To(HaveKeyWithValue(dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey, "service1"))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+			})
 			It("should patch a manually modified DPUService as long as the modification is not on the version annotation", func() {
 				By("Creating the dependencies")
 				dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)
