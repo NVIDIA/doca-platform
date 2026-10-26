@@ -121,7 +121,7 @@
               "properties": {
                 "maxUnavailable": {
                   "oneOf": [
-                    { "type": "integer", "minimum": 1 },
+                    { "type": "integer", "minimum": 0 },
                     { "type": "string" }
                   ]
                 }

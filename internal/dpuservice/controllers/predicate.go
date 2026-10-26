@@ -288,6 +288,26 @@ func privilegedPodEnforcementChangedPredicate() predicate.Predicate {
 	}
 }
 
+// serviceDaemonSetMaxUnavailableChangedPredicate watches changes to the effective rollout default.
+func serviceDaemonSetMaxUnavailableChangedPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc:  func(event.CreateEvent) bool { return false },
+		DeleteFunc:  func(event.DeleteEvent) bool { return false },
+		GenericFunc: func(event.GenericEvent) bool { return false },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldConfig, ok := e.ObjectOld.(*operatorv1.DPFOperatorConfig)
+			if !ok {
+				return false
+			}
+			newConfig, ok := e.ObjectNew.(*operatorv1.DPFOperatorConfig)
+			if !ok {
+				return false
+			}
+			return oldConfig.Spec.DPUServiceController.ServiceDaemonSetMaxUnavailableValue() != newConfig.Spec.DPUServiceController.ServiceDaemonSetMaxUnavailableValue()
+		},
+	}
+}
+
 // nodeOVNEncapIPPredicate filters node events to only trigger on OVN node encapsulation IP changes.
 func nodeOVNEncapIPPredicate() predicate.Funcs {
 	return predicate.Funcs{
