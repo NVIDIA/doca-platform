@@ -109,6 +109,13 @@ const (
 // reconcile should requeue without treating the rotation as failed.
 var errCertRequestPending = errors.New("cert-manager CertificateRequest is not issued yet")
 
+var (
+	// errServerCertCSRFailed indicates the BMC did not generate a CSR for a fresh rotation.
+	errServerCertCSRFailed = errors.New("failed to generate CSR")
+	// errServerCertRequestMissing indicates the CertificateRequest of an in-progress rotation is gone.
+	errServerCertRequestMissing = errors.New("CertificateRequest not found during rotation")
+)
+
 // DPUDeviceReconciler reconciles a DPUDevice object
 type DPUDeviceReconciler struct {
 	client.Client
@@ -1707,20 +1714,30 @@ func (r *DPUDeviceReconciler) reconcileServerCertRotation(ctx context.Context, d
 		_, _, err = mtlsClient.GetManagers(readCtx)
 	}
 	if err != nil {
+		var result ctrl.Result
+		var recoverErr error
+		switch {
 		// A server-certificate verification failure cannot be healed over mTLS: rotation needs a
 		// verified mTLS connection, which is exactly what is broken. Re-run setUpMTLS over basic
 		// auth only, without clearing Initialized / re-entering initializeDPUDevice.
-		if rfclient.IsBMCServerCertUntrusted(err) {
-			return r.recoverServerCert(ctx, dpuDevice, serverCertStatus, err)
+		case rfclient.IsBMCServerCertUntrusted(err):
+			result, recoverErr = r.recoverServerCert(ctx, dpuDevice, serverCertStatus, err)
+		case rfclient.IsRedfishClientCertStale(err):
+			result, recoverErr = r.recoverRedfishClientCert(ctx, dpuDevice, err)
+		default:
+			log.Error(err, "failed to open mTLS client for server cert rotation")
+			conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceBMCServerCertificateReady,
+				conditions.ConditionReason(provisioningv1.ReasonBMCServerCertificateRotationFailed),
+				conditions.ConditionMessage(fmt.Sprintf("failed to open mTLS client: %v", err)))
+			result = ctrl.Result{RequeueAfter: serverCertRotationBackoff}
 		}
-		if rfclient.IsRedfishClientCertStale(err) {
-			return r.recoverRedfishClientCert(ctx, dpuDevice, err)
+		// A rotation that is no longer Rotating was abandoned; its manual request must stay pending.
+		// Recovery that resumes the rotation keeps the trigger recorded, so its completion cannot be
+		// mistaken for a new request.
+		if rotationInProgress && !serverCertRotating(dpuDevice) {
+			unobserveManualTrigger(serverCertStatus, manualTrigger)
 		}
-		log.Error(err, "failed to open mTLS client for server cert rotation")
-		conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceBMCServerCertificateReady,
-			conditions.ConditionReason(provisioningv1.ReasonBMCServerCertificateRotationFailed),
-			conditions.ConditionMessage(fmt.Sprintf("failed to open mTLS client: %v", err)))
-		return ctrl.Result{RequeueAfter: serverCertRotationBackoff}, nil
+		return result, recoverErr
 	}
 
 	// Cold start: backfill the expiry from the BMC instead of forcing a fleet-wide rotation.
@@ -1750,12 +1767,25 @@ func (r *DPUDeviceReconciler) reconcileServerCertRotation(ctx context.Context, d
 		conditions.ConditionReason(provisioningv1.ReasonBMCServerCertificateRotating),
 		conditions.ConditionMessage("BMC mTLS server certificate rotation in progress"))
 
+	// The status patch writes conditions and the remaining status fields in separate requests, so
+	// the next reconcile can observe the completion's Ready=True alongside the status recorded here.
+	// Record the trigger and drop the old expiry when the rotation starts: that half-written state
+	// then reads as "trigger already handled, expiry unknown" and only backfills the new expiry,
+	// instead of looking like a pending request that starts a second rotation.
+	if !rotationInProgress {
+		if manualRequested {
+			serverCertStatus.ObservedManualTrigger = ptr.To(manualTrigger)
+		}
+		serverCertStatus.NotAfter = nil
+	}
+
 	issuedNotAfter, err := r.rotateServerCert(ctx, dpuDevice, mtlsClient, rotationInProgress)
 	if err != nil {
 		if errors.Is(err, errCertRequestPending) {
 			log.Info("waiting for BMC server certificate to be issued")
 			return ctrl.Result{RequeueAfter: serverCertIssuanceRequeue}, nil
 		}
+		unobserveManualTrigger(serverCertStatus, manualTrigger)
 		conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceBMCServerCertificateReady,
 			conditions.ConditionReason(provisioningv1.ReasonBMCServerCertificateRotationFailed),
 			conditions.ConditionMessage(err.Error()))
@@ -1765,12 +1795,23 @@ func (r *DPUDeviceReconciler) reconcileServerCertRotation(ctx context.Context, d
 	serverCertStatus.NotAfter = issuedNotAfter
 	serverCertStatus.LastRotationTime = ptr.To(metav1.Now())
 	recordServerCertAddress(dpuDevice)
-	if manualRequested {
-		serverCertStatus.ObservedManualTrigger = ptr.To(manualTrigger)
-	}
 	conditions.AddTrue(dpuDevice, provisioningv1.ConditionDpuDeviceBMCServerCertificateReady)
 	log.Info("rotated BMC server certificate", "notAfter", issuedNotAfter.Time)
 	return ctrl.Result{RequeueAfter: requeueUntil(issuedNotAfter.Time, renewBefore)}, nil
+}
+
+// serverCertRotating reports whether a BMC server-certificate rotation is in progress.
+func serverCertRotating(dpuDevice *provisioningv1.DPUDevice) bool {
+	cond := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceBMCServerCertificateReady)
+	return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == provisioningv1.ReasonBMCServerCertificateRotating
+}
+
+// unobserveManualTrigger makes a manual rotation request pending again after its rotation was
+// abandoned, since the trigger is recorded when the rotation starts rather than when it completes.
+func unobserveManualTrigger(serverCertStatus *provisioningv1.CertificateStatus, manualTrigger string) {
+	if manualTrigger != "" {
+		serverCertStatus.ObservedManualTrigger = nil
+	}
 }
 
 // recoverRedfishClientCert forces cert-manager to reissue the shared Redfish client certificates
@@ -1936,9 +1977,9 @@ func (r *DPUDeviceReconciler) startServerCertRotation(ctx context.Context, dpuDe
 	}
 	resp, csrInfo, err := mtlsClient.GenerateCSR(ctx, *dpuDevice.Status.BMCIP)
 	if err != nil {
-		return fmt.Errorf("failed to generate CSR: %w", err)
+		return fmt.Errorf("%w: %w", errServerCertCSRFailed, err)
 	} else if resp.StatusCode() != http.StatusOK {
-		return fmt.Errorf("failed to generate CSR, unexpected response status: %s", resp.Status())
+		return fmt.Errorf("%w, unexpected response status: %s", errServerCertCSRFailed, resp.Status())
 	}
 	if err := r.createServerCertCR(ctx, dpuDevice, csrInfo.CSRString); err != nil {
 		return fmt.Errorf("failed to create cert-manager CertificateRequest: %w", err)
@@ -1954,7 +1995,7 @@ func (r *DPUDeviceReconciler) startServerCertRotation(ctx context.Context, dpuDe
 func (r *DPUDeviceReconciler) installIssuedServerCert(ctx context.Context, mtlsClient *rfclient.Client, cr *unstructured.Unstructured, getErr error) (*metav1.Time, error) {
 	if apierrors.IsNotFound(getErr) {
 		// CR vanished mid-rotation; let the next reconcile start a fresh rotation.
-		return nil, fmt.Errorf("CertificateRequest %s not found during rotation", cr.GetName())
+		return nil, fmt.Errorf("%w: %s", errServerCertRequestMissing, cr.GetName())
 	}
 	certificate, found, err := unstructured.NestedString(cr.Object, "status", "certificate")
 	if err != nil {
