@@ -161,16 +161,14 @@ func (r *DPUServiceReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 		// Watch DPUs so entries follow SPIFFE provisioning and decommission promptly
 		// instead of waiting for the next resync.
 		Watches(&provisioningv1.DPU{}, handler.EnqueueRequestsFromMapFunc(r.dpuToSpiffeDPUServices)).
-		// Watch the DPFOperatorConfig so toggling the privileged-pod enforcement
-		// breakglass field (spec.security.privilegedPodEnforcement) promptly
-		// re-reconciles all DPUServices instead of waiting for the next resync.
-		// The predicate fires only when the resolved enforcement state actually
-		// changes, so unrelated DPFOperatorConfig spec edits do not trigger a
-		// reconcile of every DPUService.
+		// Reconcile services when their rollout default or privileged-pod enforcement changes.
 		Watches(
 			&operatorv1.DPFOperatorConfig{},
 			handler.EnqueueRequestsFromMapFunc(r.dpfOperatorConfigToDPUServices),
-			builder.WithPredicates(privilegedPodEnforcementChangedPredicate()),
+			builder.WithPredicates(predicate.Or(
+				privilegedPodEnforcementChangedPredicate(),
+				serviceDaemonSetMaxUnavailableChangedPredicate(),
+			)),
 		)
 
 	if features.Gates.Enabled(features.ConfigPortsOverHighSpeed) {
@@ -1772,6 +1770,8 @@ func defaultServiceDaemonSetUpdateStrategy(strategy *appsv1.DaemonSetUpdateStrat
 }
 
 func argoCDValuesFromDPUService(serviceDaemonSetValues *dpuservicev1.ServiceDaemonSetValues, dpuService *dpuservicev1.DPUService, clusterName, serviceID string, maxUnavailable int32) (*runtime.RawExtension, error) {
+	// Copy before adding defaults so we can distinguish them from explicit user settings.
+	serviceDaemonSetValues = serviceDaemonSetValues.DeepCopy()
 	if serviceDaemonSetValues == nil {
 		serviceDaemonSetValues = &dpuservicev1.ServiceDaemonSetValues{}
 	}

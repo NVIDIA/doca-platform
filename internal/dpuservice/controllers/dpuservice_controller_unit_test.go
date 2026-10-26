@@ -18,7 +18,9 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"testing"
 
@@ -32,18 +34,163 @@ import (
 
 	. "github.com/onsi/gomega"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/component-base/featuregate"
 	featuregatetesting "k8s.io/component-base/featuregate/testing"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 )
+
+// TestRolloutDefaultChanges checks changing defaults while preserving explicit settings and input.
+func TestRolloutDefaultChanges(t *testing.T) {
+	for _, managed := range []bool{false, true} {
+		for _, tc := range []struct {
+			name             string
+			values           *dpuservicev1.ServiceDaemonSetValues
+			preserveStrategy bool
+		}{
+			{
+				name: "omitted values",
+			},
+			{
+				name: "omitted strategy",
+				values: &dpuservicev1.ServiceDaemonSetValues{
+					Labels: map[string]string{"user-label": "value"},
+				},
+			},
+			{
+				name: "omitted limit",
+				values: &dpuservicev1.ServiceDaemonSetValues{
+					UpdateStrategy: &appsv1.DaemonSetUpdateStrategy{
+						Type: appsv1.RollingUpdateDaemonSetStrategyType,
+						RollingUpdate: &appsv1.RollingUpdateDaemonSet{
+							MaxSurge: ptr.To(intstr.FromInt32(0)),
+						},
+					},
+				},
+			},
+			{
+				name: "explicit strategy",
+				values: &dpuservicev1.ServiceDaemonSetValues{
+					UpdateStrategy: &appsv1.DaemonSetUpdateStrategy{
+						Type: appsv1.RollingUpdateDaemonSetStrategyType,
+						RollingUpdate: &appsv1.RollingUpdateDaemonSet{
+							MaxUnavailable: ptr.To(intstr.FromInt32(1)),
+							MaxSurge:       ptr.To(intstr.FromInt32(0)),
+						},
+					},
+				},
+				preserveStrategy: true,
+			},
+		} {
+			t.Run(fmt.Sprintf("managed=%t/%s", managed, tc.name), func(t *testing.T) {
+				g := NewWithT(t)
+				service := &dpuservicev1.DPUService{
+					Spec: dpuservicev1.DPUServiceSpec{ServiceDaemonSet: tc.values},
+				}
+				if managed {
+					service.Labels = map[string]string{operatorv1.DPFComponentLabelKey: "multus"}
+				}
+				original := service.DeepCopy()
+				for _, limit := range []int32{30000, 5, 30000} {
+					values, _, err := (&DPUServiceReconciler{}).reconcileInterfaces(context.Background(), service, "service")
+					g.Expect(err).NotTo(HaveOccurred())
+					rendered, err := argoCDValuesFromDPUService(values, service, "cluster", "service", limit)
+					g.Expect(err).NotTo(HaveOccurred())
+					var chartValues map[string]json.RawMessage
+					g.Expect(json.Unmarshal(rendered.Raw, &chartValues)).To(Succeed())
+					if managed {
+						g.Expect(json.Unmarshal(chartValues["global"], &chartValues)).To(Succeed())
+					}
+					var daemonSetValues dpuservicev1.ServiceDaemonSetValues
+					g.Expect(json.Unmarshal(chartValues["serviceDaemonSet"], &daemonSetValues)).To(Succeed())
+					if tc.preserveStrategy {
+						g.Expect(daemonSetValues.UpdateStrategy).To(Equal(original.Spec.ServiceDaemonSet.UpdateStrategy))
+					} else {
+						g.Expect(daemonSetValues.UpdateStrategy.RollingUpdate.MaxUnavailable).To(Equal(ptr.To(intstr.FromInt32(limit))))
+					}
+					g.Expect(service).To(Equal(original), "rendering must not change the DPUService spec")
+				}
+			})
+		}
+	}
+}
+
+// TestDPUServiceConfigChanges checks that only effective rollout-default changes enqueue services.
+func TestDPUServiceConfigChanges(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		old     *operatorv1.DPUServiceControllerConfiguration
+		new     *operatorv1.DPUServiceControllerConfiguration
+		changed bool
+	}{
+		{
+			name: "fallback to explicit",
+			new: &operatorv1.DPUServiceControllerConfiguration{
+				DefaultServiceDaemonSetMaxUnavailable: 5,
+			},
+			changed: true,
+		},
+		{
+			name: "explicit to fallback",
+			old: &operatorv1.DPUServiceControllerConfiguration{
+				DefaultServiceDaemonSetMaxUnavailable: 5,
+			},
+			changed: true,
+		},
+		{
+			name: "explicit limit changes",
+			old: &operatorv1.DPUServiceControllerConfiguration{
+				DefaultServiceDaemonSetMaxUnavailable: 5,
+			},
+			new: &operatorv1.DPUServiceControllerConfiguration{
+				DefaultServiceDaemonSetMaxUnavailable: 10,
+			},
+			changed: true,
+		},
+		{
+			name: "zero keeps fallback",
+			new:  &operatorv1.DPUServiceControllerConfiguration{},
+		},
+		{
+			name: "explicit fallback unchanged",
+			new: &operatorv1.DPUServiceControllerConfiguration{
+				DefaultServiceDaemonSetMaxUnavailable: 30000,
+			},
+		},
+		{
+			name: "unrelated taint setting changes",
+			new: &operatorv1.DPUServiceControllerConfiguration{
+				DisableDPUReadyTaints: ptr.To(true),
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			g.Expect(serviceDaemonSetMaxUnavailableChangedPredicate().Update(event.UpdateEvent{
+				ObjectOld: &operatorv1.DPFOperatorConfig{
+					Spec: operatorv1.DPFOperatorConfigSpec{
+						DPUServiceController: tc.old,
+					},
+				},
+				ObjectNew: &operatorv1.DPFOperatorConfig{
+					Spec: operatorv1.DPFOperatorConfigSpec{
+						DPUServiceController: tc.new,
+					},
+				},
+			})).To(Equal(tc.changed))
+		})
+	}
+}
 
 func applicationPrereqsTestScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()

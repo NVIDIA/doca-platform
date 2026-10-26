@@ -2279,9 +2279,11 @@ var _ = Describe("unit test DPUService functions", func() {
 				}
 			}
 
+			original := dpuService.DeepCopy()
 			o, err := argoCDValuesFromDPUService(serviceDaemonSetValues, dpuService, "test-cluster", *serviceID, operatorv1.DefaultServiceDaemonSetMaxUnavailableFallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(o.Raw).To(BeEquivalentTo([]byte(expectedValues)))
+			Expect(dpuService).To(Equal(original), "rendering must not change the input service or its daemon set values")
 		},
 			Entry("no values no servicedaemonset",
 				ptr.To("someservice"),
@@ -2465,6 +2467,21 @@ var _ = Describe("unit test DPUService functions", func() {
 					},
 				},
 				`{"serviceDaemonSet":{"labels":{"svc.dpu.nvidia.com/service":"someservice"},"updateStrategy":{"rollingUpdate":{"maxSurge":1,"maxUnavailable":0},"type":"RollingUpdate"}}}`,
+			),
+			Entry("serviceDaemonSet with maxSurge preserves explicit percentage zero maxUnavailable",
+				ptr.To("someservice"),
+				`{}`,
+				false,
+				&dpuservicev1.ServiceDaemonSetValues{
+					UpdateStrategy: &appsv1.DaemonSetUpdateStrategy{
+						Type: appsv1.RollingUpdateDaemonSetStrategyType,
+						RollingUpdate: &appsv1.RollingUpdateDaemonSet{
+							MaxSurge:       ptr.To(intstr.FromInt32(1)),
+							MaxUnavailable: ptr.To(intstr.FromString("0%")),
+						},
+					},
+				},
+				`{"serviceDaemonSet":{"labels":{"svc.dpu.nvidia.com/service":"someservice"},"updateStrategy":{"rollingUpdate":{"maxSurge":1,"maxUnavailable":"0%"},"type":"RollingUpdate"}}}`,
 			),
 			Entry("serviceDaemonSet with explicit maxUnavailable 100% is preserved",
 				ptr.To("someservice"),
