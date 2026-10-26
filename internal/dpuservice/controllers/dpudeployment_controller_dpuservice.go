@@ -112,10 +112,10 @@ func reconcileDPUServices(
 		serviceConfig := dependencies.DPUServiceConfigurations[serviceName]
 		serviceTemplate := dependencies.DPUServiceTemplates[serviceName]
 		if len(dpuDeployment.Spec.Services[serviceName].DependsOn) != 0 {
-			// Check dependencies and requeue the reconciliation if the check fails.
 			err := checkDPUServiceDependencies(ctx, c, dpuDeployment.Spec.Services[serviceName].DependsOn, patchedDPUServices)
 			if err != nil {
-				return ctrl.Result{}, nil, false, fmt.Errorf("failed to check dependencies for DPUService %s: %w", serviceName, err)
+				errs = append(errs, fmt.Errorf("failed to check dependencies for DPUService %s: %w", serviceName, err))
+				continue
 			}
 			rendered, err := templateDPUServiceConfigurationValues(serviceConfig, dpuDeployment.Spec.Services[serviceName].DependsOn, patchedDPUServices)
 			if err != nil {
