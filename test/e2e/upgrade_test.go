@@ -86,12 +86,11 @@ var _ = Describe("DPF Upgrade", func() {
 	installPhase("previous GA", installPhaseInput{
 		label:           Domain.DPFUpgrade,
 		skipBFBImageURL: true,
-		// The previous GA (LAST_STABLE_DPF_VERSION, default v26.4.0) pins its own
+		// The previous GA (LAST_STABLE_DPF_VERSION, default v26.8.0) pins its own
 		// Kubernetes version, which differs from HEAD's util.KubernetesVersion.
-		expectedKubernetesVersion: "v1.34.0",
+		expectedKubernetesVersion: "v1.35.6",
 		artifactsKey:              "before",
-		expectedDPUServices:       expectedDPUServicesV2604,
-		dpuClusterRunsCoreDNS:     true,
+		expectedDPUServices:       expectedDPUServicesCurrent,
 	})
 
 	validationPhase("GA-to-current", validationPhaseInput{
@@ -101,12 +100,6 @@ var _ = Describe("DPF Upgrade", func() {
 		artifactsKey:         "after",
 		prevArtifactsKey:     "before",
 		rolloutDependencies:  true,
-		artifactWaits:        []artifactWait{waitForSFCInterfaceMigration},
-		artifactChecks:       []artifactCheck{assertSFCInterfaceMigration},
-		artifactNormalizes: []artifactNormalize{
-			filterUpgradeInterfaceArtifacts,
-			stripDefaultedDPUServiceSecurity,
-		},
-		expectedDPUServices: expectedDPUServicesCurrent,
+		expectedDPUServices:  expectedDPUServicesCurrent,
 	})
 })

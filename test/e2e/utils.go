@@ -96,7 +96,8 @@ type TestDomain struct {
 	DPFUpgradeValidation    string // Upgrade validation test suite
 	DPFBFBLTSUpgrade        string // BFB LTS upgrade test suite - phase 1: install v25.10 with BFB LTS
 	DPFBFBLTSUpgradeV264    string // BFB LTS upgrade test suite - phase 2: validate v26.4 + DPU rollout
-	DPFBFBLTSUpgradeCurrent string // BFB LTS upgrade test suite - phase 3: validate HEAD with BFB LTS DPUs
+	DPFBFBLTSUpgradeV268    string // BFB LTS upgrade test suite - phase 3: validate v26.8 with BFB LTS DPUs
+	DPFBFBLTSUpgradeCurrent string // BFB LTS upgrade test suite - phase 4: validate HEAD with BFB LTS DPUs
 	ExternalTest            string // External test scripts (DPF precondition setup)
 	TCP                     string // TCP external performance tests
 	UDP                     string // UDP external performance tests
@@ -124,6 +125,7 @@ var Domain = TestDomain{
 	DPFUpgradeValidation:    "DPFUpgradeValidation",
 	DPFBFBLTSUpgrade:        "DPFBFBLTSUpgrade",
 	DPFBFBLTSUpgradeV264:    "DPFBFBLTSUpgradeV264",
+	DPFBFBLTSUpgradeV268:    "DPFBFBLTSUpgradeV268",
 	DPFBFBLTSUpgradeCurrent: "DPFBFBLTSUpgradeCurrent",
 	ExternalTest:            "ExternalTest",
 	TCP:                     "TCP",

@@ -55,9 +55,9 @@ func expectedDPUServicesV2510(_ *systemTestInput) []string {
 
 // The BFB LTS multi-hop upgrade path: install v25.10, validate the v26.4 hop
 // with a mandatory full DPU rollout (so DPUs start reporting KubeletVersion),
-// then validate the v26.7 hop without reprovisioning. Each phase is its own
-// labeled Ginkgo container, selected by CI via its label. Append a new
-// validationPhase for each future hop (v26.10 → …).
+// validate the v26.8 hop without reprovisioning, then validate HEAD. Each phase
+// is its own labeled Ginkgo container, selected by CI via its label. Append a
+// new validationPhase for each future hop.
 var _ = Describe("DPF Upgrade LTS", func() {
 	installPhase("BFB LTS v25.10", installPhaseInput{
 		label: Domain.DPFBFBLTSUpgrade,
@@ -79,7 +79,7 @@ var _ = Describe("DPF Upgrade LTS", func() {
 		label: Domain.DPFBFBLTSUpgradeV264,
 
 		// Reprovision all DPUs under v26.4 so they start reporting KubeletVersion
-		// (required for the v26.7 skew check), then exercise a dependency rollout.
+		// (required for the v26.8 skew check), then exercise a dependency rollout.
 		rolloutAllDPUs:         true,
 		rolloutDPFVersionMinor: "v26.4",
 		rolloutDependencies:    true,
@@ -94,7 +94,7 @@ var _ = Describe("DPF Upgrade LTS", func() {
 		// finalizers here rather than at teardown (#5048585).
 		removeStaleDPUDeviceFinalizers: true,
 
-		// v26.4 post-rollout artifacts become the v26.7 comparison baseline.
+		// v26.4 post-rollout artifacts become the v26.8 comparison baseline.
 		artifactsKey:               "v26.4",
 		preRolloutArtifactsKey:     "v26.4-pre-rollout",
 		preRolloutPrevArtifactsKey: "v25.10",
@@ -103,24 +103,40 @@ var _ = Describe("DPF Upgrade LTS", func() {
 		dpuClusterRunsCoreDNS: true,
 	})
 
-	validationPhase("current", validationPhaseInput{
-		label: Domain.DPFBFBLTSUpgradeCurrent,
+	validationPhase("v26.8", validationPhaseInput{
+		label: Domain.DPFBFBLTSUpgradeV268,
 
 		// No rollout. BFB stays at LTS 3.2.1 and DPUs are not reprovisioned.
 		rolloutAllDPUs:       false,
 		verifyKubeletVersion: true,
 		patchDeploymentMode:  true,
 
-		artifactsKey:     "current",
+		expectedDPFVersion:        envOrDefault("DPF_V268_VERSION", "v26.8.0"),
+		expectedKubernetesVersion: "v1.35.6",
+
+		artifactsKey:     "v26.8",
 		prevArtifactsKey: "v26.4",
 		// v26.8 starts defaulting DPUService.spec.security; strip it when
-		// comparing v26.4 → current artifacts. SFC SI→NSI cutover is this hop.
+		// comparing v26.4 → v26.8 artifacts. SFC SI→NSI cutover is this hop.
 		artifactWaits:  []artifactWait{waitForSFCInterfaceMigration},
 		artifactChecks: []artifactCheck{assertSFCInterfaceMigration},
 		artifactNormalizes: []artifactNormalize{
 			filterUpgradeInterfaceArtifacts,
 			stripDefaultedDPUServiceSecurity,
 		},
+
+		expectedDPUServices: expectedDPUServicesCurrent,
+	})
+
+	validationPhase("current", validationPhaseInput{
+		label: Domain.DPFBFBLTSUpgradeCurrent,
+
+		// No rollout. BFB stays at LTS 3.2.1 and DPUs are not reprovisioned.
+		rolloutAllDPUs:       false,
+		verifyKubeletVersion: true,
+
+		artifactsKey:     "current",
+		prevArtifactsKey: "v26.8",
 
 		expectedDPUServices: expectedDPUServicesCurrent,
 	})
