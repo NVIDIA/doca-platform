@@ -24,3 +24,4 @@ numberOfDPUsPerNode: 1
 numberOfCXsToConfigureViaBF4PerNode: 0
 nodeRebootConfigMap: dpunode-reboot-redfish
 nodeRebootConfigMapPath: "../objects/infrastructure/dpunode-reboot-redfish.yaml"
+hostOSInitToggle: true

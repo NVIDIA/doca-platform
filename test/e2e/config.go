@@ -118,6 +118,12 @@ type config struct {
 	RshimConsoleCollectorPath           *string  `json:"rshimConsoleCollector,omitempty"`
 	SelectDPUDevicesDynamically         bool     `json:"selectDPUDevicesDynamically,omitempty"`
 	UseExternalNodeReboot               bool     `json:"useExternalNodeReboot,omitempty"`
+	// HostOSInitToggle alternates DELAY_HOST_OS_INIT between the two provisioning cycles of a zero-trust
+	// run: the suite DPUSet flavor sets 3, the host OS init hold, and the flavor the DPUDeployment full
+	// creation provisions with omits it, so the DPU agent returns it to the firmware default. Each DPU
+	// Config phase then finds the parameter pending and the DPU agent requests a PowerCycle. Zero trust
+	// only: the provisioning controller rejects the hold on host-trusted DPUs.
+	HostOSInitToggle bool `json:"hostOSInitToggle,omitempty"`
 	// SNAP host-cluster objects, grouped by the patching each needs (see deploySNAPStorageStack)
 	SNAPHostTemplatePaths []string `json:"snapHostTemplatePaths,omitempty"`
 	SNAPHostServicePaths  []string `json:"snapHostServicePaths,omitempty"`

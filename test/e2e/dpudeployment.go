@@ -31,6 +31,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/digest"
+	nvconfigutil "github.com/nvidia/doca-platform/internal/provisioning/utils/nvconfig"
 	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	testutils "github.com/nvidia/doca-platform/test/utils"
@@ -662,6 +663,10 @@ func ValidateDPUDeploymentFullCreation(ctx context.Context, input *systemTestInp
 				},
 			},
 		}
+	}
+
+	if input.hostOSInitToggle && input.dpuFlavor != nil {
+		dpuDeployment.Spec.DPUs.Flavor = ptr.To(createHostOSInitDefaultFlavor(ctx, input).Name)
 	}
 
 	// The DPUDeployment renders a per-DPU DPUFlavor from a template (against each DPUDevice.spec.values) instead of
@@ -2762,4 +2767,22 @@ func ValidateDPUFlavorTemplatePerDeviceNodeLabels(ctx context.Context, input *sy
 				node.Name, dpuFlavorTemplateNodeLabelKey, expected, dpuDevice.Name)
 		}
 	}).WithTimeout(15 * time.Minute).WithPolling(time.Second).Should(Succeed())
+}
+
+// createHostOSInitDefaultFlavor creates the flavor the DPUDeployment full creation provisions with when
+// the e2e config sets hostOSInitToggle: the suite flavor without DELAY_HOST_OS_INIT, so the DPU agent
+// returns the parameter to its firmware default. The suite DPUSet provisioned with the hold, so the
+// agent finds the parameter pending again in this cycle and requests a PowerCycle, and a completed
+// run leaves the lab at the default.
+func createHostOSInitDefaultFlavor(ctx context.Context, input *systemTestInput) *provisioningv1.DPUFlavor {
+	flavor := input.dpuFlavor.DeepCopy()
+	flavor.SetName(input.dpuFlavor.Name + "-host-os-init-default")
+	flavor.SetLabels(CleanupScope.Suite)
+	unsetDPUFlavorNVConfigParam(flavor, nvconfigutil.DelayHostOSInitParam)
+	By("Creating the DPUFlavor " + flavor.Name + " without " + nvconfigutil.DelayHostOSInitParam + " for the DPUDeployment full creation")
+	// The flavor is derived in code, so an existing object with this name is not known to carry
+	// the same settings. The BeforeSuite cleanup removes suite-scoped leftovers of earlier runs,
+	// so one here is an anomaly and the create fails on it.
+	Expect(input.client.Create(ctx, flavor)).To(Succeed())
+	return flavor
 }

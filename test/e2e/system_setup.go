@@ -40,6 +40,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/dpfctl"
 	operatorutils "github.com/nvidia/doca-platform/internal/operator/utils"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	nvconfigutil "github.com/nvidia/doca-platform/internal/provisioning/utils/nvconfig"
 	"github.com/nvidia/doca-platform/internal/utils/tunnel"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 	"github.com/nvidia/doca-platform/test/e2e/cleanup"
@@ -63,6 +64,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -167,6 +169,7 @@ type systemTestInput struct {
 	rshimConsoleCollector               *appsv1.DaemonSet
 	selectDPUDevicesDynamically         bool
 	useExternalNodeReboot               bool
+	hostOSInitToggle                    bool
 
 	// Runtime state assembled by SetInput and the suite, not read from the
 	// config file.
@@ -362,6 +365,11 @@ func (t *systemTestInput) applyConfig(conf config) {
 	if conf.DPUFlavorPath != nil {
 		t.dpuFlavor = objectFromFile[provisioningv1.DPUFlavor](*conf.DPUFlavorPath)
 		overrideDPUFlavorConsole(t.dpuFlavor)
+		if conf.HostOSInitToggle {
+			// Cycle 1 provisions with the host OS init hold; the DPUDeployment full creation
+			// switches it back to the default (see createHostOSInitDefaultFlavor).
+			setDPUFlavorNVConfigParam(t.dpuFlavor, nvconfigutil.DelayHostOSInitParam, hostOSInitHoldValue)
+		}
 		t.dpuDeployment.Spec.DPUs.Flavor = &t.dpuFlavor.Name
 		t.dpuDeployment.Spec.DPUs.FlavorTemplate = nil
 		if t.dpuSet != nil {
@@ -394,6 +402,40 @@ func (t *systemTestInput) applyConfig(conf config) {
 	t.nodeRebootConfigMapPath = conf.NodeRebootConfigMapPath
 	t.selectDPUDevicesDynamically = conf.SelectDPUDevicesDynamically
 	t.useExternalNodeReboot = conf.UseExternalNodeReboot
+	t.hostOSInitToggle = conf.HostOSInitToggle
+}
+
+// hostOSInitHoldValue is DELAY_HOST_OS_INIT=ENABLE_USER: the firmware holds the host at UEFI until
+// the DPU agent releases it (Service Readiness).
+const hostOSInitHoldValue = "3"
+
+// setDPUFlavorNVConfigParam sets name=value in every NVConfig entry of the flavor, replacing an
+// existing entry for name. A flavor without NVConfig gets one entry for all devices.
+func setDPUFlavorNVConfigParam(flavor *provisioningv1.DPUFlavor, name, value string) {
+	if len(flavor.Spec.NVConfig) == 0 {
+		flavor.Spec.NVConfig = []provisioningv1.NVConfig{{Device: ptr.To("*")}}
+	}
+	unsetDPUFlavorNVConfigParam(flavor, name)
+	for i := range flavor.Spec.NVConfig {
+		flavor.Spec.NVConfig[i].Parameters = append(flavor.Spec.NVConfig[i].Parameters, name+"="+value)
+	}
+	By(fmt.Sprintf("Configured DPUFlavor %s with %s=%s", flavor.Name, name, value))
+}
+
+// unsetDPUFlavorNVConfigParam removes name from every NVConfig entry of the flavor. The DPU agent
+// applies NVConfig with --with_default, so a parameter the flavor does not list returns to its
+// firmware default.
+func unsetDPUFlavorNVConfigParam(flavor *provisioningv1.DPUFlavor, name string) {
+	for i := range flavor.Spec.NVConfig {
+		params := flavor.Spec.NVConfig[i].Parameters[:0:0]
+		for _, p := range flavor.Spec.NVConfig[i].Parameters {
+			if n, _, ok := strings.Cut(p, "="); ok && strings.EqualFold(strings.TrimSpace(n), name) {
+				continue
+			}
+			params = append(params, p)
+		}
+		flavor.Spec.NVConfig[i].Parameters = params
+	}
 }
 
 // overrideDPUFlavorConsole replaces all console= entries loaded from the
@@ -1048,9 +1090,15 @@ func ProcessDPUNodeMaintenanceHold(ctx context.Context, input ProvisionDPUCluste
 	}).WithTimeout(provisioningTimeout).WithPolling(time.Second).Should(Succeed())
 }
 
+// rebootStatusMessageLimit bounds the reboot reason printed in the trace: for a DPU Config reboot the
+// message is the agent's raw mlxfwreset output, a few hundred bytes per device.
+const rebootStatusMessageLimit = 1200
+
 // logDPURebootRequests logs each DPU in DPURebooting once per source phase and requested method,
 // so a DPU that reboots again from a later phase is logged again. It works on the caller's DPU
-// snapshot so the log reflects exactly what the wait loop observed.
+// snapshot so the log reflects exactly what the wait loop observed. The reason and message are
+// printed too: the next boot overwrites them, and for a DPU Config reboot they carry the tool
+// output that selected the method.
 func logDPURebootRequests(dpus []provisioningv1.DPU, tracker *ByTracker) {
 	for i := range dpus {
 		dpu := &dpus[i]
@@ -1059,8 +1107,12 @@ func logDPURebootRequests(dpus []provisioningv1.DPU, tracker *ByTracker) {
 			continue
 		}
 		key := fmt.Sprintf("%s/reboot/%s/%s", dpu.Name, dpu.Status.PreviousPhase, *rs.Method)
-		tracker.By(key, "DPU %s rebooting from phase %q: requested method=%s",
-			dpu.Name, dpu.Status.PreviousPhase, *rs.Method)
+		msg := strings.Join(strings.Fields(rs.Message), " ")
+		if len(msg) > rebootStatusMessageLimit {
+			msg = msg[:rebootStatusMessageLimit] + "..."
+		}
+		tracker.By(key, "DPU %s rebooting from phase %q: requested method=%s reason=%q message=%s",
+			dpu.Name, dpu.Status.PreviousPhase, *rs.Method, rs.Reason, msg)
 	}
 }
 
