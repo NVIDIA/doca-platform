@@ -411,3 +411,97 @@ var _ = Describe("DiscoverPhysicalPort", func() {
 	})
 
 })
+
+var _ = Describe("VerifyNSUplinksRegistered", func() {
+	var root string
+
+	writeFunction := func(bdf, vendorID, deviceID string) {
+		writePCIDeviceID(root, bdf, deviceID)
+		ExpectWithOffset(1, os.WriteFile(filepath.Join(root, bdf, "vendor"), []byte(vendorID+"\n"), 0644)).To(Succeed())
+	}
+
+	BeforeEach(func() {
+		root = GinkgoT().TempDir()
+		setSysfsPCIDevicesPathForTest(root)
+	})
+
+	It("should succeed when every BF3 function has a physical port", func() {
+		writeFunction("0000:03:00.0", "0x15b3", "0xa2dc")
+		writeFunction("0000:03:00.1", "0x15b3", "0xa2dc")
+		Expect(VerifyNSUplinksRegistered([]NICPort{
+			{
+				Netdev:     "p0",
+				PCIAddress: "0000:03:00.0",
+			},
+			{
+				Netdev:     "p1",
+				PCIAddress: "03:00.1",
+			},
+		})).To(Succeed())
+	})
+
+	It("should fail when devlink has registered only one of the BF3 functions", func() {
+		writeFunction("0000:03:00.0", "0x15b3", "0xa2dc")
+		writeFunction("0000:03:00.1", "0x15b3", "0xa2dc")
+		err := VerifyNSUplinksRegistered([]NICPort{{
+			Netdev:     "p0",
+			PCIAddress: "0000:03:00.0",
+		}})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("0000:03:00.1"))
+		Expect(err.Error()).NotTo(ContainSubstring("0000:03:00.0"))
+	})
+
+	It("should fail for BF2 functions without a physical port", func() {
+		writeFunction("0000:03:00.0", "0x15b3", "0xa2d6")
+		Expect(VerifyNSUplinksRegistered(nil)).To(MatchError(ContainSubstring("0000:03:00.0")))
+	})
+
+	It("should succeed when every BF4 function has a physical port", func() {
+		writeFunction("0002:01:00.0", "0x15b3", "0xa2df")
+		writeFunction("0006:01:00.0", "0x15b3", "0xa2df")
+		Expect(VerifyNSUplinksRegistered([]NICPort{
+			{
+				Netdev:     "p0",
+				PCIAddress: "0002:01:00.0",
+			},
+			{
+				Netdev:     "p1",
+				PCIAddress: "0006:01:00.0",
+			},
+		})).To(Succeed())
+	})
+
+	It("should fail when devlink has registered only one of the BF4 functions", func() {
+		writeFunction("0002:01:00.0", "0x15b3", "0xa2df")
+		writeFunction("0006:01:00.0", "0x15b3", "0xa2df")
+		err := VerifyNSUplinksRegistered([]NICPort{{
+			Netdev:     "p0",
+			PCIAddress: "0002:01:00.0",
+		}})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("0006:01:00.0"))
+		Expect(err.Error()).NotTo(ContainSubstring("0002:01:00.0"))
+	})
+
+	It("should ignore E/W, VF and non-NVIDIA functions", func() {
+		writeFunction("0000:03:00.0", "0x15b3", "0xa2dc")
+		writeFunction("0000:03:00.2", "0x15b3", "0x101e")
+		writeFunction("000a:01:00.0", "0x15b3", "0x1025")
+		writeFunction("0001:00:00.0", "0x8086", "0xa2dc")
+		Expect(VerifyNSUplinksRegistered([]NICPort{{
+			Netdev:     "p0",
+			PCIAddress: "0000:03:00.0",
+		}})).To(Succeed())
+	})
+
+	It("should skip entries whose vendor attribute is gone", func() {
+		writePCIDeviceID(root, "0000:03:00.0", "0xa2dc")
+		Expect(VerifyNSUplinksRegistered(nil)).To(Succeed())
+	})
+
+	It("should fail when the PCI devices directory cannot be listed", func() {
+		setSysfsPCIDevicesPathForTest(filepath.Join(root, "missing"))
+		Expect(VerifyNSUplinksRegistered(nil)).To(HaveOccurred())
+	})
+})
