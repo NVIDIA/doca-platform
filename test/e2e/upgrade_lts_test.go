@@ -165,8 +165,9 @@ var _ = Describe("DPF Upgrade LTS", func() {
 			rollout.ExpectDPFVersion(func() string { return dpfV268Version }),
 			rollout.ForDPUDeployment(0, rollout.WithCurrentDependencies()),
 		),
-		verifyKubeletVersion: true,
-		expectedDPFVersion:   func() string { return dpfV268Version },
+		verifyKubeletVersion:      true,
+		expectedDPFVersion:        func() string { return dpfV268Version },
+		expectedKubernetesVersion: "v1.35.6",
 
 		artifactsKey:                    "v26.8",
 		compareArtifactsToBeforeRollout: "v26.4",
