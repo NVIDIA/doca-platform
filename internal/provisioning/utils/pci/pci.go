@@ -18,7 +18,9 @@ package pci
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -45,6 +47,8 @@ const (
 
 	// Supported ConnectX E/W NIC PCI device IDs as advertised in https://admin.pci-ids.ucw.cz/read/PC/15b3
 	connectX9DeviceID = "0x1025"
+
+	nvidiaVendorID = "0x15b3"
 )
 
 var (
@@ -131,16 +135,66 @@ func EWPortFilter(port *NICPort) bool {
 }
 
 func pciDeviceID(pciAddress string) (string, error) {
-	devicePath := filepath.Join(sysfsPCIDevicesPath, NormalizeAddress(pciAddress), "device")
-	data, err := os.ReadFile(devicePath)
+	return readPCIHexAttr(pciAddress, "device")
+}
+
+// readPCIHexAttr reads a PCI sysfs attribute and returns its trimmed,
+// lowercase value with a 0x prefix when nonempty.
+func readPCIHexAttr(pciAddress, attr string) (string, error) {
+	path := filepath.Join(sysfsPCIDevicesPath, NormalizeAddress(pciAddress), attr)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("failed to read PCI device ID for PCI %s: %w", pciAddress, err)
+		return "", fmt.Errorf("failed to read PCI %s for PCI %s: %w", attr, pciAddress, err)
 	}
 	id := strings.ToLower(strings.TrimSpace(string(data)))
 	if id != "" && !strings.HasPrefix(id, "0x") {
 		id = "0x" + id
 	}
 	return id, nil
+}
+
+// VerifyNSUplinksRegistered returns an error when a BlueField N/S PCI function
+// present in sysfs has no physical port in ports. After a reboot sysfs can expose
+// every function while devlink is still registering their uplinks; a snapshot taken
+// in that window must not be reported as complete.
+func VerifyNSUplinksRegistered(ports []NICPort) error {
+	entries, err := os.ReadDir(sysfsPCIDevicesPath)
+	if err != nil {
+		return fmt.Errorf("list PCI devices in %s: %w", sysfsPCIDevicesPath, err)
+	}
+	discovered := sets.New[string]()
+	for _, port := range ports {
+		discovered.Insert(NormalizeAddress(port.PCIAddress))
+	}
+	var missing []string
+	for _, entry := range entries {
+		pci := NormalizeAddress(entry.Name())
+		vendorID, err := readPCIHexAttr(pci, "vendor")
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			return err
+		}
+		if vendorID != nvidiaVendorID {
+			continue
+		}
+		deviceID, err := pciDeviceID(pci)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			return err
+		}
+		if nsNICDeviceIDs.Has(deviceID) && !discovered.Has(pci) {
+			missing = append(missing, pci)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return fmt.Errorf("devlink has not registered a physical port for N/S PCI function(s) %s yet", strings.Join(missing, ", "))
+	}
+	return nil
 }
 
 // fwctlDevice returns the fwctl character device path (e.g. /dev/fwctl/fwctl0)

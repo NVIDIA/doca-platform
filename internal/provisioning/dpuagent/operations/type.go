@@ -114,7 +114,8 @@ type Context struct {
 	ewPorts []pciutil.NICPort
 
 	// DiscoverPorts discovers physical NIC ports for the given scope.
-	// If nil, DefaultPortDiscoverer.DiscoverPhysicalPort(FilterForScope(scope)) is used.
+	// If nil, DefaultPortDiscoverer.DiscoverPhysicalPort(FilterForScope(scope)) is used,
+	// followed by VerifyNSUplinksRegistered for the N/S and all scopes.
 	// Tests inject this to stub discovery for N/S, E/W, or all.
 	DiscoverPorts func(scope pciutil.PortScope) ([]pciutil.NICPort, error)
 
@@ -272,5 +273,14 @@ func (ctx *Context) discoverPorts(scope pciutil.PortScope) ([]pciutil.NICPort, e
 	if err != nil {
 		return nil, err
 	}
-	return pciutil.DefaultPortDiscoverer.DiscoverPhysicalPort(filter)
+	ports, err := pciutil.DefaultPortDiscoverer.DiscoverPhysicalPort(filter)
+	if err != nil {
+		return nil, err
+	}
+	if scope != pciutil.PortScopeEW {
+		if err := pciutil.VerifyNSUplinksRegistered(ports); err != nil {
+			return nil, err
+		}
+	}
+	return ports, nil
 }
