@@ -1003,8 +1003,9 @@ func WaitForDPUReboot(ctx context.Context, input ProvisionDPUClustersInput) {
 		input.numberOfDPUNodes*input.numberOfDPUsPerNode)
 }
 
-// Waits for all DPU host reboots to finish in script-reboot mode by checking DPU.Status.RebootStatus,
-// Succeeds when all DPUs report RebootStatus.Succeeded, fails-fast if any hit RebootStatus.Failed.
+// Waits for all DPU host reboots to finish in script-reboot mode by checking DPU.Status.RebootStatus.
+// A DPU that skips the reboot (RebootMethod NoAction) never sets RebootStatus, so DPUReady also counts.
+// Succeeds when all DPUs report RebootStatus.Succeeded or are Ready, fails-fast on RebootStatus.Failed.
 func waitForScriptRebootCompletion(ctx context.Context, c client.Client, expectedDPUs int) {
 	tracker := NewByTracker()
 	Eventually(func(g Gomega) {
@@ -1033,6 +1034,9 @@ func waitForScriptRebootCompletion(ctx context.Context, c client.Client, expecte
 					"requires manual Job deletion",
 					dpu.Name, reason, message))
 
+			if rs == nil && dpu.Status.Phase == provisioningv1.DPUReady {
+				continue
+			}
 			g.Expect(phase).To(Equal(provisioningv1.RebootStatusSucceeded),
 				fmt.Sprintf("DPU %s RebootStatus.Phase=%q (waiting for Succeeded)",
 					dpu.Name, phase))
