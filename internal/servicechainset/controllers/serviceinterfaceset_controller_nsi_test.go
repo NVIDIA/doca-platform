@@ -239,6 +239,20 @@ func cleanupNSIPathTestResources(ctx context.Context, c client.Client, objs []cl
 }
 
 var _ = Describe("ServiceInterfaceSet Controller — NSI path", func() {
+	It("handles OVN interfaces without optional OVN configuration", func() {
+		ovnSet := getServiceInterfaceSet("default", &metav1.LabelSelector{})
+		ovnSet.Spec.Template.Spec.InterfaceType = dpuservicev1.InterfaceTypeOVN
+
+		entry := buildInterfaceEntry(ovnSet, "default_ovn", "node-1")
+		Expect(entry.InterfaceType).To(Equal(dpuservicev1.InterfaceTypeOVN))
+		Expect(entry.OVN).To(BeNil())
+
+		externalBridge := "br-custom"
+		ovnSet.Spec.Template.Spec.OVN = &dpuservicev1.OVN{ExternalBridge: &externalBridge}
+		entry = buildInterfaceEntry(ovnSet, "default_ovn", "node-1")
+		Expect(entry.OVN).To(Equal(&dpuservicev1.OVN{ExternalBridge: &externalBridge}))
+	})
+
 	It("preserves PF and VF NIC selectors in NSI entries", func() {
 		selector := &dpuservicev1.NICSelectorSpec{
 			Type: dpuservicev1.NICSelectorTypePCI,
