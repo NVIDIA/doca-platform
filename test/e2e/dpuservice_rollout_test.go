@@ -340,8 +340,8 @@ func pauseRolloutWorker(ctx context.Context, nodeName, serviceName string) {
 if systemctl cat "$unit" >/dev/null 2>&1; then systemctl stop "$unit"; fi
 done
 systemctl kill --kill-whom=main --signal=CONT kubelet.service`, pauseUnit, resumeUnit)
-			_, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, []string{"chroot", "/host", "/bin/sh", "-ec", cleanupScript})
-			g.Expect(err).NotTo(HaveOccurred())
+			output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, []string{"chroot", "/host", "/bin/sh", "-ec", cleanupScript})
+			g.Expect(err).NotTo(HaveOccurred(), "failed to clean up the kubelet watchdog: %s", output)
 		}).WithTimeout(8 * time.Minute).WithPolling(time.Second).Should(Succeed())
 		Expect(client.IgnoreNotFound(dpuClusterClient[0].Delete(cleanupCtx, pod))).To(Succeed())
 		VerifyClusterPods(cleanupCtx, dpuClusterClient[0], dpuClusterPodsToVerify())
@@ -364,19 +364,24 @@ systemctl kill --kill-whom=main --signal=CONT kubelet.service`, pauseUnit, resum
 	By("Checking the worker supports kubelet suspension and host-side recovery")
 	preflight := `if command -v systemd-run >/dev/null && command -v systemctl >/dev/null && test -x /bin/kill && systemctl is-active --quiet kubelet.service && test "$(systemctl show kubelet.service --property MainPID --value)" -gt 1; then printf supported; else printf unsupported; fi`
 	output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, []string{"chroot", "/host", "/bin/sh", "-c", preflight})
-	Expect(err).NotTo(HaveOccurred(), "failed to inspect worker recovery capabilities")
+	Expect(err).NotTo(HaveOccurred(), "failed to inspect worker recovery capabilities: %s", output)
 	if strings.TrimSpace(output) != "supported" {
 		Skip("Worker requires an active kubelet.service, systemd-run, and /bin/kill for watchdog recovery")
 	}
 	By("Arming a six-minute watchdog, then pausing kubelet after the exec request returns")
+	// Stopping the timers first makes the script safe to retry after a partially applied attempt.
 	script := fmt.Sprintf(`set -eu
+for unit in %s.timer %s.timer; do systemctl stop "$unit" 2>/dev/null || true; done
 pid=$(systemctl show kubelet.service --property MainPID --value)
 test "$pid" -gt 1
 systemctl is-active --quiet kubelet.service
 systemd-run --collect --unit=%s --on-active=6m --timer-property=AccuracySec=1s /bin/kill -CONT "$pid"
-systemd-run --collect --unit=%s --on-active=5s --timer-property=AccuracySec=1s /bin/kill -STOP "$pid"`, resumeUnit, pauseUnit)
+systemd-run --collect --unit=%s --on-active=5s --timer-property=AccuracySec=1s /bin/kill -STOP "$pid"`, pauseUnit, resumeUnit, resumeUnit, pauseUnit)
 	// Register recovery handling before the exec, which may fail after partially arming the timers.
 	recoveryArmed = true
-	_, err = netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, []string{"chroot", "/host", "/bin/sh", "-c", script})
-	Expect(err).NotTo(HaveOccurred())
+	// A dropped port-forward tunnel fails a single exec, so retry briefly before the pause can fire.
+	Eventually(func(g Gomega) {
+		output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, []string{"chroot", "/host", "/bin/sh", "-c", script})
+		g.Expect(err).NotTo(HaveOccurred(), "failed to arm the kubelet watchdog: %s", output)
+	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
