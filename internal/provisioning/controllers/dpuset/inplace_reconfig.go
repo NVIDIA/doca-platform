@@ -64,7 +64,6 @@ func (r *DPUSetReconciler) reconcileInPlaceReconfig(ctx context.Context, dpuSet 
 	}
 
 	dpus := sortedDPUs(dpuMap)
-	slots := inPlaceReadySlots(r.Options.MaxUnavailableDPUNodes, totalDPUDevices, dpus)
 	// Complete and stamp before starting anyone, so a DPU marked in this pass is
 	// not also completed in this pass, and a DPU that just returned to Ready frees a slot.
 	freed := 0
@@ -75,7 +74,7 @@ func (r *DPUSetReconciler) reconcileInPlaceReconfig(ctx context.Context, dpuSet 
 			freed++
 		}
 	}
-	slots += freed
+	slots := inPlaceReadySlots(r.Options.MaxUnavailableDPUNodes, totalDPUDevices, dpus, freed)
 
 	allowStart := requested
 	for i := range dpus {
@@ -177,7 +176,10 @@ func clearInPlaceAnnotation(dpuSet *provisioningv1.DPUSet) {
 // device this DPUSet will never own does not consume a slot. A missing CR among
 // that count does. A DPU already marked inProgress still counts while its Ready
 // condition is True, because the DPU controller has not taken it out of service yet.
-func inPlaceReadySlots(maxUnavailable int32, totalDPUDevices int, dpus []provisioningv1.DPU) int {
+// freed is the number of those DPUs that this pass completes. They are removed
+// from the count before the budget is applied, so a round that is already over
+// budget does not start another DPU when one of them finishes.
+func inPlaceReadySlots(maxUnavailable int32, totalDPUDevices int, dpus []provisioningv1.DPU, freed int) int {
 	maxSlots := int(maxUnavailable)
 	if maxSlots < 1 {
 		maxSlots = 1
@@ -194,18 +196,19 @@ func inPlaceReadySlots(maxUnavailable int32, totalDPUDevices int, dpus []provisi
 			unavailable++
 		}
 	}
+	unavailable -= freed
 	if unavailable >= maxSlots {
 		return 0
 	}
 	return maxSlots - unavailable
 }
 
-// inProgressStillReady reports a Ready DPU already marked for this round whose
-// Ready condition is still True. It still occupies a MaxUnavailableDPUNodes slot.
+// inProgressStillReady reports a DPU already marked for this round whose Ready
+// condition is still True, in any phase. It still occupies a MaxUnavailableDPUNodes
+// slot: before the jump the DPU controller has not taken it out of service yet,
+// and after the jump the DPU is out of service whatever its Ready condition says.
 func inProgressStillReady(dpu *provisioningv1.DPU) bool {
-	return dpu.Status.Phase == provisioningv1.DPUReady &&
-		reconfigInProgress(dpu.Status.DPUReconfig) &&
-		!isUnavailable(dpu)
+	return reconfigInProgress(dpu.Status.DPUReconfig) && !isUnavailable(dpu)
 }
 
 // plannedReconfig is one DPU and the reconfig status to write. A nil next means
