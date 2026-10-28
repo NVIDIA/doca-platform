@@ -46,6 +46,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
 	httputils "github.com/nvidia/doca-platform/internal/provisioning/utils/http"
 	provisioningwebhooks "github.com/nvidia/doca-platform/internal/provisioning/webhooks"
+	pkgdpucluster "github.com/nvidia/doca-platform/pkg/dpucluster"
 	"github.com/nvidia/doca-platform/pkg/health"
 	spirev1alpha1 "github.com/nvidia/doca-platform/third_party/forked/github.com/spiffe/spire-controller-manager/api/v1alpha1"
 
@@ -276,7 +277,7 @@ func resolveBFBRegistry(flags *cliFlags) (string, error) {
 	return registryAddress, nil
 }
 
-func setupControllers(mgr ctrl.Manager, flags *cliFlags, bfbRegistry string, imagePullSecretsReferences []corev1.LocalObjectReference) *dutil.DPUInProvisioningMap {
+func setupControllers(ctx context.Context, mgr ctrl.Manager, flags *cliFlags, bfbRegistry string, imagePullSecretsReferences []corev1.LocalObjectReference) *dutil.DPUInProvisioningMap {
 	alloc := allocator.NewAllocator(mgr.GetClient())
 	dpuOptions := dutil.DPUOptions{
 		ImagePullSecrets:                   imagePullSecretsReferences,
@@ -300,7 +301,7 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, bfbRegistry string, ima
 
 	dpuMap := dutil.NewDPUInProvisioningMap(flags.maxDPUParallelInstallations)
 
-	if err := dpu.NewDPUReconciler(
+	dpuReconciler := dpu.NewDPUReconciler(
 		mgr,
 		alloc,
 		&dutil.KubeadmBootstrapTokenGenerator{Client: mgr.GetClient()},
@@ -308,7 +309,12 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, bfbRegistry string, ima
 		&reboot.DMSPodExecUptimeChecker{},
 		dpuOptions,
 		dpuMap,
-	).SetupWithManager(mgr); err != nil {
+	)
+	if err := dpu.SetupIndexers(ctx, mgr); err != nil {
+		setupLog.Error(err, "failed to setup field indexers")
+		os.Exit(1)
+	}
+	if err := dpuReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPU")
 		os.Exit(1)
 	}
@@ -415,6 +421,22 @@ func setupControllers(mgr ctrl.Manager, flags *cliFlags, bfbRegistry string, ima
 		os.Exit(1)
 	}
 
+	if _, err := pkgdpucluster.SetupRemoteCacheWithManager(ctx, mgr,
+		pkgdpucluster.OptionHostClient{Client: mgr.GetClient()},
+		pkgdpucluster.OptionScheme{Scheme: mgr.GetScheme()},
+		pkgdpucluster.OptionUserAgent{UserAgent: "provisioning-controller"},
+		pkgdpucluster.OptionSyncPeriod{SyncPeriod: dpu.ClusterNodeResyncPeriod},
+		pkgdpucluster.OptionTimeout{Timeout: 10 * time.Second},
+		pkgdpucluster.OptionGetWatcherCallbacks{
+			GetWatcherCallbacks: []pkgdpucluster.GetWatcherCallback{
+				dpuReconciler.WatchDPUClusterNodes,
+			},
+		},
+	); err != nil {
+		setupLog.Error(err, "unable to create DPUCluster node cache")
+		os.Exit(1)
+	}
+
 	return dpuMap
 }
 
@@ -516,12 +538,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	dpuMap := setupControllers(mgr, flags, bfbRegistryAddress, imagePullSecretsReferences)
-	setupWebhooks(mgr, flags.deploymentMode)
-	setupCSRController(mgr, clientConfig)
-
 	// Get the context from the signal handler
 	ctx := ctrl.SetupSignalHandler()
+
+	dpuMap := setupControllers(ctx, mgr, flags, bfbRegistryAddress, imagePullSecretsReferences)
+	setupWebhooks(mgr, flags.deploymentMode)
+	setupCSRController(mgr, clientConfig)
 
 	setupHealthChecks(mgr, ctx)
 	setupInitRunnable(mgr, dpuMap)
