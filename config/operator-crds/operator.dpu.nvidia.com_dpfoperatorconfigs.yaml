@@ -388,8 +388,8 @@ spec:
                     type: boolean
                   disableTracing:
                     description: |-
-                      DisableTracing stops the controller from exporting trace spans although
-                      spec.monitoring.openTelemetryCollector.tracing is set. The controller then also stops
+                      DisableTracing stops the controller from exporting trace spans although tracing is
+                      configured. The controller then also stops
                       passing the trace context on to the objects it creates, so a trace ends at this controller.
                     type: boolean
                   image:
@@ -1063,8 +1063,9 @@ spec:
                           rule: '!has(self.caSecretRef) || !self.endpoint.startsWith(''http://'')'
                       tracing:
                         description: |-
-                          Tracing contains the configuration for exporting distributed traces from DPF controllers.
-                          If not specified, DPF controllers will not export trace spans.
+                          Tracing is where the DPU clusters export their trace spans. The collector forwards the spans it
+                          receives locally, and the sfc-controller sends its own. The DPUs must reach it, so use the
+                          address of a management cluster node, not a cluster-local Service. If not specified, none are exported.
                         properties:
                           caSecretRef:
                             description: |-
@@ -1108,35 +1109,6 @@ spec:
                               For the grpc transport the endpoint is "host:4317", optionally prefixed with a
                               scheme ("https://host:4317") to enforce TLS.
                             type: string
-                          recordIdleReconciles:
-                            description: |-
-                              RecordIdleReconciles exports the spans of idle reconciles. A reconcile is idle when it starts
-                              at the resourceVersion the last successful reconcile of the object left behind, for example a
-                              requeue or a resync. An idle reconcile that fails or changes its object is always exported.
-                              When not set, idle reconciles are not exported.
-                            type: boolean
-                          recordUnchangedReconciles:
-                            description: |-
-                              RecordUnchangedReconciles exports the spans of reconciles that changed nothing on their object,
-                              did not fail and have no child spans. Such a span only says that the reconcile ran. When not
-                              set, they are not exported.
-                            type: boolean
-                          rolloutTimeout:
-                            description: |-
-                              RolloutTimeout is how long a change may take to become ready before its rollout span is exported
-                              as timed out. When not set, it is one hour. Set it to 0s to turn the timeout off, so a rollout
-                              ends once the change is ready or a newer change replaces it.
-                            format: duration
-                            pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
-                            type: string
-                          samplingPercent:
-                            description: |-
-                              SamplingPercent is the share of the traces that is exported, in percent. The decision is made per
-                              trace, so all spans of a change are kept or dropped together. When not set, all of them are kept.
-                            format: int32
-                            maximum: 100
-                            minimum: 0
-                            type: integer
                           transport:
                             description: Transport is the OTLP transport used to export
                               data to the endpoint.
@@ -1151,6 +1123,109 @@ spec:
                         - message: caSecretRef cannot be used with a plaintext http://
                             endpoint
                           rule: '!has(self.caSecretRef) || !self.endpoint.startsWith(''http://'')'
+                    type: object
+                  tracing:
+                    description: |-
+                      Tracing configures how the DPF controllers export trace spans. It applies even when disable is
+                      true. If not specified, the controllers of the management cluster export none.
+                    properties:
+                      disableControllerTraces:
+                        description: |-
+                          DisableControllerTraces stops all DPF controllers from exporting trace spans and keeps the
+                          configuration. It takes precedence over disableTracing of the individual controllers.
+                          The collector still forwards the spans it receives locally.
+                        type: boolean
+                      otlp:
+                        description: |-
+                          Otlp is the OTLP export configuration of the controllers of the management cluster, so its
+                          endpoint can be a cluster-local Service. If not specified, these controllers export no trace spans.
+                        properties:
+                          caSecretRef:
+                            description: |-
+                              CASecretRef references a Secret that contains the PEM-encoded CA certificate bundle
+                              (under the "ca.crt" key) used to verify the endpoint's TLS certificate. Set it when the
+                              endpoint serves a certificate issued by a private CA. The Secret may live in any namespace,
+                              for example alongside the endpoint's cert-manager Certificate; if its namespace is empty,
+                              the DPFOperatorConfig namespace is used.
+                              If not specified, TLS endpoints are verified against the system CA pool.
+                              Changes to the Secret content are applied on the next reconciliation of the DPFOperatorConfig.
+                            properties:
+                              key:
+                                description: |-
+                                  Key is the Secret data key that holds the PEM-encoded CA certificate bundle.
+                                  If unset, "ca.crt" is used, matching the key that cert-manager writes.
+                                maxLength: 253
+                                minLength: 1
+                                type: string
+                              name:
+                                description: Name is the name of the Secret holding
+                                  the CA certificate bundle.
+                                maxLength: 253
+                                minLength: 1
+                                type: string
+                              namespace:
+                                description: |-
+                                  Namespace is the namespace of the Secret holding the CA certificate bundle.
+                                  If unset, the DPFOperatorConfig namespace is used.
+                                maxLength: 63
+                                minLength: 1
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          endpoint:
+                            description: |-
+                              Endpoint is the OTLP endpoint data is sent to. This could be the management cluster's
+                              opentelemetry-collector endpoint.
+                              If not specified, nothing will be exported for this signal.
+                              For the http transport the endpoint must include the scheme, e.g. "https://host:4318".
+                              For the grpc transport the endpoint is "host:4317", optionally prefixed with a
+                              scheme ("https://host:4317") to enforce TLS.
+                            type: string
+                          transport:
+                            description: Transport is the OTLP transport used to export
+                              data to the endpoint.
+                            enum:
+                            - http
+                            - grpc
+                            type: string
+                        required:
+                        - endpoint
+                        type: object
+                        x-kubernetes-validations:
+                        - message: caSecretRef cannot be used with a plaintext http://
+                            endpoint
+                          rule: '!has(self.caSecretRef) || !self.endpoint.startsWith(''http://'')'
+                      recordIdleReconciles:
+                        description: |-
+                          RecordIdleReconciles exports the spans of idle reconciles. A reconcile is idle when it starts
+                          at the resourceVersion the last successful reconcile of the object left behind, for example a
+                          requeue or a resync. An idle reconcile that fails or changes its object is always exported.
+                          When not set, idle reconciles are not exported.
+                        type: boolean
+                      recordUnchangedReconciles:
+                        description: |-
+                          RecordUnchangedReconciles exports the spans of reconciles that changed nothing on their object,
+                          did not fail and have no child spans. Such a span only says that the reconcile ran. When not
+                          set, they are not exported.
+                        type: boolean
+                      rolloutTimeout:
+                        description: |-
+                          RolloutTimeout is how long a change may take to become ready before its rollout span is exported
+                          as timed out. When not set, it is one hour. Set it to 0s to turn the timeout off, so a rollout
+                          ends once the change is ready or a newer change replaces it.
+                        format: duration
+                        pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
+                        type: string
+                      samplingPercent:
+                        description: |-
+                          SamplingPercent is the share of the traces generated by the DPF controllers that is exported, in
+                          percent. The decision is made per trace, so all spans of a change are kept or dropped together.
+                          When not set, all of them are kept.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
                     type: object
                 type: object
               multus:
@@ -1372,8 +1447,8 @@ spec:
                     type: boolean
                   disableTracing:
                     description: |-
-                      DisableTracing stops the controller from exporting trace spans although
-                      spec.monitoring.openTelemetryCollector.tracing is set. The controller then also stops
+                      DisableTracing stops the controller from exporting trace spans although tracing is
+                      configured. The controller then also stops
                       passing the trace context on to the objects it creates, so a trace ends at this controller.
                     type: boolean
                   replicas:
@@ -1833,8 +1908,8 @@ spec:
                     type: boolean
                   disableTracing:
                     description: |-
-                      DisableTracing stops the controller from exporting trace spans although
-                      spec.monitoring.openTelemetryCollector.tracing is set. The controller then also stops
+                      DisableTracing stops the controller from exporting trace spans although tracing is
+                      configured. The controller then also stops
                       passing the trace context on to the objects it creates, so a trace ends at this controller.
                     type: boolean
                   dmsTimeout:
@@ -2754,8 +2829,8 @@ spec:
                     type: boolean
                   disableTracing:
                     description: |-
-                      DisableTracing stops the controller from exporting trace spans although
-                      spec.monitoring.openTelemetryCollector.tracing is set. The controller then also stops
+                      DisableTracing stops the controller from exporting trace spans although tracing is
+                      configured. The controller then also stops
                       passing the trace context on to the objects it creates, so a trace ends at this controller.
                     type: boolean
                   helmChart:
@@ -2856,8 +2931,8 @@ spec:
                     type: boolean
                   disableTracing:
                     description: |-
-                      DisableTracing stops the controller from exporting trace spans although
-                      spec.monitoring.openTelemetryCollector.tracing is set. The controller then also stops
+                      DisableTracing stops the controller from exporting trace spans although tracing is
+                      configured. The controller then also stops
                       passing the trace context on to the objects it creates, so a trace ends at this controller.
                     type: boolean
                   helmChart:

@@ -852,7 +852,7 @@ func Test_tracingValueEdits(t *testing.T) {
 	t.Run("no edits when the component opted out", func(t *testing.T) {
 		g := NewWithT(t)
 		vars := Variables{DisableTracing: map[operatorv1.ComponentName]bool{operatorv1.SFCControllerName: true}}
-		vars.OpenTelemetryCollector.Tracing.Endpoint = "http://10.0.0.1:30050"
+		vars.Tracing.Endpoint = "http://10.0.0.1:30050"
 		g.Expect(tracingValueEdits(vars, operatorv1.SFCControllerName)).To(BeEmpty())
 		g.Expect(tracingValueEdits(vars, operatorv1.ServiceSetControllerName)).NotTo(BeEmpty())
 	})
@@ -860,10 +860,10 @@ func Test_tracingValueEdits(t *testing.T) {
 	t.Run("sets endpoint, transport and CA under the component", func(t *testing.T) {
 		g := NewWithT(t)
 		vars := Variables{}
-		vars.OpenTelemetryCollector.Tracing = OpenTelemetryCollectorTracingVariables{
-			OpenTelemetryCollectorGenericVariables: OpenTelemetryCollectorGenericVariables{
-				Endpoint: "http://10.0.0.1:30050", Transport: "grpc", CACert: "pem",
-			},
+		vars.Tracing.OpenTelemetryCollectorGenericVariables = OpenTelemetryCollectorGenericVariables{
+			Endpoint:  "http://10.0.0.1:30050",
+			Transport: "grpc",
+			CACert:    "pem",
 		}
 		g.Expect(tracingValues(g, tracingValueEdits(vars, operatorv1.SFCControllerName))).To(Equal(map[string]interface{}{
 			"sfc-controller": map[string]interface{}{
@@ -875,11 +875,11 @@ func Test_tracingValueEdits(t *testing.T) {
 	t.Run("sets the settings that differ from the controllers' defaults", func(t *testing.T) {
 		g := NewWithT(t)
 		vars := Variables{}
-		vars.OpenTelemetryCollector.Tracing.Endpoint = "http://10.0.0.1:30050"
-		vars.OpenTelemetryCollector.Tracing.RecordIdleReconciles = true
-		vars.OpenTelemetryCollector.Tracing.RecordUnchangedReconciles = true
-		vars.OpenTelemetryCollector.Tracing.SamplingPercent = ptr.To[int32](0)
-		vars.OpenTelemetryCollector.Tracing.RolloutTimeout = ptr.To(30 * time.Minute)
+		vars.Tracing.Endpoint = "http://10.0.0.1:30050"
+		vars.Tracing.RecordIdleReconciles = true
+		vars.Tracing.RecordUnchangedReconciles = true
+		vars.Tracing.SamplingPercent = ptr.To[int32](0)
+		vars.Tracing.RolloutTimeout = ptr.To(30 * time.Minute)
 		g.Expect(tracingValues(g, tracingValueEdits(vars, operatorv1.SFCControllerName))).To(Equal(map[string]interface{}{
 			"sfc-controller": map[string]interface{}{
 				"tracing": map[string]interface{}{
@@ -896,9 +896,9 @@ func Test_tracingValueEdits(t *testing.T) {
 	t.Run("sets no setting at the controllers' defaults", func(t *testing.T) {
 		g := NewWithT(t)
 		vars := Variables{}
-		vars.OpenTelemetryCollector.Tracing.Endpoint = "http://10.0.0.1:30050"
-		vars.OpenTelemetryCollector.Tracing.SamplingPercent = ptr.To[int32](100)
-		vars.OpenTelemetryCollector.Tracing.RolloutTimeout = ptr.To(time.Hour)
+		vars.Tracing.Endpoint = "http://10.0.0.1:30050"
+		vars.Tracing.SamplingPercent = ptr.To[int32](100)
+		vars.Tracing.RolloutTimeout = ptr.To(time.Hour)
 		g.Expect(tracingValues(g, tracingValueEdits(vars, operatorv1.SFCControllerName))).To(Equal(map[string]interface{}{
 			"sfc-controller": map[string]interface{}{
 				"tracing": map[string]interface{}{"endpoint": "http://10.0.0.1:30050"},
@@ -909,7 +909,7 @@ func Test_tracingValueEdits(t *testing.T) {
 	t.Run("omits transport and CA when unset", func(t *testing.T) {
 		g := NewWithT(t)
 		vars := Variables{}
-		vars.OpenTelemetryCollector.Tracing.Endpoint = "http://10.0.0.1:30050"
+		vars.Tracing.Endpoint = "http://10.0.0.1:30050"
 		g.Expect(tracingValues(g, tracingValueEdits(vars, operatorv1.SFCControllerName))).To(Equal(map[string]interface{}{
 			"sfc-controller": map[string]interface{}{
 				"tracing": map[string]interface{}{"endpoint": "http://10.0.0.1:30050"},
@@ -921,7 +921,8 @@ func Test_tracingValueEdits(t *testing.T) {
 func Test_serviceChainSetControllerTracingValues(t *testing.T) {
 	g := NewWithT(t)
 	vars := Variables{}
-	vars.OpenTelemetryCollector.Tracing.Endpoint = "http://10.0.0.1:30050"
+	vars.Tracing.Endpoint = "http://10.0.0.1:30050"
+	vars.OpenTelemetryCollector.Tracing.Endpoint = "http://192.0.2.1:30050"
 
 	component := newServiceChainSetControllerObjects(nil)
 	g.Expect(tracingValues(g, component.extraPerDPUClusterEdits(vars, nil))).To(Equal(map[string]interface{}{
@@ -955,10 +956,19 @@ func Test_sfcControllerEditsTracingValues(t *testing.T) {
 		}))
 	})
 
-	t.Run("sets none when the collector is not deployed", func(t *testing.T) {
+	t.Run("exports to the endpoint directly when the collector is not deployed", func(t *testing.T) {
 		g := NewWithT(t)
 		vars := configured()
 		vars.DisableSystemComponents[operatorv1.OpenTelemetryCollectorName] = true
+		g.Expect(tracingOf(g, vars)).To(Equal(map[string]interface{}{
+			"endpoint": "http://10.0.0.1:30050",
+		}))
+	})
+
+	t.Run("sets none without an endpoint of the DPU clusters", func(t *testing.T) {
+		g := NewWithT(t)
+		vars := configured()
+		vars.OpenTelemetryCollector.Tracing.Endpoint = ""
 		g.Expect(tracingOf(g, vars)).To(BeNil())
 	})
 
@@ -972,9 +982,9 @@ func Test_sfcControllerEditsTracingValues(t *testing.T) {
 	t.Run("passes the settings that differ from the defaults", func(t *testing.T) {
 		g := NewWithT(t)
 		vars := configured()
-		vars.OpenTelemetryCollector.Tracing.RecordUnchangedReconciles = true
-		vars.OpenTelemetryCollector.Tracing.SamplingPercent = ptr.To[int32](25)
-		vars.OpenTelemetryCollector.Tracing.RolloutTimeout = ptr.To(30 * time.Minute)
+		vars.Tracing.RecordUnchangedReconciles = true
+		vars.Tracing.SamplingPercent = ptr.To[int32](25)
+		vars.Tracing.RolloutTimeout = ptr.To(30 * time.Minute)
 		g.Expect(tracingOf(g, vars)).To(Equal(map[string]interface{}{
 			"dpuCollector": true, "transport": "http",
 			"recordUnchangedReconciles": true, "samplingPercent": int32(25), "rolloutTimeout": "30m0s",

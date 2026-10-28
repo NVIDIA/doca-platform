@@ -418,7 +418,7 @@ var _ = Describe("Operator API Validation", func() {
 			DescribeTable("DPFOperatorConfig tracing samplingPercent validation",
 				func(percent *int32, expectError bool, errorMessage string) {
 					config := getMinimalDPFOperatorConfig(testNs.Name)
-					setTracingConfig(config, &operatorv1.OpenTelemetryCollectorTracingConfiguration{SamplingPercent: percent})
+					setTracingConfig(config, &operatorv1.TracingConfiguration{SamplingPercent: percent})
 					validateConfigCreation(config, expectError, errorMessage, &cleanupObjs)
 				},
 				Entry("valid - unset", nil, false, ""),
@@ -432,7 +432,7 @@ var _ = Describe("Operator API Validation", func() {
 			DescribeTable("DPFOperatorConfig tracing rolloutTimeout validation",
 				func(timeout *metav1.Duration, expectError bool, errorMessage string) {
 					config := getMinimalDPFOperatorConfig(testNs.Name)
-					setTracingConfig(config, &operatorv1.OpenTelemetryCollectorTracingConfiguration{RolloutTimeout: timeout})
+					setTracingConfig(config, &operatorv1.TracingConfiguration{RolloutTimeout: timeout})
 					validateConfigCreation(config, expectError, errorMessage, &cleanupObjs)
 				},
 				Entry("valid - unset", nil, false, ""),
@@ -440,6 +440,41 @@ var _ = Describe("Operator API Validation", func() {
 				Entry("valid - 1h30m", &metav1.Duration{Duration: 90 * time.Minute}, false, ""),
 				Entry("valid - 0s turns the timeout off", &metav1.Duration{}, false, ""),
 				Entry("invalid - negative", &metav1.Duration{Duration: -time.Minute}, true, "should match"),
+			)
+
+			DescribeTable("DPFOperatorConfig tracing endpoint, transport and CA validation",
+				func(tracing *operatorv1.TracingConfiguration, expectError bool, errorMessage string) {
+					config := getMinimalDPFOperatorConfig(testNs.Name)
+					setTracingConfig(config, tracing)
+					validateConfigCreation(config, expectError, errorMessage, &cleanupObjs)
+				},
+				Entry("valid - only disableControllerTraces", &operatorv1.TracingConfiguration{
+					DisableControllerTraces: ptr.To(true),
+				}, false, ""),
+				Entry("valid - https endpoint with a CA", &operatorv1.TracingConfiguration{
+					Otlp: operatorv1.OpenTelemetryCollectorExportConfiguration{
+						Endpoint:    "https://otel.example.com:4318",
+						CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-ca"},
+					},
+				}, false, ""),
+				Entry("valid - grpc transport", &operatorv1.TracingConfiguration{
+					Otlp: operatorv1.OpenTelemetryCollectorExportConfiguration{
+						Endpoint:  "otel.example.com:4317",
+						Transport: ptr.To(operatorv1.OpenTelemetryCollectorTransportGRPC),
+					},
+				}, false, ""),
+				Entry("invalid - a CA with a plaintext endpoint", &operatorv1.TracingConfiguration{
+					Otlp: operatorv1.OpenTelemetryCollectorExportConfiguration{
+						Endpoint:    "http://otel.example.com:4318",
+						CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-ca"},
+					},
+				}, true, "caSecretRef cannot be used with a plaintext http:// endpoint"),
+				Entry("invalid - unknown transport", &operatorv1.TracingConfiguration{
+					Otlp: operatorv1.OpenTelemetryCollectorExportConfiguration{
+						Endpoint:  "http://otel.example.com:4318",
+						Transport: ptr.To(operatorv1.OpenTelemetryCollectorTransport("udp")),
+					},
+				}, true, "Unsupported value"),
 			)
 		})
 
@@ -1184,12 +1219,12 @@ func setSPIFFEConfig(config *operatorv1.DPFOperatorConfig, spiffe *operatorv1.SP
 	config.Spec.Security.SPIFFE = spiffe
 }
 
-// setTracingConfig sets the tracing configuration, with an endpoint as the API requires one.
-func setTracingConfig(config *operatorv1.DPFOperatorConfig, tracing *operatorv1.OpenTelemetryCollectorTracingConfiguration) {
-	tracing.Endpoint = "http://collector:4318"
-	config.Spec.Monitoring = &operatorv1.MonitoringConfiguration{
-		OpenTelemetryCollector: &operatorv1.OpenTelemetryCollectorConfiguration{Tracing: tracing},
+// setTracingConfig sets the tracing configuration as given.
+func setTracingConfig(config *operatorv1.DPFOperatorConfig, tracing *operatorv1.TracingConfiguration) {
+	if config.Spec.Monitoring == nil {
+		config.Spec.Monitoring = &operatorv1.MonitoringConfiguration{}
 	}
+	config.Spec.Monitoring.Tracing = tracing
 }
 
 func setVaultKMSConfig(config *operatorv1.DPFOperatorConfig, vaultKMS *operatorv1.VaultKMSConfiguration) {

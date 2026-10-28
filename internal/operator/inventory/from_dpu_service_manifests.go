@@ -274,27 +274,31 @@ func additionalValuesForComponent(name operatorv1.ComponentName, vars Variables)
 	}
 }
 
-// tracingValueEdits is the Helm counterpart of setTracingFlags for a component deployed as a
-// DPUService. It returns no edits when no endpoint is configured or the component opted out
-// through spec.<component>.disableTracing.
+// tracingValueEdits is the Helm counterpart of setTracingFlags for a controller of the management
+// cluster deployed as a DPUService, such as the servicechainset controller. It returns no edits when
+// no endpoint is configured or the controller opted out.
 func tracingValueEdits(vars Variables, component operatorv1.ComponentName) []StructuredEdit {
-	tracing := vars.OpenTelemetryCollector.Tracing
-	if tracing.Endpoint == "" || vars.DisableTracing[component] {
+	return tracingValueEditsTo(vars.Tracing.OpenTelemetryCollectorGenericVariables, vars, component)
+}
+
+// tracingValueEditsTo returns the tracing values that export the spans of component to destination.
+func tracingValueEditsTo(destination OpenTelemetryCollectorGenericVariables, vars Variables, component operatorv1.ComponentName) []StructuredEdit {
+	if destination.Endpoint == "" || vars.DisableTracing[component] {
 		return nil
 	}
-	edits := []StructuredEdit{dpuServiceAddValueEdit(tracing.Endpoint, component.String(), "tracing", "endpoint")}
-	if tracing.Transport != "" {
-		edits = append(edits, dpuServiceAddValueEdit(tracing.Transport, component.String(), "tracing", "transport"))
+	edits := []StructuredEdit{dpuServiceAddValueEdit(destination.Endpoint, component.String(), "tracing", "endpoint")}
+	if destination.Transport != "" {
+		edits = append(edits, dpuServiceAddValueEdit(destination.Transport, component.String(), "tracing", "transport"))
 	}
-	if tracing.CACert != "" {
-		edits = append(edits, dpuServiceAddValueEdit(tracing.CACert, component.String(), "tracing", "caPEM"))
+	if destination.CACert != "" {
+		edits = append(edits, dpuServiceAddValueEdit(destination.CACert, component.String(), "tracing", "caPEM"))
 	}
-	return append(edits, tracingSettingEdits(tracing, component)...)
+	return append(edits, tracingSettingEdits(vars.Tracing, component)...)
 }
 
 // tracingSettingEdits returns the values of the settings that decide which spans a component
 // exports. Only the ones that differ from the controllers' defaults are set.
-func tracingSettingEdits(tracing OpenTelemetryCollectorTracingVariables, component operatorv1.ComponentName) []StructuredEdit {
+func tracingSettingEdits(tracing TracingVariables, component operatorv1.ComponentName) []StructuredEdit {
 	var edits []StructuredEdit
 	if tracing.RecordIdleReconciles {
 		edits = append(edits, dpuServiceAddValueEdit(true, component.String(), "tracing", "recordIdleReconciles"))
@@ -318,14 +322,17 @@ func sfcControllerEdits(vars Variables) ([]StructuredEdit, error) {
 		dpuServiceAddValueEdit(vars.DPUOpenvSwitchSharedLibPath, operatorv1.SFCControllerName.String(), openvSwitchSharedLibraryDirPathKey),
 		dpuServiceAddValueEdit(vars.SFCController.SecureFlowDeletionTimeout.String(), operatorv1.SFCControllerName.String(), "controllerManager", "manager", "secureFlowDeletionTimeout"),
 	}
-	// The DPU cluster collector forwards the spans to the management cluster. The chart resolves
-	// the collector Service of its own cluster.
+	// The sfc-controller runs on the DPUs. The DPU cluster collector forwards its spans to
+	// spec.monitoring.openTelemetryCollector.tracing, the chart resolves the collector Service of its
+	// own cluster. Without the collector it exports to that endpoint itself.
 	if vars.OpenTelemetryCollector.Tracing.Endpoint != "" && !vars.DisableTracing[operatorv1.SFCControllerName] &&
 		!vars.DisableSystemComponents[operatorv1.OpenTelemetryCollectorName] {
 		edits = append(edits,
 			dpuServiceAddValueEdit(true, operatorv1.SFCControllerName.String(), "tracing", "dpuCollector"),
 			dpuServiceAddValueEdit("http", operatorv1.SFCControllerName.String(), "tracing", "transport"))
-		edits = append(edits, tracingSettingEdits(vars.OpenTelemetryCollector.Tracing, operatorv1.SFCControllerName)...)
+		edits = append(edits, tracingSettingEdits(vars.Tracing, operatorv1.SFCControllerName)...)
+	} else {
+		edits = append(edits, tracingValueEditsTo(vars.OpenTelemetryCollector.Tracing, vars, operatorv1.SFCControllerName)...)
 	}
 	if vars.DPUOpenvSwitchSharedLib64Path != nil {
 		edits = append(edits, dpuServiceAddValueEdit(*vars.DPUOpenvSwitchSharedLib64Path, operatorv1.SFCControllerName.String(), openvSwitchSharedLibrary64DirPathKey))

@@ -400,39 +400,31 @@ see [Custom Configuration](user-managed-components.md#custom-configuration).
 
 DPF controllers can export distributed trace spans for their reconcile loops via OpenTelemetry, using the `tracing.k8s.io/traceparent` and `tracing.k8s.io/tracestate` annotations an upstream caller (e.g. carbide) sets on the CRs it creates, so a single request can be followed across DPF's own controllers. See [Setting the trace context](#setting-the-trace-context) for the objects a caller sets them on.
 
-`tracing.endpoint` is a single destination shared by two independent producers:
+There are two destinations, because the Host Cluster and the DPU clusters reach different addresses:
 
-* **DPF's own controller binaries** (Host Cluster) export spans for their own reconcile loops directly to `tracing.endpoint`, using their own embedded OpenTelemetry SDK — there is no DaemonSet in this path.
-* **The DPU cluster's OpenTelemetry Collector DaemonSet** also accepts trace spans pushed to it locally over OTLP (port 4317/4318, the same receiver already used for OTLP-native logs and metrics) from any other process running on the DPU — for example another DOCA service — and forwards them on to the same `tracing.endpoint`. No second collector is required in front of it; the DaemonSet's `otlp` receiver already accepts arbitrary local OTLP traffic today for logs/metrics, and traces follow the identical path:
+* **Host Cluster destination, `spec.monitoring.tracing.otlp.endpoint`**: where the DPF controllers that run in the Host Cluster export their spans. This includes the servicechainset controller, which acts on the DPU clusters from the Host Cluster. They use their own embedded OpenTelemetry SDK, and no DaemonSet is involved. They run in the Host Cluster, so a cluster-local Service of an OpenTelemetry Collector works.
+* **DPU cluster destination, `spec.monitoring.openTelemetryCollector.tracing.endpoint`**: where the DPU clusters export their spans. The DPU cluster's OpenTelemetry Collector DaemonSet forwards to it the trace spans it receives locally over OTLP (port 4317/4318, the same receiver already used for OTLP-native logs and metrics), for example from another DOCA service. The sfc-controller, the DPF controller that runs on the DPUs, sends its spans through the collector. Without the packaged collector it exports to this endpoint directly. The DPUs must reach it, so set it like the logging and metrics endpoints, to the NodePort or the VIP of the Host Cluster collector.
 
 ```mermaid
 flowchart LR
     subgraph host["Host Cluster"]
         ctrl["DPF controllers"]
-        ep["tracing.endpoint<br/>(e.g. the host cluster<br/>OpenTelemetry Collector)"]
+        ep["OpenTelemetry Collector"]
     end
     subgraph dpu["DPU cluster"]
         app["Application<br/>(e.g. a DOCA service)"]
+        sfc["sfc-controller"]
         dpuc["OpenTelemetry Collector<br/>DaemonSet"]
     end
 
-    ctrl -- "OTLP" --> ep
+    ctrl -- "spec.monitoring.tracing.otlp.endpoint" --> ep
     app -- "OTLP (local)" --> dpuc
-    dpuc -- "OTLP" --> ep
-```
-
-Both producers use the same address, so `tracing.endpoint` must be reachable from the Host Cluster and from the DPU cluster. Set it like the logging and metrics endpoints, to the NodePort or the VIP of the Host Cluster collector:
-
-```yaml
-spec:
-  monitoring:
-    openTelemetryCollector:
-      tracing:
-        endpoint: "http://<host-node-ip>:30050"
+    sfc -- "OTLP (local)" --> dpuc
+    dpuc -- "spec.monitoring.openTelemetryCollector.tracing.endpoint" --> ep
 ```
 
 > [!NOTE]
-> Do not use the cluster-local Service name of the collector (`*.svc.cluster.local`). It resolves on the Host Cluster, so the controllers export, but not on the DPUs, so the spans of the DPU cluster never arrive.
+> Do not use a cluster-local Service name for the DPU cluster destination, `spec.monitoring.openTelemetryCollector.tracing.endpoint`. It resolves on the Host Cluster, but not on the DPUs, so the spans of the DPU clusters never arrive. The Host Cluster destination, `spec.monitoring.tracing.otlp.endpoint`, can use one.
 
 For how a DPF controller is instrumented, see [Tracing](../../../developer-guides/system/tracing.md) in the developer guide.
 
@@ -478,7 +470,7 @@ change came only from a DPUFlavorTemplate, a DPUCluster or the DPUDevice values,
 
 ### Configuration
 
-Tracing is disabled by default. Set `tracing.endpoint` to enable it; this both makes DPF controllers export their own spans and, if the opentelemetry-collector component is otherwise disabled, deploys the DPU cluster collector so it can accept and forward traces from other local emitters:
+Tracing is disabled by default. To let the DPF controllers of the Host Cluster export their spans, set the Host Cluster destination, `spec.monitoring.tracing.otlp.endpoint`:
 
 ```yaml
 apiVersion: operator.dpu.nvidia.com/v1alpha1
@@ -488,13 +480,23 @@ metadata:
   namespace: dpf-operator-system
 spec:
   monitoring:
+    tracing:
+      otlp:
+        endpoint: "http://<otel-collector-clusterip>:4318"
+```
+
+To export the spans of the DPU clusters, set the DPU cluster destination, `spec.monitoring.openTelemetryCollector.tracing.endpoint`. Setting it also deploys the DPU cluster collector, if it is not disabled, so it can accept and forward traces from other local emitters:
+
+```yaml
+spec:
+  monitoring:
     openTelemetryCollector:
       tracing:
         endpoint: "http://<host-node-ip>:30050"
 ```
 
-`tracing` takes the same `transport` and `caSecretRef` fields as `logging`/`metrics` — see [Transport](#transport)
-and [TLS and Custom CA Certificates](#tls-and-custom-ca-certificates) above. It also decides how many spans DPF controllers export:
+`spec.monitoring.tracing.otlp` and `spec.monitoring.openTelemetryCollector.tracing` both take the same `transport` and `caSecretRef` fields as `logging` and `metrics`, see [Transport](#transport)
+and [TLS and Custom CA Certificates](#tls-and-custom-ca-certificates) above. The other fields of `spec.monitoring.tracing` decide how many spans the DPF controllers export, in the Host Cluster and in the DPU clusters:
 
 * `recordIdleReconciles` (`false` by default): `true` also exports idle reconciles, which start at the `resourceVersion` the last successful reconcile left behind, for example requeues and resyncs. An idle reconcile that fails or changes its object is always exported.
 * `recordUnchangedReconciles` (`false` by default): `true` also exports reconciles that changed nothing on their object, did not fail and have no child spans. Such a span only says that the reconcile ran.
@@ -506,20 +508,32 @@ spec:
   monitoring:
     openTelemetryCollector:
       tracing:
-        endpoint: "http://<host-node-ip>:30050"
-        samplingPercent: 50
-        rolloutTimeout: 30m
+        endpoint: "https://<host-node-ip>:30050"
+        caSecretRef:
+          name: otel-ca
+    tracing:
+      otlp:
+        endpoint: "https://<otel-collector-clusterip>:4318"
+        caSecretRef:
+          name: otel-ca
+      samplingPercent: 50
+      rolloutTimeout: 30m
 ```
 
 Changing one of them restarts the controllers that export traces. A separate collector deployed as its own
 DPUService forwards only the pipelines in its own `config`.
 See [Custom Configuration](user-managed-components.md#custom-configuration).
 Disable the packaged collector with `spec.monitoring.openTelemetryCollector.disable: true` when the packaged trace
-forwarding should stop.
+forwarding should stop. The sfc-controller then exports to
+the DPU cluster destination, `spec.monitoring.openTelemetryCollector.tracing.endpoint`, directly.
 
-### Opting a controller out
+### Opting out
 
-With `tracing` set, every CR-driven controller exports spans. To switch tracing off for one of them, set `disableTracing` in its component configuration. These controllers support it:
+Set `spec.monitoring.tracing.disableControllerTraces: true` to stop all DPF controllers from exporting spans while keeping the
+configuration. The DPU cluster collector still forwards the spans it receives locally, so other emitters can keep
+tracing without the controller traces.
+
+With `spec.monitoring.tracing` set, every CR-driven controller exports spans. `disableControllerTraces` takes precedence over the per-controller setting. To switch tracing off for one of them only, set `disableTracing` in its component configuration. These controllers support it:
 
 ```yaml
 spec:

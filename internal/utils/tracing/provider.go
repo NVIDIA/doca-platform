@@ -265,7 +265,7 @@ func newGRPCExporter(ctx context.Context, target string, tlsCfg *tls.Config) (sd
 }
 
 // parseEndpoint returns the host:port to dial and whether TLS should be used, matching the format
-// documented on DPFOperatorConfig spec.monitoring.openTelemetryCollector.tracing.endpoint. An
+// documented on DPFOperatorConfig spec.monitoring.tracing.otlp.endpoint. An
 // endpoint without a scheme is a plaintext host:port.
 func parseEndpoint(endpoint string) (target string, secure bool, err error) {
 	if endpoint == "" {

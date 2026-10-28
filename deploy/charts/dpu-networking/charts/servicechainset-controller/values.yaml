@@ -27,7 +27,7 @@ controllerManager:
         memory: 512Mi
   replicas: 2
 # -- tracing configures the servicechainset-controller's own OTLP trace export. The operator sets it
-# from DPFOperatorConfig spec.monitoring.openTelemetryCollector.tracing.
+# from DPFOperatorConfig spec.monitoring.tracing.otlp.
 tracing:
   # -- endpoint is the OTLP endpoint to export trace spans to. If empty, tracing is disabled.
   endpoint: ""

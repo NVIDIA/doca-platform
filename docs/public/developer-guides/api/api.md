@@ -538,7 +538,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
 | `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />Used for High Availability via leader election. | 2 | Maximum: 3 <br />Minimum: 1 <br />Optional: \{\} <br /> |
-| `disableTracing` _boolean_ | DisableTracing stops the controller from exporting trace spans although<br />spec.monitoring.openTelemetryCollector.tracing is set. The controller then also stops<br />passing the trace context on to the objects it creates, so a trace ends at this controller. |  | Optional: \{\} <br /> |
+| `disableTracing` _boolean_ | DisableTracing stops the controller from exporting trace spans although tracing is<br />configured. The controller then also stops<br />passing the trace context on to the objects it creates, so a trace ends at this controller. |  | Optional: \{\} <br /> |
 | `image` _[Image](#image)_ | Image overrides the container image used by the DPUService controller.<br />Deprecated: This field is deprecated and will be removed with v31.0.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
 | `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the DPU Service controller component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
 | `disableDPUReadyTaints` _boolean_ | DisableDPUReadyTaints is a full taint kill-switch for the DPUReady controller.<br />When set to true, no taint managed by this controller (NoSchedule for critical<br />DPUServices, or NoExecute for HostNetworkReady) is added, removed, or otherwise<br />touched on host worker nodes. |  | Optional: \{\} <br /> |
@@ -962,6 +962,7 @@ _Appears in:_
 | `kubeStateMetrics` _[KubeStateMetricsConfiguration](#kubestatemetricsconfiguration)_ | KubeStateMetrics is the configuration for kube-state-metrics |  | Optional: \{\} <br /> |
 | `nodeProblemDetector` _[NodeProblemDetectorConfiguration](#nodeproblemdetectorconfiguration)_ | NodeProblemDetector is the configuration for node-problem-detector |  | Optional: \{\} <br /> |
 | `openTelemetryCollector` _[OpenTelemetryCollectorConfiguration](#opentelemetrycollectorconfiguration)_ | OpenTelemetryCollector is the configuration for opentelemetry-collector |  | Optional: \{\} <br /> |
+| `tracing` _[TracingConfiguration](#tracingconfiguration)_ | Tracing configures how the DPF controllers export trace spans. It applies even when disable is<br />true. If not specified, the controllers of the management cluster export none. |  | Optional: \{\} <br /> |
 
 
 #### MultusConfiguration
@@ -1091,7 +1092,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
 | `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />Used for High Availability via leader election. | 2 | Maximum: 3 <br />Minimum: 1 <br />Optional: \{\} <br /> |
-| `disableTracing` _boolean_ | DisableTracing stops the controller from exporting trace spans although<br />spec.monitoring.openTelemetryCollector.tracing is set. The controller then also stops<br />passing the trace context on to the objects it creates, so a trace ends at this controller. |  | Optional: \{\} <br /> |
+| `disableTracing` _boolean_ | DisableTracing stops the controller from exporting trace spans although tracing is<br />configured. The controller then also stops<br />passing the trace context on to the objects it creates, so a trace ends at this controller. |  | Optional: \{\} <br /> |
 | `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the NodeSRIOVDevicePlugin controller component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
 | `devicePlugin` _[NodeSRIOVDevicePluginSettings](#nodesriovdevicepluginsettings)_ | DevicePlugin contains the configuration for the SRIOV device plugin pods<br />managed by this controller. |  | Optional: \{\} <br /> |
 
@@ -1145,7 +1146,6 @@ certificate bundle used to verify the endpoint's TLS certificate.
 
 _Appears in:_
 - [OpenTelemetryCollectorExportConfiguration](#opentelemetrycollectorexportconfiguration)
-- [OpenTelemetryCollectorTracingConfiguration](#opentelemetrycollectortracingconfiguration)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -1172,7 +1172,7 @@ _Appears in:_
 | `daemon` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Daemon contains the configuration for the opentelemetry-collector component.<br />It contains the image for opentelemetry-collector and its resource requirements. |  | Optional: \{\} <br /> |
 | `logging` _[OpenTelemetryCollectorExportConfiguration](#opentelemetrycollectorexportconfiguration)_ | Logging contains the configuration for the opentelemetry-collector logging component.<br />If not specified, logging will not be streamed. |  | Optional: \{\} <br /> |
 | `metrics` _[OpenTelemetryCollectorExportConfiguration](#opentelemetrycollectorexportconfiguration)_ | Metrics contains the configuration for the opentelemetry-collector metrics component.<br />If not specified, metrics will not be streamed from DPU clusters. |  | Optional: \{\} <br /> |
-| `tracing` _[OpenTelemetryCollectorTracingConfiguration](#opentelemetrycollectortracingconfiguration)_ | Tracing contains the configuration for exporting distributed traces from DPF controllers.<br />If not specified, DPF controllers will not export trace spans. |  | Optional: \{\} <br /> |
+| `tracing` _[OpenTelemetryCollectorExportConfiguration](#opentelemetrycollectorexportconfiguration)_ | Tracing is where the DPU clusters export their trace spans. The collector forwards the spans it<br />receives locally, and the sfc-controller sends its own. The DPUs must reach it, so use the<br />address of a management cluster node, not a cluster-local Service. If not specified, none are exported. |  | Optional: \{\} <br /> |
 
 
 #### OpenTelemetryCollectorExportConfiguration
@@ -1182,46 +1182,20 @@ _Appears in:_
 OpenTelemetryCollectorExportConfiguration configures where and how an opentelemetry signal
 (logs, metrics or traces) is exported. It is shared by
 OpenTelemetryCollectorConfiguration.Logging (the DPU cluster opentelemetry-collector's log
-export destination), .Metrics (its metric export destination) and .Tracing (where DPF
-controllers export their own trace spans).
+export destination), .Metrics (its metric export destination) and .Tracing (its trace export
+destination).
 
 
 
 _Appears in:_
 - [OpenTelemetryCollectorConfiguration](#opentelemetrycollectorconfiguration)
-- [OpenTelemetryCollectorTracingConfiguration](#opentelemetrycollectortracingconfiguration)
+- [TracingConfiguration](#tracingconfiguration)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `endpoint` _string_ | Endpoint is the OTLP endpoint data is sent to. This could be the management cluster's<br />opentelemetry-collector endpoint.<br />If not specified, nothing will be exported for this signal.<br />For the http transport the endpoint must include the scheme, e.g. "https://host:4318".<br />For the grpc transport the endpoint is "host:4317", optionally prefixed with a<br />scheme ("https://host:4317") to enforce TLS. |  | Required: \{\} <br /> |
 | `transport` _[OpenTelemetryCollectorTransport](#opentelemetrycollectortransport)_ | Transport is the OTLP transport used to export data to the endpoint. |  | Enum: [http grpc] <br />Optional: \{\} <br /> |
 | `caSecretRef` _[OpenTelemetryCollectorCASecretReference](#opentelemetrycollectorcasecretreference)_ | CASecretRef references a Secret that contains the PEM-encoded CA certificate bundle<br />(under the "ca.crt" key) used to verify the endpoint's TLS certificate. Set it when the<br />endpoint serves a certificate issued by a private CA. The Secret may live in any namespace,<br />for example alongside the endpoint's cert-manager Certificate; if its namespace is empty,<br />the DPFOperatorConfig namespace is used.<br />If not specified, TLS endpoints are verified against the system CA pool.<br />Changes to the Secret content are applied on the next reconciliation of the DPFOperatorConfig. |  | Optional: \{\} <br /> |
-
-
-#### OpenTelemetryCollectorTracingConfiguration
-
-
-
-OpenTelemetryCollectorTracingConfiguration configures where DPF controllers export their trace
-spans and how many of them. It extends OpenTelemetryCollectorExportConfiguration.
-The endpoint is used by the controllers of the management cluster and by the DPU cluster, so it
-must be reachable from both, like the logging and metrics endpoints. Use an address of the
-management cluster nodes, not a cluster-local Service name, which does not resolve on the DPUs.
-
-
-
-_Appears in:_
-- [OpenTelemetryCollectorConfiguration](#opentelemetrycollectorconfiguration)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `endpoint` _string_ | Endpoint is the OTLP endpoint data is sent to. This could be the management cluster's<br />opentelemetry-collector endpoint.<br />If not specified, nothing will be exported for this signal.<br />For the http transport the endpoint must include the scheme, e.g. "https://host:4318".<br />For the grpc transport the endpoint is "host:4317", optionally prefixed with a<br />scheme ("https://host:4317") to enforce TLS. |  | Required: \{\} <br /> |
-| `transport` _[OpenTelemetryCollectorTransport](#opentelemetrycollectortransport)_ | Transport is the OTLP transport used to export data to the endpoint. |  | Enum: [http grpc] <br />Optional: \{\} <br /> |
-| `caSecretRef` _[OpenTelemetryCollectorCASecretReference](#opentelemetrycollectorcasecretreference)_ | CASecretRef references a Secret that contains the PEM-encoded CA certificate bundle<br />(under the "ca.crt" key) used to verify the endpoint's TLS certificate. Set it when the<br />endpoint serves a certificate issued by a private CA. The Secret may live in any namespace,<br />for example alongside the endpoint's cert-manager Certificate; if its namespace is empty,<br />the DPFOperatorConfig namespace is used.<br />If not specified, TLS endpoints are verified against the system CA pool.<br />Changes to the Secret content are applied on the next reconciliation of the DPFOperatorConfig. |  | Optional: \{\} <br /> |
-| `recordIdleReconciles` _boolean_ | RecordIdleReconciles exports the spans of idle reconciles. A reconcile is idle when it starts<br />at the resourceVersion the last successful reconcile of the object left behind, for example a<br />requeue or a resync. An idle reconcile that fails or changes its object is always exported.<br />When not set, idle reconciles are not exported. |  | Optional: \{\} <br /> |
-| `recordUnchangedReconciles` _boolean_ | RecordUnchangedReconciles exports the spans of reconciles that changed nothing on their object,<br />did not fail and have no child spans. Such a span only says that the reconcile ran. When not<br />set, they are not exported. |  | Optional: \{\} <br /> |
-| `samplingPercent` _integer_ | SamplingPercent is the share of the traces that is exported, in percent. The decision is made per<br />trace, so all spans of a change are kept or dropped together. When not set, all of them are kept. |  | Maximum: 100 <br />Minimum: 0 <br />Optional: \{\} <br /> |
-| `rolloutTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | RolloutTimeout is how long a change may take to become ready before its rollout span is exported<br />as timed out. When not set, it is one hour. Set it to 0s to turn the timeout off, so a rollout<br />ends once the change is ready or a newer change replaces it. |  | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br />Optional: \{\} <br /> |
 
 
 #### OpenTelemetryCollectorTransport
@@ -1234,7 +1208,6 @@ OpenTelemetryCollectorTransport is the OTLP transport used to export data to the
 
 _Appears in:_
 - [OpenTelemetryCollectorExportConfiguration](#opentelemetrycollectorexportconfiguration)
-- [OpenTelemetryCollectorTracingConfiguration](#opentelemetrycollectortracingconfiguration)
 
 | Field | Description |
 | --- | --- |
@@ -1287,7 +1260,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
 | `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />Used for High Availability via leader election. | 2 | Maximum: 3 <br />Minimum: 1 <br />Optional: \{\} <br /> |
-| `disableTracing` _boolean_ | DisableTracing stops the controller from exporting trace spans although<br />spec.monitoring.openTelemetryCollector.tracing is set. The controller then also stops<br />passing the trace context on to the objects it creates, so a trace ends at this controller. |  | Optional: \{\} <br /> |
+| `disableTracing` _boolean_ | DisableTracing stops the controller from exporting trace spans although tracing is<br />configured. The controller then also stops<br />passing the trace context on to the objects it creates, so a trace ends at this controller. |  | Optional: \{\} <br /> |
 | `image` _[Image](#image)_ | Image overrides the container image used by the Provisioning controller.<br />Deprecated: This field is deprecated and will be removed with v31.0.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
 | `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the Provisioning controller component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
 | `bfCFGTemplateConfigMap` _string_ | BFCFGTemplateConfigMap is the name of a configMap containing a template for the BF.cfg file used by the DPU controller.<br />By default the provisioning controller use a hardcoded BF.cfg e.g. https://github.com/NVIDIA/doca-platform/blob/release-v24.10/internal/provisioning/controllers/dpu/bfcfg/bf.cfg.template<br />Note: Replacing the bf.cfg is an advanced use case. The default bf.cfg is designed for most use cases.<br />Deprecated: BFCFGTemplateConfigMap is deprecated and will be removed in a future release.<br />Use enableDynamicBFCFGTemplates instead for custom bf.cfg templates. |  | Optional: \{\} <br /> |
@@ -1426,7 +1399,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
-| `disableTracing` _boolean_ | DisableTracing stops the controller from exporting trace spans although<br />spec.monitoring.openTelemetryCollector.tracing is set. The controller then also stops<br />passing the trace context on to the objects it creates, so a trace ends at this controller. |  | Optional: \{\} <br /> |
+| `disableTracing` _boolean_ | DisableTracing stops the controller from exporting trace spans although tracing is<br />configured. The controller then also stops<br />passing the trace context on to the objects it creates, so a trace ends at this controller. |  | Optional: \{\} <br /> |
 | `image` _[Image](#image)_ | Image overrides the container image used by the SFC controller.<br />Deprecated: This field is deprecated and will be removed with v31.0.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
 | `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the SFC controller component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
 | `secureFlowDeletionTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | SecureFlowDeletionTimeout controls the timeout for which the API server is unreachable after which all the flows<br />are deleted to prevent unintended packet leaks. It has effect when is greater than zero.<br />Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration. |  | Optional: \{\} <br /> |
@@ -1604,7 +1577,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
 | `replicas` _integer_ | Replicas is the number of replicas for the controller deployment.<br />Used for High Availability via leader election. | 2 | Maximum: 3 <br />Minimum: 1 <br />Optional: \{\} <br /> |
-| `disableTracing` _boolean_ | DisableTracing stops the controller from exporting trace spans although<br />spec.monitoring.openTelemetryCollector.tracing is set. The controller then also stops<br />passing the trace context on to the objects it creates, so a trace ends at this controller. |  | Optional: \{\} <br /> |
+| `disableTracing` _boolean_ | DisableTracing stops the controller from exporting trace spans although tracing is<br />configured. The controller then also stops<br />passing the trace context on to the objects it creates, so a trace ends at this controller. |  | Optional: \{\} <br /> |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller.<br />The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid<br />OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
 | `image` _[Image](#image)_ | Image overrides the container image used by the ServiceChainSet Controller.<br />Deprecated: This field is deprecated and will be removed with v31.0.0.<br />Use the new field `controller` instead. |  | Pattern: `^((?:(?:(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]\|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*\|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]\|__\|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]\{0,127\}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]\{32,\}))?$` <br />Optional: \{\} <br /> |
 | `controller` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Controller contains the configuration for the ServiceChainSet controller component.<br />It contains the image for the controller and its resource requirements. |  | Optional: \{\} <br /> |
@@ -1646,6 +1619,28 @@ _Appears in:_
 | `automaticRotationDisabled` _boolean_ | AutomaticRotationDisabled disables automatic staticKey rotation for existing Kamaji clusters.<br />In-flight rotations stop at the next stable checkpoint; encryption at rest remains enabled. |  | Optional: \{\} <br /> |
 
 
+#### TracingConfiguration
+
+
+
+TracingConfiguration configures how the DPF controllers export their trace spans. The endpoint is
+used by the controllers of the management cluster, so it can be a cluster-local Service.
+
+
+
+_Appears in:_
+- [MonitoringConfiguration](#monitoringconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `otlp` _[OpenTelemetryCollectorExportConfiguration](#opentelemetrycollectorexportconfiguration)_ | Otlp is the OTLP export configuration of the controllers of the management cluster, so its<br />endpoint can be a cluster-local Service. If not specified, these controllers export no trace spans. |  | Optional: \{\} <br /> |
+| `disableControllerTraces` _boolean_ | DisableControllerTraces stops all DPF controllers from exporting trace spans and keeps the<br />configuration. It takes precedence over disableTracing of the individual controllers.<br />The collector still forwards the spans it receives locally. |  | Optional: \{\} <br /> |
+| `recordIdleReconciles` _boolean_ | RecordIdleReconciles exports the spans of idle reconciles. A reconcile is idle when it starts<br />at the resourceVersion the last successful reconcile of the object left behind, for example a<br />requeue or a resync. An idle reconcile that fails or changes its object is always exported.<br />When not set, idle reconciles are not exported. |  | Optional: \{\} <br /> |
+| `recordUnchangedReconciles` _boolean_ | RecordUnchangedReconciles exports the spans of reconciles that changed nothing on their object,<br />did not fail and have no child spans. Such a span only says that the reconcile ran. When not<br />set, they are not exported. |  | Optional: \{\} <br /> |
+| `samplingPercent` _integer_ | SamplingPercent is the share of the traces generated by the DPF controllers that is exported, in<br />percent. The decision is made per trace, so all spans of a change are kept or dropped together.<br />When not set, all of them are kept. |  | Maximum: 100 <br />Minimum: 0 <br />Optional: \{\} <br /> |
+| `rolloutTimeout` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#duration-v1-meta)_ | RolloutTimeout is how long a change may take to become ready before its rollout span is exported<br />as timed out. When not set, it is one hour. Set it to 0s to turn the timeout off, so a rollout<br />ends once the change is ready or a newer change replaces it. |  | Format: duration <br />Pattern: `^([0-9]+(h\|m\|s\|ms\|us\|µs\|ns))+$` <br />Type: string <br />Optional: \{\} <br /> |
+
+
 #### TracingControllerConfig
 
 
@@ -1663,7 +1658,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `disableTracing` _boolean_ | DisableTracing stops the controller from exporting trace spans although<br />spec.monitoring.openTelemetryCollector.tracing is set. The controller then also stops<br />passing the trace context on to the objects it creates, so a trace ends at this controller. |  | Optional: \{\} <br /> |
+| `disableTracing` _boolean_ | DisableTracing stops the controller from exporting trace spans although tracing is<br />configured. The controller then also stops<br />passing the trace context on to the objects it creates, so a trace ends at this controller. |  | Optional: \{\} <br /> |
 
 
 #### VaultKMSAppRoleAuth

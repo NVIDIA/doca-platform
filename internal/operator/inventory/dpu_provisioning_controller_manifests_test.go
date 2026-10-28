@@ -811,7 +811,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 			BFBPersistentVolumeClaimName: ptr.To("pvc"),
 			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 		}
-		vars.OpenTelemetryCollector.Tracing.Endpoint = "http://collector:4318"
+		vars.Tracing.Endpoint = "http://collector:4318"
 
 		objs, err := provCtrl.GenerateManifests(context.Background(), vars)
 		g.Expect(err).NotTo(HaveOccurred())
@@ -835,7 +835,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 			BFBPersistentVolumeClaimName: ptr.To("pvc"),
 			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 		}
-		vars.OpenTelemetryCollector.Tracing.Endpoint = "http://collector:4318"
+		vars.Tracing.Endpoint = "http://collector:4318"
 		vars.DisableTracing = map[operatorv1.ComponentName]bool{operatorv1.ProvisioningControllerName: true}
 
 		objs, err := provCtrl.GenerateManifests(context.Background(), vars)
@@ -863,7 +863,7 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 			BFBPersistentVolumeClaimName: ptr.To("pvc"),
 			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
 		}
-		vars.OpenTelemetryCollector.Tracing.Endpoint = "http://collector:4318"
+		vars.Tracing.Endpoint = "http://collector:4318"
 		vars.DisableTracing = map[operatorv1.ComponentName]bool{operatorv1.DPUServiceControllerName: true}
 
 		objs, err := provCtrl.GenerateManifests(context.Background(), vars)

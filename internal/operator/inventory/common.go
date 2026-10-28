@@ -377,7 +377,7 @@ func tracingFlagsFor(component operatorv1.ComponentName) func(*appsv1.Deployment
 // component whose binary registers tracing.AddFlags. It does nothing when no endpoint is
 // configured. The CA is passed inline as PEM, see tracing.FlagOptions.
 func setTracingFlags(deploy *appsv1.Deployment, vars Variables) error {
-	if vars.OpenTelemetryCollector.Tracing.Endpoint == "" {
+	if vars.Tracing.Endpoint == "" {
 		return nil
 	}
 	c := getManagerContainer(deploy)
@@ -385,23 +385,23 @@ func setTracingFlags(deploy *appsv1.Deployment, vars Variables) error {
 		return fmt.Errorf("container %q not found in Deployment %s", managerContainerName, deploy.GetName())
 	}
 
-	flags := []string{fmt.Sprintf("--otel-tracing-endpoint=%s", vars.OpenTelemetryCollector.Tracing.Endpoint)}
-	if vars.OpenTelemetryCollector.Tracing.Transport != "" {
-		flags = append(flags, fmt.Sprintf("--otel-tracing-transport=%s", vars.OpenTelemetryCollector.Tracing.Transport))
+	flags := []string{fmt.Sprintf("--otel-tracing-endpoint=%s", vars.Tracing.Endpoint)}
+	if vars.Tracing.Transport != "" {
+		flags = append(flags, fmt.Sprintf("--otel-tracing-transport=%s", vars.Tracing.Transport))
 	}
-	if vars.OpenTelemetryCollector.Tracing.CACert != "" {
-		flags = append(flags, fmt.Sprintf("--otel-tracing-ca-pem=%s", vars.OpenTelemetryCollector.Tracing.CACert))
+	if vars.Tracing.CACert != "" {
+		flags = append(flags, fmt.Sprintf("--otel-tracing-ca-pem=%s", vars.Tracing.CACert))
 	}
-	if vars.OpenTelemetryCollector.Tracing.RecordIdleReconciles {
+	if vars.Tracing.RecordIdleReconciles {
 		flags = append(flags, "--otel-tracing-record-idle-reconciles=true")
 	}
-	if vars.OpenTelemetryCollector.Tracing.RecordUnchangedReconciles {
+	if vars.Tracing.RecordUnchangedReconciles {
 		flags = append(flags, "--otel-tracing-record-unchanged-reconciles=true")
 	}
-	if percent := vars.OpenTelemetryCollector.Tracing.SamplingPercent; percent != nil && *percent != tracing.DefaultSamplingPercent {
+	if percent := vars.Tracing.SamplingPercent; percent != nil && *percent != tracing.DefaultSamplingPercent {
 		flags = append(flags, fmt.Sprintf("--otel-tracing-sampling-percent=%d", *percent))
 	}
-	if timeout := vars.OpenTelemetryCollector.Tracing.RolloutTimeout; timeout != nil && *timeout != tracing.DefaultRolloutTimeout {
+	if timeout := vars.Tracing.RolloutTimeout; timeout != nil && *timeout != tracing.DefaultRolloutTimeout {
 		flags = append(flags, fmt.Sprintf("--otel-tracing-rollout-timeout=%s", *timeout))
 	}
 

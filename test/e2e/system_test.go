@@ -184,7 +184,8 @@ func generateDPFOperatorConfig() *operatorv1.DPFOperatorConfig {
 			},
 			Monitoring: &operatorv1.MonitoringConfiguration{
 				Disable:                ptr.To(false),
-				OpenTelemetryCollector: openTelemetryCollectorConfiguration(ctx, testClient, conf.DPUClusterPaths, conf.NumberOfDPUNodes > 0),
+				OpenTelemetryCollector: openTelemetryCollectorConfiguration(ctx, testClient, conf.DPUClusterPaths),
+				Tracing:                tracingConfiguration(ctx, testClient),
 			},
 			NodeSRIOVDevicePluginController: &operatorv1.NodeSRIOVDevicePluginControllerConfiguration{
 				BaseComponentConfig: operatorv1.BaseComponentConfig{

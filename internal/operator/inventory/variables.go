@@ -36,6 +36,15 @@ import (
 // agree, which is why the cluster manager builds TenantControlPlanes with this same range.
 const DefaultFlannelPodCIDR = "10.244.0.0/14"
 
+// tracingControllers are the controllers that can export trace spans and opt out of it.
+var tracingControllers = []operatorv1.ComponentName{
+	operatorv1.DPUServiceControllerName,
+	operatorv1.ProvisioningControllerName,
+	operatorv1.NodeSRIOVDevicePluginControllerName,
+	operatorv1.ServiceSetControllerName,
+	operatorv1.SFCControllerName,
+}
+
 func newDefaultVariables(defaults *release.Defaults) Variables {
 	return Variables{
 		DPUClusters:                            []*dpucluster.Config{},
@@ -164,6 +173,7 @@ type Variables struct {
 	SFCController                          SFCControllerVariables
 	NodeSRIOVDevicePluginController        NodeSRIOVDevicePluginControllerVariables
 	OpenTelemetryCollector                 OpenTelemetryCollectorVariables
+	Tracing                                TracingVariables
 	CoreDNS                                CoreDNSVariables
 	Networking                             Networking
 	KataContainers                         KataContainersVariables
@@ -258,10 +268,10 @@ type OpenTelemetryCollectorGenericVariables struct {
 	CACert    string
 }
 
-// OpenTelemetryCollectorTracingVariables holds the export destination of the trace spans of DPF
-// controllers and the settings that decide which spans they export. The settings are only passed to
-// the controllers when they differ from the controllers' own defaults, see internal/utils/tracing.
-type OpenTelemetryCollectorTracingVariables struct {
+// TracingVariables holds the export destination of the trace spans of the DPF controllers of the
+// management cluster and the settings that decide which spans all DPF controllers export. The
+// settings are only passed on when they differ from the controllers' defaults, see internal/utils/tracing.
+type TracingVariables struct {
 	OpenTelemetryCollectorGenericVariables
 	// RecordIdleReconciles exports the spans of idle reconciles.
 	RecordIdleReconciles bool
@@ -274,16 +284,12 @@ type OpenTelemetryCollectorTracingVariables struct {
 	RolloutTimeout *time.Duration
 }
 
-// OpenTelemetryCollectorVariables holds the OTLP export destinations for the three signals
-// spec.monitoring.openTelemetryCollector configures. Logging and Metrics are the DPU cluster
-// opentelemetry-collector's own forwarding targets. Tracing is shared by two consumers: DPF
-// controllers export spans directly to it (see internal/utils/tracing), and the DPU cluster
-// opentelemetry-collector forwards to it any trace spans it receives locally over OTLP (e.g. from
-// other DOCA services running on the DPU), exactly like it already does for logs/metrics.
+// OpenTelemetryCollectorVariables holds the OTLP export destinations of the DPU cluster
+// opentelemetry-collector. Tracing is also where the sfc-controller on the DPUs exports its spans.
 type OpenTelemetryCollectorVariables struct {
 	Metrics OpenTelemetryCollectorGenericVariables
 	Logging OpenTelemetryCollectorGenericVariables
-	Tracing OpenTelemetryCollectorTracingVariables
+	Tracing OpenTelemetryCollectorGenericVariables
 }
 
 // KataContainersVariables holds variables specific to the Kata Containers component.
@@ -302,6 +308,7 @@ func VariablesFromDPFOperatorConfig(defaults *release.Defaults, config *operator
 	variables = setOverrideConfigs(variables, config)
 	variables = setAdditionalConfigs(variables, config)
 	variables = setMonitoringConfigs(variables, config)
+	variables = setTracingConfigs(variables, config)
 	variables.DPUClusters = append(variables.DPUClusters, dpuClusters...)
 	return variables
 }
@@ -671,27 +678,44 @@ func setMonitoringConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 			}
 		}
 		// If enabled but no endpoint provided, it remains disabled
-
-		// Tracing configures DPF controllers' own OTLP exporters directly (see
-		// internal/utils/tracing), independent of whether the opentelemetry-collector component
-		// itself is enabled. When the component is enabled, its DPU cluster collector also
-		// forwards to this same endpoint any trace spans it receives locally over OTLP (e.g. from
-		// other DOCA services running on the DPU).
-		if otelConfig.Tracing != nil {
-			variables.OpenTelemetryCollector.Tracing.Endpoint = otelConfig.Tracing.Endpoint
-			if otelConfig.Tracing.Transport != nil {
-				variables.OpenTelemetryCollector.Tracing.Transport = string(*otelConfig.Tracing.Transport)
-			}
-			tracingVars := &variables.OpenTelemetryCollector.Tracing
-			tracingVars.RecordIdleReconciles = ptr.Deref(otelConfig.Tracing.RecordIdleReconciles, false)
-			tracingVars.RecordUnchangedReconciles = ptr.Deref(otelConfig.Tracing.RecordUnchangedReconciles, false)
-			tracingVars.SamplingPercent = otelConfig.Tracing.SamplingPercent
-			if otelConfig.Tracing.RolloutTimeout != nil {
-				tracingVars.RolloutTimeout = ptr.To(otelConfig.Tracing.RolloutTimeout.Duration)
-			}
-		}
 	}
 
+	return variables
+}
+
+// setTracingConfigs sets where the DPF controllers of the management cluster export their trace
+// spans and the settings that apply to all DPF controllers. They do not depend on whether monitoring
+// or the collector is enabled, as the controllers export spans to any OTLP endpoint. The same goes
+// for the tracing destination of the DPU clusters, which the sfc-controller on the DPUs exports to
+// directly when the collector is not deployed.
+func setTracingConfigs(variables Variables, config *operatorv1.DPFOperatorConfig) Variables {
+	if config.Spec.Monitoring == nil {
+		return variables
+	}
+	if otelConfig := config.Spec.Monitoring.OpenTelemetryCollector; otelConfig != nil && otelConfig.Tracing != nil {
+		variables.OpenTelemetryCollector.Tracing.Endpoint = otelConfig.Tracing.Endpoint
+		if otelConfig.Tracing.Transport != nil {
+			variables.OpenTelemetryCollector.Tracing.Transport = string(*otelConfig.Tracing.Transport)
+		}
+	}
+	if config.Spec.Monitoring.Tracing == nil {
+		return variables
+	}
+	tracingConfig := config.Spec.Monitoring.Tracing
+	if ptr.Deref(tracingConfig.DisableControllerTraces, false) {
+		for _, controller := range tracingControllers {
+			variables.DisableTracing[controller] = true
+		}
+	}
+	tracingVars := &variables.Tracing
+	tracingVars.Endpoint = tracingConfig.Otlp.Endpoint
+	tracingVars.Transport = string(ptr.Deref(tracingConfig.Otlp.Transport, ""))
+	tracingVars.RecordIdleReconciles = ptr.Deref(tracingConfig.RecordIdleReconciles, false)
+	tracingVars.RecordUnchangedReconciles = ptr.Deref(tracingConfig.RecordUnchangedReconciles, false)
+	tracingVars.SamplingPercent = tracingConfig.SamplingPercent
+	if tracingConfig.RolloutTimeout != nil {
+		tracingVars.RolloutTimeout = ptr.To(tracingConfig.RolloutTimeout.Duration)
+	}
 	return variables
 }
 
