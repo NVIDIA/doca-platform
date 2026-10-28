@@ -21,6 +21,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -676,6 +677,214 @@ var _ = Describe("OVS helpers", func() {
 		})
 	})
 
+	Describe("cleanupStaleBridgePorts", func() {
+		const (
+			targetBr  = "br-dhcp-r0swp0"
+			uuidOne   = "1b0e0e2a-0001-4000-8000-000000000001"
+			uuidTwo   = "1b0e0e2a-0002-4000-8000-000000000002"
+			uuidOther = "1b0e0e2a-0003-4000-8000-000000000003"
+			contIface = "net1"
+			// The pod that owns the rows below, distinct from the pod being attached.
+			podUid    = "95b22530-a6c8-46dc-97fa-f8c5c01b4dd6"
+			curPodUid = "0a5b7d14-61a2-4a0e-9d2a-2a0b6c3f8e77"
+		)
+
+		var liveNetns, goneNetns string
+
+		BeforeEach(func() {
+			liveNetns = GinkgoT().TempDir()
+			goneNetns = filepath.Join(liveNetns, "missing")
+		})
+
+		bridgeExpect := func(portUUIDs ...string) *gomock.Call {
+			return mockAPI.EXPECT().GetBridgeWithName(gomock.Any(), targetBr).
+				Return(&ovsmodel.Bridge{
+					Name:  targetBr,
+					Ports: portUUIDs,
+				}, nil)
+		}
+
+		portRow := func(portUUID, name, netns string) ovsdb.Row {
+			return ovsdb.Row{
+				"_uuid": ovsdb.UUID{GoUUID: portUUID},
+				"name":  name,
+				"external_ids": mustOvsMap(map[string]string{
+					"contIface":  contIface,
+					"contNetns":  netns,
+					"contPodUid": podUid,
+					"owner":      ovsPortOwner,
+				}),
+			}
+		}
+
+		// Sweep on behalf of a pod that owns none of the rows above.
+		sweep := func() error {
+			return cleanupStaleBridgePorts(ctx, mockAPI, targetBr, curPodUid, contIface)
+		}
+
+		It("returns nil when the bridge has no plugin-owned ports", func() {
+			gomock.InOrder(
+				bridgeExpect(),
+				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{}}, nil),
+			)
+
+			Expect(sweep()).To(Succeed())
+		})
+
+		It("removes a stale port on the target bridge", func() {
+			gomock.InOrder(
+				bridgeExpect(uuidOne),
+				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{
+					{Rows: []ovsdb.Row{portRow(uuidOne, "B21pf0sf10", goneNetns)}},
+				}, nil),
+				mockAPI.EXPECT().DelPort(gomock.Any(), targetBr, "B21pf0sf10", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
+			)
+
+			Expect(sweep()).To(Succeed())
+		})
+
+		It("removes every stale port on the bridge", func() {
+			gomock.InOrder(
+				bridgeExpect(uuidOne, uuidTwo),
+				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{
+					{Rows: []ovsdb.Row{
+						portRow(uuidOne, "B21pf0sf2", goneNetns),
+						portRow(uuidTwo, "B21pf0sf10", goneNetns),
+					}},
+				}, nil),
+				mockAPI.EXPECT().DelPort(gomock.Any(), targetBr, "B21pf0sf2", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
+				mockAPI.EXPECT().DelPort(gomock.Any(), targetBr, "B21pf0sf10", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
+			)
+
+			Expect(sweep()).To(Succeed())
+		})
+
+		It("accepts a bare string _uuid column", func() {
+			row := portRow(uuidOne, "B21pf0sf10", goneNetns)
+			row["_uuid"] = uuidOne
+			gomock.InOrder(
+				bridgeExpect(uuidOne),
+				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{Rows: []ovsdb.Row{row}}}, nil),
+				mockAPI.EXPECT().DelPort(gomock.Any(), targetBr, "B21pf0sf10", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
+			)
+
+			Expect(sweep()).To(Succeed())
+		})
+
+		// The keeps below rely on mockCtrl.Finish() to catch an unexpected DelPort.
+		It("keeps a stale port that is on another bridge", func() {
+			gomock.InOrder(
+				bridgeExpect(uuidOne),
+				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{
+					{Rows: []ovsdb.Row{portRow(uuidOther, "B21pf0sf10", goneNetns)}},
+				}, nil),
+			)
+
+			Expect(sweep()).To(Succeed())
+		})
+
+		It("keeps a port whose netns still exists", func() {
+			gomock.InOrder(
+				bridgeExpect(uuidOne),
+				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{
+					{Rows: []ovsdb.Row{portRow(uuidOne, "B21pf0sf10", liveNetns)}},
+				}, nil),
+			)
+
+			Expect(sweep()).To(Succeed())
+		})
+
+		It("keeps a port with no recorded netns", func() {
+			gomock.InOrder(
+				bridgeExpect(uuidOne),
+				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{
+					{Rows: []ovsdb.Row{portRow(uuidOne, "B21pf0sf10", "")}},
+				}, nil),
+			)
+
+			Expect(sweep()).To(Succeed())
+		})
+
+		It("skips rows without a name", func() {
+			row := portRow(uuidOne, "", goneNetns)
+			delete(row, "name")
+			gomock.InOrder(
+				bridgeExpect(uuidOne),
+				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{Rows: []ovsdb.Row{row}}}, nil),
+			)
+
+			Expect(sweep()).To(Succeed())
+		})
+
+		It("returns error when the bridge lookup fails", func() {
+			errNoBridge := errors.New("no bridge")
+			mockAPI.EXPECT().GetBridgeWithName(gomock.Any(), targetBr).Return(nil, errNoBridge)
+
+			Expect(sweep()).To(MatchError(errNoBridge))
+		})
+
+		It("returns error when the port lookup fails", func() {
+			errReadDenied := errors.New("read denied")
+			gomock.InOrder(
+				bridgeExpect(uuidOne),
+				transactExpect(mockAPI, 1).Return(nil, errReadDenied),
+			)
+
+			Expect(sweep()).To(MatchError(errReadDenied))
+		})
+
+		It("keeps sweeping after a DelPort failure", func() {
+			gomock.InOrder(
+				bridgeExpect(uuidOne, uuidTwo),
+				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{
+					{Rows: []ovsdb.Row{
+						portRow(uuidOne, "B21pf0sf2", goneNetns),
+						portRow(uuidTwo, "B21pf0sf10", goneNetns),
+					}},
+				}, nil),
+				mockAPI.EXPECT().DelPort(gomock.Any(), targetBr, "B21pf0sf2", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).
+					Return(errors.New("port busy")),
+				mockAPI.EXPECT().DelPort(gomock.Any(), targetBr, "B21pf0sf10", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
+			)
+
+			Expect(sweep()).To(Succeed())
+		})
+
+		// Left by an earlier sandbox of the pod being attached, under a host interface name
+		// the exact-name branch in CmdAdd no longer matches.
+		It("returns error when this pod's own leftover cannot be removed", func() {
+			errPortBusy := errors.New("port busy")
+			gomock.InOrder(
+				bridgeExpect(uuidOne),
+				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{
+					{Rows: []ovsdb.Row{portRow(uuidOne, "B21pf0sf2", goneNetns)}},
+				}, nil),
+				mockAPI.EXPECT().DelPort(gomock.Any(), targetBr, "B21pf0sf2", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).
+					Return(errPortBusy),
+			)
+
+			err := cleanupStaleBridgePorts(ctx, mockAPI, targetBr, podUid, contIface)
+			Expect(err).To(MatchError(errPortBusy))
+		})
+
+		It("stays best-effort when neither the row nor the pod has a uid", func() {
+			row := portRow(uuidOne, "B21pf0sf2", goneNetns)
+			row["external_ids"] = mustOvsMap(map[string]string{
+				"contIface": contIface,
+				"contNetns": goneNetns,
+				"owner":     ovsPortOwner,
+			})
+			gomock.InOrder(
+				bridgeExpect(uuidOne),
+				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{Rows: []ovsdb.Row{row}}}, nil),
+				mockAPI.EXPECT().DelPort(gomock.Any(), targetBr, "B21pf0sf2", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).
+					Return(errors.New("port busy")),
+			)
+
+			Expect(cleanupStaleBridgePorts(ctx, mockAPI, targetBr, "", contIface)).To(Succeed())
+		})
+	})
+
 	Describe("addPatchPort", func() {
 		// Each call: DelPort (refresh stale external_ids) + Transact (getUsedOFPorts) + AddPort.
 
@@ -799,6 +1008,64 @@ var _ = Describe("OVS helpers", func() {
 			err := createPatch(ctx, mockAPI, intfName, contIfaceName, brA, brB)
 			Expect(err).To(MatchError(ContainSubstring("port busy")))
 		})
+	})
+})
+
+var _ = Describe("netnsGone", func() {
+	It("treats an empty path as present", func() {
+		Expect(netnsGone("")).To(BeFalse())
+	})
+
+	It("reports false for a path that exists", func() {
+		Expect(netnsGone(GinkgoT().TempDir())).To(BeFalse())
+	})
+
+	It("reports true for a path that is gone", func() {
+		Expect(netnsGone(filepath.Join(GinkgoT().TempDir(), "missing"))).To(BeTrue())
+	})
+})
+
+var _ = Describe("rowUUID", func() {
+	It("reads the ovsdb.UUID form", func() {
+		Expect(rowUUID(ovsdb.Row{"_uuid": ovsdb.UUID{GoUUID: "abc"}})).To(Equal("abc"))
+	})
+
+	It("reads the bare string form", func() {
+		Expect(rowUUID(ovsdb.Row{"_uuid": "abc"})).To(Equal("abc"))
+	})
+
+	It("returns empty when the column is absent", func() {
+		Expect(rowUUID(ovsdb.Row{"name": "p0"})).To(BeEmpty())
+	})
+})
+
+var _ = Describe("rowExternalIDs", func() {
+	It("flattens string keys and values", func() {
+		row := ovsdb.Row{"external_ids": mustOvsMap(map[string]string{
+			"contIface": "r0swp0",
+			"owner":     ovsPortOwner,
+		})}
+		Expect(rowExternalIDs(row)).To(Equal(map[string]string{
+			"contIface": "r0swp0",
+			"owner":     ovsPortOwner,
+		}))
+	})
+
+	It("returns an empty map when the column is absent", func() {
+		Expect(rowExternalIDs(ovsdb.Row{"name": "p0"})).To(BeEmpty())
+	})
+
+	It("returns an empty map when the column is not an OvsMap", func() {
+		Expect(rowExternalIDs(ovsdb.Row{"external_ids": "owner=" + ovsPortOwner})).To(BeEmpty())
+	})
+
+	It("drops entries whose key or value is not a string", func() {
+		row := ovsdb.Row{"external_ids": ovsdb.OvsMap{GoMap: map[any]any{
+			"contIface": "r0swp0",
+			"mtu":       1500,
+			42:          "answer",
+		}}}
+		Expect(rowExternalIDs(row)).To(Equal(map[string]string{"contIface": "r0swp0"}))
 	})
 })
 

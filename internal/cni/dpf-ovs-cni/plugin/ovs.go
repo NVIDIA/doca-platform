@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log"
+	"os"
 	"strings"
 
 	"github.com/nvidia/doca-platform/pkg/ovsmodel"
@@ -32,6 +33,7 @@ import (
 
 	current "github.com/containernetworking/cni/pkg/types/100"
 	"github.com/ovn-org/libovsdb/ovsdb"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 const (
@@ -235,6 +237,92 @@ func cleanupStaleSfc(ctx context.Context, api ovsutils.API, contIfaceName string
 		}
 	}
 	return nil
+}
+
+// cleanupStaleBridgePorts removes plugin-owned ports on bridgeName whose container netns is
+// gone. Keyed on the netns rather than the port name, which changes when the device does.
+// A leftover of contPodUid/contIfaceName, the interface being attached, is fatal.
+func cleanupStaleBridgePorts(ctx context.Context, api ovsutils.API, bridgeName, contPodUid, contIfaceName string) error {
+	bridge, err := api.GetBridgeWithName(ctx, bridgeName)
+	if err != nil {
+		return err
+	}
+	onBridge := sets.New(bridge.Ports...)
+
+	rows, err := arrayByCondition(
+		ctx, api,
+		"Port",
+		ovsdb.NewCondition("external_ids", ovsdb.ConditionIncludes, mustOvsMap(map[string]string{
+			"owner": ovsPortOwner,
+		})),
+		[]string{"_uuid", "name", "external_ids"},
+	)
+	if err != nil {
+		return err
+	}
+
+	for _, row := range rows {
+		name, _ := row["name"].(string)
+		if name == "" || !onBridge.Has(rowUUID(row)) {
+			continue
+		}
+		extIDs := rowExternalIDs(row)
+		// A live netns means the owning container is still running, including this pod on a
+		// CmdAdd retry. Ports with no recorded netns are never ours to remove.
+		if !netnsGone(extIDs["contNetns"]) {
+			continue
+		}
+		log.Printf("CmdAdd removing stale port %s on %s left by pod %s", name, bridgeName, extIDs["contPodUid"])
+		if err := removeOvsPort(ctx, api, bridgeName, name); err != nil {
+			// Attaching beside our own leftover would duplicate traffic, so fail instead.
+			// An empty pod uid would match rows written without one.
+			if contPodUid != "" && extIDs["contPodUid"] == contPodUid && extIDs["contIface"] == contIfaceName {
+				return fmt.Errorf("remove stale port %s left by this pod on %s: %w", name, bridgeName, err)
+			}
+			// Best-effort, a leftover we do not own must not block this pod from being attached.
+			log.Printf("Failed best-effort cleanup of stale port %s on %s: %v", name, bridgeName, err)
+		}
+	}
+	return nil
+}
+
+// netnsGone reports whether path is absent, meaning the container that owned it is gone.
+// An empty path counts as present, there is nothing to prove staleness with.
+func netnsGone(path string) bool {
+	if path == "" {
+		return false
+	}
+	_, err := os.Stat(path)
+	return os.IsNotExist(err)
+}
+
+// rowUUID returns the _uuid column of an OVSDB row, which decodes either as ovsdb.UUID or
+// as a bare string depending on the caller.
+func rowUUID(row ovsdb.Row) string {
+	switch v := row["_uuid"].(type) {
+	case ovsdb.UUID:
+		return v.GoUUID
+	case string:
+		return v
+	}
+	return ""
+}
+
+// rowExternalIDs flattens the external_ids column of an OVSDB row into a string map.
+func rowExternalIDs(row ovsdb.Row) map[string]string {
+	ids := map[string]string{}
+	ovsMap, ok := row["external_ids"].(ovsdb.OvsMap)
+	if !ok {
+		return ids
+	}
+	for k, v := range ovsMap.GoMap {
+		key, keyOK := k.(string)
+		value, valueOK := v.(string)
+		if keyOK && valueOK {
+			ids[key] = value
+		}
+	}
+	return ids
 }
 
 // createPatch creates a pair of patch ports linking brA and brB.
