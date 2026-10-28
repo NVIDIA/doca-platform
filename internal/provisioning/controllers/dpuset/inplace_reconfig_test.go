@@ -211,6 +211,69 @@ var _ = Describe("in-place reconfig", func() {
 		Expect(dpuSet.Annotations).To(HaveKey(cutil.DPUSetInPlaceReconfigAnnotation))
 	})
 
+	It("counts a jumped DPU that still reports Ready=True against the budget", func() {
+		started := metav1.NewTime(time.Now().Add(-time.Hour))
+		jumped := newDPU("dpu-a")
+		markReady(jumped)
+		jumped.Status.Phase = provisioningv1.DPUNodeEffect
+		jumped.Status.DPUReconfig = &provisioningv1.DPUReconfigStatus{
+			InProgress: ptr.To(true),
+			Round:      1,
+		}
+		waiting := newDPU("dpu-b")
+		markReady(waiting)
+		set := newSet(provisioningv1.RollingUpdateStrategyType, inPlaceReconfigTrue)
+		set.Status.DPUReconfig = &provisioningv1.DPUSetReconfigStatus{
+			Round:     1,
+			Active:    ptr.To(true),
+			StartedAt: &started,
+		}
+		setup(1, set, jumped, waiting)
+
+		reconcile(2)
+
+		Expect(ptr.Deref(load("dpu-a").Status.DPUReconfig.InProgress, false)).To(BeTrue())
+		Expect(load("dpu-b").Status.DPUReconfig).To(BeNil())
+	})
+
+	It("does not start another DPU when one finishes while the round is over budget", func() {
+		started := metav1.NewTime(time.Now().Add(-time.Hour))
+		finished := newDPU("dpu-a")
+		readyAt(finished, time.Now())
+		finished.Status.DPUReconfig = &provisioningv1.DPUReconfigStatus{
+			InProgress: ptr.To(true),
+			Round:      1,
+		}
+		inNodeEffect := newDPU("dpu-b")
+		inNodeEffect.Status.Phase = provisioningv1.DPUNodeEffect
+		inNodeEffect.Status.Conditions = []metav1.Condition{{
+			Type:   provisioningv1.DPUCondReady.String(),
+			Status: metav1.ConditionFalse,
+			Reason: "ReconfigPending",
+		}}
+		inNodeEffect.Status.DPUReconfig = &provisioningv1.DPUReconfigStatus{
+			InProgress: ptr.To(true),
+			Round:      1,
+		}
+		waiting := newDPU("dpu-c")
+		markReady(waiting)
+		set := newSet(provisioningv1.RollingUpdateStrategyType, inPlaceReconfigTrue)
+		set.Status.DPUReconfig = &provisioningv1.DPUSetReconfigStatus{
+			Round:     1,
+			Active:    ptr.To(true),
+			StartedAt: &started,
+		}
+		setup(1, set, finished, inNodeEffect, waiting)
+
+		reconcile(3)
+
+		gotFinished := load("dpu-a")
+		Expect(ptr.Deref(gotFinished.Status.DPUReconfig.InProgress, true)).To(BeFalse())
+		Expect(gotFinished.Status.DPUReconfig.CompletedRound).To(Equal(int32(1)))
+		Expect(ptr.Deref(load("dpu-b").Status.DPUReconfig.InProgress, false)).To(BeTrue())
+		Expect(load("dpu-c").Status.DPUReconfig).To(BeNil())
+	})
+
 	It("holds a Ready DPU while another DPU already occupies the budget", func() {
 		waiting := newDPU("dpu-ready")
 		markReady(waiting)

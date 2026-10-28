@@ -290,6 +290,7 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 	// Node Effect, DPU Config, Rebooting, and install phases fall through.
 	var nextState provisioningv1.DPUStatus
 	var err error
+	inPlaceJump := false
 	phaseCtx, phaseSpan := tracing.StartSpan(ctx, phaseSpanName(dpu.Status.Phase),
 		attribute.String("dpu.phase", string(dpu.Status.Phase)),
 		attribute.String("dpu.device", dpu.Spec.DPUDeviceName),
@@ -297,6 +298,7 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 	)
 	if jumped, ok := state.StartInPlaceReconfig(dpu); ok {
 		nextState = jumped
+		inPlaceJump = true
 		tracing.AddAttributes(phaseCtx, attribute.String("dpu.reconfig", "in-place"))
 	} else {
 		nextState, err = h(phaseCtx, dpu, &ctrlCtx)
@@ -331,8 +333,20 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 
 	// Capture the phase this reconcile handled. UpdateDPUStatus replaces dpu.Status.
 	phase := dpu.Status.Phase
+	var jumpBase *provisioningv1.DPU
+	if inPlaceJump {
+		jumpBase = dpu.DeepCopy()
+	}
 	if UpdateDPUStatus(dpu, nextState) {
 		logger.Info("DPU phase changed", "from", dpu.Status.PreviousPhase, "to", dpu.Status.Phase)
+	}
+	if inPlaceJump {
+		if err := r.patchInPlaceJump(ctx, jumpBase, dpu); err != nil {
+			return ctrl.Result{}, err
+		}
+		// The deferred patch must not send the jump again: it writes conditions
+		// and phase in separate PATCHes.
+		patcher = patch.NewSerialPatcher(dpu, r.ctrlCtx.Client)
 	}
 	if StayReadyWithoutRequeue(phase, nextState.Phase) {
 		// A DPU that is already Ready and stays Ready is not polled on the provisioning
@@ -412,6 +426,23 @@ func UpdateDPUStatus(dpu *provisioningv1.DPU, next provisioningv1.DPUStatus) boo
 	}
 	dpu.Status = next
 	return phaseChanged
+}
+
+// patchInPlaceJump writes the in-place jump status of dpu in one status PATCH
+// against base, with an optimistic lock. Ready=False, DPUReconfiguring=True and
+// the Node Effect phase land together, so no reader sees the new conditions on
+// the old phase and completes the round in the Ready handler. On failure the
+// status of dpu is reset to base, so the deferred patch writes nothing for it.
+func (r *DPUReconciler) patchInPlaceJump(ctx context.Context, base, dpu *provisioningv1.DPU) error {
+	dpu.Status.ObservedGeneration = dpu.Generation
+	if err := r.ctrlCtx.Client.Status().Patch(ctx, dpu,
+		client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}),
+		client.FieldOwner(DPUControllerName),
+	); err != nil {
+		dpu.Status = base.Status
+		return fmt.Errorf("patch in-place reconfig jump: %w", err)
+	}
+	return nil
 }
 
 // ensureInPlaceAgentRole updates the per-DPU Role from the current DPUFlavor while
