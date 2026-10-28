@@ -25,6 +25,7 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/phasedelay"
 
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/yaml"
@@ -73,6 +74,9 @@ type Config struct {
 	DPUType DPUType `json:"dpuType"`
 	BMC     BMC     `json:"bmc"`
 	Agent   Agent   `json:"agent"`
+	// PhaseDelays give DPU phases a range of extra time the mock spends in its own steps during
+	// that phase, see the phasedelay package. Unset means no extra time.
+	PhaseDelays []PhaseDelay `json:"phaseDelays,omitempty"`
 }
 
 // BMC configures the Redfish personality.
@@ -141,6 +145,45 @@ func (o *ResponseDelayOverride) validate() error {
 		seen[m] = true
 	}
 	return o.ResponseDelay.validate()
+}
+
+// PhaseDelay is the range of extra time the mock spends in one DPU phase. The phasedelay package
+// splits it over the steps the mock performs in that phase.
+type PhaseDelay struct {
+	// Phase is a DPU phase as it appears in DPU.status.phase, for example "OS Installing".
+	Phase         provisioningv1.DPUPhase `json:"phase"`
+	ResponseDelay `json:",inline"`
+}
+
+func (p *PhaseDelay) validate() error {
+	switch {
+	case p.Phase == "":
+		return fmt.Errorf("phase is required")
+	case p.Phase == provisioningv1.DPUInitializeInterface || p.Phase == provisioningv1.DPUConfigFWParameters:
+		return fmt.Errorf("phase %q only makes Redfish calls; delay them with bmc.responseDelayOverrides", p.Phase)
+	case p.Phase == provisioningv1.DPUPerformArmForceRestart:
+		return fmt.Errorf("phase %q does not wait for the Arm to boot, so a delay cannot lengthen it; delay its Redfish calls with bmc.responseDelayOverrides", p.Phase)
+	case !phasedelay.Supported(p.Phase):
+		supported := make([]string, 0, len(phasedelay.SupportedPhases()))
+		for _, s := range phasedelay.SupportedPhases() {
+			supported = append(supported, fmt.Sprintf("%q", s))
+		}
+		return fmt.Errorf("unsupported phase %q (want one of %s)", p.Phase, strings.Join(supported, ", "))
+	}
+	return p.ResponseDelay.validate()
+}
+
+// PhaseDelayRanges returns phaseDelays keyed by phase, or nil when none is configured.
+func (c *Config) PhaseDelayRanges() map[provisioningv1.DPUPhase]phasedelay.Range {
+	if len(c.PhaseDelays) == 0 {
+		return nil
+	}
+	ranges := make(map[provisioningv1.DPUPhase]phasedelay.Range, len(c.PhaseDelays))
+	for i := range c.PhaseDelays {
+		minDelay, maxDelay := c.PhaseDelays[i].Range()
+		ranges[c.PhaseDelays[i].Phase] = phasedelay.Range{Min: minDelay, Max: maxDelay}
+	}
+	return ranges
 }
 
 // Firmware holds the versions reported at power-on. Versions reported after an install or an
@@ -240,6 +283,17 @@ func (c *Config) Validate() error {
 		if err := o.validate(); err != nil {
 			return fmt.Errorf("bmc.responseDelayOverrides[%d]: %w", i, err)
 		}
+	}
+	seenPhase := map[provisioningv1.DPUPhase]int{}
+	for i := range c.PhaseDelays {
+		p := &c.PhaseDelays[i]
+		if err := p.validate(); err != nil {
+			return fmt.Errorf("phaseDelays[%d]: %w", i, err)
+		}
+		if j, dup := seenPhase[p.Phase]; dup {
+			return fmt.Errorf("phaseDelays[%d] and [%d] both delay %q", j, i, p.Phase)
+		}
+		seenPhase[p.Phase] = i
 	}
 	if _, err := c.RebootMethods(); err != nil {
 		return err

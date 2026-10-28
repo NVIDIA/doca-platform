@@ -46,6 +46,17 @@ mockConfig:
     rebootMethod: SLR,PowerCycle,NoAction
     # -- mockConfig.agent.dpuClusterJoin selects how the mock joins the DPU cluster. simulated (containers) replays kubeadm join and kubelet node registration in-process with client-go; kubelet only starts a kubelet the VM image has already configured, see "Running in a VM" in the README.
     dpuClusterJoin: simulated
+  # -- (list) mockConfig.phaseDelays give DPU phases a range of extra time the mock spends in the steps it controls during that phase. Each element has `phase` (a DPU phase as shown in DPU.status.phase, see the "Phase delays" section of the README), `minSeconds` and `maxSeconds`. Unknown or duplicate phases stop the mock at startup. This example adds ten to fifteen minutes to each OS install, up to four to each reboot and up to one to each pass through DPU Config; the "Phase delays" section of the README says in which DPU phase each part shows up.
+  phaseDelays:
+    - phase: OS Installing
+      minSeconds: 600
+      maxSeconds: 900
+    - phase: Rebooting
+      minSeconds: 120
+      maxSeconds: 240
+    - phase: DPU Config
+      minSeconds: 0
+      maxSeconds: 60
 
 # -- resources are the container resources of every mock DPU pod. The CPU request is sized for the short peaks between OS Installing and DPU Config rather than the idle average, so the scheduler does not pack more mocks on a node than it can serve when several DPUs install at once; a throttled mock would show up as control plane latency. Leave the CPU limit unset, see "Measured resource usage" in the README.
 resources:

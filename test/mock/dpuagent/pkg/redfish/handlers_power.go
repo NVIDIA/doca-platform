@@ -19,6 +19,8 @@ package redfish
 import (
 	"net/http"
 
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+
 	"k8s.io/klog/v2"
 )
 
@@ -40,7 +42,7 @@ func (s *Server) handleSystemReset(w http.ResponseWriter, r *http.Request) {
 	}
 	klog.InfoS("Redfish ComputerSystem.Reset", "resetType", body.ResetType)
 	s.state.ApplySecureBoot()
-	go s.sup.Reboot(s.ctx)
+	s.sup.Reboot(s.ctx, provisioningv1.DPUPerformArmForceRestart)
 	writeSuccess(w)
 }
 
@@ -48,7 +50,7 @@ func (s *Server) handleSystemReset(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSOCForceReset(w http.ResponseWriter, _ *http.Request) {
 	klog.InfoS("Redfish SOC.ForceReset")
 	s.state.ApplySecureBoot()
-	go s.sup.Reboot(s.ctx)
+	s.sup.Reboot(s.ctx, provisioningv1.DPURebooting)
 	writeSuccess(w)
 }
 
@@ -66,15 +68,15 @@ func (s *Server) handleChassisReset(w http.ResponseWriter, r *http.Request) {
 	switch body.ResetType {
 	case "ArmShutdown":
 		klog.InfoS("Redfish NvidiaChassis.Reset ArmShutdown")
-		s.state.SetPowerOff()
+		s.sup.PowerOff()
 	case "ArmReset":
 		s.state.ApplySecureBoot()
 		if iso := s.state.TakePendingSeedISO(); iso != nil {
 			klog.InfoS("Redfish NvidiaChassis.Reset ArmReset: booting installed OS", "seedISOBytes", len(iso))
-			go s.sup.Boot(s.ctx, iso)
+			s.sup.Boot(s.ctx, iso)
 		} else {
 			klog.InfoS("Redfish NvidiaChassis.Reset ArmReset: rebooting")
-			go s.sup.Reboot(s.ctx)
+			s.sup.Reboot(s.ctx, provisioningv1.DPUPerformArmForceRestart)
 		}
 	default:
 		writeError(w, http.StatusBadRequest, "Base.1.18.1.ActionParameterNotSupported", "Unsupported ResetType "+body.ResetType)

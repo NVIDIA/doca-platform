@@ -55,8 +55,11 @@ The mock reboot controller stands in for the external system that reboots hosts.
 reports `RebootStatus` `Pending` / `WaitingForManualPowerCycleOrReboot`: that is the point where the
 DPUNode controller has finished recording the request. Rebooting earlier races that bookkeeping and
 provokes a second reboot request, something a real host cannot do because it needs minutes to come
-back. The controller then `POST`s `/reboot` to the mock's hostctl endpoint, removes the annotation,
-and remembers the DPUNode resource version so stale cache reads do not trigger a second reboot.
+back. The controller then `POST`s `/reboot` to the mock's hostctl endpoint once, polls `GET /status`
+every 2 seconds until every DPU of the node reports `armBooted`, and only then removes the
+annotation, so the DPUs stay in Rebooting while their Arms boot. It remembers the DPUNode resource
+version of that removal so stale cache reads do not trigger a second reboot. Without phase delays
+the Arm boot takes about 3 seconds, so the annotation goes away a few seconds after the reboot.
 
 ### Running it
 
@@ -196,6 +199,17 @@ mockConfig:
     rebootMethod: SLR,PowerCycle,NoAction
     # -- mockConfig.agent.dpuClusterJoin selects how the mock joins the DPU cluster. simulated (containers) replays kubeadm join and kubelet node registration in-process with client-go; kubelet only starts a kubelet the VM image has already configured, see "Running in a VM" in the README.
     dpuClusterJoin: simulated
+  # -- (list) mockConfig.phaseDelays give DPU phases a range of extra time the mock spends in the steps it controls during that phase. Each element has `phase` (a DPU phase as shown in DPU.status.phase, see the "Phase delays" section of the README), `minSeconds` and `maxSeconds`. Unknown or duplicate phases stop the mock at startup. This example adds ten to fifteen minutes to each OS install, up to four to each reboot and up to one to each pass through DPU Config; the "Phase delays" section of the README says in which DPU phase each part shows up.
+  phaseDelays:
+    - phase: OS Installing
+      minSeconds: 600
+      maxSeconds: 900
+    - phase: Rebooting
+      minSeconds: 120
+      maxSeconds: 240
+    - phase: DPU Config
+      minSeconds: 0
+      maxSeconds: 60
 
 # -- resources are the container resources of every mock DPU pod. The CPU request is sized for the short peaks between OS Installing and DPU Config rather than the idle average, so the scheduler does not pack more mocks on a node than it can serve when several DPUs install at once; a throttled mock would show up as control plane latency. Leave the CPU limit unset, see "Measured resource usage" in the README.
 resources:
@@ -318,6 +332,91 @@ placeholders accept any value.
 | Task | GET | `/redfish/v1/TaskService/Tasks/{id}` |
 | VirtualMedia | GET, POST | `/redfish/v1/Managers/{manager}/VirtualMedia/{media}` and `.../VirtualMedia/{media}/Actions/{action}` |
 
+### Phase delays
+
+Response delays only hold back the HTTP reply. What makes a real DPU take minutes, the install
+task, the Arm writing the image and rebooting, the OS boot and the agent's work, is instant in the
+mock. `mockConfig.phaseDelays` gives DPU phases a range of extra time that the mock spends in the
+steps it controls while the DPU is in that phase:
+
+```yaml
+mockConfig:
+  phaseDelays:
+    - phase: OS Installing        # as shown in DPU.status.phase
+      minSeconds: 600
+      maxSeconds: 900
+    - phase: Rebooting
+      minSeconds: 120
+      maxSeconds: 240
+```
+
+The mock splits a phase's range over its steps with fixed weights. Each step that runs waits a
+uniformly random duration in `[minSeconds × weight, maxSeconds × weight]`, drawn on its own, so the
+total a phase gets stays within the range and clusters around its middle. A step that does not
+happen in a run (Arm shutdown when the agent reports `PowerCycle`, a skipped agent operation) is
+not replaced; the phase is shorter by its share. The range applies each time the DPU goes through
+the phase, not once per provisioning: with `rebootMethod: SLR,PowerCycle,NoAction` the agent runs
+three times, so DPU Config gets its range three times and Rebooting twice.
+
+| Phase | Step | Weight |
+|---|---|---|
+| OS Installing | BF3 BFB `SimpleUpdate` task | 0.50 |
+| | BF4 OS ISO `SimpleUpdate` task | 0.40 |
+| | BF4 seed.iso `SimpleUpdate` task | 0.10 |
+| | install: the Arm writing the new OS, before it boots | 0.25 |
+| | boot: the BMC reports `OsStarting` | 0.15 |
+| | agent start: the agent operations up to Report Last Startup Time | 0.10, split over 4 operations |
+| Update Firmware | BF4 PLDM upload task | 1.00 |
+| Rebooting | Arm shutdown after the agent reported `SLR` | 0.20 |
+| | boot after the host reboot or `SOC.ForceReset` | 0.60 |
+| | agent start of the run after the reboot (after the phase on an external reboot, see below) | 0.20, split over 4 operations |
+| DPU Config | agent operations Get Latest DPU to Handle Reboot | 1.00, split over 14 operations |
+| DPU Cluster Config | agent operations Check Kernel Cmd Line to Start Kubelet | 1.00, split over 8 operations |
+| Service Readiness | Report Node Labels and Release Host OS Init | 1.00, split over 2 operations |
+
+The agent operations are grouped by the controller gate they hold up: DPU Config waits for the
+reboot method Handle Reboot reports, DPU Cluster Config for the Node Start Kubelet registers, and
+Service Readiness for the `hostOSInit` Release Host OS Init writes. A delayed task stays `Running`,
+and its `PercentComplete` never runs ahead of the elapsed share of its time. Initialize Interface
+and Config FW Parameters only make Redfish calls; delay those with `responseDelayOverrides`.
+Perform ARM Force Restart cannot be delayed either: the controller spaces its restarts by
+`MinRestartInterval` and leaves the phase after the last one without waiting for the Arm, so
+nothing the mock does can lengthen it.
+
+The mock controls when its steps end, not when the controller leaves a phase, so some shares land
+elsewhere:
+
+- **Rebooting, external reboot.** The DPU leaves Rebooting when the mock reboot controller removes
+  the reboot annotation, which it does once every Arm has booted. The Arm shutdown and boot shares
+  end before that, so they count in Rebooting. The agent-start share only begins once the Arm is
+  up, and the mock reboot controller sees that within one 2-second poll, so nearly all of it
+  counts in the phase the DPU moves to next. Hostless DPUs have no annotation: after
+  `SOC.ForceReset` the DPU controller stays in Rebooting until the agent reports a new startup
+  time, which is the last agent-start operation, so the whole share counts in Rebooting.
+- **Rebooting, Arm shutdown.** After `SLR` the controller waits at most 5 minutes
+  (`armShutdownWaitTimeout`) for the Arm to power off, then asks for the host reboot anyway, which
+  cuts the shutdown wait short. The shutdown share is `maxSeconds × 0.20`; keep Rebooting
+  `maxSeconds` below about 1500. This wait exists only in zero-trust mode; in host-trusted mode the
+  controller asks for the host reboot right away, which ends the shutdown wait almost at once.
+- **Host-trusted mode.** A run that reports `NoAction` moves the DPU from DPU Config to Host Network
+  Configuration rather than DPU Cluster Config, so the DPU Cluster Config operations, which the
+  agent runs right after Handle Reboot, partly run during Host Network Configuration.
+
+Resets are attributed by their trigger: `ComputerSystem.Reset` and an `ArmReset` with no seed.iso
+staged are Perform ARM Force Restarts and boot with no extra time, `SOC.ForceReset` and
+`POST /reboot` count as Rebooting. Booting
+a staged seed.iso counts as OS Installing (install, boot and agent start) whether `ArmReset` or
+`POST /reboot` triggers it. A BF4 with an activated firmware bundle boots its new OS through the
+host reboot, so the install and boot shares are spent while the DPU shows Rebooting and the
+agent start mostly once it is back in OS Installing. A Rebooting reset counts its agent start as
+Rebooting; the agent start after a Perform ARM Force Restart (a reprovisioned DPU whose mock
+already runs an agent) gets no extra time. Every step logs the duration it drew (`"DPU phase delay"`), so injected time
+can be subtracted from measured phase durations.
+
+The OS Installing delay counts against the provisioning controller's `--os-install-timeout`
+(60 minutes by default). Keep the range well below it, or set it above on purpose to exercise the
+timeout.
+
 ### Running in a VM
 
 In a VM (for example under KubeVirt) the mock runs as a plain process and a real kubelet joins the
@@ -359,7 +458,9 @@ drive it:
 - **Custom script** (`nodeRebootMethod: script`, set `rebootController.enabled: false`). The
   controller creates the Job only after it has recorded the reboot request, so the script can call
   the endpoint immediately and exit 0. The endpoint accepts an optional JSON body
-  `{"method": "<reboot method>"}` and answers `200` with `{"status": "accepted"}`. The Job gets the
+  `{"method": "<reboot method>"}` and answers `200` with `{"status": "accepted"}` once the Arm
+  reports `OsStarting`. `GET /status` answers `{"armBooted": false}` from then until the Arm has
+  booted; a script that should hold the reboot for that long polls it before exiting. The Job gets the
   DPUNode name in `DPUNODE_NAME`; its DPUs are `DPUNode.spec.dpus[].name`, which are `DPUDevice`
   names, and the pod IP is `DPUDevice.spec.bmcIp`:
 

@@ -25,8 +25,11 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"time"
 
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/artifact"
+	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/phasedelay"
 
 	"k8s.io/klog/v2"
 )
@@ -142,15 +145,55 @@ func (s *Server) handleSimpleUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, taskResponse(mustTask(s.state, task.ID)))
 }
 
+// taskPace keeps a task Running for at least hold after start.
+type taskPace struct {
+	start time.Time
+	hold  time.Duration
+}
+
+// percent is the task progress for a downloaded percentage: never ahead of the elapsed share of
+// the hold, and below 100 until the task completes.
+func (p taskPace) percent(downloaded int) int {
+	pct := downloaded
+	if p.hold > 0 {
+		pct = min(pct, int(time.Since(p.start)*100/p.hold))
+	}
+	return min(pct, 99)
+}
+
+// holdTask keeps a task Running until its hold has elapsed, advancing PercentComplete with time.
+// It returns ctx.Err() when ctx ends first.
+func (s *Server) holdTask(ctx context.Context, taskID string, p taskPace) error {
+	for {
+		remaining := p.hold - time.Since(p.start)
+		if remaining <= 0 {
+			return nil
+		}
+		s.state.SetTaskProgress(taskID, p.percent(100))
+		if err := phasedelay.Sleep(ctx, min(remaining, time.Second)); err != nil {
+			return err
+		}
+	}
+}
+
+// transferStep is the OS Installing step of a SimpleUpdate target.
+func transferStep(p Personality, target string) phasedelay.Step {
+	switch target {
+	case p.InvOSImage:
+		return phasedelay.StepTransferISO
+	case p.InvOSConfig:
+		return phasedelay.StepTransferSeed
+	default:
+		return phasedelay.StepTransfer
+	}
+}
+
 func (s *Server) runSimpleUpdate(ctx context.Context, taskID, target, imageURI string) {
 	p := s.state.Personality()
+	pace := taskPace{start: time.Now(), hold: s.delays.Draw(provisioningv1.DPUOSInstalling, transferStep(p, target), 1)}
 	progress := func(done, total int64) {
 		if total > 0 {
-			pct := int(done * 100 / total)
-			if pct > 99 {
-				pct = 99
-			}
-			s.state.SetTaskProgress(taskID, pct)
+			s.state.SetTaskProgress(taskID, pace.percent(int(done*100/total)))
 		}
 	}
 	fail := func(err error) {
@@ -179,15 +222,21 @@ func (s *Server) runSimpleUpdate(ctx context.Context, taskID, target, imageURI s
 			fail(errors.New("no bf.cfg followed the BFB in the ImageURI stream"))
 			return
 		}
+		if err := s.holdTask(ctx, taskID, pace); err != nil {
+			return
+		}
 		s.state.SetInstalledBFBVersions(versions)
 		s.state.CompleteTask(taskID)
 		klog.InfoS("BFB installed", "bytes", n, "bfbBytes", splitter.BFBSize(), "images", splitter.Images(),
 			"bfcfgBytes", len(bfcfg), "uefi", versions.UEFI, "bsp", versions.BSP, "doca", versions.DOCA)
-		go s.sup.Boot(ctx, bfcfg)
+		s.sup.Boot(ctx, bfcfg)
 	case p.InvOSImage: // BF4: OS ISO, content irrelevant
 		n, err := artifact.Download(ctx, imageURI, io.Discard, progress)
 		if err != nil {
 			fail(err)
+			return
+		}
+		if err := s.holdTask(ctx, taskID, pace); err != nil {
 			return
 		}
 		s.state.SetFirmwareVersion(p.InvOSImage, path.Base(imageURI))
@@ -198,6 +247,9 @@ func (s *Server) runSimpleUpdate(ctx context.Context, taskID, target, imageURI s
 		n, err := artifact.Download(ctx, imageURI, buf, progress)
 		if err != nil {
 			fail(err)
+			return
+		}
+		if err := s.holdTask(ctx, taskID, pace); err != nil {
 			return
 		}
 		s.state.SetPendingSeedISO(buf.Bytes())
@@ -258,7 +310,15 @@ func (s *Server) handleUpdateMultipart(w http.ResponseWriter, r *http.Request) {
 	}
 	s.state.SetPendingBundle(pkg.Versions)
 	task := s.state.NewTask("PLDM firmware update")
-	s.state.CompleteTask(task.ID)
+	if hold := s.delays.Draw(provisioningv1.DPUUpdateFirmware, phasedelay.StepFirmwareTask, 1); hold > 0 {
+		go func() {
+			if err := s.holdTask(s.ctx, task.ID, taskPace{start: time.Now(), hold: hold}); err == nil {
+				s.state.CompleteTask(task.ID)
+			}
+		}()
+	} else {
+		s.state.CompleteTask(task.ID)
+	}
 	klog.InfoS("Redfish PLDM bundle uploaded", "package", pkg.PackageVersion, "forceUpdate", forceUpdate,
 		"payloadBytes", payloadSize, "bmc", pkg.Versions.BMC, "erot", pkg.Versions.ERoT, "sbios", pkg.Versions.SBIOS, "nic", pkg.Versions.NIC)
 	writeJSON(w, http.StatusAccepted, taskResponse(mustTask(s.state, task.ID)))

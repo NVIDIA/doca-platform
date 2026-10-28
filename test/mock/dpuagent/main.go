@@ -30,6 +30,7 @@ import (
 	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/agent"
 	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/config"
 	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/hostctl"
+	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/phasedelay"
 	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/redfish"
 
 	"k8s.io/klog/v2"
@@ -73,11 +74,17 @@ func run(configPath string) error {
 	klog.InfoS("mock-dpuagent starting", "dpuType", cfg.DPUType, "serialNumber", serial, "psid", cfg.BMC.PSID,
 		"pf0MAC", config.PF0MAC(serial), "bmcPort", cfg.BMC.Port, "rebootMethod", cfg.Agent.RebootMethod, "dpuClusterJoin", cfg.Agent.DPUClusterJoin)
 
-	sup, err := agent.NewSupervisor(cfg, agent.DefaultWorkDir, state)
+	delays := phasedelay.New(cfg.PhaseDelayRanges())
+	for _, p := range cfg.PhaseDelays {
+		minDelay, maxDelay := p.Range()
+		klog.InfoS("DPU phase delayed", "phase", p.Phase, "min", minDelay, "max", maxDelay)
+	}
+	sup, err := agent.NewSupervisor(cfg, agent.DefaultWorkDir, state, delays)
 	if err != nil {
 		return err
 	}
 	var serverOpts []redfish.ServerOption
+	serverOpts = append(serverOpts, redfish.WithPhaseDelays(delays))
 	if d := cfg.BMC.ResponseDelay; d != nil {
 		minDelay, maxDelay := d.Range()
 		serverOpts = append(serverOpts, redfish.WithResponseDelay(minDelay, maxDelay))

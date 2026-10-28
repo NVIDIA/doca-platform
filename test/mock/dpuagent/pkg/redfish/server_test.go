@@ -40,6 +40,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/config"
+	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/phasedelay"
 )
 
 const (
@@ -49,10 +50,14 @@ const (
 )
 
 type recordingSupervisor struct {
-	mu       sync.Mutex
-	boots    [][]byte
-	reboots  int
-	notified chan struct{}
+	mu           sync.Mutex
+	boots        [][]byte
+	reboots      int
+	rebootPhases []provisioningv1.DPUPhase
+	powerOffs    int
+	notified     chan struct{}
+	// state, when set, is powered off by PowerOff like the agent supervisor does.
+	state *State
 }
 
 func newRecordingSupervisor() *recordingSupervisor {
@@ -66,11 +71,21 @@ func (r *recordingSupervisor) Boot(_ context.Context, artifact []byte) {
 	r.notified <- struct{}{}
 }
 
-func (r *recordingSupervisor) Reboot(context.Context) {
+func (r *recordingSupervisor) Reboot(_ context.Context, phase provisioningv1.DPUPhase) {
 	r.mu.Lock()
 	r.reboots++
+	r.rebootPhases = append(r.rebootPhases, phase)
 	r.mu.Unlock()
 	r.notified <- struct{}{}
+}
+
+func (r *recordingSupervisor) PowerOff() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.powerOffs++
+	if r.state != nil {
+		r.state.SetPowerOff()
+	}
 }
 
 func (r *recordingSupervisor) wait(t *testing.T) {
@@ -82,7 +97,7 @@ func (r *recordingSupervisor) wait(t *testing.T) {
 	}
 }
 
-func startServer(t *testing.T, dpuType config.DPUType, firmware config.Firmware) (*State, *recordingSupervisor, string) {
+func startServer(t *testing.T, dpuType config.DPUType, firmware config.Firmware, opts ...ServerOption) (*State, *recordingSupervisor, string) {
 	t.Helper()
 	state := NewState(Options{
 		Personality:  ForType(dpuType),
@@ -92,7 +107,8 @@ func startServer(t *testing.T, dpuType config.DPUType, firmware config.Firmware)
 		Firmware:     firmware,
 	})
 	sup := newRecordingSupervisor()
-	srv, err := NewServer(state, sup)
+	sup.state = state
+	srv, err := NewServer(state, sup, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,10 +344,10 @@ func TestBF3ResetPaths(t *testing.T) {
 	}
 	sup.wait(t)
 	sup.mu.Lock()
-	reboots := sup.reboots
+	reboots, phases := sup.reboots, sup.rebootPhases
 	sup.mu.Unlock()
-	if reboots != 2 {
-		t.Fatalf("reboots %d", reboots)
+	if reboots != 2 || phases[0] != provisioningv1.DPUPerformArmForceRestart || phases[1] != provisioningv1.DPURebooting {
+		t.Fatalf("reboots %d phases %v", reboots, phases)
 	}
 	state.SetPowerOff()
 	_, system, err := c.GetSystem(context.Background())
@@ -392,7 +408,7 @@ func TestBF4Discovery(t *testing.T) {
 }
 
 func TestBF4FirmwareUpdate(t *testing.T) {
-	state, _, url := startServer(t, config.DPUTypeBF4, defaultFirmware())
+	state, sup, url := startServer(t, config.DPUTypeBF4, defaultFirmware())
 	c, err := rfclient.NewBasicAuthClient(context.Background(), url, rfclient.BF4BMCUser, "x")
 	if err != nil {
 		t.Fatal(err)
@@ -422,6 +438,12 @@ func TestBF4FirmwareUpdate(t *testing.T) {
 	_, system, _ := c.GetSystem(context.Background())
 	if system.PowerState != "Paused" {
 		t.Fatalf("expected Paused after ArmShutdown, got %s", system.PowerState)
+	}
+	sup.mu.Lock()
+	powerOffs := sup.powerOffs
+	sup.mu.Unlock()
+	if powerOffs != 1 {
+		t.Fatalf("ArmShutdown must go through the supervisor, PowerOff calls %d", powerOffs)
 	}
 	resp, err = c.ActivatePendingBundle(context.Background())
 	mustOK(t, "ActivatePendingBundle", resp.StatusCode(), err)
@@ -538,8 +560,8 @@ func TestBF4OSInstall(t *testing.T) {
 	sup.wait(t)
 	sup.mu.Lock()
 	defer sup.mu.Unlock()
-	if sup.reboots != 1 {
-		t.Fatalf("reboots %d", sup.reboots)
+	if sup.reboots != 1 || sup.rebootPhases[0] != provisioningv1.DPUPerformArmForceRestart {
+		t.Fatalf("reboots %d phases %v", sup.reboots, sup.rebootPhases)
 	}
 }
 
@@ -769,5 +791,103 @@ func TestRouteTableNames(t *testing.T) {
 			t.Errorf("%s is named both %s and %s", rt.path, prev, rt.name)
 		}
 		nameByPath[rt.path] = rt.name
+	}
+}
+
+func TestTaskPacePercent(t *testing.T) {
+	p := taskPace{start: time.Now().Add(-time.Second), hold: 4 * time.Second}
+	if got := p.percent(100); got < 24 || got > 26 {
+		t.Fatalf("a quarter of the hold reported %d%%", got)
+	}
+	if got := p.percent(10); got != 10 {
+		t.Fatalf("a slower download must win, got %d%%", got)
+	}
+	if got := (taskPace{}).percent(100); got != 99 {
+		t.Fatalf("no hold: got %d%%, want 99 until completion", got)
+	}
+}
+
+func TestTransferPhaseDelay(t *testing.T) {
+	const hold = 800 * time.Millisecond // 0.40 of OS Installing for the BF4 ISO
+	delays := phasedelay.New(map[provisioningv1.DPUPhase]phasedelay.Range{
+		provisioningv1.DPUOSInstalling: {Min: 2 * time.Second, Max: 2 * time.Second},
+	})
+	_, _, url := startServer(t, config.DPUTypeBF4, defaultFirmware(), WithPhaseDelays(delays))
+	c, err := rfclient.NewBasicAuthClient(context.Background(), url, rfclient.BF4BMCUser, "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(bytes.Repeat([]byte("iso"), 1000))
+	}))
+	t.Cleanup(registry.Close)
+	start := time.Now()
+	_, task, err := c.InstallBluefieldArmImage(context.Background(), strings.TrimPrefix(registry.URL, "https://")+"/bfb/bf4/os.iso")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		_, prog, err := c.CheckTaskProgress(context.Background(), task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		elapsed := time.Since(start)
+		if prog.TaskState == TaskStateCompleted {
+			if elapsed < hold {
+				t.Fatalf("task completed after %v, want at least %v", elapsed, hold)
+			}
+			return
+		}
+		if prog.TaskState != TaskStateRunning {
+			t.Fatalf("task %+v", prog)
+		}
+		if limit := int(elapsed*100/hold) + 1; prog.PercentComplete > limit {
+			t.Fatalf("%d%% complete after %v, more than the elapsed share", prog.PercentComplete, elapsed)
+		}
+		if elapsed > 10*time.Second {
+			t.Fatalf("task not completed: %+v", prog)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func TestFirmwareTaskPhaseDelay(t *testing.T) {
+	const hold = 500 * time.Millisecond
+	delays := phasedelay.New(map[provisioningv1.DPUPhase]phasedelay.Range{
+		provisioningv1.DPUUpdateFirmware: {Min: hold, Max: hold},
+	})
+	_, _, url := startServer(t, config.DPUTypeBF4, defaultFirmware(), WithPhaseDelays(delays))
+	c, err := rfclient.NewBasicAuthClient(context.Background(), url, rfclient.BF4BMCUser, "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pldm, err := os.Open("../../testdata/bf4-trimmed.fwpkg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pldm.Close() })
+	start := time.Now()
+	resp, task, err := c.UpdateBluefieldFirmwareMultipart(context.Background(), pldm, true)
+	if err != nil || resp.StatusCode() != http.StatusAccepted {
+		t.Fatalf("UpdateBluefieldFirmwareMultipart: %v %v", resp.Status(), err)
+	}
+	if _, prog, err := c.CheckTaskProgress(context.Background(), task.ID); err != nil || prog.TaskState != TaskStateRunning {
+		t.Fatalf("task right after upload %+v %v", prog, err)
+	}
+	for {
+		_, prog, err := c.CheckTaskProgress(context.Background(), task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if prog.TaskState == TaskStateCompleted {
+			if elapsed := time.Since(start); elapsed < hold {
+				t.Fatalf("task completed after %v, want at least %v", elapsed, hold)
+			}
+			return
+		}
+		if time.Since(start) > 10*time.Second {
+			t.Fatalf("task not completed: %+v", prog)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }

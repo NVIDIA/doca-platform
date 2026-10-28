@@ -30,19 +30,25 @@ import (
 	"strings"
 	"time"
 
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/config"
+	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/phasedelay"
 
 	"k8s.io/klog/v2"
 )
 
-// Supervisor is what the BMC drives when the DPU "boots" or "reboots". It is implemented by the
-// agent supervisor; the Redfish package only knows these two physical events.
+// Supervisor is what the BMC drives when the DPU "boots", "reboots" or is shut down. It is
+// implemented by the agent supervisor; the Redfish package only knows these physical events.
 type Supervisor interface {
 	// Boot is the DPU powering into a freshly installed OS: artifact is the per-DPU configuration
 	// the install flow delivered (bf.cfg bytes on BF3, seed.iso bytes on BF4).
 	Boot(ctx context.Context, artifact []byte)
-	// Reboot restarts an already installed DPU.
-	Reboot(ctx context.Context)
+	// Reboot restarts an already installed DPU. phase is the DPU phase the reset belongs to,
+	// which the boot wait counts against.
+	Reboot(ctx context.Context, phase provisioningv1.DPUPhase)
+	// PowerOff shuts the Arm down and cancels a boot still in progress. The BMC state reports the
+	// Arm off when it returns.
+	PowerOff()
 }
 
 // Server is the mock BMC HTTPS server.
@@ -62,6 +68,8 @@ type Server struct {
 	// delayByPattern, keyed by ServeMux pattern.
 	delayOverrides []config.ResponseDelayOverride
 	delayByPattern map[string]delayRange
+	// delays stretches the install and firmware tasks by their share of the DPU phase delays.
+	delays *phasedelay.Delays
 }
 
 // delayRange is a closed range of extra latency; a zero max means no delay.
@@ -87,6 +95,14 @@ func WithResponseDelay(minDelay, maxDelay time.Duration) ServerOption {
 func WithResponseDelayOverrides(overrides []config.ResponseDelayOverride) ServerOption {
 	return func(s *Server) {
 		s.delayOverrides = overrides
+	}
+}
+
+// WithPhaseDelays keeps the OS install and PLDM firmware tasks Running for their share of the DPU
+// phase delays.
+func WithPhaseDelays(d *phasedelay.Delays) ServerOption {
+	return func(s *Server) {
+		s.delays = d
 	}
 }
 

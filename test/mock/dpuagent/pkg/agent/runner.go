@@ -26,6 +26,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statusmanager"
 	dpuutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
+	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/phasedelay"
 
 	"github.com/google/uuid"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,19 +38,21 @@ import (
 const defaultRetryInterval = 30 * time.Second
 
 // Runner is the operation pipeline of internal/provisioning/dpuagent DPUAgent.Run without the
-// bootstrap-abort checks and the done marker: it walks the operations in order, retries a failing
-// one every 30 seconds, records the per-operation condition and patches status.agentStatus of
-// the DPU when an operation asks for it or fails.
+// bootstrap-abort checks and the done marker: it walks the operations in order, waits each
+// operation's share of its phase delay, retries a failing one every 30 seconds, records the
+// per-operation condition and patches status.agentStatus of the DPU when an operation asks for it
+// or fails.
 type Runner struct {
 	optCtx        *operations.Context
-	operations    []operations.Operation
+	operations    []stagedOp
+	delays        *phasedelay.Delays
 	retryInterval time.Duration
 }
 
-// NewRunner builds a runner for one agent run.
-func NewRunner(optCtx *operations.Context, ops []operations.Operation) *Runner {
+// NewRunner builds a runner for one agent run. delays may be nil.
+func NewRunner(optCtx *operations.Context, ops []stagedOp, delays *phasedelay.Delays) *Runner {
 	optCtx.Status = statusmanager.New(optCtx.Client, optCtx.Options.DPUNamespace, optCtx.Options.DPUName, optCtx.Options.DPUUID)
-	return &Runner{optCtx: optCtx, operations: ops, retryInterval: defaultRetryInterval}
+	return &Runner{optCtx: optCtx, operations: ops, delays: delays, retryInterval: defaultRetryInterval}
 }
 
 // Run executes the pipeline. It returns nil after the final status patch, or the context error when
@@ -75,6 +78,9 @@ func (r *Runner) Run(ctx context.Context) error {
 		if op.ShouldSkip(r.optCtx) {
 			klog.InfoS("skipping operation", "operation", op.Name())
 			continue
+		}
+		if err := r.delays.Wait(ctx, op.phase, op.step, op.parts); err != nil {
+			return err
 		}
 		err := wait.PollUntilContextCancel(ctx, r.retryInterval, true, func(execCtx context.Context) (bool, error) {
 			r.optCtx.CondMessage = ""

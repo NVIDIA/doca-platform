@@ -17,6 +17,7 @@ limitations under the License.
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -169,5 +170,50 @@ bmc:
 	}
 	if lo, hi := overrides[1].Range(); lo != 0 || hi != 0 {
 		t.Fatalf("expected a zero range, got %v..%v", lo, hi)
+	}
+}
+
+func TestParsePhaseDelays(t *testing.T) {
+	cfg, err := Parse([]byte("dpuType: bf3\n"))
+	if err != nil || len(cfg.PhaseDelays) != 0 || cfg.PhaseDelayRanges() != nil {
+		t.Fatalf("expected no phase delays by default: %+v, %v", cfg.PhaseDelays, err)
+	}
+	cfg, err = Parse([]byte(`dpuType: bf4
+phaseDelays:
+  - phase: OS Installing
+    minSeconds: 600
+    maxSeconds: 900
+  - phase: Rebooting
+    maxSeconds: 60
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ranges := cfg.PhaseDelayRanges()
+	if len(ranges) != 2 {
+		t.Fatalf("got %d ranges", len(ranges))
+	}
+	if r := ranges[provisioningv1.DPUOSInstalling]; r.Min != 600*time.Second || r.Max != 900*time.Second {
+		t.Fatalf("OS Installing range %+v", r)
+	}
+	if r := ranges[provisioningv1.DPURebooting]; r.Min != 0 || r.Max != 60*time.Second {
+		t.Fatalf("Rebooting range %+v", r)
+	}
+}
+
+func TestParseRejectsInvalidPhaseDelays(t *testing.T) {
+	for doc, wantErr := range map[string]string{
+		"dpuType: bf3\nphaseDelays:\n  - maxSeconds: 1\n":                                             "phase is required",
+		"dpuType: bf3\nphaseDelays:\n  - phase: Installing\n    maxSeconds: 1\n":                      "unsupported phase",
+		"dpuType: bf3\nphaseDelays:\n  - phase: Initialize Interface\n    maxSeconds: 1\n":            "bmc.responseDelayOverrides",
+		"dpuType: bf3\nphaseDelays:\n  - phase: Config FW Parameters\n    maxSeconds: 1\n":            "bmc.responseDelayOverrides",
+		"dpuType: bf3\nphaseDelays:\n  - phase: Perform ARM Force Restart\n    maxSeconds: 1\n":       "does not wait for the Arm",
+		"dpuType: bf3\nphaseDelays:\n  - phase: Rebooting\n    minSeconds: 2\n    maxSeconds: 1\n":    "minSeconds",
+		"dpuType: bf3\nphaseDelays:\n  - phase: Rebooting\n    maxSeconds: 1\n  - phase: Rebooting\n": "both delay",
+	} {
+		_, err := Parse([]byte(doc))
+		if err == nil || !strings.Contains(err.Error(), wantErr) {
+			t.Errorf("%q: got %v, want an error containing %q", doc, err, wantErr)
+		}
 	}
 }

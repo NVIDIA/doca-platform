@@ -19,6 +19,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -34,6 +35,7 @@ import (
 	nvconfigutil "github.com/nvidia/doca-platform/internal/provisioning/utils/nvconfig"
 	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/config"
 	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/node"
+	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/phasedelay"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -52,6 +54,10 @@ type runInputs struct {
 	powerOff func()
 	joinMode config.JoinMode
 	joiner   *node.Joiner
+	// startPhase is the phase the agent-start operations count against: OS Installing for a newly
+	// installed OS, otherwise the phase of the reset. Perform ARM Force Restart has no share.
+	startPhase provisioningv1.DPUPhase
+	delays     *phasedelay.Delays
 }
 
 // op is a no-op operation that keeps the name, condition type, skip rule and status-update rule of
@@ -79,6 +85,24 @@ func (o *op) Execute(ctx context.Context, optCtx *operations.Context) error {
 
 func never(*operations.Context) bool { return false }
 
+// stagedOp is an operation with the phase delay step it counts against; parts is how many
+// operations share that phase and step.
+type stagedOp struct {
+	operations.Operation
+	phase provisioningv1.DPUPhase
+	step  phasedelay.Step
+	parts int
+}
+
+// stage tags ops with the phase and step they count against, sharing it equally.
+func stage(phase provisioningv1.DPUPhase, step phasedelay.Step, ops ...operations.Operation) []stagedOp {
+	staged := make([]stagedOp, len(ops))
+	for i, o := range ops {
+		staged[i] = stagedOp{Operation: o, phase: phase, step: step, parts: len(ops)}
+	}
+	return staged
+}
+
 // alreadyTrue skips an operation whose condition the previous run already reported True, the way
 // the real DNS operation does.
 func alreadyTrue(condType string) func(*operations.Context) bool {
@@ -92,48 +116,60 @@ func alreadyTrue(condType string) func(*operations.Context) bool {
 }
 
 // buildOperations returns the 28 operations of internal/provisioning/dpuagent NewDPUAgent in the
-// same order with the same names, condition types, skip rules and status-update rules.
-func buildOperations(in *runInputs) []operations.Operation {
+// same order with the same names, condition types, skip rules and status-update rules. They are
+// grouped by the controller gate they hold up, which decides the phase their delay counts against:
+// Report Last Startup Time ends OS Installing or Rebooting, DPU Config waits for the reboot method
+// from Handle Reboot, DPU Cluster Config for the Node registered by Start Kubelet and Service
+// Readiness for hostOSInit from Release Host OS Init.
+func buildOperations(in *runInputs) []stagedOp {
 	removeBuiltinKubelet, configureKubelet, startKubelet := kubeletOperations(in)
-	return []operations.Operation{
-		&op{name: "Load kernel modules", condType: "KernelModuleLoaded", skip: never},
-		&op{name: "Configure Network", condType: "NetworkConfigured", skip: never},
-		&netplan.CheckNetwork{},
-		&laststartuptime.ReportLastStartupTime{},
-		&getdpu.GetLatestDPU{},
-		&op{name: "Configure DNS", condType: dns.CondDNSConfigured, skip: alreadyTrue(dns.CondDNSConfigured), updateBefore: true},
-		&op{name: "Verify Static Files", condType: "StaticFilesVerified", skip: never},
-		&op{name: "Install Packages", condType: "PackagesInstalled", updateBefore: true,
-			skip: func(ctx *operations.Context) bool { return len(ctx.DPUFlavor.Spec.Packages) == 0 }},
-		&op{name: "Manage Systemd Services", condType: "SystemdServicesManaged",
-			skip: func(ctx *operations.Context) bool { return len(ctx.DPUFlavor.Spec.SystemdServices) == 0 }},
-		removeBuiltinKubelet,
-		&op{name: "Set Sysctl", condType: "SysctlParametersSet", skip: never},
-		&op{name: "Check Sysctl Parameters", condType: "SysctlParametersChecked", skip: never},
-		&op{name: "Configure Kernel Cmd Line", condType: "KernelCmdLineConfigured", skip: noKernelParameters},
-		&op{name: "Configure Containerd", condType: "ContainerdConfigured", skip: never},
-		&op{name: "Ensure DPU Mode", condType: "DpuModeEnsured", skip: never},
-		// BF4 + Astra only. The real operation also drives the E/W NIC conditions from a runtime
-		// loop the mock does not have; without them DPU Config does not wait for E/W runtime config.
-		&op{name: "NIC provisioning", condType: "NICProvisioning",
-			skip: func(ctx *operations.Context) bool { return !ctx.Options.AstraEnabled || ctx.Options.SkipAstra }},
-		&op{name: "NVConfig", condType: nvconfig.CondNVConfigApplied, skip: never, updateBefore: true},
-		&op{name: "Handle Reboot", condType: "RebootHandled", skip: never, updateBefore: true, execute: in.handleReboot},
-		&op{name: "Check Kernel Cmd Line", condType: "KernelCmdLineChecked", skip: noKernelParameters},
-		&op{name: "Configure SF", condType: "SFCreated", skip: never},
-		&op{name: "Set VF MAC", condType: "VFMacSet", skip: never},
-		&op{name: "Run OVS Script", condType: "OVSScriptRun",
-			skip: func(ctx *operations.Context) bool {
-				return strings.TrimSpace(ctx.DPUFlavor.Spec.OVS.RawConfigScript) == ""
-			}},
-		&op{name: "Set Netplan Underlay MTU", condType: "UnderlayNetplanMTUConfigured", skip: never},
-		&op{name: "Check Bridge", condType: "BridgeChecked",
-			skip: func(ctx *operations.Context) bool { return ctx.Options.ZeroTrustMode }},
-		configureKubelet,
-		startKubelet,
-		&op{name: "Report Node Labels", condType: "NodeLabelsReported", skip: never, updateBefore: true},
-		&op{name: "Release Host OS Init", condType: "ReleaseHostOSInit", skip: never, updateBefore: true, execute: releaseHostOSInit},
-	}
+	return slices.Concat(
+		stage(in.startPhase, phasedelay.StepAgentStart,
+			&op{name: "Load kernel modules", condType: "KernelModuleLoaded", skip: never},
+			&op{name: "Configure Network", condType: "NetworkConfigured", skip: never},
+			&netplan.CheckNetwork{},
+			&laststartuptime.ReportLastStartupTime{},
+		),
+		stage(provisioningv1.DPUConfig, phasedelay.StepOperation,
+			&getdpu.GetLatestDPU{},
+			&op{name: "Configure DNS", condType: dns.CondDNSConfigured, skip: alreadyTrue(dns.CondDNSConfigured), updateBefore: true},
+			&op{name: "Verify Static Files", condType: "StaticFilesVerified", skip: never},
+			&op{name: "Install Packages", condType: "PackagesInstalled", updateBefore: true,
+				skip: func(ctx *operations.Context) bool { return len(ctx.DPUFlavor.Spec.Packages) == 0 }},
+			&op{name: "Manage Systemd Services", condType: "SystemdServicesManaged",
+				skip: func(ctx *operations.Context) bool { return len(ctx.DPUFlavor.Spec.SystemdServices) == 0 }},
+			removeBuiltinKubelet,
+			&op{name: "Set Sysctl", condType: "SysctlParametersSet", skip: never},
+			&op{name: "Check Sysctl Parameters", condType: "SysctlParametersChecked", skip: never},
+			&op{name: "Configure Kernel Cmd Line", condType: "KernelCmdLineConfigured", skip: noKernelParameters},
+			&op{name: "Configure Containerd", condType: "ContainerdConfigured", skip: never},
+			&op{name: "Ensure DPU Mode", condType: "DpuModeEnsured", skip: never},
+			// BF4 + Astra only. The real operation also drives the E/W NIC conditions from a runtime
+			// loop the mock does not have; without them DPU Config does not wait for E/W runtime config.
+			&op{name: "NIC provisioning", condType: "NICProvisioning",
+				skip: func(ctx *operations.Context) bool { return !ctx.Options.AstraEnabled || ctx.Options.SkipAstra }},
+			&op{name: "NVConfig", condType: nvconfig.CondNVConfigApplied, skip: never, updateBefore: true},
+			&op{name: "Handle Reboot", condType: "RebootHandled", skip: never, updateBefore: true, execute: in.handleReboot},
+		),
+		stage(provisioningv1.DPUClusterConfig, phasedelay.StepOperation,
+			&op{name: "Check Kernel Cmd Line", condType: "KernelCmdLineChecked", skip: noKernelParameters},
+			&op{name: "Configure SF", condType: "SFCreated", skip: never},
+			&op{name: "Set VF MAC", condType: "VFMacSet", skip: never},
+			&op{name: "Run OVS Script", condType: "OVSScriptRun",
+				skip: func(ctx *operations.Context) bool {
+					return strings.TrimSpace(ctx.DPUFlavor.Spec.OVS.RawConfigScript) == ""
+				}},
+			&op{name: "Set Netplan Underlay MTU", condType: "UnderlayNetplanMTUConfigured", skip: never},
+			&op{name: "Check Bridge", condType: "BridgeChecked",
+				skip: func(ctx *operations.Context) bool { return ctx.Options.ZeroTrustMode }},
+			configureKubelet,
+			startKubelet,
+		),
+		stage(provisioningv1.DPUServiceReadiness, phasedelay.StepOperation,
+			&op{name: "Report Node Labels", condType: "NodeLabelsReported", skip: never, updateBefore: true},
+			&op{name: "Release Host OS Init", condType: "ReleaseHostOSInit", skip: never, updateBefore: true, execute: releaseHostOSInit},
+		),
+	)
 }
 
 func noKernelParameters(ctx *operations.Context) bool {
@@ -183,6 +219,9 @@ func (in *runInputs) handleReboot(ctx context.Context, optCtx *operations.Contex
 		return err
 	}
 	if method == provisioningv1.RebootMethodSystemLevelReset && in.powerOff != nil {
+		if err := in.delays.Wait(ctx, provisioningv1.DPURebooting, phasedelay.StepArmShutdown, 1); err != nil {
+			return err
+		}
 		klog.InfoS("System Level Reset reported; shutting the Arm down and waiting for the host reboot")
 		in.powerOff()
 	} else {
