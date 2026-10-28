@@ -829,6 +829,7 @@ func (r *DPUReconciler) reconcileBFBRegistry(ctx context.Context, namespace stri
 		ImagePullSecrets:       r.ctrlCtx.Options.ImagePullSecrets,
 		KubernetesAPIServerVIP: r.ctrlCtx.Options.KubernetesAPIServerVIP,
 		CAIssuerRef:            r.ctrlCtx.Options.CAIssuerRef,
+		LoadBalancerAddress:    r.ctrlCtx.Options.BFBRegistryLoadBalancer,
 	}, namespace, podName, nodeName, nodeIP, registryImage); err != nil {
 		return fmt.Errorf("ensure bfb-registry: %w", err)
 	}

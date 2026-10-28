@@ -492,6 +492,18 @@ var _ = Describe("ensureServerCertificate", func() {
 		}))
 	})
 
+	It("adds the load balancer hostname to the Certificate DNS names", func() {
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(leader).Build()
+		r := &BFBRegistryRunnable{
+			Client:              c,
+			LoadBalancerAddress: "https://bfb-registry-dpf-operator-system.apps.example.com",
+		}
+		Expect(r.ensureServerCertificate(ctx, ns, "10.0.0.5", leader)).To(Succeed())
+
+		dns, _, _ := unstructured.NestedStringSlice(getCert(c).Object, "spec", "dnsNames")
+		Expect(dns).To(ContainElement("bfb-registry-dpf-operator-system.apps.example.com"))
+	})
+
 	It("is idempotent and updates the IP SAN on node failover", func() {
 		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(leader).Build()
 		r := &BFBRegistryRunnable{Client: c}
@@ -554,7 +566,7 @@ var _ = Describe("serverCertSANs", func() {
 	})
 
 	It("includes the node IP and the service DNS names", func() {
-		dns, ips := serverCertSANs("dpf-provisioning", "192.168.1.10", "")
+		dns, ips := serverCertSANs("dpf-provisioning", "192.168.1.10", "", "")
 		Expect(dns).To(ConsistOf(
 			"bfb-registry",
 			"bfb-registry.dpf-provisioning",
@@ -565,41 +577,41 @@ var _ = Describe("serverCertSANs", func() {
 	})
 
 	It("omits the IP SAN when the node IP is not a valid IP", func() {
-		_, ips := serverCertSANs("dpf-provisioning", "not-an-ip", "")
+		_, ips := serverCertSANs("dpf-provisioning", "not-an-ip", "", "")
 		Expect(ips).To(BeEmpty())
 	})
 
 	It("includes the configured API server VIP when it differs from the node IP", func() {
-		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "10.0.0.10")
+		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "10.0.0.10", "")
 		Expect(ips).To(ConsistOf("10.0.0.3", "10.0.0.10"))
 	})
 
 	It("includes both the configured VIP and the controller KUBERNETES_SERVICE_HOST env when they differ", func() {
 		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "10.96.0.1")
-		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "10.0.0.10")
+		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "10.0.0.10", "")
 		Expect(ips).To(ConsistOf("10.0.0.3", "10.0.0.10", "10.96.0.1"))
 	})
 
 	It("does not duplicate the node IP when the configured VIP matches it", func() {
-		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "10.0.0.3")
+		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "10.0.0.3", "")
 		Expect(ips).To(ConsistOf("10.0.0.3"))
 	})
 
 	It("does not duplicate an IP shared by the configured VIP and the env", func() {
 		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "10.0.0.10")
-		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "10.0.0.10")
+		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "10.0.0.10", "")
 		Expect(ips).To(ConsistOf("10.0.0.3", "10.0.0.10"))
 	})
 
 	It("falls back to KUBERNETES_SERVICE_HOST env when no VIP is configured", func() {
 		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "10.0.0.10")
-		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "")
+		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "", "")
 		Expect(ips).To(ConsistOf("10.0.0.3", "10.0.0.10"))
 	})
 
 	It("adds a hostname VIP to the DNS SANs", func() {
 		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "172.30.0.1")
-		dns, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "api.ocp.example.com")
+		dns, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "api.ocp.example.com", "")
 		Expect(dns).To(ConsistOf(
 			"bfb-registry",
 			"bfb-registry.dpf-provisioning",
@@ -612,15 +624,53 @@ var _ = Describe("serverCertSANs", func() {
 
 	It("does not duplicate a hostname shared by the configured VIP and the env", func() {
 		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "api.ocp.example.com")
-		dns, _ := serverCertSANs("dpf-provisioning", "10.0.0.3", "api.ocp.example.com")
+		dns, _ := serverCertSANs("dpf-provisioning", "10.0.0.3", "api.ocp.example.com", "")
 		Expect(dns).To(HaveLen(5))
 		Expect(dns).To(ContainElement("api.ocp.example.com"))
 	})
 
 	It("skips a VIP that is neither an IP nor a valid DNS name", func() {
-		dns, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "not a host!")
+		dns, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "not a host!", "")
 		Expect(dns).To(HaveLen(4))
 		Expect(ips).To(ConsistOf("10.0.0.3"))
+	})
+
+	It("adds the load balancer hostname as a DNS SAN", func() {
+		dns, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "", "https://bfb-registry-dpf-operator-system.apps.example.com")
+		Expect(dns).To(ConsistOf(
+			"bfb-registry",
+			"bfb-registry.dpf-provisioning",
+			"bfb-registry.dpf-provisioning.svc",
+			"bfb-registry.dpf-provisioning.svc.cluster.local",
+			"bfb-registry-dpf-operator-system.apps.example.com",
+		))
+		Expect(ips).To(ConsistOf("10.0.0.3"))
+	})
+
+	It("strips the port from a load balancer hostname", func() {
+		dns, _ := serverCertSANs("dpf-provisioning", "10.0.0.3", "", "https://bfb.example.com:30443")
+		Expect(dns).To(ContainElement("bfb.example.com"))
+	})
+
+	It("adds an IP load balancer address as an IP SAN", func() {
+		dns, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "", "https://10.0.110.2:31272")
+		Expect(dns).To(ConsistOf(
+			"bfb-registry",
+			"bfb-registry.dpf-provisioning",
+			"bfb-registry.dpf-provisioning.svc",
+			"bfb-registry.dpf-provisioning.svc.cluster.local",
+		))
+		Expect(ips).To(ConsistOf("10.0.0.3", "10.0.110.2"))
+	})
+
+	It("does not duplicate a load balancer host that is already a service DNS name", func() {
+		dns, _ := serverCertSANs("dpf-provisioning", "10.0.0.3", "", "https://bfb-registry:8443")
+		Expect(dns).To(ConsistOf(
+			"bfb-registry",
+			"bfb-registry.dpf-provisioning",
+			"bfb-registry.dpf-provisioning.svc",
+			"bfb-registry.dpf-provisioning.svc.cluster.local",
+		))
 	})
 })
 
