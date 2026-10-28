@@ -39,6 +39,7 @@ import (
 	logsv1 "k8s.io/component-base/logs/api/v1"
 	_ "k8s.io/component-base/logs/json/register"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -151,6 +152,8 @@ func main() {
 		},
 		Controller: config.Controller{
 			MaxConcurrentReconciles: concurrency,
+			// Handle events from real changes before resync and initial-list events.
+			UsePriorityQueue: ptr.To(true),
 		},
 		LeaderElection:   enableLeaderElection,
 		LeaderElectionID: "snap-host-controller.dpu.nvidia.com",
