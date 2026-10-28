@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -95,6 +96,10 @@ type BFBRegistryRunnable struct {
 	// bfb-registry server certificate SANs so the hostagent's VIP-based NodePort BFB download
 	// passes TLS verification. Empty when no VIP override is configured.
 	KubernetesAPIServerVIP string
+	// LoadBalancerAddress is DPFOperatorConfig registry.loadBalancerAddress. The host-agent
+	// downloads BFBs from this URL, so its host must be on the server certificate. Empty when
+	// unset.
+	LoadBalancerAddress string
 }
 
 func (r *BFBRegistryRunnable) Start(ctx context.Context) error {
@@ -485,7 +490,7 @@ func APIServerVIPFromDMSPodEnvs(envs []string) string {
 
 // serverCertSANs returns the DNS names and IP addresses the bfb-registry server
 // certificate must cover.
-func serverCertSANs(namespace, nodeIP, apiServerVIP string) (dnsNames, ipAddresses []string) {
+func serverCertSANs(namespace, nodeIP, apiServerVIP, loadBalancerAddress string) (dnsNames, ipAddresses []string) {
 	dnsNames = []string{
 		PodName,
 		fmt.Sprintf("%s.%s", PodName, namespace),
@@ -501,8 +506,10 @@ func serverCertSANs(namespace, nodeIP, apiServerVIP string) (dnsNames, ipAddress
 	//     hostagent uses when the override is set.
 	//   - KUBERNETES_SERVICE_HOST: the provisioning controller's own env (in-cluster ClusterIP,
 	//     or the shared value on setups without a separate VIP).
-	// The VIP and the env may be hostnames (e.g. the OpenShift API hostname), which go into the
-	// DNS SANs. Duplicates and empty/invalid values are skipped.
+	//   - loadBalancerAddress: the host of registry.loadBalancerAddress, the URL the host-agent
+	//     dials when set. The scheme and port are not part of the certificate identity.
+	// The VIP, the env and the load balancer host may be hostnames (e.g. the OpenShift API or
+	// route hostname), which go into the DNS SANs. Duplicates and empty/invalid values are skipped.
 	seen := map[string]struct{}{}
 	for _, name := range dnsNames {
 		seen[name] = struct{}{}
@@ -511,7 +518,7 @@ func serverCertSANs(namespace, nodeIP, apiServerVIP string) (dnsNames, ipAddress
 		seen[nodeIP] = struct{}{}
 		ipAddresses = append(ipAddresses, nodeIP)
 	}
-	for _, addr := range []string{apiServerVIP, os.Getenv("KUBERNETES_SERVICE_HOST")} {
+	for _, addr := range []string{apiServerVIP, os.Getenv("KUBERNETES_SERVICE_HOST"), loadBalancerSANHost(loadBalancerAddress)} {
 		if _, ok := seen[addr]; ok {
 			continue
 		}
@@ -528,13 +535,31 @@ func serverCertSANs(namespace, nodeIP, apiServerVIP string) (dnsNames, ipAddress
 	return dnsNames, ipAddresses
 }
 
+// loadBalancerSANHost returns the host from registry.loadBalancerAddress for use as a
+// certificate SAN. The scheme and port are stripped. An empty or unparseable address
+// returns "".
+func loadBalancerSANHost(address string) string {
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return ""
+	}
+	if !strings.Contains(address, "://") {
+		address = "https://" + address
+	}
+	u, err := url.Parse(address)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
+}
+
 // ensureServerCertificate creates or updates the cert-manager Certificate that
 // produces the bfb-registry HTTPS server cert.
 func (r *BFBRegistryRunnable) ensureServerCertificate(ctx context.Context, namespace, nodeIP string, leaderPod *corev1.Pod) error {
 	if nodeIP == "" {
 		return fmt.Errorf("NODE_IP is empty, cannot build bfb-registry server certificate SANs")
 	}
-	dnsNames, ipAddresses := serverCertSANs(namespace, nodeIP, r.KubernetesAPIServerVIP)
+	dnsNames, ipAddresses := serverCertSANs(namespace, nodeIP, r.KubernetesAPIServerVIP, r.LoadBalancerAddress)
 
 	cert := &unstructured.Unstructured{}
 	cert.SetGroupVersionKind(certificateGVK)
@@ -590,6 +615,9 @@ type EnsureBFBRegistryDeps struct {
 	// Pod; when set it is added to the bfb-registry server certificate SANs. See
 	// BFBRegistryRunnable.KubernetesAPIServerVIP.
 	KubernetesAPIServerVIP string
+	// LoadBalancerAddress is registry.loadBalancerAddress. Its host is added to the
+	// bfb-registry server certificate SANs. See BFBRegistryRunnable.LoadBalancerAddress.
+	LoadBalancerAddress string
 }
 
 // EnsureBFBRegistry ensures the bfb-registry server Certificate, Pod and Service
@@ -605,6 +633,7 @@ func EnsureBFBRegistry(ctx context.Context, deps EnsureBFBRegistryDeps, namespac
 		BFBPVC:                 deps.BFBPVC,
 		ImagePullSecrets:       deps.ImagePullSecrets,
 		KubernetesAPIServerVIP: deps.KubernetesAPIServerVIP,
+		LoadBalancerAddress:    deps.LoadBalancerAddress,
 	}
 	if err := run.ensureServerCertificate(ctx, namespace, nodeIP, leaderPod); err != nil {
 		return err
