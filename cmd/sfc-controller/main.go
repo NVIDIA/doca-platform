@@ -48,7 +48,9 @@ import (
 	_ "k8s.io/component-base/logs/json/register"
 	"k8s.io/klog/v2"
 	kexec "k8s.io/utils/exec"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -161,6 +163,11 @@ func main() {
 		Cache:                  sfccontroller.GetMgrCache(nodeName),
 		PprofBindAddress:       pprofAddr,
 		// No LeaderElection: see comment above.
+
+		// Handle events from real changes before resync and initial-list events.
+		Controller: config.Controller{
+			UsePriorityQueue: ptr.To(true),
+		},
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create manager")

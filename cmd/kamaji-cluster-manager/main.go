@@ -34,8 +34,10 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -131,6 +133,10 @@ func main() {
 		// Release the lease on shutdown so a standby replica can take over within
 		// seconds. Safe because main() exits immediately after mgr.Start returns.
 		LeaderElectionReleaseOnCancel: true,
+		// Handle events from real changes before resync and initial-list events.
+		Controller: config.Controller{
+			UsePriorityQueue: ptr.To(true),
+		},
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")

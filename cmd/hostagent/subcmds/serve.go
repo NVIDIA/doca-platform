@@ -37,6 +37,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/config"
@@ -90,6 +91,8 @@ var serveCmd = &cobra.Command{
 			},
 			Controller: config.Controller{
 				MaxConcurrentReconciles: 1,
+				// Handle events from real changes before resync and initial-list events.
+				UsePriorityQueue: ptr.To(true),
 			},
 			// hostagent is a per-host agent (one pod per host), so leader election
 			// does not apply: each pod owns its own host's state.
