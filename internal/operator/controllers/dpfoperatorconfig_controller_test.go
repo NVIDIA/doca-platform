@@ -2252,14 +2252,15 @@ func TestResolveOpenTelemetryCollectorCACerts(t *testing.T) {
 		vars := inventory.Variables{}
 
 		config := newConfig(ns, nil)
-		config.Spec.Monitoring.OpenTelemetryCollector.Tracing = &operatorv1.OpenTelemetryCollectorTracingConfiguration{
-			OpenTelemetryCollectorExportConfiguration: operatorv1.OpenTelemetryCollectorExportConfiguration{
+		config.Spec.Monitoring.Tracing = &operatorv1.TracingConfiguration{
+			Otlp: operatorv1.OpenTelemetryCollectorExportConfiguration{
 				Endpoint:    "https://otel.example.com:4320",
 				CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-tracing-ca"},
 			},
 		}
 		g.Expect(r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)).To(Succeed())
-		g.Expect(vars.OpenTelemetryCollector.Tracing.CACert).To(Equal(caCertPEM))
+		g.Expect(vars.Tracing.CACert).To(Equal(caCertPEM))
+		g.Expect(vars.OpenTelemetryCollector.Tracing.CACert).To(BeEmpty())
 		g.Expect(vars.OpenTelemetryCollector.Logging.CACert).To(BeEmpty())
 		g.Expect(vars.OpenTelemetryCollector.Metrics.CACert).To(BeEmpty())
 	})
@@ -2272,8 +2273,8 @@ func TestResolveOpenTelemetryCollectorCACerts(t *testing.T) {
 		vars := inventory.Variables{}
 
 		config := newConfig(ns, nil)
-		config.Spec.Monitoring.OpenTelemetryCollector.Tracing = &operatorv1.OpenTelemetryCollectorTracingConfiguration{
-			OpenTelemetryCollectorExportConfiguration: operatorv1.OpenTelemetryCollectorExportConfiguration{
+		config.Spec.Monitoring.Tracing = &operatorv1.TracingConfiguration{
+			Otlp: operatorv1.OpenTelemetryCollectorExportConfiguration{
 				Endpoint:    "https://otel.example.com:4320",
 				CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-tracing-ca"},
 			},
@@ -2284,7 +2285,26 @@ func TestResolveOpenTelemetryCollectorCACerts(t *testing.T) {
 		g.Expect(err.Error()).To(ContainSubstring("tracing"))
 	})
 
-	t.Run("resolves the tracing CA even when the collector component is disabled", func(t *testing.T) {
+	t.Run("skips the tracing CA of the controllers when their traces are disabled", func(t *testing.T) {
+		g := NewWithT(t)
+		ns := "otel-ca-tracing-traces-disabled"
+		g.Expect(testClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})).To(Succeed())
+		r := newReconciler()
+		vars := inventory.Variables{}
+
+		config := newConfig(ns, nil)
+		config.Spec.Monitoring.Tracing = &operatorv1.TracingConfiguration{
+			Otlp: operatorv1.OpenTelemetryCollectorExportConfiguration{
+				Endpoint:    "https://otel.example.com:4320",
+				CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "missing"},
+			},
+			DisableControllerTraces: ptr.To(true),
+		}
+		g.Expect(r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)).To(Succeed())
+		g.Expect(vars.Tracing.CACert).To(BeEmpty())
+	})
+
+	t.Run("resolves the CA of the tracing destination of the DPU clusters even when the collector component is disabled", func(t *testing.T) {
 		g := NewWithT(t)
 		ns := "otel-ca-tracing-disabled"
 		g.Expect(testClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})).To(Succeed())
@@ -2297,13 +2317,35 @@ func TestResolveOpenTelemetryCollectorCACerts(t *testing.T) {
 
 		config := newConfig(ns, nil)
 		config.Spec.Monitoring.OpenTelemetryCollector.Disable = ptr.To(true)
-		config.Spec.Monitoring.OpenTelemetryCollector.Tracing = &operatorv1.OpenTelemetryCollectorTracingConfiguration{
-			OpenTelemetryCollectorExportConfiguration: operatorv1.OpenTelemetryCollectorExportConfiguration{
+		config.Spec.Monitoring.OpenTelemetryCollector.Tracing = &operatorv1.OpenTelemetryCollectorExportConfiguration{
+			Endpoint:    "https://otel.example.com:4320",
+			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-tracing-ca"},
+		}
+		g.Expect(r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)).To(Succeed())
+		g.Expect(vars.OpenTelemetryCollector.Tracing.CACert).To(Equal(caCertPEM))
+		g.Expect(vars.Tracing.CACert).To(BeEmpty())
+	})
+
+	t.Run("resolves the tracing CA of the controllers without a collector configuration", func(t *testing.T) {
+		g := NewWithT(t)
+		ns := "otel-ca-tracing-no-monitoring"
+		g.Expect(testClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})).To(Succeed())
+		g.Expect(testClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "otel-tracing-ca"},
+			Data:       map[string][]byte{operatorv1.OpenTelemetryCollectorCASecretKey: []byte(caCertPEM)},
+		})).To(Succeed())
+		r := newReconciler()
+		vars := inventory.Variables{}
+
+		config := newConfig(ns, nil)
+		config.Spec.Monitoring = &operatorv1.MonitoringConfiguration{}
+		config.Spec.Monitoring.Tracing = &operatorv1.TracingConfiguration{
+			Otlp: operatorv1.OpenTelemetryCollectorExportConfiguration{
 				Endpoint:    "https://otel.example.com:4320",
 				CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: "otel-tracing-ca"},
 			},
 		}
 		g.Expect(r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)).To(Succeed())
-		g.Expect(vars.OpenTelemetryCollector.Tracing.CACert).To(Equal(caCertPEM))
+		g.Expect(vars.Tracing.CACert).To(Equal(caCertPEM))
 	})
 }

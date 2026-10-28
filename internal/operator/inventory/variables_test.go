@@ -193,41 +193,139 @@ func TestVariablesFromDPFOperatorConfig_Tracing(t *testing.T) {
 	defaults := &release.Defaults{}
 	NewWithT(t).Expect(defaults.Parse()).To(Succeed())
 
-	configWithTracing := func(tracing *operatorv1.OpenTelemetryCollectorTracingConfiguration) *operatorv1.DPFOperatorConfig {
+	configWithTracing := func(tracing *operatorv1.TracingConfiguration, monitoring *operatorv1.MonitoringConfiguration) *operatorv1.DPFOperatorConfig {
+		if monitoring == nil {
+			monitoring = &operatorv1.MonitoringConfiguration{}
+		}
+		monitoring.Tracing = tracing
 		return &operatorv1.DPFOperatorConfig{Spec: operatorv1.DPFOperatorConfigSpec{
 			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{},
-			Monitoring:             &operatorv1.MonitoringConfiguration{OpenTelemetryCollector: &operatorv1.OpenTelemetryCollectorConfiguration{Tracing: tracing}},
+			Monitoring:             monitoring,
 		}}
 	}
-	endpoint := operatorv1.OpenTelemetryCollectorExportConfiguration{Endpoint: "http://collector:4318"}
+	otlp := operatorv1.OpenTelemetryCollectorExportConfiguration{Endpoint: "http://collector:4318"}
 
 	t.Run("an unset setting keeps the controllers' defaults", func(t *testing.T) {
 		g := NewWithT(t)
-		vars := VariablesFromDPFOperatorConfig(defaults, configWithTracing(&operatorv1.OpenTelemetryCollectorTracingConfiguration{
-			OpenTelemetryCollectorExportConfiguration: endpoint,
-		}), nil)
+		vars := VariablesFromDPFOperatorConfig(defaults, configWithTracing(&operatorv1.TracingConfiguration{
+			Otlp: otlp,
+		}, nil), nil)
 
-		g.Expect(vars.OpenTelemetryCollector.Tracing.Endpoint).To(Equal("http://collector:4318"))
-		g.Expect(vars.OpenTelemetryCollector.Tracing.RecordIdleReconciles).To(BeFalse())
-		g.Expect(vars.OpenTelemetryCollector.Tracing.RecordUnchangedReconciles).To(BeFalse())
-		g.Expect(vars.OpenTelemetryCollector.Tracing.SamplingPercent).To(BeNil())
-		g.Expect(vars.OpenTelemetryCollector.Tracing.RolloutTimeout).To(BeNil())
+		g.Expect(vars.Tracing.Endpoint).To(Equal("http://collector:4318"))
+		g.Expect(vars.Tracing.RecordIdleReconciles).To(BeFalse())
+		g.Expect(vars.Tracing.RecordUnchangedReconciles).To(BeFalse())
+		g.Expect(vars.Tracing.SamplingPercent).To(BeNil())
+		g.Expect(vars.Tracing.RolloutTimeout).To(BeNil())
 	})
 
 	t.Run("the settings are passed on", func(t *testing.T) {
 		g := NewWithT(t)
-		vars := VariablesFromDPFOperatorConfig(defaults, configWithTracing(&operatorv1.OpenTelemetryCollectorTracingConfiguration{
-			OpenTelemetryCollectorExportConfiguration: endpoint,
-			RecordIdleReconciles:                      ptr.To(true),
-			RecordUnchangedReconciles:                 ptr.To(true),
-			SamplingPercent:                           ptr.To[int32](25),
-			RolloutTimeout:                            &metav1.Duration{Duration: 30 * time.Minute},
-		}), nil)
+		vars := VariablesFromDPFOperatorConfig(defaults, configWithTracing(&operatorv1.TracingConfiguration{
+			Otlp:                      otlp,
+			RecordIdleReconciles:      ptr.To(true),
+			RecordUnchangedReconciles: ptr.To(true),
+			SamplingPercent:           ptr.To[int32](25),
+			RolloutTimeout:            &metav1.Duration{Duration: 30 * time.Minute},
+		}, nil), nil)
 
-		g.Expect(vars.OpenTelemetryCollector.Tracing.RecordIdleReconciles).To(BeTrue())
-		g.Expect(vars.OpenTelemetryCollector.Tracing.RecordUnchangedReconciles).To(BeTrue())
-		g.Expect(vars.OpenTelemetryCollector.Tracing.SamplingPercent).To(HaveValue(Equal(int32(25))))
-		g.Expect(vars.OpenTelemetryCollector.Tracing.RolloutTimeout).To(Equal(ptr.To(30 * time.Minute)))
+		g.Expect(vars.Tracing.RecordIdleReconciles).To(BeTrue())
+		g.Expect(vars.Tracing.RecordUnchangedReconciles).To(BeTrue())
+		g.Expect(vars.Tracing.SamplingPercent).To(HaveValue(Equal(int32(25))))
+		g.Expect(vars.Tracing.RolloutTimeout).To(Equal(ptr.To(30 * time.Minute)))
+	})
+
+	t.Run("tracing does not depend on the monitoring configuration", func(t *testing.T) {
+		tests := []struct {
+			name       string
+			monitoring *operatorv1.MonitoringConfiguration
+		}{
+			{
+				name: "monitoring is disabled",
+				monitoring: &operatorv1.MonitoringConfiguration{
+					Disable: ptr.To(true),
+				},
+			},
+			{
+				name: "the opentelemetry-collector is disabled",
+				monitoring: &operatorv1.MonitoringConfiguration{
+					OpenTelemetryCollector: &operatorv1.OpenTelemetryCollectorConfiguration{
+						BaseComponentConfig: operatorv1.BaseComponentConfig{
+							Disable: ptr.To(true),
+						},
+					},
+				},
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				g := NewWithT(t)
+				vars := VariablesFromDPFOperatorConfig(defaults, configWithTracing(&operatorv1.TracingConfiguration{
+					Otlp: otlp,
+				}, tt.monitoring), nil)
+
+				g.Expect(vars.Tracing.Endpoint).To(Equal("http://collector:4318"))
+				g.Expect(vars.DisableSystemComponents).To(HaveKeyWithValue(operatorv1.OpenTelemetryCollectorName, true))
+			})
+		}
+	})
+
+	t.Run("the controller traces can be disabled for all controllers", func(t *testing.T) {
+		g := NewWithT(t)
+		vars := VariablesFromDPFOperatorConfig(defaults, configWithTracing(&operatorv1.TracingConfiguration{
+			Otlp:                    otlp,
+			DisableControllerTraces: ptr.To(true),
+		}, nil), nil)
+
+		g.Expect(vars.DisableTracing).To(Equal(map[operatorv1.ComponentName]bool{
+			operatorv1.DPUServiceControllerName:            true,
+			operatorv1.ProvisioningControllerName:          true,
+			operatorv1.NodeSRIOVDevicePluginControllerName: true,
+			operatorv1.ServiceSetControllerName:            true,
+			operatorv1.SFCControllerName:                   true,
+		}))
+	})
+
+	t.Run("the DPU clusters export to the tracing endpoint of the opentelemetry-collector", func(t *testing.T) {
+		tests := []struct {
+			name              string
+			disabledCollector bool
+			disabledMonitor   bool
+		}{
+			{
+				name: "the opentelemetry-collector is deployed",
+			},
+			{
+				name:              "the opentelemetry-collector is disabled",
+				disabledCollector: true,
+			},
+			{
+				name:              "monitoring is disabled",
+				disabledCollector: true,
+				disabledMonitor:   true,
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				g := NewWithT(t)
+				vars := VariablesFromDPFOperatorConfig(defaults, configWithTracing(nil, &operatorv1.MonitoringConfiguration{
+					Disable: ptr.To(tt.disabledMonitor),
+					OpenTelemetryCollector: &operatorv1.OpenTelemetryCollectorConfiguration{
+						BaseComponentConfig: operatorv1.BaseComponentConfig{
+							Disable: ptr.To(tt.disabledCollector),
+						},
+						Tracing: &operatorv1.OpenTelemetryCollectorExportConfiguration{
+							Endpoint:  "http://10.0.0.1:30050",
+							Transport: ptr.To(operatorv1.OpenTelemetryCollectorTransportGRPC),
+						},
+					},
+				}), nil)
+
+				g.Expect(vars.OpenTelemetryCollector.Tracing.Endpoint).To(Equal("http://10.0.0.1:30050"))
+				g.Expect(vars.OpenTelemetryCollector.Tracing.Transport).To(Equal("grpc"))
+				g.Expect(vars.DisableSystemComponents).To(HaveKeyWithValue(operatorv1.OpenTelemetryCollectorName, tt.disabledCollector))
+				g.Expect(vars.Tracing.Endpoint).To(BeEmpty(), "the controllers of the management cluster have their own endpoint")
+			})
+		}
 	})
 }
 

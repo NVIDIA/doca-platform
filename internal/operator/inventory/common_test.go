@@ -105,8 +105,8 @@ func newManagerDeployment() *appsv1.Deployment {
 }
 
 // tracingVars returns tracing variables with the given export destination and default settings.
-func tracingVars(export OpenTelemetryCollectorGenericVariables) OpenTelemetryCollectorTracingVariables {
-	return OpenTelemetryCollectorTracingVariables{OpenTelemetryCollectorGenericVariables: export}
+func tracingVars(export OpenTelemetryCollectorGenericVariables) TracingVariables {
+	return TracingVariables{OpenTelemetryCollectorGenericVariables: export}
 }
 
 // Test_setTracingFlags checks the --otel-tracing-* flags set on the manager container for each
@@ -120,7 +120,7 @@ func Test_setTracingFlags(t *testing.T) {
 		tracing.RecordUnchangedReconciles = true
 		tracing.SamplingPercent = ptr.To[int32](25)
 		tracing.RolloutTimeout = ptr.To(30 * time.Minute)
-		vars := Variables{OpenTelemetryCollector: OpenTelemetryCollectorVariables{Tracing: tracing}}
+		vars := Variables{Tracing: tracing}
 
 		g.Expect(setTracingFlags(deploy, vars)).To(Succeed())
 
@@ -139,7 +139,7 @@ func Test_setTracingFlags(t *testing.T) {
 		tracing := tracingVars(OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318"})
 		tracing.SamplingPercent = ptr.To[int32](100)
 		tracing.RolloutTimeout = ptr.To(time.Hour)
-		vars := Variables{OpenTelemetryCollector: OpenTelemetryCollectorVariables{Tracing: tracing}}
+		vars := Variables{Tracing: tracing}
 
 		g.Expect(setTracingFlags(deploy, vars)).To(Succeed())
 
@@ -151,7 +151,7 @@ func Test_setTracingFlags(t *testing.T) {
 		deploy := newManagerDeployment()
 		tracing := tracingVars(OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318"})
 		tracing.SamplingPercent = ptr.To[int32](0)
-		vars := Variables{OpenTelemetryCollector: OpenTelemetryCollectorVariables{Tracing: tracing}}
+		vars := Variables{Tracing: tracing}
 
 		g.Expect(setTracingFlags(deploy, vars)).To(Succeed())
 
@@ -163,7 +163,7 @@ func Test_setTracingFlags(t *testing.T) {
 		deploy := newManagerDeployment()
 		tracing := tracingVars(OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318"})
 		tracing.RolloutTimeout = ptr.To(time.Duration(0))
-		vars := Variables{OpenTelemetryCollector: OpenTelemetryCollectorVariables{Tracing: tracing}}
+		vars := Variables{Tracing: tracing}
 
 		g.Expect(setTracingFlags(deploy, vars)).To(Succeed())
 
@@ -182,9 +182,9 @@ func Test_setTracingFlags(t *testing.T) {
 	t.Run("sets endpoint only", func(t *testing.T) {
 		g := NewWithT(t)
 		deploy := newManagerDeployment()
-		vars := Variables{OpenTelemetryCollector: OpenTelemetryCollectorVariables{
+		vars := Variables{
 			Tracing: tracingVars(OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318"}),
-		}}
+		}
 
 		g.Expect(setTracingFlags(deploy, vars)).To(Succeed())
 
@@ -196,13 +196,13 @@ func Test_setTracingFlags(t *testing.T) {
 	t.Run("sets transport and inline CA PEM when configured", func(t *testing.T) {
 		g := NewWithT(t)
 		deploy := newManagerDeployment()
-		vars := Variables{OpenTelemetryCollector: OpenTelemetryCollectorVariables{
+		vars := Variables{
 			Tracing: tracingVars(OpenTelemetryCollectorGenericVariables{
 				Endpoint:  "https://collector:4317",
 				Transport: "grpc",
 				CACert:    "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
 			}),
-		}}
+		}
 
 		g.Expect(setTracingFlags(deploy, vars)).To(Succeed())
 
@@ -216,9 +216,9 @@ func Test_setTracingFlags(t *testing.T) {
 	t.Run("does not mount a Secret or add a volume for the CA", func(t *testing.T) {
 		g := NewWithT(t)
 		deploy := newManagerDeployment()
-		vars := Variables{OpenTelemetryCollector: OpenTelemetryCollectorVariables{
+		vars := Variables{
 			Tracing: tracingVars(OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318", CACert: "pem"}),
-		}}
+		}
 
 		g.Expect(setTracingFlags(deploy, vars)).To(Succeed())
 
@@ -229,9 +229,9 @@ func Test_setTracingFlags(t *testing.T) {
 	t.Run("errors when the manager container is missing", func(t *testing.T) {
 		g := NewWithT(t)
 		deploy := &appsv1.Deployment{}
-		vars := Variables{OpenTelemetryCollector: OpenTelemetryCollectorVariables{
+		vars := Variables{
 			Tracing: tracingVars(OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318"}),
-		}}
+		}
 
 		g.Expect(setTracingFlags(deploy, vars)).To(MatchError(ContainSubstring("manager")))
 	})
@@ -242,10 +242,8 @@ func Test_tracingFlagsFor(t *testing.T) {
 	tracingVars := func(disabled map[operatorv1.ComponentName]bool) Variables {
 		return Variables{
 			DisableTracing: disabled,
-			OpenTelemetryCollector: OpenTelemetryCollectorVariables{
-				Tracing: OpenTelemetryCollectorTracingVariables{
-					OpenTelemetryCollectorGenericVariables: OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318"},
-				},
+			Tracing: TracingVariables{
+				OpenTelemetryCollectorGenericVariables: OpenTelemetryCollectorGenericVariables{Endpoint: "http://collector:4318"},
 			},
 		}
 	}

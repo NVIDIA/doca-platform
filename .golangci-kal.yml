@@ -31,7 +31,6 @@ linters:
 
               - "noreferences" # Discourages `Ref`/`Reference` naming.
               - "notimestamp" # Prevents usage of 'Timestamp' fields.
-              - "nonpointerstructs" # Non-pointer struct fields must be marked optional/required.
               - "requiredfields" # Required fields should not be pointers, and should not have `omitempty`.
               - "optionalfields" # Ensure that all fields marked as optional adhere to being pointers and
                                   # having the `omitempty` value in their `json` tag where appropriate.

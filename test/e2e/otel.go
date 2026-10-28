@@ -88,18 +88,17 @@ func otelExportAddress(ctx context.Context, c client.Client, dpuClusterPaths []s
 	return getClusterControlPlaneIP(ctx, c)
 }
 
-// otelTracingEndpoint returns the endpoint DPF exports traces to. Without DPU nodes only DPF
-// controllers in this cluster use it, so it is the collector's in-cluster Service: a name the
-// serving certificate always covers and always dialable from here, unlike the node IP / keepalived
-// VIP, which may be a placeholder address in a DPUCluster fixture with no real DPU nodes. With DPU
-// nodes the DPU cluster collectors forward traces to it as well and cannot resolve that name, so it
-// is the external NodePort/VIP they use for logs and metrics, which controllers here can dial too.
-func otelTracingEndpoint(exportAddress string, hasDPUNodes, tls bool) string {
+// otelTracingEndpoint returns an endpoint DPF exports traces to. The DPF controllers in this cluster
+// use the collector's in-cluster Service: a name the serving certificate always covers and always
+// dialable from here, unlike the node IP / keepalived VIP, which may be a placeholder address in a
+// DPUCluster fixture with no real DPU nodes. The DPU clusters cannot resolve that name, so for them
+// (forDPUClusters) it is the external NodePort/VIP they use for logs and metrics.
+func otelTracingEndpoint(exportAddress string, forDPUClusters, tls bool) string {
 	schema, port, host := otelEndpointSchema, otelInClusterHTTPPort, otelInClusterHost
 	if tls {
 		schema, port = otelTLSEndpointSchema, otelInClusterHTTPSPort
 	}
-	if hasDPUNodes {
+	if forDPUClusters {
 		host, port = exportAddress, otelNodePort
 		if tls {
 			port = otelTLSNodePort
@@ -115,12 +114,10 @@ func otelTracingEndpoint(exportAddress string, hasDPUNodes, tls bool) string {
 // over OTLP/HTTP and metrics over OTLP/gRPC, so both transports and both caSecretRef paths are
 // covered end to end against a real cert-manager Secret. Suites deployed without the monitoring
 // stack fall back to the plaintext endpoint.
-func openTelemetryCollectorConfiguration(ctx context.Context, c client.Client, dpuClusterPaths []string, hasDPUNodes bool) *operatorv1.OpenTelemetryCollectorConfiguration {
+func openTelemetryCollectorConfiguration(ctx context.Context, c client.Client, dpuClusterPaths []string) *operatorv1.OpenTelemetryCollectorConfiguration {
 	exportAddress := otelExportAddress(ctx, c, dpuClusterPaths)
 
-	servingCert := &corev1.Secret{}
-	err := c.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: otelServingCertSecretName}, servingCert)
-	if apierrors.IsNotFound(err) || (err == nil && len(servingCert.Data[operatorv1.OpenTelemetryCollectorCASecretKey]) == 0) {
+	if !otelServingCertAvailable(ctx, c) {
 		return &operatorv1.OpenTelemetryCollectorConfiguration{
 			Logging: &operatorv1.OpenTelemetryCollectorExportConfiguration{
 				Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, exportAddress, otelNodePort),
@@ -128,18 +125,12 @@ func openTelemetryCollectorConfiguration(ctx context.Context, c client.Client, d
 			Metrics: &operatorv1.OpenTelemetryCollectorExportConfiguration{
 				Endpoint: fmt.Sprintf("%s%s:%d", otelEndpointSchema, exportAddress, otelNodePort),
 			},
-			// DPF controllers run inside this cluster, so without DPU nodes they dial the
-			// collector's in-cluster Service. With DPU nodes the DPU cluster collectors forward
-			// traces to this endpoint too, so it must be the external NodePort/VIP.
-			Tracing: &operatorv1.OpenTelemetryCollectorTracingConfiguration{
-				OpenTelemetryCollectorExportConfiguration: operatorv1.OpenTelemetryCollectorExportConfiguration{
-					Endpoint: otelTracingEndpoint(exportAddress, hasDPUNodes, false),
-				},
-				RecordUnchangedReconciles: ptr.To(true),
+			// The DPU clusters export their traces to the external NodePort/VIP, like logs and metrics.
+			Tracing: &operatorv1.OpenTelemetryCollectorExportConfiguration{
+				Endpoint: otelTracingEndpoint(exportAddress, true, false),
 			},
 		}
 	}
-	Expect(err).NotTo(HaveOccurred())
 
 	// The serving certificate covers the node InternalIPs and the keepalived VIP as IP SANs.
 	// The CA is read straight from the cert-manager-managed serving certificate Secret
@@ -154,17 +145,37 @@ func openTelemetryCollectorConfiguration(ctx context.Context, c client.Client, d
 			Transport:   ptr.To(operatorv1.OpenTelemetryCollectorTransportGRPC),
 			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: otelServingCertSecretName},
 		},
-		// Tracing's clients are DPF controller binaries running in this cluster and, with DPU
-		// nodes, the DPU cluster collectors forwarding traces. See otelTracingEndpoint for which
-		// address each case needs.
-		Tracing: &operatorv1.OpenTelemetryCollectorTracingConfiguration{
-			OpenTelemetryCollectorExportConfiguration: operatorv1.OpenTelemetryCollectorExportConfiguration{
-				Endpoint:    otelTracingEndpoint(exportAddress, hasDPUNodes, true),
-				CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: otelServingCertSecretName},
-			},
-			RecordUnchangedReconciles: ptr.To(true),
+		Tracing: &operatorv1.OpenTelemetryCollectorExportConfiguration{
+			Endpoint:    otelTracingEndpoint(exportAddress, true, true),
+			CASecretRef: &operatorv1.OpenTelemetryCollectorCASecretReference{Name: otelServingCertSecretName},
 		},
 	}
+}
+
+// tracingConfiguration returns the tracing configuration for the generated DPFOperatorConfig. The DPF
+// controllers run in this cluster, so they export to the collector's in-cluster Service.
+func tracingConfiguration(ctx context.Context, c client.Client) *operatorv1.TracingConfiguration {
+	tracing := &operatorv1.TracingConfiguration{
+		Otlp:                      operatorv1.OpenTelemetryCollectorExportConfiguration{Endpoint: otelTracingEndpoint("", false, false)},
+		RecordUnchangedReconciles: ptr.To(true),
+	}
+	if otelServingCertAvailable(ctx, c) {
+		tracing.Otlp.Endpoint = otelTracingEndpoint("", false, true)
+		tracing.Otlp.CASecretRef = &operatorv1.OpenTelemetryCollectorCASecretReference{Name: otelServingCertSecretName}
+	}
+	return tracing
+}
+
+// otelServingCertAvailable reports whether the monitoring stack created the management collector's
+// serving certificate with a CA.
+func otelServingCertAvailable(ctx context.Context, c client.Client) bool {
+	servingCert := &corev1.Secret{}
+	err := c.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: otelServingCertSecretName}, servingCert)
+	if apierrors.IsNotFound(err) {
+		return false
+	}
+	Expect(err).NotTo(HaveOccurred())
+	return len(servingCert.Data[operatorv1.OpenTelemetryCollectorCASecretKey]) > 0
 }
 
 // ValidateDPUClusterOpenTelemetryConfiguration verifies DPU cluster collector configuration

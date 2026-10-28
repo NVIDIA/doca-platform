@@ -430,6 +430,11 @@ type MonitoringConfiguration struct {
 	// OpenTelemetryCollector is the configuration for opentelemetry-collector
 	// +optional
 	OpenTelemetryCollector *OpenTelemetryCollectorConfiguration `json:"openTelemetryCollector,omitempty"`
+
+	// Tracing configures how the DPF controllers export trace spans. It applies even when disable is
+	// true. If not specified, the controllers of the management cluster export none.
+	// +optional
+	Tracing *TracingConfiguration `json:"tracing,omitempty"`
 }
 
 // SecurityConfiguration groups configuration for security-related configurations

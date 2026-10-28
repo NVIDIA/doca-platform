@@ -664,8 +664,9 @@ func (r *DPFOperatorConfigReconciler) reconcileSystemComponents(ctx context.Cont
 
 // resolveOpenTelemetryCollectorCACerts reads the CA certificate Secrets referenced by
 // spec.monitoring.openTelemetryCollector.logging.caSecretRef,
-// spec.monitoring.openTelemetryCollector.metrics.caSecretRef and
-// spec.monitoring.openTelemetryCollector.tracing.caSecretRef and injects their PEM content into
+// spec.monitoring.openTelemetryCollector.metrics.caSecretRef,
+// spec.monitoring.openTelemetryCollector.tracing.caSecretRef and
+// spec.monitoring.tracing.otlp.caSecretRef and injects their PEM content into
 // the inventory variables. For logging and metrics the content travels as a Helm value because
 // the collector runs in the DPU cluster, where a Secret referenced by name in the host cluster
 // would not resolve; that copy is also why the referenced Secret may live in any host cluster
@@ -675,17 +676,30 @@ func (r *DPFOperatorConfigReconciler) reconcileSystemComponents(ctx context.Cont
 // Secret, so a CA rotation here flows through the same "flag value changes -> Deployment rolls
 // out" path as every other tracing flag instead of going stale in an already-running process.
 //
-// Tracing is resolved independent of otelConfig.Disabled(): that flag only controls whether the
-// bundled DPU cluster opentelemetry-collector component is deployed, and DPF controllers can
-// export trace spans to any OTLP endpoint without it.
+// The tracing destinations are resolved independent of whether the opentelemetry-collector component
+// is deployed: DPF controllers can export trace spans to any OTLP endpoint without it.
 func (r *DPFOperatorConfigReconciler) resolveOpenTelemetryCollectorCACerts(ctx context.Context, config *operatorv1.DPFOperatorConfig, vars *inventory.Variables) error {
-	if config.Spec.Monitoring == nil || config.Spec.Monitoring.OpenTelemetryCollector == nil {
+	if config.Spec.Monitoring == nil {
+		return nil
+	}
+	// No controller uses the CA when the traces are disabled, so a missing Secret must not fail the reconcile.
+	if tracingConfig := config.Spec.Monitoring.Tracing; tracingConfig != nil && tracingConfig.Otlp.CASecretRef != nil &&
+		!ptr.Deref(tracingConfig.DisableControllerTraces, false) {
+		caCert, err := r.resolveOpenTelemetryCollectorCACert(ctx, config.Namespace, "tracing", tracingConfig.Otlp.CASecretRef)
+		if err != nil {
+			return err
+		}
+		vars.Tracing.CACert = caCert
+	}
+
+	if config.Spec.Monitoring.OpenTelemetryCollector == nil {
 		return nil
 	}
 	otelConfig := config.Spec.Monitoring.OpenTelemetryCollector
 
+	// The tracing destination of the DPU clusters is also used when the component is not deployed.
 	if otelConfig.Tracing != nil && otelConfig.Tracing.CASecretRef != nil {
-		caCert, err := r.resolveOpenTelemetryCollectorCACert(ctx, config.Namespace, "tracing", otelConfig.Tracing.CASecretRef)
+		caCert, err := r.resolveOpenTelemetryCollectorCACert(ctx, config.Namespace, "dpu cluster tracing", otelConfig.Tracing.CASecretRef)
 		if err != nil {
 			return err
 		}
