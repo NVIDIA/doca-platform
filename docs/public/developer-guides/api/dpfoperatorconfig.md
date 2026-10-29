@@ -186,6 +186,37 @@ A single node IP as the endpoint is a single point of failure. For production, u
 
 For detailed configuration options and architecture, see [DPF-Operator-Managed Components](../../operational-readiness/observability/deployment/operator-managed-components.md).
 
+### Certificate Management
+
+The certificate authority that the DPF certificates chain up to is chosen once for the whole PKI, in
+the `certificateAuthority.issuerRef` value of the `dpf-operator` Helm chart rather than here. What
+this block configures is the ConfigMap that the consumers of those certificates validate their peers
+against.
+
+```yaml
+spec:
+  security:
+    certManagement:
+      trustBundleConfigMapName: enterprise-ca-trust-bundle
+```
+
+Leaving it out gives you `dpf-ca-trust-bundle`. Either way the name is immutable, because it reaches
+a DPU in the provisioning configuration it is installed with: renaming it would leave the DPUs
+already provisioned reading a ConfigMap DPF no longer maintains.
+
+The operator records what it has rolled out under `status.security.certManagement`:
+
+* `anchor`: the authority the provisioning PKI is chained to, either the self-signed root of DPF
+  or the issuer you named.
+* `trustBundleHash`: the `bundle-hash` the trust bundle carried when that anchor was recorded.
+
+A change of authority in the chart is reported on the `CertManagementReady` condition until the
+rollout of it is complete.
+
+For the hierarchy itself, anchoring it to an authority of your own and who owns the bundle content in
+each case, see
+[External Certificate Authority](../../advanced-configuration/external-certificate-authority.md).
+
 ### Optional Component Configurations
 
 The following components can be configured to enable/disable features or specify a different container image.  
