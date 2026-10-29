@@ -25,8 +25,9 @@ import (
 
 const (
 	DPUServiceNADKind = "DPUServiceNAD"
-	// TrustedSfAnnotationKey is the key of the annotation that may be added to a DPUServiceNAD to
-	// indicate that the SFs to be used should be trusted instead of the normal ones.
+	// TrustedSfAnnotationKey is the key of the annotation that may be added to
+	// a DPUServiceNAD to indicate that the SFs to be used should be trusted
+	// instead of the normal ones.
 	TrustedSfAnnotationKey = "dpuservicenad.svc.dpu.nvidia.com/use-trusted-sfs"
 )
 
@@ -59,7 +60,8 @@ func (c *DPUServiceNAD) GetDPUClusterSelector() *metav1.LabelSelector {
 	return c.Spec.DPUClusterSelector
 }
 
-// GetResourceName returns the resource name associated with the resource type specified in the DPUServiceNAD.
+// GetResourceName returns the resource name associated with the resource type
+// specified in the DPUServiceNAD.
 func (c *DPUServiceNAD) GetResourceName() string {
 	switch c.Spec.ResourceType {
 	case "sf":
@@ -77,11 +79,13 @@ func (c *DPUServiceNAD) GetResourceName() string {
 }
 
 // CNIPlugin defines a CNI plugin to be used in a chained CNI configuration.
-// When multiple CNI plugins are specified in ChainedCNIs, they are executed in order
-// after the base OVS CNI plugin to provide additional network functionality.
+// When multiple CNI plugins are specified in ChainedCNIs, they are executed in
+// order after the base OVS CNI plugin to provide additional network
+// functionality.
 type CNIPlugin struct {
-	// Type specifies the CNI plugin type to be used in the chain.
-	// Currently only "rdma" is supported, which enables RDMA capabilities for the network interface.
+	// Type specifies the CNI plugin type to be used in the chain. Currently
+	// only "rdma" is supported, which enables RDMA capabilities for the network
+	// interface.
 	// +kubebuilder:validation:Enum={"rdma"}
 	// +required
 	Type *string `json:"type"`
@@ -93,43 +97,50 @@ type CNIPlugin struct {
 
 // DPUServiceNADSpec defines the desired state of DPUServiceNAD.
 type DPUServiceNADSpec struct {
-	// DPUClusterSelector determines in which clusters the DPUServiceNAD controller should apply the configuration.
+	// DPUClusterSelector determines in which clusters the DPUServiceNAD
+	// controller should apply the configuration.
 	// +optional
 	DPUClusterSelector *metav1.LabelSelector `json:"dpuClusterSelector,omitempty"`
-	// ResourceType specifies the type of network resource to allocate for pods using this NAD.
+	// ResourceType specifies the type of network resource to allocate for pods
+	// using this NAD.
 	// - "vf": Virtual Function (SR-IOV VF) from the DPU's physical ports
-	// - "sf": Scalable Function from the DPU (maps to nvidia.com/bf_sf or nvidia.com/bf_sf_trusted)
+	// - "sf": Scalable Function from the DPU (maps to nvidia.com/bf_sf or
+	//   nvidia.com/bf_sf_trusted)
 	// - "veth": Virtual Ethernet pair (no device plugin resource required)
-	// The resource type determines which SR-IOV device plugin resource will be requested.
+	// The resource type determines which SR-IOV device plugin resource will be
+	// requested.
 	// +kubebuilder:validation:Enum={"vf", "sf", "veth"}
 	// +required
 	ResourceType string `json:"resourceType"`
-	// Bridge specifies the name of the OVS bridge to which the network interface will be connected.
-	// This bridge name is used in the CNI configuration for the OVS plugin.
+	// Bridge specifies the name of the OVS bridge to which the network
+	// interface will be connected. This bridge name is used in the CNI
+	// configuration for the OVS plugin.
 	// +optional
 	Bridge string `json:"bridge,omitempty"`
 	// ServiceMTU specifies the MTU size in bytes for the network interface.
-	// This value is passed to the OVS CNI plugin and determines the maximum packet size.
-	// If there is a DPUServiceChain that references an interface that is part of this network,
-	// then the MTU that is defined in the DPUServiceChain takes precedence.
-	// The default is 1500.
+	// This value is passed to the OVS CNI plugin and determines the maximum
+	// packet size. If there is a DPUServiceChain that references an interface
+	// that is part of this network, then the MTU that is defined in the
+	// DPUServiceChain takes precedence. The default is 1500.
 	// +kubebuilder:validation:Minimum=1280
 	// +kubebuilder:validation:Maximum=9216
 	// +kubebuilder:default=1500
 	// +optional
 	ServiceMTU int `json:"serviceMTU,omitempty"`
-	// IPAM enables IP Address Management for the network interfaces attached to this network
-	// When set to true, a DPUServiceChain that references the DPUServiceInterface that has
-	// requested this network must be created and include the relevant IPAM information. See
-	// DPUServiceChain documentation for more.
-	// When set to false, the network interfaces attached to this network will not get an IP
+	// IPAM enables IP Address Management for the network interfaces attached to
+	// this network When set to true, a DPUServiceChain that references the
+	// DPUServiceInterface that has requested this network must be created and
+	// include the relevant IPAM information. See DPUServiceChain documentation
+	// for more. When set to false, the network interfaces attached to this
+	// network will not get an IP
 	// +optional
 	IPAM bool `json:"ipam,omitempty"`
-	// ChainedCNIs specifies additional CNI plugins to be chained after the base OVS plugin.
-	// When specified, the NAD will use the CNI chaining format with the OVS plugin as the
-	// first plugin, followed by the plugins defined in this list.
-	// This allows adding capabilities like RDMA support on top of the base network interface.
-	// If empty, the NAD uses a single OVS plugin configuration (backward compatible format).
+	// ChainedCNIs specifies additional CNI plugins to be chained after the base
+	// OVS plugin. When specified, the NAD will use the CNI chaining format with
+	// the OVS plugin as the first plugin, followed by the plugins defined in
+	// this list. This allows adding capabilities like RDMA support on top of
+	// the base network interface. If empty, the NAD uses a single OVS plugin
+	// configuration (backward compatible format).
 	// +optional
 	ChainedCNIs []CNIPlugin `json:"chainedCNIs,omitempty"`
 }

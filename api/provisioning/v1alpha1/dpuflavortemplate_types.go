@@ -26,34 +26,38 @@ const (
 	DPUFlavorTemplateKind = "DPUFlavorTemplate"
 )
 
-// DPUFlavorTemplateGroupVersionKind is the GroupVersionKind of the DPUFlavorTemplate object
+// DPUFlavorTemplateGroupVersionKind is the GroupVersionKind of the
+// DPUFlavorTemplate object
 var DPUFlavorTemplateGroupVersionKind = GroupVersion.WithKind(DPUFlavorTemplateKind)
 
-// DPUFlavorTemplateSpec defines the content of a DPUFlavorTemplate. The template body is
-// rendered per-DPU against DPUDevice.spec.values to produce a concrete DPUFlavor.
+// DPUFlavorTemplateSpec defines the content of a DPUFlavorTemplate. The
+// template body is rendered per-DPU against DPUDevice.spec.values to produce a
+// concrete DPUFlavor.
 type DPUFlavorTemplateSpec struct {
-	// Template is the DPUFlavor body as a YAML/JSON string with Go template actions
-	// (delimited by double curly braces). It is rendered against DPUDevice.spec.values and the result is
-	// unmarshalled into a typed DPUFlavor and validated by DPUFlavor admission when
-	// the generated flavor is created. Referencing a key that is absent from the device
-	// values fails the render, and the "define", "block" and "template" actions are
-	// rejected. It should not contain dpuResources or systemReservedResources: the
-	// structured fields below take precedence and, when set, override anything the
-	// rendered body contains.
+	// Template is the DPUFlavor body as a YAML/JSON string with Go template
+	// actions (delimited by double curly braces). It is rendered against
+	// DPUDevice.spec.values and the result is unmarshalled into a typed
+	// DPUFlavor and validated by DPUFlavor admission when the generated
+	// flavor is created. Referencing a key that is absent from the device
+	// values fails the render, and the "define", "block" and "template"
+	// actions are rejected. It should not contain dpuResources or
+	// systemReservedResources: the structured fields below take precedence
+	// and, when set, override anything the rendered body contains.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=1048576
 	// +required
 	Template string `json:"template"`
 
-	// DPUResources is resource-fitting metadata mirrored from DPUFlavor. It is NOT
-	// templated: when set it is stamped onto every generated DPUFlavor and takes
-	// precedence over anything in the rendered body.
+	// DPUResources is resource-fitting metadata mirrored from DPUFlavor. It is
+	// NOT templated: when set it is stamped onto every generated DPUFlavor and
+	// takes precedence over anything in the rendered body.
 	// +optional
 	DPUResources corev1.ResourceList `json:"dpuResources,omitempty"`
 
-	// SystemReservedResources is resource-fitting metadata mirrored from DPUFlavor. It is
-	// NOT templated: when set it is stamped onto every generated DPUFlavor and takes
-	// precedence over anything in the rendered body.
+	// SystemReservedResources is resource-fitting metadata mirrored from
+	// DPUFlavor. It is NOT templated: when set it is stamped onto every
+	// generated DPUFlavor and takes precedence over anything in the rendered
+	// body.
 	// +optional
 	SystemReservedResources corev1.ResourceList `json:"systemReservedResources,omitempty"`
 }

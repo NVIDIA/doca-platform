@@ -25,23 +25,25 @@ import (
 const (
 	// DPUVolumeAttachmentKind is the kind of the DPUVolumeAttachment object
 	DPUVolumeAttachmentKind = "DPUVolumeAttachment"
-	// DPUVolumeAttachmentFinalizer is the finalizer for the DPUVolumeAttachment object
+	// DPUVolumeAttachmentFinalizer is the finalizer for the
+	// DPUVolumeAttachment object
 	DPUVolumeAttachmentFinalizer = "storage.dpu.nvidia.com/dpuvolumeattachment"
 )
 
-// DPUVolumeAttachmentGroupVersionKind is the GroupVersionKind of the DPUVolumeAttachment object
+// DPUVolumeAttachmentGroupVersionKind is the GroupVersionKind of the
+// DPUVolumeAttachment object
 var DPUVolumeAttachmentGroupVersionKind = GroupVersion.WithKind(DPUVolumeAttachmentKind)
 
 // Condition types
 const (
-	// ConditionDPUVolumeAttachmentReconciled is the condition type that indicates that the
-	// DPUVolumeAttachment is reconciled.
+	// ConditionDPUVolumeAttachmentReconciled is the condition type that
+	// indicates that the DPUVolumeAttachment is reconciled.
 	ConditionDPUVolumeAttachmentReconciled conditions.ConditionType = "DPUVolumeAttachmentReconciled"
-	// ConditionDPUVolumeAttachmentControllerAttached is the condition type that indicates that
-	// the Volume was attached by the vendor CSI driver
+	// ConditionDPUVolumeAttachmentControllerAttached is the condition type that
+	// indicates that the Volume was attached by the vendor CSI driver
 	ConditionDPUVolumeAttachmentControllerAttached conditions.ConditionType = "ControllerAttached"
-	// ConditionDPUVolumeAttachmentDPUAttached is the condition type that indicates that
-	// the Volume was attached by the DPU
+	// ConditionDPUVolumeAttachmentDPUAttached is the condition type that
+	// indicates that the Volume was attached by the DPU
 	ConditionDPUVolumeAttachmentDPUAttached conditions.ConditionType = "DPUAttached"
 )
 
@@ -55,7 +57,8 @@ const (
 )
 
 var (
-	// DPUVolumeAttachmentConditions is the list of conditions that the DPUVolumeAttachment can have.
+	// DPUVolumeAttachmentConditions is the list of conditions that the
+	// DPUVolumeAttachment can have.
 	DPUVolumeAttachmentConditions = []conditions.ConditionType{
 		conditions.TypeReady,
 		ConditionDPUVolumeAttachmentReconciled,
@@ -103,26 +106,31 @@ type DPUVolumeAttachment struct {
 
 // DPUVolumeAttachmentSpec defines the desired state of DPUVolumeAttachment
 type DPUVolumeAttachmentSpec struct {
-	// DPUNodeName is the name of DPUNode object that represents the node to which the volume should
-	// be attached
+	// DPUNodeName is the name of DPUNode object that represents the node to
+	// which the volume should be attached
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	DPUNodeName string `json:"dpuNodeName"`
-	// DPUVolumeName is the name of DPUVolume object that represents the volume to be attached
+	// DPUVolumeName is the name of DPUVolume object that represents the volume
+	// to be attached
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	DPUVolumeName string `json:"dpuVolumeName"`
-	// FunctionTypeConfig is the configuration for the emulated function that should be used to attach the volume
+	// FunctionTypeConfig is the configuration for the emulated function that
+	// should be used to attach the volume
 	FunctionTypeConfig `json:",inline"`
 }
 
-// FunctionTypeConfig is the configuration for the emulated function that should be used to attach the volume
+// FunctionTypeConfig is the configuration for the emulated function that should
+// be used to attach the volume
 type FunctionTypeConfig struct {
-	// FunctionType is the type of the emulated function that should be used to attach the volume
+	// FunctionType is the type of the emulated function that should be used to
+	// attach the volume
 	// +kubebuilder:validation:Enum=pf;vf
 	// +required
 	FunctionType FunctionType `json:"functionType"`
-	// HotplugFunction is a boolean flag that indicates if the emulated function should be hotplugged
+	// HotplugFunction is a boolean flag that indicates if the emulated function
+	// should be hotplugged
 	// +required
 	HotplugFunction bool `json:"hotplugFunction"`
 }
@@ -135,7 +143,8 @@ type DPUVolumeAttachmentStatus struct {
 	// Indicates the volume is successfully attached to the node by DPU
 	// +optional
 	DPUAttached *bool `json:"dpuAttached,omitempty"`
-	// AttachmentMetadata contains the metadata of the volume attachment returned by the Vendor CSI driver
+	// AttachmentMetadata contains the metadata of the volume attachment
+	// returned by the Vendor CSI driver
 	// +optional
 	AttachmentMetadata map[string]string `json:"attachmentMetadata,omitempty"`
 	// Details about the DPU attachment
@@ -147,7 +156,8 @@ type DPUVolumeAttachmentStatus struct {
 	// Conditions defines current service state.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// ObservedGeneration records the Generation observed on the object the last
+	// time it was patched.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
@@ -186,7 +196,8 @@ type AttachmentStatusDPU struct {
 
 // VirtioFSAttrs represents the attributes of the VirtioFS emulated function
 type VirtioFSAttrs struct {
-	// Filesystem tag identified by SNAP on the host (used for the mount). Relevant for volume of type filesystem
+	// Filesystem tag identified by SNAP on the host (used for the mount).
+	// Relevant for volume of type filesystem
 	// +optional
 	FilesystemTag *string `json:"filesystemTag,omitempty"`
 }

@@ -35,11 +35,14 @@ var DPUVPCGroupVersionKind = GroupVersion.WithKind(DPUVPCKind)
 
 // Status related constants
 const (
-	// ConditionTopologyReconciled is a condition that is set when the network topology for the DPUVPC is reconciled.
+	// ConditionTopologyReconciled is a condition that is set when the network
+	// topology for the DPUVPC is reconciled.
 	ConditionTopologyReconciled conditions.ConditionType = "TopologyReconciled"
-	// ConditionDPUVPCReconciled is a condition that is set when the DPUVPC is reconciled.
+	// ConditionDPUVPCReconciled is a condition that is set when the DPUVPC is
+	// reconciled.
 	ConditionDPUVPCReconciled conditions.ConditionType = "DPUVPCReconciled"
-	// ConditionDPUNodesReconciled is a condition that is set when the DPU nodes are reconciled.
+	// ConditionDPUNodesReconciled is a condition that is set when the DPU nodes
+	// are reconciled.
 	ConditionDPUNodesReconciled conditions.ConditionType = "DPUNodesReconciled"
 )
 
@@ -73,15 +76,17 @@ type DPUVPCSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Tenant string `json:"tenant"`
-	// NodeSelector Selects the DPU Nodes with specific labels which belong to this VPC.
+	// NodeSelector Selects the DPU Nodes with specific labels which belong to
+	// this VPC.
 	// +optional
 	NodeSelector *metav1.LabelSelector `json:"nodeSelector,omitempty"`
 	// IsolationClassName is the name of the isolation class to use for the VPC
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	IsolationClassName string `json:"isolationClassName"`
-	// InterNetworkAccess defines if virtual networks within the VPC are routed or not.
-	// if set to false, communication between virtual networks is not allowed.
+	// InterNetworkAccess defines if virtual networks within the VPC are routed
+	// or not. if set to false, communication between virtual networks is not
+	// allowed.
 	// +required
 	InterNetworkAccess bool `json:"interNetworkAccess"`
 }
@@ -94,7 +99,8 @@ type DPUVPCStatus struct {
 	// Conditions reflect the status of the object
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// ObservedGeneration records the Generation observed on the object the last
+	// time it was patched.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }

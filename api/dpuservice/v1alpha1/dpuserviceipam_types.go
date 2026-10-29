@@ -27,9 +27,10 @@ import (
 const (
 	DPUServiceIPAMFinalizer = "svc.dpu.nvidia.com/dpuserviceipam"
 	DPUServiceIPAMKind      = "DPUServiceIPAM"
-	// DPUServiceIPAMChildObjectNameOverrideAnnotationKey is the annotation key that controls the name of the object
-	// the DPUServiceIPAM controller will create in the respective DPUCluster.
-	// This is an experimental annotation and may be removed without notice in the future.
+	// DPUServiceIPAMChildObjectNameOverrideAnnotationKey is the annotation key
+	// that controls the name of the object the DPUServiceIPAM controller will
+	// create in the respective DPUCluster. This is an experimental annotation
+	// and may be removed without notice in the future.
 	DPUServiceIPAMChildObjectNameOverrideAnnotationKey = "svc.dpu.nvidia.com/dpuserviceipam-child-object-name-override"
 )
 
@@ -69,67 +70,80 @@ func (c *DPUServiceIPAM) GetDPUClusterSelector() *metav1.LabelSelector {
 // +kubebuilder:validation:XValidation:rule="(has(self.ipv4Network) ? 1 : 0) + (has(self.ipv4Subnet) ? 1 : 0) + (has(self.network) ? 1 : 0) + (has(self.subnet) ? 1 : 0) == 1",message="exactly one of ipv4Network, ipv4Subnet, network, or subnet must be specified"
 type DPUServiceIPAMSpec struct {
 	ObjectMeta `json:"metadata,omitempty"`
-	// IPV4Network is the configuration related to splitting a network into subnets per node, each with their own gateway.
+	// IPV4Network is the configuration related to splitting a network into
+	// subnets per node, each with their own gateway.
 	//
 	// Deprecated: Use Network instead.
 	IPV4Network *Network `json:"ipv4Network,omitempty"`
-	// IPV4Subnet is the configuration related to splitting a subnet into blocks per node. In this setup, there is a
-	// single gateway.
+	// IPV4Subnet is the configuration related to splitting a subnet into blocks
+	// per node. In this setup, there is a single gateway.
 	//
 	// Deprecated: Use Subnet instead.
 	IPV4Subnet *Subnet `json:"ipv4Subnet,omitempty"`
-	// Network is the configuration for splitting an IPv4 or IPv6 network into subnets per node, each with their own
-	// gateway.
+	// Network is the configuration for splitting an IPv4 or IPv6 network into
+	// subnets per node, each with their own gateway.
 	// +optional
 	Network *Network `json:"network,omitempty"`
-	// Subnet is the configuration for splitting an IPv4 or IPv6 subnet into blocks per node. In this setup, there is a
-	// single gateway.
+	// Subnet is the configuration for splitting an IPv4 or IPv6 subnet into
+	// blocks per node. In this setup, there is a single gateway.
 	// +optional
 	Subnet *Subnet `json:"subnet,omitempty"`
 
-	// ClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration.
+	// ClusterSelector determines in which clusters the DPUServiceIPAM
+	// controller should apply the configuration.
 	//
-	// Deprecated: This field is deprecated and will be removed with v31.0.0. Use DPUClusterSelector instead.
+	// Deprecated: This field is deprecated and will be removed with v31.0.0.
+	// Use DPUClusterSelector instead.
 	// +optional
 	ClusterSelector *metav1.LabelSelector `json:"clusterSelector,omitempty"`
-	// DPUClusterSelector determines in which clusters the DPUServiceIPAM controller should apply the configuration.
+	// DPUClusterSelector determines in which clusters the DPUServiceIPAM
+	// controller should apply the configuration.
 	// +optional
 	DPUClusterSelector *metav1.LabelSelector `json:"dpuClusterSelector,omitempty"`
-	// NodeSelector determines in which DPU nodes the DPUServiceIPAM controller should apply the configuration.
+	// NodeSelector determines in which DPU nodes the DPUServiceIPAM controller
+	// should apply the configuration.
 	NodeSelector *corev1.NodeSelector `json:"nodeSelector,omitempty"`
 }
 
-// Network describes the configuration for splitting a network into a subnet per node with a different gateway per node.
+// Network describes the configuration for splitting a network into a subnet per
+// node with a different gateway per node.
 type Network struct {
 	// Network is the CIDR from which subnets should be allocated per node.
 	Network string `json:"network"`
-	// GatewayIndex determines which IP in the subnet extracted from the CIDR should be the gateway IP. For point to
-	// point networks (/31 or /127), one needs to leave this empty to make use of both IPs.
+	// GatewayIndex determines which IP in the subnet extracted from the CIDR
+	// should be the gateway IP. For point to point networks (/31 or /127), one
+	// needs to leave this empty to make use of both IPs.
 	GatewayIndex *int32 `json:"gatewayIndex,omitempty"`
 	// PrefixSize is the size of the subnet that should be allocated per node.
 	PrefixSize int32 `json:"prefixSize"`
-	// Exclusions is a list of IPs that should be excluded when splitting the CIDR into subnets per node.
+	// Exclusions is a list of IPs that should be excluded when splitting the
+	// CIDR into subnets per node.
 	//
-	// Deprecated: This field is deprecated and will be removed with v31.0.0. Use ExcludeRanges instead.
+	// Deprecated: This field is deprecated and will be removed with v31.0.0.
+	// Use ExcludeRanges instead.
 	Exclusions []string `json:"exclusions,omitempty"`
-	// ExcludeRanges is a list of IP ranges that should be excluded from the allocation.
-	// startIP and endIP are part of the Excluded range.
+	// ExcludeRanges is a list of IP ranges that should be excluded from the
+	// allocation. startIP and endIP are part of the Excluded range.
 	ExcludeRanges []IPRange `json:"excludeRanges,omitempty"`
-	// Allocations describes the subnets that should be assigned in each DPU node.
+	// Allocations describes the subnets that should be assigned in each
+	// DPU node.
 	Allocations map[string]string `json:"allocations,omitempty"`
-	// DefaultGateway adds gateway as default gateway in the routes list if true.
+	// DefaultGateway adds gateway as default gateway in the routes
+	// list if true.
 	DefaultGateway bool `json:"defaultGateway,omitempty"`
 	// Routes is the static routes list using the gateway specified in the spec.
 	Routes []Route `json:"routes,omitempty"`
-	// SubnetsPerDPUCluster is the number of PrefixSize-sized subnets each DPUCluster should receive.
-	// When specified, the controller will take care of assigning non-overlapping subnets part of the Network in each
-	// DPUCluster that the DPUServiceIPAM is targeting. Leave empty in case you want the whole Network to be consumed
-	// by a single DPUCluster.
+	// SubnetsPerDPUCluster is the number of PrefixSize-sized subnets each
+	// DPUCluster should receive. When specified, the controller will take care
+	// of assigning non-overlapping subnets part of the Network in each
+	// DPUCluster that the DPUServiceIPAM is targeting. Leave empty in case you
+	// want the whole Network to be consumed by a single DPUCluster.
 	// +optional
 	SubnetsPerDPUCluster *int32 `json:"subnetsPerDPUCluster,omitempty"`
 }
 
-// Subnet describes the configuration for splitting a subnet into blocks per node with the same gateway across all nodes.
+// Subnet describes the configuration for splitting a subnet into blocks per
+// node with the same gateway across all nodes.
 type Subnet struct {
 	// Subnet is the CIDR from which blocks should be allocated per node
 	Subnet string `json:"subnet"`
@@ -137,18 +151,19 @@ type Subnet struct {
 	Gateway string `json:"gateway"`
 	// PerNodeIPCount is the number of IPs that should be allocated per node.
 	PerNodeIPCount int `json:"perNodeIPCount"`
-	// ExcludeRanges is a list of IP ranges that should be excluded from the allocation.
-	// startIP and endIP are part of the Excluded range.
+	// ExcludeRanges is a list of IP ranges that should be excluded from the
+	// allocation. startIP and endIP are part of the Excluded range.
 	ExcludeRanges []IPRange `json:"excludeRanges,omitempty"`
-	// if true, add gateway as default gateway in the routes list
-	// DefaultGateway adds gateway as default gateway in the routes list if true.
+	// if true, add gateway as default gateway in the routes list DefaultGateway
+	// adds gateway as default gateway in the routes list if true.
 	DefaultGateway bool `json:"defaultGateway,omitempty"`
 	// Routes is the static routes list using the gateway specified in the spec.
 	Routes []Route `json:"routes,omitempty"`
-	// BlocksPerDPUCluster is the number of PerNodeIPCount-sized blocks each DPUCluster should receive.
-	// When specified, the controller will take care of assigning non-overlapping IP blocks part of the Subnet in each
-	// DPUCluster that the DPUServiceIPAM is targeting. Leave empty in case you want the whole Subnet to be consumed by
-	// a single DPUCluster.
+	// BlocksPerDPUCluster is the number of PerNodeIPCount-sized blocks each
+	// DPUCluster should receive. When specified, the controller will take care
+	// of assigning non-overlapping IP blocks part of the Subnet in each
+	// DPUCluster that the DPUServiceIPAM is targeting. Leave empty in case you
+	// want the whole Subnet to be consumed by a single DPUCluster.
 	// +optional
 	BlocksPerDPUCluster *int32 `json:"blocksPerDPUCluster,omitempty"`
 }
@@ -168,9 +183,11 @@ type Route struct {
 	Dst string `json:"dst"`
 }
 
-// DPUClusterAllocation contains the IP range allocations for a specific DPUCluster.
+// DPUClusterAllocation contains the IP range allocations for a
+// specific DPUCluster.
 type DPUClusterAllocation struct {
-	// DPUCluster is the NamespacedName of the DPUCluster in the format `<namespace>/<name>`.
+	// DPUCluster is the NamespacedName of the DPUCluster in the format
+	// `<namespace>/<name>`.
 	DPUCluster string `json:"dpuCluster"`
 	// IPRanges contains the IP ranges allocated to this DPUCluster.
 	// +optional
@@ -182,12 +199,15 @@ type DPUServiceIPAMStatus struct {
 	// Conditions reflect the status of the object
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// ObservedGeneration records the Generation observed on the object the last
+	// time it was patched.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// DPUClusterAllocations contains the configured network or subnet allocations per DPUCluster as calculated by the
-	// controller. A DPUServiceIPAM contains exactly one address-family configuration, so every entry has that family.
+	// DPUClusterAllocations contains the configured network or subnet
+	// allocations per DPUCluster as calculated by the controller. A
+	// DPUServiceIPAM contains exactly one address-family configuration, so
+	// every entry has that family.
 	// +optional
 	// +listType=map
 	// +listMapKey=dpuCluster

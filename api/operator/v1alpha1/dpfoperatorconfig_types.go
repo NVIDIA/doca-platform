@@ -24,59 +24,67 @@ import (
 )
 
 const (
-	// DPUAgentIdentityTemplatesValidCondition reports that the templates parse and produce
-	// serial-dependent probe values. SPIFFE ID format and trust-domain semantics are validated
-	// later when the templates are rendered with real DPU and DPUDevice data.
+	// DPUAgentIdentityTemplatesValidCondition reports that the templates parse
+	// and produce serial-dependent probe values. SPIFFE ID format and
+	// trust-domain semantics are validated later when the templates are
+	// rendered with real DPU and DPUDevice data.
 	DPUAgentIdentityTemplatesValidCondition conditions.ConditionType = "DPUAgentIdentityTemplatesValid"
 	PreUpgradeValidationReadyCondition      conditions.ConditionType = "PreUpgradeValidationReady"
 	ImagePullSecretsReconciledCondition     conditions.ConditionType = "ImagePullSecretsReconciled"
 	SystemComponentsReconciledCondition     conditions.ConditionType = "SystemComponentsReconciled"
 	SystemComponentsReadyCondition          conditions.ConditionType = "SystemComponentsReady"
 	CATrustBundleReadyCondition             conditions.ConditionType = "CATrustBundleReady"
-	// CertManagementReadyCondition reports the readiness of the certificate authority that anchors
-	// the DPF provisioning PKI.
+	// CertManagementReadyCondition reports the readiness of the certificate
+	// authority that anchors the DPF provisioning PKI.
 	CertManagementReadyCondition conditions.ConditionType = "CertManagementReady"
 
-	// DeprecatedFieldsNotInUseCondition reports whether any DPF custom resource in the cluster
-	// currently has a deprecated field set. This is informational and is intentionally excluded
-	// from the Ready summary (see the conditions.SetSummary call site) — pre-existing deprecated
-	// usage must not block Ready or upgrades.
+	// DeprecatedFieldsNotInUseCondition reports whether any DPF custom resource
+	// in the cluster currently has a deprecated field set. This is
+	// informational and is intentionally excluded from the Ready summary (see
+	// the conditions.SetSummary call site) — pre-existing deprecated usage must
+	// not block Ready or upgrades.
 	DeprecatedFieldsNotInUseCondition conditions.ConditionType = "DeprecatedFieldsNotInUse"
 )
 
 // Condition reasons reported on CertManagementReadyCondition.
 const (
-	// CertManagementReasonIssuerNotFound is reported when the issuer anchoring the PKI names an
-	// issuer that does not exist.
+	// CertManagementReasonIssuerNotFound is reported when the issuer
+	// anchoring the PKI names an issuer that does not exist.
 	CertManagementReasonIssuerNotFound conditions.ConditionReason = "IssuerNotFound"
-	// CertManagementReasonCARotationRequired is reported when the issuer anchoring the PKI changed on
-	// a cluster that already has provisioned DPUs, whose BMCs still trust the previous chain.
+	// CertManagementReasonCARotationRequired is reported when the issuer
+	// anchoring the PKI changed on a cluster that already has provisioned DPUs,
+	// whose BMCs still trust the previous chain.
 	CertManagementReasonCARotationRequired conditions.ConditionReason = "CARotationRequired"
-	// CertManagementReasonCAMigrationBlocked is reported when the keypair of the legacy provisioning
-	// CA cannot be carried into the platform intermediate CA because a CA rotation has the issuer of
-	// that legacy CA pinned to a Secret of its own.
+	// CertManagementReasonCAMigrationBlocked is reported when the keypair of
+	// the legacy provisioning CA cannot be carried into the platform
+	// intermediate CA because a CA rotation has the issuer of that legacy CA
+	// pinned to a Secret of its own.
 	CertManagementReasonCAMigrationBlocked conditions.ConditionReason = "CAMigrationBlocked"
-	// CertManagementReasonCAMigrationRefused is reported when the platform intermediate CA already
-	// stands in for the legacy provisioning CA and the Secret of that legacy chain holds a different
-	// keypair, which is a state only an administrator can resolve.
+	// CertManagementReasonCAMigrationRefused is reported when the platform
+	// intermediate CA already stands in for the legacy provisioning CA and the
+	// Secret of that legacy chain holds a different keypair, which is a state
+	// only an administrator can resolve.
 	CertManagementReasonCAMigrationRefused conditions.ConditionReason = "CAMigrationRefused"
 )
 
 const (
-	// ReasonDeprecatedFieldsInUse is used on DeprecatedFieldsNotInUseCondition=False when the scan
-	// found at least one deprecated field set on a live object.
+	// ReasonDeprecatedFieldsInUse is used on
+	// DeprecatedFieldsNotInUseCondition=False when the scan found at least one
+	// deprecated field set on a live object.
 	ReasonDeprecatedFieldsInUse conditions.ConditionReason = "DeprecatedFieldsInUse"
-	// ReasonInspectionFailed is used on DeprecatedFieldsNotInUseCondition=Unknown when the scan
-	// itself could not complete (e.g. a CRD or object listing error).
+	// ReasonInspectionFailed is used on
+	// DeprecatedFieldsNotInUseCondition=Unknown when the scan itself could not
+	// complete (e.g. a CRD or object listing error).
 	ReasonInspectionFailed conditions.ConditionReason = "InspectionFailed"
 )
 
 // Condition reasons reported on CATrustBundleReadyCondition.
 const (
-	// CATrustBundleReasonNotProvided is reported when an external issuer anchors the PKI, which makes
-	// the certificates peers validate against the operator's to supply, and the bundle naming them is
-	// either absent or empty. It is distinct from the generic pending reason because nothing DPF is
-	// waiting on will resolve it.
+	// CATrustBundleReasonNotProvided is reported when an external issuer
+	// anchors the PKI, which makes the certificates peers validate against the
+	// operator's to supply, and the bundle naming them is either absent or
+	// empty. It is distinct from the generic pending reason because nothing DPF
+	// is waiting on will resolve it.
 	CATrustBundleReasonNotProvided conditions.ConditionReason = "TrustBundleNotProvided"
 )
 
@@ -95,44 +103,52 @@ var (
 )
 
 const (
-	// DefaultCATrustBundleConfigMapName is the default name of the ConfigMap that the DPF Operator
-	// maintains with the public DPF CA certificate(s) in Self-Signed CA case.
+	// DefaultCATrustBundleConfigMapName is the default name of the ConfigMap
+	// that the DPF Operator maintains with the public DPF CA certificate(s) in
+	// Self-Signed CA case.
 	DefaultCATrustBundleConfigMapName = "dpf-ca-trust-bundle"
-	// CATrustBundleKey is the data key in the CA trust bundle ConfigMap. A single key holding one or
-	// more concatenated PEM certificates is the most portable form for both API readers and volume
-	// mounts (e.g. tools that scan for *.crt files).
+	// CATrustBundleKey is the data key in the CA trust bundle ConfigMap. A
+	// single key holding one or more concatenated PEM certificates is the most
+	// portable form for both API readers and volume mounts (e.g. tools that
+	// scan for *.crt files).
 	CATrustBundleKey = "ca.crt"
 	// CATrustBundleHashKey tracks the effective CA set by a stable hash.
 	CATrustBundleHashKey = "bundle-hash"
 )
 
-// The DPF PKI is a root with one intermediate CA per purpose. The provisioning certificates chain
-// to the platform intermediate, the serving certificates of the webhooks to the webhook
-// intermediate, and both intermediates to the same root.
+// The DPF PKI is a root with one intermediate CA per purpose. The provisioning
+// certificates chain to the platform intermediate, the serving certificates of
+// the webhooks to the webhook intermediate, and both intermediates to
+// the same root.
 const (
-	// GlobalRootIssuerName is the issuer over the self-signed root CA that the dpf-operator Helm
-	// chart creates. The chart creates none when it is pointed at an authority of your own, so the
-	// PKI being anchored here is what tells DPF it signs under a root of its own.
+	// GlobalRootIssuerName is the issuer over the self-signed root CA that the
+	// dpf-operator Helm chart creates. The chart creates none when it is
+	// pointed at an authority of your own, so the PKI being anchored here is
+	// what tells DPF it signs under a root of its own.
 	GlobalRootIssuerName = "dpf-global-root-issuer"
 
-	// WebhookIntermediateCAName is the intermediate CA that signs the serving certificates of the DPF
-	// webhooks. The dpf-operator chart creates it in both CA modes and stamps the anchor of the whole
-	// PKI onto its issuerRef, which is where DPF reads that anchor from.
+	// WebhookIntermediateCAName is the intermediate CA that signs the serving
+	// certificates of the DPF webhooks. The dpf-operator chart creates it in
+	// both CA modes and stamps the anchor of the whole PKI onto its issuerRef,
+	// which is where DPF reads that anchor from.
 	WebhookIntermediateCAName = "dpf-webhook-intermediate-ca"
 
-	// PlatformIntermediateCAName is the intermediate CA that signs the provisioning certificates. It
-	// names both the cert-manager Certificate and the Secret holding its keypair.
+	// PlatformIntermediateCAName is the intermediate CA that signs the
+	// provisioning certificates. It names both the cert-manager Certificate
+	// and the Secret holding its keypair.
 	PlatformIntermediateCAName = "dpf-platform-intermediate-ca"
 
-	// PlatformIssuerName is the issuer over PlatformIntermediateCAName. Every provisioning
-	// certificate references it, in both CA modes, so a leaf never has to know what anchors the PKI.
+	// PlatformIssuerName is the issuer over PlatformIntermediateCAName. Every
+	// provisioning certificate references it, in both CA modes, so a leaf never
+	// has to know what anchors the PKI.
 	PlatformIssuerName = "dpf-platform-issuer"
 
-	// The provisioning CA chain that signed the provisioning certificates before they moved onto the
-	// platform issuer. It is no longer created: the upgrade migration carries the keypair of the CA
-	// into PlatformIntermediateCAName, so that the certificates already issued under it keep
-	// validating, and then removes these objects. They are named here because that migration is the
-	// only thing left that reads them.
+	// The provisioning CA chain that signed the provisioning certificates
+	// before they moved onto the platform issuer. It is no longer created: the
+	// upgrade migration carries the keypair of the CA into
+	// PlatformIntermediateCAName, so that the certificates already issued under
+	// it keep validating, and then removes these objects. They are named here
+	// because that migration is the only thing left that reads them.
 	LegacyProvisioningCASecretName         = "dpf-provisioning-ca-secret"
 	LegacyProvisioningCACertificateName    = "dpf-provisioning-ca-cert"
 	LegacyProvisioningIssuerName           = "dpf-provisioning-issuer"
@@ -142,7 +158,8 @@ const (
 	CertManagerGroup = "cert-manager.io"
 	// CertManagerIssuerKind is the namespaced cert-manager issuer kind.
 	CertManagerIssuerKind = "Issuer"
-	// CertManagerClusterIssuerKind is the cluster scoped cert-manager issuer kind.
+	// CertManagerClusterIssuerKind is the cluster scoped cert-manager issuer
+	// kind.
 	CertManagerClusterIssuerKind = "ClusterIssuer"
 )
 
@@ -152,102 +169,119 @@ var (
 	DPFComponentLabelKey = "dpu.nvidia.com/component"
 )
 
-// Overrides exposes a set of fields which impact the recommended behavior of the DPF Operator.
-// These fields should only be set for advanced use cases. The fields here have no stability guarantees.
+// Overrides exposes a set of fields which impact the recommended behavior of
+// the DPF Operator. These fields should only be set for advanced use cases.
+// The fields here have no stability guarantees.
 type Overrides struct {
-	// Paused disables all reconciliation of the DPFOperatorConfig when set to true.
+	// Paused disables all reconciliation of the DPFOperatorConfig when set to
+	// true.
 	// +optional
 	Paused *bool `json:"paused,omitempty"`
 
-	// DPUCNIBinPath is the path at which the CNI binaries will be installed to on the DPU.
-	// This is /opt/cni/bin by default.
-	// This setting does not change where kubelet is configured to use the CNI from.
+	// DPUCNIBinPath is the path at which the CNI binaries will be installed to
+	// on the DPU. This is /opt/cni/bin by default. This setting does not change
+	// where kubelet is configured to use the CNI from.
 	// +optional
 	DPUCNIBinPath *string `json:"dpuCNIBinPath,omitempty"`
 
-	// DPUCNIConfigPath is the path to which the CNI config files will be installed on the DPU.
-	// This is /etc/cni/net.d by default.
-	// This setting does not change where kubelet is configured to read the CNI config from.
+	// DPUCNIConfigPath is the path to which the CNI config files will be
+	// installed on the DPU. This is /etc/cni/net.d by default. This setting
+	// does not change where kubelet is configured to read the CNI config from.
 	// +optional
 	DPUCNIConfigPath *string `json:"dpuCNIPath,omitempty"`
 
-	// DPUOpenvSwitchPath is the path at which the openvSwitch run directory can be found on the DPU.
-	// This is /var/run/openvswitch by default.
-	// This setting does not change where components are installed. Installation location fixed in the BFB.
+	// DPUOpenvSwitchPath is the path at which the openvSwitch run directory can
+	// be found on the DPU. This is /var/run/openvswitch by default. This
+	// setting does not change where components are installed. Installation
+	// location fixed in the BFB.
 	// +optional
 	DPUOpenvSwitchRunPath *string `json:"dpuOpenvSwitchRunPath,omitempty"`
 
-	// DPUOpenvSwitchBinPath is the path at which the openvSwitch bin directory can be found on the DPU node.
-	// This is /usr/bin/ by default.
-	// This setting does not change where components are installed. Installation location fixed in the BFB.
+	// DPUOpenvSwitchBinPath is the path at which the openvSwitch bin directory
+	// can be found on the DPU node. This is /usr/bin/ by default. This setting
+	// does not change where components are installed. Installation location
+	// fixed in the BFB.
 	// +optional
 	DPUOpenvSwitchBinPath *string `json:"dpuOpenvSwitchBinPath,omitempty"`
 
-	// DPUOpenvSwitchSystemSharedLibPath is the path at which the system lib used by OVS components can be found on the DPU.
-	// This is /lib by default.
-	// This setting does not change where components are installed. Installation location fixed in the BFB.
+	// DPUOpenvSwitchSystemSharedLibPath is the path at which the system lib
+	// used by OVS components can be found on the DPU. This is /lib by default.
+	// This setting does not change where components are installed. Installation
+	// location fixed in the BFB.
 	// +optional
 	DPUOpenvSwitchSystemSharedLibPath *string `json:"dpuOpenvSwitchSystemSharedPath,omitempty"`
 
-	// FlannelSkipCNIConfigInstallation controls whether Flannel should skip CNI config installation.
-	// This is true by default, meaning Flannel does not manage its own CNI configuration.
-	// Set to false if you want Flannel to install a CNI configuration.
+	// FlannelSkipCNIConfigInstallation controls whether Flannel should skip CNI
+	// config installation. This is true by default, meaning Flannel does not
+	// manage its own CNI configuration. Set to false if you want Flannel to
+	// install a CNI configuration.
 	// +optional
 	FlannelSkipCNIConfigInstallation *bool `json:"flannelSkipCNIConfigInstallation,omitempty"`
 
-	// DPUOpenvSwitchSystemSharedLib64Path is the path at which the system lib64 used by OVS components can be found on the DPU.
-	// If this field is not set, no lib64 volume mount will be configured in the SFC Controller component.
-	// This setting does not change where components are installed. Installation location fixed in the BFB.
+	// DPUOpenvSwitchSystemSharedLib64Path is the path at which the system lib64
+	// used by OVS components can be found on the DPU. If this field is not set,
+	// no lib64 volume mount will be configured in the SFC Controller component.
+	// This setting does not change where components are installed. Installation
+	// location fixed in the BFB.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	DPUOpenvSwitchSystemSharedLib64Path *string `json:"dpuOpenvSwitchSystemSharedLib64Path,omitempty"`
 
-	// DPULinkerCachePath is the path on the DPU at which the prebuilt dynamic-linker cache
-	// file can be found. When set, this file is mounted read-only into the SFC Controller
-	// container so that host OVS binaries can resolve shared libraries using the DPU's
-	// linker configuration. If not set, no linker cache mount is added.
-	// This setting does not change where components are installed. Installation location fixed in the BFB.
+	// DPULinkerCachePath is the path on the DPU at which the prebuilt
+	// dynamic-linker cache file can be found. When set, this file is mounted
+	// read-only into the SFC Controller container so that host OVS binaries
+	// can resolve shared libraries using the DPU's linker configuration. If
+	// not set, no linker cache mount is added. This setting does not change
+	// where components are installed. Installation location fixed in the BFB.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	DPULinkerCachePath *string `json:"dpuLinkerCachePath,omitempty"`
 
-	// DPUOptLibraryPath is the path on the DPU at which an additional library directory
-	// can be found. When set, this directory is mounted read-only into the SFC Controller
-	// container. Useful on distributions that install vendor libraries outside the standard
-	// paths (e.g. /usr/opt on RHCOS BFB). If not set, no additional library directory is mounted.
-	// This setting does not change where components are installed. Installation location fixed in the BFB.
+	// DPUOptLibraryPath is the path on the DPU at which an additional library
+	// directory can be found. When set, this directory is mounted read-only
+	// into the SFC Controller container. Useful on distributions that install
+	// vendor libraries outside the standard paths (e.g. /usr/opt on RHCOS
+	// BFB). If not set, no additional library directory is mounted. This
+	// setting does not change where components are installed. Installation
+	// location fixed in the BFB.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	DPUOptLibraryPath *string `json:"dpuOptLibraryPath,omitempty"`
 
-	// KubernetesAPIServerVIP is the VIP the Kubernetes API server is accessible at.
-	// This setting enables specific underlying components deployed directly or indirectly by the DPF Operator to reach
-	// the Kubernetes API Server when the ClusterIP Kubernetes Service is not functional.
-	// If set, it should be set to an IP to ensure that components work even if DNS is not available in the cluster.
+	// KubernetesAPIServerVIP is the VIP the Kubernetes API server is accessible
+	// at. This setting enables specific underlying components deployed
+	// directly or indirectly by the DPF Operator to reach the Kubernetes API
+	// Server when the ClusterIP Kubernetes Service is not functional. If set,
+	// it should be set to an IP to ensure that components work even if DNS is
+	// not available in the cluster.
 	// +optional
 	KubernetesAPIServerVIP *string `json:"kubernetesAPIServerVIP,omitempty"`
 
-	// KubernetesAPIServerPort is the port the Kubernetes API server is accessible at.
-	// This setting is usually used together with the kubernetesAPIServerVIP setting. It enables specific underlying
-	// components deployed directly or indirectly by the DPF Operator to reach the Kubernetes API Server when the
-	// ClusterIP Kubernetes Service is not functional.
+	// KubernetesAPIServerPort is the port the Kubernetes API server is
+	// accessible at. This setting is usually used together with the
+	// kubernetesAPIServerVIP setting. It enables specific underlying
+	// components deployed directly or indirectly by the DPF Operator to reach
+	// the Kubernetes API Server when the ClusterIP Kubernetes Service is
+	// not functional.
 	// +optional
 	KubernetesAPIServerPort *int `json:"kubernetesAPIServerPort,omitempty"`
 
-	// ArgoCDNamespace is the namespace where ArgoCD is deployed.
-	// AppProjects and cluster secrets required by DPF will be created in this namespace.
+	// ArgoCDNamespace is the namespace where ArgoCD is deployed. AppProjects
+	// and cluster secrets required by DPF will be created in this namespace.
 	// Defaults to the namespace of the DPFOperatorConfig.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
 	ArgoCDNamespace *string `json:"argoCDNamespace,omitempty"`
 
-	// ProvisioningIssuerCASecretName overrides the CA secret of the provisioning Issuer during a
-	// rotation. The provisioning certificates are signed by the platform intermediate CA now, and a
-	// rotation of it is driven by cert-manager rather than by repointing an Issuer, so this only
-	// still pins the provisioning Issuer of the CA chain the platform intermediate CA is taking
-	// over from, on a cluster the upgrade has not finished migrating. It has no effect once that
-	// chain is gone, which is every cluster installed since.
+	// ProvisioningIssuerCASecretName overrides the CA secret of the
+	// provisioning Issuer during a rotation. The provisioning certificates are
+	// signed by the platform intermediate CA now, and a rotation of it is
+	// driven by cert-manager rather than by repointing an Issuer, so this only
+	// still pins the provisioning Issuer of the CA chain the platform
+	// intermediate CA is taking over from, on a cluster the upgrade has not
+	// finished migrating. It has no effect once that chain is gone, which
+	// is every cluster installed since.
 	//
 	// Deprecated: This field is deprecated and will be removed with v31.0.0.
 	// +optional
@@ -256,16 +290,17 @@ type Overrides struct {
 }
 
 const (
-	// DefaultDPUNodeOOBBridgeName is the default out-of-band bridge name on host-trusted worker nodes.
+	// DefaultDPUNodeOOBBridgeName is the default out-of-band bridge name on
+	// host-trusted worker nodes.
 	DefaultDPUNodeOOBBridgeName = "br-dpu"
 )
 
 // Networking defines the networking configuration for the system components.
 type Networking struct {
-	// ControlPlaneMTU is the MTU value to be set on the management network.
-	// In zero-trust mode this value is applied to the DPU OOB interface (oob_net0), which does not
-	// support jumbo frames; it must not exceed 1500 when deploymentMode is zero-trust.
-	// The default is 1500.
+	// ControlPlaneMTU is the MTU value to be set on the management network. In
+	// zero-trust mode this value is applied to the DPU OOB interface
+	// (oob_net0), which does not support jumbo frames; it must not exceed 1500
+	// when deploymentMode is zero-trust. The default is 1500.
 	// +kubebuilder:validation:Minimum=1280
 	// +kubebuilder:validation:Maximum=9216
 	// +kubebuilder:default=1500
@@ -281,8 +316,8 @@ type Networking struct {
 	HighSpeedMTU *int `json:"highSpeedMTU,omitempty"`
 
 	// DPUNodeOOBBridgeName is the name of the Linux bridge on the host used for
-	// out-of-band DPU management traffic. If not specified, defaults to "br-dpu".
-	// This setting applies only to host-trusted deployments.
+	// out-of-band DPU management traffic. If not specified, defaults to
+	// "br-dpu". This setting applies only to host-trusted deployments.
 	// +kubebuilder:default="br-dpu"
 	// +kubebuilder:validation:Pattern=`^[a-z][a-z0-9-]*$`
 	// +kubebuilder:validation:MinLength=1
@@ -291,7 +326,8 @@ type Networking struct {
 	DPUNodeOOBBridgeName *string `json:"dpuNodeOOBBridgeName,omitempty"`
 }
 
-// GetDPUNodeOOBBridgeName returns the configured OOB bridge name, defaulting to br-dpu.
+// GetDPUNodeOOBBridgeName returns the configured OOB bridge name, defaulting to
+// br-dpu.
 func (n *Networking) GetDPUNodeOOBBridgeName() string {
 	if n == nil || n.DPUNodeOOBBridgeName == nil || *n.DPUNodeOOBBridgeName == "" {
 		return DefaultDPUNodeOOBBridgeName
@@ -299,28 +335,35 @@ func (n *Networking) GetDPUNodeOOBBridgeName() string {
 	return *n.DPUNodeOOBBridgeName
 }
 
-// DeploymentMode describes the cluster deployment model for DPU provisioning (zero-trust vs host-trusted).
+// DeploymentMode describes the cluster deployment model for DPU provisioning
+// (zero-trust vs host-trusted).
 // +kubebuilder:validation:Enum=zero-trust;host-trusted
 type DeploymentMode string
 
 const (
-	// DeploymentModeZeroTrust requires provisioningController.installInterface.installViaRedfish
+	// DeploymentModeZeroTrust requires
+	// provisioningController.installInterface.installViaRedfish
 	DeploymentModeZeroTrust DeploymentMode = "zero-trust"
-	// DeploymentModeHostTrusted allows provisioningController.installInterface.installViaHostAgent, or installViaGNOI
+	// DeploymentModeHostTrusted allows
+	// provisioningController.installInterface.installViaHostAgent, or
+	// installViaGNOI
 	DeploymentModeHostTrusted DeploymentMode = "host-trusted"
 )
 
 // TODO: remove after v30.0.
-// Rules referencing deploymentMode must guard with !has(self.deploymentMode): x-kubernetes-validations
-// run on status-subresource writes too, and stored objects from releases predating the field would
-// otherwise fail rule evaluation with "no such key", blocking all status updates.
+// Rules referencing deploymentMode must guard with !has(self.deploymentMode):
+// x-kubernetes-validations run on status-subresource writes too, and
+// stored objects from releases predating the field would otherwise fail rule
+// evaluation with "no such key", blocking all status updates.
 
-// The trust bundle rule below compares the name in effect rather than the field, and the literal in
-// it is DefaultCATrustBundleConfigMapName, which it has to be kept in step with. A rule on the field
-// itself only runs where the field is on both sides of the update, which leaves the two ways of
-// changing the name in effect without touching it: naming a bundle on a config that had no
-// certManagement block, and removing the block from one that named a bundle. Either moves the name
-// between the default and a named one, which is the rename this forbids.
+// The trust bundle rule below compares the name in effect rather than the
+// field, and the literal in it is DefaultCATrustBundleConfigMapName, which
+// it has to be kept in step with. A rule on the field itself only runs where
+// the field is on both sides of the update, which leaves the two ways of
+// changing the name in effect without touching it: naming a bundle on a config
+// that had no certManagement block, and removing the block from one that named
+// a bundle. Either moves the name between the default and a named one, which
+// is the rename this forbids.
 
 // DPFOperatorConfigSpec defines the desired state of DPFOperatorConfig
 // +kubebuilder:validation:XValidation:rule="!has(self.deploymentMode) || self.deploymentMode != 'zero-trust' || (has(self.provisioningController.installInterface) && has(self.provisioningController.installInterface.installViaRedfish))",message="deploymentMode zero-trust requires provisioningController.installInterface.installViaRedfish"
@@ -343,25 +386,30 @@ type DPFOperatorConfigSpec struct {
 	// +optional
 	Monitoring *MonitoringConfiguration `json:"monitoring,omitempty"`
 
-	// Security groups configuration for security-related components managed by the DPF Operator.
+	// Security groups configuration for security-related components managed by
+	// the DPF Operator.
 	// +optional
 	Security *SecurityConfiguration `json:"security,omitempty"`
 
-	// List of secret names which are used to pull images for DPF system components and DPUServices.
-	// These secrets must be in the same namespace as the DPF Operator Config and should be created before the config is created.
-	// System reconciliation will not proceed until these secrets are available.
+	// List of secret names which are used to pull images for DPF system
+	// components and DPUServices. These secrets must be in the same namespace
+	// as the DPF Operator Config and should be created before the config is
+	// created. System reconciliation will not proceed until these secrets
+	// are available.
 	// +optional
 	ImagePullSecrets []string `json:"imagePullSecrets,omitempty"`
 
 	// DeploymentMode selects zero-trust vs host-trusted deployment alignment.
-	// Required: operators must set this explicitly; provisioning controllers propagate this to DPU.status.deploymentMode.
+	// Required: operators must set this explicitly; provisioning controllers
+	// propagate this to DPU.status.deploymentMode.
 	// +required
 	DeploymentMode DeploymentMode `json:"deploymentMode"`
 
 	// DPUServiceController is the configuration for the DPUServiceController
 	// +optional
 	DPUServiceController *DPUServiceControllerConfiguration `json:"dpuServiceController,omitempty"`
-	// ProvisioningController is the configuration for the ProvisioningController
+	// ProvisioningController is the configuration for the
+	// ProvisioningController
 	ProvisioningController *ProvisioningControllerConfiguration `json:"provisioningController"`
 	// ServiceSetController is the configuration for the ServiceSetController
 	// +optional
@@ -389,7 +437,8 @@ type DPFOperatorConfigSpec struct {
 	// CNIInstaller is the configuration for the cni-installer
 	// +optional
 	CNIInstaller *CNIInstallerConfiguration `json:"cniInstaller,omitempty"`
-	// CoreDNS is the configuration for CoreDNS serving Kamaji DPU clusters with a Keepalived endpoint.
+	// CoreDNS is the configuration for CoreDNS serving Kamaji DPU clusters with
+	// a Keepalived endpoint.
 	// +optional
 	CoreDNS *CoreDNSConfiguration `json:"coreDNS,omitempty"`
 	// SFCController is the configuration for the SFCController
@@ -401,21 +450,26 @@ type DPFOperatorConfigSpec struct {
 	// StaticClusterManager is the configuration for the static-cluster-manager
 	// +optional
 	StaticClusterManager *StaticClusterManagerConfiguration `json:"staticClusterManager,omitempty"`
-	// NodeSRIOVDevicePluginController is the configuration for the NodeSRIOVDevicePlugin controller.
-	// This controller manages per-node SRIOV device plugin pods based on DPU configurations.
-	// The controller is disabled by default.
+	// NodeSRIOVDevicePluginController is the configuration for the
+	// NodeSRIOVDevicePlugin controller. This controller manages per-node SRIOV
+	// device plugin pods based on DPU configurations. The controller is
+	// disabled by default.
 	// +optional
 	NodeSRIOVDevicePluginController *NodeSRIOVDevicePluginControllerConfiguration `json:"nodeSRIOVDevicePluginController,omitempty"`
 }
 
 // MonitoringConfiguration defines the configuration for monitoring resources.
 type MonitoringConfiguration struct {
-	// Disable controls whether monitoring resources are installed.
-	// When enabled (default), the controller:
-	// - Creates ServiceMonitors for Kamaji clusters to scrape control-plane metrics.
-	// - Deploys kube-state-metrics as a DPUService to expose metrics for custom resources.
-	// - Deploys node-problem-detector as a DaemonSet on DPU nodes to detect and report node-level problems.
-	// - Deploys opentelemetry-collector as a DaemonSet on DPU nodes to collect and forward logs.
+	// Disable controls whether monitoring resources are installed. When enabled
+	// (default), the controller:
+	// - Creates ServiceMonitors for Kamaji clusters to scrape
+	//   control-plane metrics.
+	// - Deploys kube-state-metrics as a DPUService to expose metrics for
+	//   custom resources.
+	// - Deploys node-problem-detector as a DaemonSet on DPU nodes to detect and
+	//   report node-level problems.
+	// - Deploys opentelemetry-collector as a DaemonSet on DPU nodes to collect
+	//   and forward logs.
 	// +optional
 	Disable *bool `json:"disable,omitempty"`
 
@@ -431,25 +485,26 @@ type MonitoringConfiguration struct {
 	// +optional
 	OpenTelemetryCollector *OpenTelemetryCollectorConfiguration `json:"openTelemetryCollector,omitempty"`
 
-	// Tracing configures how the DPF controllers export trace spans. It applies even when disable is
-	// true. If not specified, the controllers of the management cluster export none.
+	// Tracing configures how the DPF controllers export trace spans. It applies
+	// even when disable is true. If not specified, the controllers of the
+	// management cluster export none.
 	// +optional
 	Tracing *TracingConfiguration `json:"tracing,omitempty"`
 }
 
-// SecurityConfiguration groups configuration for security-related configurations
-// managed by the DPF Operator.
+// SecurityConfiguration groups configuration for security-related
+// configurations managed by the DPF Operator.
 type SecurityConfiguration struct {
 	// PrivilegedPodEnforcement controls whether privileged pods are rejected
 	// unless explicitly allowed by the workload API. The DPUService controller
 	// currently implements this by applying the PrivilegedPodEnforcement
 	// ValidatingAdmissionPolicy to DPUService workloads.
 	//
-	// Setting it to false does not fully opt out of enforcement: the policy and its
-	// binding are kept, but the binding is switched from Deny to Audit, so privileged
-	// pods are no longer denied and are only recorded in the audit log. The allowlist
-	// is kept populated so the audit log only flags pods that would otherwise be
-	// denied.
+	// Setting it to false does not fully opt out of enforcement: the policy and
+	// its binding are kept, but the binding is switched from Deny to Audit, so
+	// privileged pods are no longer denied and are only recorded in the audit
+	// log. The allowlist is kept populated so the audit log only flags pods
+	// that would otherwise be denied.
 	//
 	// The objects are intentionally not deleted to avoid a Kubernetes paramRef
 	// informer bug (https://github.com/kubernetes/kubernetes/issues/133827).
@@ -459,53 +514,61 @@ type SecurityConfiguration struct {
 	// +optional
 	PrivilegedPodEnforcement *bool `json:"privilegedPodEnforcement,omitempty"`
 
-	// Kata is the configuration for Kata Containers.
-	// Kata Containers provides VM-based isolation for untrusted workloads on DPU nodes.
-	// This component is disabled by default; set disable to false to enable.
+	// Kata is the configuration for Kata Containers. Kata Containers provides
+	// VM-based isolation for untrusted workloads on DPU nodes. This component
+	// is disabled by default; set disable to false to enable.
 	// +optional
 	Kata *KataContainersConfiguration `json:"kata,omitempty"`
 
-	// spiffe configures the SPIFFE-based DPU Agent identity flow. Edits are accepted post-bootstrap
-	// but do NOT retro-apply to already-provisioned DPUs.
+	// spiffe configures the SPIFFE-based DPU Agent identity flow. Edits are
+	// accepted post-bootstrap but do NOT retro-apply to
+	// already-provisioned DPUs.
 	// +optional
 	SPIFFE *SPIFFEConfiguration `json:"spiffe,omitempty"`
 
-	// VaultKMS is the configuration for the standalone Vault/OpenBao KMS plugin component.
-	// It is deployed as a DaemonSet on control-plane nodes and is disabled by default.
-	// The plugin is used for encryption at rest for DPUClusters.
+	// VaultKMS is the configuration for the standalone Vault/OpenBao KMS plugin
+	// component. It is deployed as a DaemonSet on control-plane nodes and is
+	// disabled by default. The plugin is used for encryption at rest
+	// for DPUClusters.
 	// +optional
 	VaultKMS *VaultKMSConfiguration `json:"vaultKMS,omitempty"`
 
-	// CertManagement configures the certificate authority that the provisioning certificates of DPF
-	// chain up to, and the trust bundle their consumers validate peers against. If unset, DPF signs
-	// them with a self-signed CA of its own.
+	// CertManagement configures the certificate authority that the provisioning
+	// certificates of DPF chain up to, and the trust bundle their consumers
+	// validate peers against. If unset, DPF signs them with a self-signed CA
+	// of its own.
 	// +optional
 	CertManagement *CertManagementConfiguration `json:"certManagement,omitempty"`
 }
 
-// CertManagementConfiguration configures the trust bundle that the consumers of the provisioning
-// certificates of DPF validate peers against.
+// CertManagementConfiguration configures the trust bundle that the consumers
+// of the provisioning certificates of DPF validate peers against.
 //
-// The certificate authority those certificates chain up to is not configured here. It is chosen once
-// for the whole PKI through the certificateAuthority.issuerRef value of the dpf-operator Helm chart,
-// which the chart stamps onto the webhook intermediate CA it creates. DPF reads the anchor back from
-// there, so the platform and webhook chains cannot end up anchored to different authorities, and the
-// serving certificates of the webhooks are covered by the same choice even though the chart creates
-// them before a DPFOperatorConfig exists.
+// The certificate authority those certificates chain up to is not configured
+// here. It is chosen once for the whole PKI through the
+// certificateAuthority.issuerRef value of the dpf-operator Helm chart, which
+// the chart stamps onto the webhook intermediate CA it creates. DPF reads the
+// anchor back from there, so the platform and webhook chains cannot end up
+// anchored to different authorities, and the serving certificates of the
+// webhooks are covered by the same choice even though the chart creates them
+// before a DPFOperatorConfig exists.
 type CertManagementConfiguration struct {
-	// TrustBundleConfigMapName is the ConfigMap holding the CA certificate(s) that DPF components
-	// validate their peers against.
+	// TrustBundleConfigMapName is the ConfigMap holding the CA certificate(s)
+	// that DPF components validate their peers against.
 	//
-	// Name it when the chart is anchored to an authority of your own, the mode in which the content of
-	// the bundle is yours to provide. With the self-signed root of DPF the operator generates the
-	// content itself, under this name. To trust additional CAs alongside the root of DPF, merge them
+	// Name it when the chart is anchored to an authority of your own, the mode
+	// in which the content of the bundle is yours to provide. With the
+	// self-signed root of DPF the operator generates the content itself, under
+	// this name. To trust additional CAs alongside the root of DPF, merge them
 	// into the ConfigMap directly, DPF preserves certificates it did not add.
 	//
-	// The name is fixed once the config exists. It reaches each DPU in the provisioning configuration
-	// it is installed with, so renaming it later would leave the DPUs already provisioned reading a
-	// ConfigMap DPF no longer maintains, holding trust material that silently stops being updated.
-	// That is enforced on the spec rather than here, because leaving this field out falls back to a
-	// name too, and a rule on the field cannot see a rename that adds or removes it.
+	// The name is fixed once the config exists. It reaches each DPU in the
+	// provisioning configuration it is installed with, so renaming it later
+	// would leave the DPUs already provisioned reading a ConfigMap DPF no
+	// longer maintains, holding trust material that silently stops being
+	// updated. That is enforced on the spec rather than here, because leaving
+	// this field out falls back to a name too, and a rule on the field cannot
+	// see a rename that adds or removes it.
 	// +kubebuilder:default=dpf-ca-trust-bundle
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
@@ -514,8 +577,9 @@ type CertManagementConfiguration struct {
 	TrustBundleConfigMapName string `json:"trustBundleConfigMapName,omitempty"`
 }
 
-// PrivilegedPodEnforcementEnabled reports whether privileged pod enforcement is enabled.
-// Returns true when Security is nil, PrivilegedPodEnforcement is nil, or it is true.
+// PrivilegedPodEnforcementEnabled reports whether privileged pod enforcement
+// is enabled. Returns true when Security is nil,
+// PrivilegedPodEnforcement is nil, or it is true.
 func (s *SecurityConfiguration) PrivilegedPodEnforcementEnabled() bool {
 	return s == nil || ptr.Deref(s.PrivilegedPodEnforcement, true)
 }
@@ -526,7 +590,8 @@ type DPFOperatorConfigStatus struct {
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// ObservedGeneration records the Generation observed on the object the last
+	// time it was patched.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
@@ -534,50 +599,57 @@ type DPFOperatorConfigStatus struct {
 	// +optional
 	Version *string `json:"version,omitempty"`
 
-	// TargetVersion is the version of the DPF Operator that is being deployed. It differs from
-	// Version while an upgrade is in progress.
+	// TargetVersion is the version of the DPF Operator that is being deployed.
+	// It differs from Version while an upgrade is in progress.
 	// +optional
 	TargetVersion *string `json:"targetVersion,omitempty"`
 
-	// Security records what the operator has rolled out for the security-related components it
-	// manages. It is grouped the way spec.security groups their configuration, so that what was
-	// asked for and what is in effect are read at the same path.
+	// Security records what the operator has rolled out for the
+	// security-related components it manages. It is grouped the way
+	// spec.security groups their configuration, so that what was asked for and
+	// what is in effect are read at the same path.
 	// +optional
 	Security *SecurityStatus `json:"security,omitempty"`
 }
 
-// SecurityStatus records what the operator has rolled out for the security-related components it
-// manages, mirroring SecurityConfiguration on the spec.
+// SecurityStatus records what the operator has rolled out for the
+// security-related components it manages, mirroring SecurityConfiguration
+// on the spec.
 type SecurityStatus struct {
-	// CertManagement records what the operator has rolled out for the provisioning PKI.
+	// CertManagement records what the operator has rolled out for the
+	// provisioning PKI.
 	// +optional
 	CertManagement *CertManagementStatus `json:"certManagement,omitempty"`
 }
 
-// CertManagementStatus records what the operator has rolled out for the provisioning PKI, as opposed
-// to what it is being asked to roll out.
+// CertManagementStatus records what the operator has rolled out for the
+// provisioning PKI, as opposed to what it is being asked to roll out.
 type CertManagementStatus struct {
-	// Anchor is the certificate authority the provisioning PKI has been rolled out against, recorded
-	// once the platform intermediate CA has been applied under it and every peer that has to validate
-	// the chain below it trusts that chain.
+	// Anchor is the certificate authority the provisioning PKI has been rolled
+	// out against, recorded once the platform intermediate CA has been applied
+	// under it and every peer that has to validate the chain below it trusts
+	// that chain.
 	//
-	// It is what the anchor chosen in the dpf-operator Helm chart is compared against, so a change of
-	// authority is reported for as long as the rollout of it is outstanding rather than only by the
-	// reconcile that first observed it.
+	// It is what the anchor chosen in the dpf-operator Helm chart is compared
+	// against, so a change of authority is reported for as long as the rollout
+	// of it is outstanding rather than only by the reconcile that
+	// first observed it.
 	//
 	// Nothing rolled out yet is reported by leaving it out altogether.
 	// +optional
 	Anchor *CertManagementAnchor `json:"anchor,omitempty"`
 
-	// TrustBundleHash is the hash the CA trust bundle carried when Anchor was recorded as rolled
-	// out, refreshed by every reconcile that rolls the same authority out again.
+	// TrustBundleHash is the hash the CA trust bundle carried when Anchor was
+	// recorded as rolled out, refreshed by every reconcile that rolls the same
+	// authority out again.
 	//
-	// It is the reference point a change of authority is measured against. cert-manager reissues the
-	// platform intermediate CA on its own schedule, so the bundle published at the moment such a
-	// change is observed is still the one every peer already trusts, and convergence measured
-	// against it would call the rotation over before a single peer had seen the new chain. Recording
-	// it stops there for as long as the rotation is outstanding, which leaves it holding exactly
-	// that bundle.
+	// It is the reference point a change of authority is measured against.
+	// cert-manager reissues the platform intermediate CA on its own schedule,
+	// so the bundle published at the moment such a change is observed is still
+	// the one every peer already trusts, and convergence measured against it
+	// would call the rotation over before a single peer had seen the new chain.
+	// Recording it stops there for as long as the rotation is outstanding,
+	// which leaves it holding exactly that bundle.
 	//
 	// No bundle published yet is reported by leaving it out altogether.
 	// +kubebuilder:validation:MinLength=1
@@ -586,9 +658,10 @@ type CertManagementStatus struct {
 	TrustBundleHash string `json:"trustBundleHash,omitempty"`
 }
 
-// CertManagementAnchor identifies the cert-manager issuer a certificate authority is anchored to.
-// Every field is recorded as resolved, with the defaults cert-manager applies already filled in, so
-// that comparing two anchors cannot turn on whether one of them left a field out.
+// CertManagementAnchor identifies the cert-manager issuer a certificate
+// authority is anchored to. Every field is recorded as resolved, with the
+// defaults cert-manager applies already filled in, so that comparing two
+// anchors cannot turn on whether one of them left a field out.
 type CertManagementAnchor struct {
 	// Name of the issuer.
 	// +kubebuilder:validation:MinLength=1
@@ -596,8 +669,8 @@ type CertManagementAnchor struct {
 	// +optional
 	Name string `json:"name,omitempty"`
 
-	// Kind of the issuer, either Issuer for one in the namespace of the DPFOperatorConfig or
-	// ClusterIssuer for a cluster scoped one.
+	// Kind of the issuer, either Issuer for one in the namespace of the
+	// DPFOperatorConfig or ClusterIssuer for a cluster scoped one.
 	// +kubebuilder:validation:Enum=Issuer;ClusterIssuer
 	// +optional
 	Kind string `json:"kind,omitempty"`
@@ -646,9 +719,10 @@ func (c *DPFOperatorConfig) GetConditions() []metav1.Condition {
 	return c.Status.Conditions
 }
 
-// UpgradeInProgress reports whether the deployed version differs from the version being deployed.
-// It compares the versions in the status and not the version of the binary reading the config:
-// components deployed by the DPF Operator still run the previous release during an upgrade.
+// UpgradeInProgress reports whether the deployed version differs from the
+// version being deployed. It compares the versions in the status and not
+// the version of the binary reading the config: components deployed by the DPF
+// Operator still run the previous release during an upgrade.
 func (c *DPFOperatorConfig) UpgradeInProgress() bool {
 	if c.Status.Version == nil || c.Status.TargetVersion == nil {
 		return false
@@ -660,8 +734,8 @@ func (c *DPFOperatorConfig) IsNewConfig() bool {
 	return c.Status.ObservedGeneration == 0
 }
 
-// GetArgoCDNamespace returns the namespace where ArgoCD is deployed.
-// Falls back to the DPFOperatorConfig's own namespace if not explicitly configured.
+// GetArgoCDNamespace returns the namespace where ArgoCD is deployed. Falls
+// back to the DPFOperatorConfig's own namespace if not explicitly configured.
 func (c *DPFOperatorConfig) GetArgoCDNamespace() string {
 	if c.Spec.Overrides != nil && c.Spec.Overrides.ArgoCDNamespace != nil && *c.Spec.Overrides.ArgoCDNamespace != "" {
 		return *c.Spec.Overrides.ArgoCDNamespace
@@ -673,8 +747,9 @@ func (c *DPFOperatorConfig) MonitoringEnabled() bool {
 	return c.Spec.Monitoring == nil || c.Spec.Monitoring.Disable == nil || !*c.Spec.Monitoring.Disable
 }
 
-// CertManagement returns the certificate management configuration, or nil when it is unset. It
-// saves every caller from walking the optional Security group to reach it.
+// CertManagement returns the certificate management configuration, or nil when
+// it is unset. It saves every caller from walking the optional Security
+// group to reach it.
 func (c *DPFOperatorConfig) CertManagement() *CertManagementConfiguration {
 	if c.Spec.Security == nil {
 		return nil
@@ -682,13 +757,14 @@ func (c *DPFOperatorConfig) CertManagement() *CertManagementConfiguration {
 	return c.Spec.Security.CertManagement
 }
 
-// GetCATrustBundleConfigMapName returns the name of the ConfigMap that holds the public provisioning
-// CA certificate(s). Consumers should call this helper to discover the trust bundle name instead of
-// hardcoding it.
+// GetCATrustBundleConfigMapName returns the name of the ConfigMap that holds
+// the public provisioning CA certificate(s). Consumers should call this helper
+// to discover the trust bundle name instead of hardcoding it.
 //
-// The name holds in both CA modes, they differ only in who fills the ConfigMap. It deliberately does
-// not depend on which authority anchors the PKI: that is read from the cluster, while this is
-// resolved by components which hold nothing but the DPFOperatorConfig.
+// The name holds in both CA modes, they differ only in who fills the ConfigMap.
+// It deliberately does not depend on which authority anchors the PKI: that is
+// read from the cluster, while this is resolved by components which hold
+// nothing but the DPFOperatorConfig.
 func (c *DPFOperatorConfig) GetCATrustBundleConfigMapName() string {
 	if certManagement := c.CertManagement(); certManagement != nil && certManagement.TrustBundleConfigMapName != "" {
 		return certManagement.TrustBundleConfigMapName

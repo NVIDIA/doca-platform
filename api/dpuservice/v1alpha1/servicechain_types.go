@@ -71,7 +71,8 @@ type ServiceIfc struct {
 	// +kubebuilder:validation:MaxProperties=50
 	// +required
 	MatchLabels map[string]string `json:"matchLabels"`
-	// IPAM defines the IPAM configuration when referencing a serviceInterface of type 'service'
+	// IPAM defines the IPAM configuration when referencing a serviceInterface
+	// of type 'service'
 	// +optional
 	IPAM *IPAM `json:"ipam,omitempty"`
 }
@@ -83,16 +84,19 @@ type IPAM struct {
 	// +kubebuilder:validation:MaxProperties=50
 	// +required
 	MatchLabels map[string]string `json:"matchLabels"`
-	// RequiredIPFamilies declares the address families that pools selected by MatchLabels must provide. When set,
-	// MatchLabels must select exactly one pool for each requested family and no additional pools. For dual-stack
-	// selection, both pools must use the same DPUServiceIPAM allocation mode: network or subnet. Order is not significant.
-	// When omitted, backward-compatible pool selection is used.
+	// RequiredIPFamilies declares the address families that pools selected by
+	// MatchLabels must provide. When set, MatchLabels must select exactly one
+	// pool for each requested family and no additional pools. For dual-stack
+	// selection, both pools must use the same DPUServiceIPAM allocation mode:
+	// network or subnet. Order is not significant. When omitted,
+	// backward-compatible pool selection is used.
 	// +optional
 	// +listType=set
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:items:Enum=IPv4;IPv6
 	RequiredIPFamilies []corev1.IPFamily `json:"requiredIPFamilies,omitempty"`
-	// DefaultGateway adds gateway as default gateway in the routes list if true.
+	// DefaultGateway adds gateway as default gateway in the routes list if
+	// true.
 	// +optional
 	DefaultGateway *bool `json:"defaultGateway,omitempty"`
 	// SetDefaultRoute adds a default route to the routing table if true.
@@ -128,7 +132,8 @@ type ServiceChainStatus struct {
 	// Conditions reflect the status of the object
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// ObservedGeneration records the Generation observed on the object the last
+	// time it was patched.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }

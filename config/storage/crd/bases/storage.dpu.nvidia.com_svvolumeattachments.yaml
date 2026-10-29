@@ -18,8 +18,9 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: SVVolumeAttachment captures the intent to attach/detach the specified
-          Volume to/from the specified node.
+        description: |-
+          SVVolumeAttachment captures the intent to attach/detach the specified Volume
+          to/from the specified node.
         properties:
           apiVersion:
             description: |-

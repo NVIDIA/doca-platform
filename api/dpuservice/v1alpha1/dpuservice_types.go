@@ -33,26 +33,34 @@ const (
 	DPUServiceKind = "DPUService"
 	// DPUServiceListKind is the kind of the DPUServiceList.
 	DPUServiceListKind = "DPUServiceList"
-	// DPUServiceFinalizer is the finalizer that will be added to the DPUService.
+	// DPUServiceFinalizer is the finalizer that will be added to
+	// the DPUService.
 	DPUServiceFinalizer = "dpu.nvidia.com/dpuservice"
-	// DPUServiceSPIFFEDeregistrationFinalizer is held until a SPIFFE-enabled DPUService's
-	// ClusterStaticEntries are deleted. Separate from DPUServiceFinalizer so deregistration
-	// is ordered independently of ArgoCD Application teardown.
+	// DPUServiceSPIFFEDeregistrationFinalizer is held until a SPIFFE-enabled
+	// DPUService's ClusterStaticEntries are deleted. Separate from
+	// DPUServiceFinalizer so deregistration is ordered independently of ArgoCD
+	// Application teardown.
 	DPUServiceSPIFFEDeregistrationFinalizer = "dpu.nvidia.com/dpuservice-spiffe-deregistration"
-	// DPUServiceNameLabelKey is the label key that is used to store the name of the DPUService.
+	// DPUServiceNameLabelKey is the label key that is used to store the name of
+	// the DPUService.
 	DPUServiceNameLabelKey = "dpu.nvidia.com/dpuservice-name"
-	// DPUServiceNamespaceLabelKey is the label key that is used to store the namespace of the DPUService.
+	// DPUServiceNamespaceLabelKey is the label key that is used to store the
+	// namespace of the DPUService.
 	DPUServiceNamespaceLabelKey = "dpu.nvidia.com/dpuservice-namespace"
-	// DPFServiceIDLabelKey is a label of DPU Service pods with a value of service identifier.
+	// DPFServiceIDLabelKey is a label of DPU Service pods with a value of
+	// service identifier.
 	DPFServiceIDLabelKey = "svc.dpu.nvidia.com/service"
-	// DPUServiceExposedPortForDPUClusterLabelKey is the label key that is used to store the exposed port of the DPUService.
+	// DPUServiceExposedPortForDPUClusterLabelKey is the label key that is used
+	// to store the exposed port of the DPUService.
 	DPUServiceExposedPortForDPUClusterLabelKey = "dpu.nvidia.com/exposed-port-for-dpucluster"
 
-	// DPFImagePullSecretLabelKey marks a secret as being an ImagePullSecret used by DPF which should be mirrored to DPUClusters.
+	// DPFImagePullSecretLabelKey marks a secret as being an ImagePullSecret
+	// used by DPF which should be mirrored to DPUClusters.
 	DPFImagePullSecretLabelKey = "dpu.nvidia.com/image-pull-secret"
 
-	// DPUServiceInterfaceAnnotationKey is the key used to add an annotation to a
-	// the DPUServiceInterface to indicate that it is consumed by a DPUService.
+	// DPUServiceInterfaceAnnotationKey is the key used to add an annotation to
+	// a the DPUServiceInterface to indicate that it is consumed by
+	// a DPUService.
 	DPUServiceInterfaceAnnotationKey = "dpu.nvidia.com/consumed-by"
 )
 
@@ -60,24 +68,25 @@ var DPUServiceGroupVersionKind = GroupVersion.WithKind(DPUServiceKind)
 
 // Condition types
 const (
-	// ConditionDPUServiceInterfaceReconciled is the condition type that indicates that the
-	// DPUServiceInterface is reconciled.
+	// ConditionDPUServiceInterfaceReconciled is the condition type that
+	// indicates that the DPUServiceInterface is reconciled.
 	ConditionDPUServiceInterfaceReconciled conditions.ConditionType = "DPUServiceInterfaceReconciled"
-	// ConditionApplicationPrereqsReconciled is the condition type that indicates that the
-	// application prerequisites are reconciled.
+	// ConditionApplicationPrereqsReconciled is the condition type that
+	// indicates that the application prerequisites are reconciled.
 	ConditionApplicationPrereqsReconciled conditions.ConditionType = "ApplicationPrereqsReconciled"
-	// ConditionApplicationsReconciled is the condition type that indicates that the
-	// applications are reconciled.
+	// ConditionApplicationsReconciled is the condition type that indicates that
+	// the applications are reconciled.
 	ConditionApplicationsReconciled conditions.ConditionType = "ApplicationsReconciled"
-	// ConditionConfigPortsReconciled is the condition type that indicates that the
-	// applications config ports are reconciled.
+	// ConditionConfigPortsReconciled is the condition type that indicates that
+	// the applications config ports are reconciled.
 	ConditionConfigPortsReconciled conditions.ConditionType = "ConfigPortsReconciled"
 	// ConditionApplicationsReady is the condition type that indicates that the
 	// applications are ready.
 	ConditionApplicationsReady conditions.ConditionType = "ApplicationsReady"
-	// ConditionSPIFFEEntriesReady reports whether this DPUService's per-DPU SPIRE
-	// ClusterStaticEntries have been rendered. True with no entries when SPIFFE is not
-	// used, so it does not hold back the Ready summary of existing DPUServices.
+	// ConditionSPIFFEEntriesReady reports whether this DPUService's per-DPU
+	// SPIRE ClusterStaticEntries have been rendered. True with no entries when
+	// SPIFFE is not used, so it does not hold back the Ready summary of
+	// existing DPUServices.
 	ConditionSPIFFEEntriesReady conditions.ConditionType = "SPIFFEEntriesReady"
 )
 
@@ -132,7 +141,8 @@ type DPUService struct {
 // +kubebuilder:validation:XValidation:rule="!(has(self.deployInCluster) && self.deployInCluster && has(self.security) && has(self.security.spiffe))", message="security.spiffe must not be set when deployInCluster is true"
 // +kubebuilder:validation:XValidation:rule="(has(self.deployInCluster) && self.deployInCluster) || (has(self.security) && has(self.security.privileged)) || (oldSelf.hasValue() && !(has(oldSelf.value().deployInCluster) && oldSelf.value().deployInCluster) && !(has(oldSelf.value().security) && has(oldSelf.value().security.privileged)))", message="security.privileged must be set when deployInCluster is false", optionalOldSelf=true
 type DPUServiceSpec struct {
-	// Select the Clusters with specific labels, Applications will be created only for these Clusters
+	// Select the Clusters with specific labels, Applications will be created
+	// only for these Clusters
 	// +optional
 	DPUClusterSelector *metav1.LabelSelector `json:"dpuClusterSelector,omitempty"`
 
@@ -140,7 +150,8 @@ type DPUServiceSpec struct {
 	// +required
 	HelmChart HelmChart `json:"helmChart"`
 
-	// ServiceID is the ID of the service that the DPUService is associated with.
+	// ServiceID is the ID of the service that the DPUService is
+	// associated with.
 	// +optional
 	ServiceID *string `json:"serviceID,omitempty"`
 
@@ -148,8 +159,8 @@ type DPUServiceSpec struct {
 	// +optional
 	ServiceDaemonSet *ServiceDaemonSetValues `json:"serviceDaemonSet,omitempty"`
 
-	// DeployInCluster indicates if the DPUService Helm Chart will be deployed on
-	// the Host cluster. Default to false.
+	// DeployInCluster indicates if the DPUService Helm Chart will be deployed
+	// on the Host cluster. Default to false.
 	// +optional
 	DeployInCluster *bool `json:"deployInCluster,omitempty"`
 
@@ -166,9 +177,10 @@ type DPUServiceSpec struct {
 	// +optional
 	Paused *bool `json:"paused,omitempty"`
 
-	// ConfigPorts defines the desired state of port configurations for a DPUService.
-	// This struct determines how ports are exposed from the DPU to the host cluster.
-	// A DPUService can only have a single ServiceType across all ports.
+	// ConfigPorts defines the desired state of port configurations for a
+	// DPUService. This struct determines how ports are exposed from the DPU to
+	// the host cluster. A DPUService can only have a single ServiceType across
+	// all ports.
 	// +optional
 	ConfigPorts *ConfigPorts `json:"configPorts,omitempty"`
 
@@ -204,35 +216,38 @@ type DPUServiceSecurity struct {
 	// +optional
 	Privileged *bool `json:"privileged,omitempty"`
 
-	// SPIFFE opts this DPUService into SPIFFE workload identity. When set, one SPIRE
-	// ClusterStaticEntry is registered per targeted DPU, parented to that DPU's SPIRE
-	// agent, so the service's pods can obtain an SVID. The identity defaults to
-	// `spiffe://<trustDomain>/dpu/<serial>/service/<namespace>/<serviceID>` and is
-	// configurable through `DPFOperatorConfig.spec.security.spiffe`.
-	// The namespace qualifies the service ID, which is only unique within one.
+	// SPIFFE opts this DPUService into SPIFFE workload identity. When set, one
+	// SPIRE ClusterStaticEntry is registered per targeted DPU, parented to that
+	// DPU's SPIRE agent, so the service's pods can obtain an SVID. The identity
+	// defaults to
+	// `spiffe://<trustDomain>/dpu/<serial>/service/<namespace>/<serviceID>` and
+	// is configurable through `DPFOperatorConfig.spec.security.spiffe`. The
+	// namespace qualifies the service ID, which is only unique within one.
 	//
 	// Presence-gated: `spiffe: {}` enables it. It has no sub-fields yet.
 	//
-	// Requires `DPFOperatorConfig.spec.security.spiffe`, and only covers DPUs in SPIFFE
-	// identity mode (`DPU.status.identityMode: Spiffe`); bootstrap-token DPUs are skipped.
-	// Both are reported on the SPIFFEEntriesReady condition rather than rejected at
-	// admission. Must not be set when deployInCluster is true, since in-cluster
-	// DPUServices run on the host and have no per-DPU SPIRE agent to parent to.
+	// Requires `DPFOperatorConfig.spec.security.spiffe`, and only covers DPUs
+	// in SPIFFE identity mode (`DPU.status.identityMode: Spiffe`);
+	// bootstrap-token DPUs are skipped. Both are reported on the
+	// SPIFFEEntriesReady condition rather than rejected at admission. Must not
+	// be set when deployInCluster is true, since in-cluster DPUServices run on
+	// the host and have no per-DPU SPIRE agent to parent to.
 	//
-	// When set on a DPUServiceTemplate, the DPUDeployment controller propagates it to
-	// generated DPUServices that target DPUClusters.
+	// When set on a DPUServiceTemplate, the DPUDeployment controller propagates
+	// it to generated DPUServices that target DPUClusters.
 	// +optional
 	SPIFFE *DPUServiceSPIFFE `json:"spiffe,omitempty"`
 }
 
-// DPUServiceSPIFFE opts a DPUService into SPIFFE workload identity. Intentionally empty:
-// the opt-in is the field's presence, and per-service knobs are deferred until the NKE PoC
-// settles on-DPU workload attestation.
+// DPUServiceSPIFFE opts a DPUService into SPIFFE workload identity.
+// Intentionally empty: the opt-in is the field's presence, and per-service
+// knobs are deferred until the NKE PoC settles on-DPU workload attestation.
 type DPUServiceSPIFFE struct{}
 
-// ConfigPorts defines the desired state of port configurations for a DPUService.
-// This struct determines how ports are exposed from the DPU to the host cluster.
-// A DPUService can only have a single ServiceType across all ports.
+// ConfigPorts defines the desired state of port configurations for a
+// DPUService. This struct determines how ports are exposed from the DPU to the
+// host cluster. A DPUService can only have a single ServiceType across
+// all ports.
 //
 // Validation:
 // - If any port has a NodePort assigned, ServiceType **must** be "NodePort".
@@ -254,12 +269,13 @@ type ConfigPorts struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="Value is immutable"
 	ServiceType corev1.ServiceType `json:"serviceType,omitempty"`
 
-	// Ports defines the list of port configurations that will be exposed by the DPUService.
-	// Each port must specify a name, port number, and protocol.
+	// Ports defines the list of port configurations that will be exposed by the
+	// DPUService. Each port must specify a name, port number, and protocol.
 	//
 	// Constraints:
 	// - If ServiceType is "NodePort", ports may optionally specify a NodePort.
-	// - If ServiceType is "None" or "ClusterIP", ports **cannot** specify a NodePort.
+	// - If ServiceType is "None" or "ClusterIP", ports **cannot**
+	//   specify a NodePort.
 	//
 	// +required
 	Ports []ConfigPort `json:"ports"`
@@ -294,13 +310,15 @@ type ConfigPort struct {
 	//
 	// Constraints:
 	// - Can only be set when ServiceType is "NodePort".
-	// - Must be within the clusters valid NodePort range (Kubernetes default is 30000-32767).
+	// - Must be within the clusters valid NodePort range
+	//   (Kubernetes default is 30000-32767).
 	//
 	// +optional
 	NodePort *uint16 `json:"nodePort,omitempty"`
 }
 
-// SetServiceDaemonSetNodeSelector sets the nodeSelector for the ServiceDaemonSet.
+// SetServiceDaemonSetNodeSelector sets the nodeSelector for the
+// ServiceDaemonSet.
 func (s *DPUService) SetServiceDaemonSetNodeSelector(nodeSelector *corev1.NodeSelector) {
 	if s.Spec.ServiceDaemonSet == nil {
 		s.Spec.ServiceDaemonSet = &ServiceDaemonSetValues{}
@@ -314,7 +332,8 @@ func (s *DPUService) IsPaused() bool {
 	return s.Spec.Paused != nil && *s.Spec.Paused
 }
 
-// ShouldDeployInCluster returns true if the DPUService should be deployed on the host cluster.
+// ShouldDeployInCluster returns true if the DPUService should be deployed on
+// the host cluster.
 func (s *DPUService) ShouldDeployInCluster() bool {
 	if s.Spec.DeployInCluster == nil {
 		return false
@@ -328,7 +347,8 @@ type HelmChart struct {
 	// +required
 	Source ApplicationSource `json:"source"`
 
-	// Values specifies Helm values to be passed to Helm template, defined as a map. This takes precedence over Values.
+	// Values specifies Helm values to be passed to Helm template, defined as a
+	// map. This takes precedence over Values.
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
 	Values *runtime.RawExtension `json:"values,omitempty"`
@@ -336,9 +356,9 @@ type HelmChart struct {
 
 // ApplicationSource specifies the source of the Helm chart.
 type ApplicationSource struct {
-	// RepoURL specifies the URL to the repository that contains the application Helm chart.
-	// The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid
-	// OCI registry or a web-based repository.
+	// RepoURL specifies the URL to the repository that contains the application
+	// Helm chart. The URL must begin with either 'oci://' or 'https://',
+	// ensuring it points to a valid OCI registry or a web-based repository.
 	// +kubebuilder:validation:Pattern=`^(oci://|https://).+$`
 	// +required
 	RepoURL string `json:"repoURL"`
@@ -356,7 +376,8 @@ type ApplicationSource struct {
 	// +optional
 	Chart string `json:"chart,omitempty"`
 
-	// ReleaseName is the name to give to the release generate from the DPUService.
+	// ReleaseName is the name to give to the release generate from
+	// the DPUService.
 	// +optional
 	ReleaseName string `json:"releaseName,omitempty"`
 }
@@ -367,7 +388,8 @@ type ServiceDaemonSetValues struct {
 	// +optional
 	NodeSelector *corev1.NodeSelector `json:"nodeSelector,omitempty"`
 
-	// UpdateStrategy specifies the DeaemonSet update strategy for the ServiceDaemonset.
+	// UpdateStrategy specifies the DeaemonSet update strategy for the
+	// ServiceDaemonset.
 	// +optional
 	UpdateStrategy *appsv1.DaemonSetUpdateStrategy `json:"updateStrategy,omitempty"`
 
@@ -375,7 +397,8 @@ type ServiceDaemonSetValues struct {
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
 
-	// Annotations specifies annotations which are added to the ServiceDaemonSet.
+	// Annotations specifies annotations which are added to the
+	// ServiceDaemonSet.
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
 
@@ -390,17 +413,18 @@ type DPUServiceStatus struct {
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// ObservedGeneration records the Generation observed on the object the last
+	// time it was patched.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// ConfigPorts defines the observed state of the config ports.
-	// It contains the actual port numbers that are exposed on the DPUService per cluster.
+	// ConfigPorts defines the observed state of the config ports. It contains
+	// the actual port numbers that are exposed on the DPUService per cluster.
 	// +optional
 	ConfigPorts map[string][]ConfigPort `json:"configPorts,omitempty"`
 
-	// ServiceID is the ID of the service that the DPUService is associated with.
-	// This is set when the DPUService is created.
+	// ServiceID is the ID of the service that the DPUService is associated
+	// with. This is set when the DPUService is created.
 	// +optional
 	ServiceID string `json:"serviceID,omitempty"`
 }

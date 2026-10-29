@@ -20,9 +20,10 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          Volume represents a persistent volume on the DPU cluster.
-          It maps between the tenant K8S persistent volume (PV) object on the tenant cluster into the actual volume on the DPU cluster.
-          Volume is an internal API, it is not intended to be used by users.
+          Volume represents a persistent volume on the DPU cluster. It maps between
+          the tenant K8S persistent volume (PV) object on the tenant cluster into the
+          actual volume on the DPU cluster. Volume is an internal API, it is not
+          intended to be used by users.
         properties:
           apiVersion:
             description: |-
@@ -77,14 +78,16 @@ spec:
               storageParameters:
                 additionalProperties:
                   type: string
-                description: List of storage parameters supported by the policy, values
-                  are string only
+                description: |-
+                  List of storage parameters supported by the policy, values are string
+                  only
                 type: object
               storagePolicyParameters:
                 additionalProperties:
                   type: string
-                description: List of storage parameters supported by the policy, values
-                  are string only
+                description: |-
+                  List of storage parameters supported by the policy, values are string
+                  only
                 type: object
               storagePolicyRef:
                 description: Reference to the StoragePolicy object

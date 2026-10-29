@@ -43,8 +43,9 @@ const (
 	// released resources for a terminating entry.
 	ResourceReleased conditions.ConditionType = "ResourceReleased"
 
-	// NodeServiceInterfacesFinalizer is set on a NodeServiceInterfaces when it is
-	// first handled by the reconciler, and removed when this object is deleted.
+	// NodeServiceInterfacesFinalizer is set on a NodeServiceInterfaces when it
+	// is first handled by the reconciler, and removed when this object is
+	// deleted.
 	NodeServiceInterfacesFinalizer = "svc.dpu.nvidia.com/nodeserviceinterfaces"
 )
 
@@ -60,14 +61,15 @@ var (
 
 var _ conditions.GetSet = &NodeServiceInterfaces{}
 
-// interfaceEntryStatusGetSet wraps an InterfaceEntryStatus as conditions.GetSet so
-// pkg/conditions helpers can write per-entry conditions.
+// interfaceEntryStatusGetSet wraps an InterfaceEntryStatus as conditions.GetSet
+// so pkg/conditions helpers can write per-entry conditions.
 //
-// GetGeneration always returns 0 so AddTrue/AddFalse stamp ObservedGeneration=0.
-// Per-entry freshness is ObservedSpecHash (see IsEntryReady / IsEntryResourceReleased),
-// not object-level ObservedGeneration. Stamping NSI metadata.generation here would make
-// entry conditions look "stale" after unrelated sibling mutations bump the parent
-// generation and tempt callers into treating them like object-level conditions.
+// GetGeneration always returns 0 so AddTrue/AddFalse stamp
+// ObservedGeneration=0. Per-entry freshness is ObservedSpecHash (see
+// IsEntryReady / IsEntryResourceReleased), not object-level ObservedGeneration.
+// Stamping NSI metadata.generation here would make entry conditions look
+// "stale" after unrelated sibling mutations bump the parent generation and
+// tempt callers into treating them like object-level conditions.
 type interfaceEntryStatusGetSet struct {
 	status *InterfaceEntryStatus
 }
@@ -88,9 +90,9 @@ func (c *NodeServiceInterfaces) FindInterfaceEntryStatus(entryName string) *Inte
 
 // GetEntryStatus returns a conditions.GetSet view of the named entry's status.
 // Per-entry conditions are stamped with ObservedGeneration=0; for readiness /
-// ResourceReleased freshness against the current entry spec, use IsEntryReady /
-// IsEntryResourceReleased (ObservedSpecHash), not conditions.IsTrue.
-// Returns nil if the entry is not found.
+// ResourceReleased freshness against the current entry spec, use
+// IsEntryReady / IsEntryResourceReleased (ObservedSpecHash), not
+// conditions.IsTrue. Returns nil if the entry is not found.
 func (c *NodeServiceInterfaces) GetEntryStatus(entryName string) conditions.GetSet {
 	status := c.FindInterfaceEntryStatus(entryName)
 	if status == nil {
@@ -107,16 +109,17 @@ func (c *NodeServiceInterfaces) SetConditions(conditions []metav1.Condition) {
 	c.Status.Conditions = conditions
 }
 
-// IsEntryReady reports whether the named entry is Ready for the current entry spec.
-// Ready.Status must be True and ObservedSpecHash must match entry.SpecHash().
-// NSI metadata.generation is intentionally ignored so sibling mutations on a shared
-// shard do not demote unrelated non-terminating ready entries.
+// IsEntryReady reports whether the named entry is Ready for the current entry
+// spec. Ready.Status must be True and ObservedSpecHash must match
+// entry.SpecHash(). NSI metadata.generation is intentionally ignored so
+// sibling mutations on a shared shard do not demote unrelated non-terminating
+// ready entries.
 func (c *NodeServiceInterfaces) IsEntryReady(entry *InterfaceEntry) bool {
 	return c.isEntryConditionFresh(entry, conditions.TypeReady)
 }
 
-// IsEntryResourceReleased reports whether ResourceReleased is True for the current
-// (typically terminating) entry spec via ObservedSpecHash match.
+// IsEntryResourceReleased reports whether ResourceReleased is True for the
+// current (typically terminating) entry spec via ObservedSpecHash match.
 func (c *NodeServiceInterfaces) IsEntryResourceReleased(entry *InterfaceEntry) bool {
 	return c.isEntryConditionFresh(entry, ResourceReleased)
 }
@@ -158,14 +161,16 @@ type NodeServiceInterfacesSpec struct {
 	Interfaces []InterfaceEntry `json:"interfaces,omitempty"`
 }
 
-// InterfaceEntry defines a single service interface entry within a NodeServiceInterfaces object.
+// InterfaceEntry defines a single service interface entry within a
+// NodeServiceInterfaces object.
 // +kubebuilder:validation:XValidation:rule="(self.interfaceType == 'vlan' && has(self.vlan)) || (self.interfaceType == 'pf' && has(self.pf)) || (self.interfaceType == 'vf' && has(self.vf)) || (self.interfaceType == 'physical' && has(self.physical)) || (self.interfaceType == 'service' && has(self.service)) || (self.interfaceType == 'ovn') || (self.interfaceType == 'patch' && has(self.patch))",messageExpression="'for interfaceType=' + self.interfaceType + ', ' + self.interfaceType + ' must be set'"
 type InterfaceEntry struct {
-	// Name uniquely identifies this entry within the NodeServiceInterfaces object.
-	// Format: `<namespace>_<service-interface-set-name>`. The underscore separator is collision-free
-	// because Kubernetes namespace and resource names follow DNS subdomain rules
-	// and can never contain an underscore. Both components are
-	// bounded to 63 chars, so the full name is at most 127 chars.
+	// Name uniquely identifies this entry within the NodeServiceInterfaces
+	// object. Format: `<namespace>_<service-interface-set-name>`. The
+	// underscore separator is collision-free because Kubernetes namespace and
+	// resource names follow DNS subdomain rules and can never contain an
+	// underscore. Both components are bounded to 63 chars, so the full name is
+	// at most 127 chars.
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:MinLength=1
 	// +required
@@ -211,8 +216,9 @@ type InterfaceEntry struct {
 }
 
 // SpecHash returns a stable digest of this InterfaceEntry's desired state.
-// Consumers compare it to InterfaceEntryStatus.ObservedSpecHash to decide whether
-// per-entry status is fresh for this entry, independent of NSI object generation.
+// Consumers compare it to InterfaceEntryStatus.ObservedSpecHash to decide
+// whether per-entry status is fresh for this entry, independent of NSI
+// object generation.
 func (i *InterfaceEntry) SpecHash() string {
 	if i == nil {
 		return ""
@@ -243,14 +249,16 @@ func (i *InterfaceEntry) GetPatch() *PatchDef               { return i.Patch }
 func (i *InterfaceEntry) GetService() *ServiceDef           { return i.Service }
 func (i *InterfaceEntry) GetAnnotations() map[string]string { return i.Annotations }
 
-// NodeServiceInterfacesStatus defines the observed state of NodeServiceInterfaces.
+// NodeServiceInterfacesStatus defines the observed state of
+// NodeServiceInterfaces.
 type NodeServiceInterfacesStatus struct {
 	// Conditions reflect aggregate status.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// ObservedGeneration is the last observed generation of the NodeServiceInterfaces object.
+	// ObservedGeneration is the last observed generation of the
+	// NodeServiceInterfaces object.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// InterfaceStatuses tracks per-entry reconciliation state. Written by
@@ -262,22 +270,25 @@ type NodeServiceInterfacesStatus struct {
 	InterfaceStatuses []InterfaceEntryStatus `json:"interfaceStatuses,omitempty"`
 }
 
-// InterfaceEntryStatus records reconciliation state for a single interface entry.
+// InterfaceEntryStatus records reconciliation state for a single
+// interface entry.
 type InterfaceEntryStatus struct {
 	// Name matches the spec entry name.
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Name string `json:"name"`
 	// ObservedSpecHash is the SpecHash of the InterfaceEntry this status was
-	// reconciled against. Consumers treat entry conditions as fresh only when this
-	// matches the current spec entry hash, so sibling mutations that bump NSI
-	// metadata.generation do not invalidate unrelated entries.
-	// Empty is not a valid hash; omit the field until the entry has been reconciled.
+	// reconciled against. Consumers treat entry conditions as fresh only when
+	// this matches the current spec entry hash, so sibling mutations that bump
+	// NSI metadata.generation do not invalidate unrelated entries. Empty is not
+	// a valid hash; omit the field until the entry has been reconciled.
 	// +kubebuilder:validation:MinLength=1
 	// +optional
 	ObservedSpecHash string `json:"observedSpecHash,omitempty"`
-	// Params carries controller-specific information for handling reconcile/release of the matching InterfaceEntry in spec.
-	// Multiple reconcilers may write distinct keys safely as long as they do not share keys.
+	// Params carries controller-specific information for handling
+	// reconcile/release of the matching InterfaceEntry in spec. Multiple
+	// reconcilers may write distinct keys safely as long as they do not
+	// share keys.
 	// +optional
 	Params map[string]string `json:"params,omitempty"`
 	// Conditions may be written by multiple reconcilers for the same entry.
@@ -297,7 +308,8 @@ func (s *InterfaceEntryStatus) AsGetSet() conditions.GetSet {
 	return &interfaceEntryStatusGetSet{status: s}
 }
 
-// SetObservedSpecHash records that status conditions were computed against entry.
+// SetObservedSpecHash records that status conditions were computed
+// against entry.
 func (s *InterfaceEntryStatus) SetObservedSpecHash(entry *InterfaceEntry) {
 	if s == nil || entry == nil {
 		return

@@ -52,7 +52,8 @@ type ServiceInterfaceSpec struct {
 	// Node where this interface exists
 	// +optional
 	Node *string `json:"node,omitempty"`
-	// The interface type ("vlan", "physical", "pf", "vf", "ovn", "patch", "service")
+	// The interface type ("vlan", "physical", "pf", "vf", "ovn", "patch",
+	// "service")
 	// +kubebuilder:validation:Enum={"vlan", "physical", "pf", "vf", "ovn", "patch", "service"}
 	// +required
 	InterfaceType string `json:"interfaceType"`
@@ -77,7 +78,8 @@ type ServiceInterfaceSpec struct {
 	// The OVN definition
 	//
 	// Deprecated: This field is deprecated and will be removed with v31.0.0.
-	// Migrate to interfaceType="patch" with spec.patch.peerBridge and spec.patch.peerPatchName instead.
+	// Migrate to interfaceType="patch" with spec.patch.peerBridge and
+	// spec.patch.peerPatchName instead.
 	// +optional
 	OVN *OVN `json:"ovn,omitempty"`
 	// The Patch definition
@@ -85,8 +87,9 @@ type ServiceInterfaceSpec struct {
 	Patch *PatchDef `json:"patch,omitempty"`
 }
 
-// GetVirtualNetworkName returns the virtual network name from the ServiceInterfaceSpec.
-// if it does not have a virtual network, it returns an empty string
+// GetVirtualNetworkName returns the virtual network name from the
+// ServiceInterfaceSpec. if it does not have a virtual network, it returns an
+// empty string
 func (c *ServiceInterfaceSpec) GetVirtualNetworkName() string {
 	vnn := ""
 	switch c.InterfaceType {
@@ -139,13 +142,15 @@ func (c *ServiceInterface) SetConditions(conditions []metav1.Condition) {
 	c.Status.Conditions = conditions
 }
 
-// HasVirtualNetwork checks if any component (PF/VF/Service) defines a VirtualNetwork.
+// HasVirtualNetwork checks if any component (PF/VF/Service) defines
+// a VirtualNetwork.
 func (c *ServiceInterface) HasVirtualNetwork() bool {
 	return c.GetVirtualNetworkName() != ""
 }
 
-// GetVirtualNetworkName returns the virtual network name from the ServiceInterface.
-// if it does not have a virtual network, it returns an empty string
+// GetVirtualNetworkName returns the virtual network name from the
+// ServiceInterface. if it does not have a virtual network, it returns an empty
+// string
 func (c *ServiceInterface) GetVirtualNetworkName() string {
 	return c.Spec.GetVirtualNetworkName()
 }
@@ -172,8 +177,9 @@ type ServiceDef struct {
 	// ServiceID is the DPU Service Identifier
 	// +required
 	ServiceID string `json:"serviceID"`
-	// Network is the Network Attachment Definition in the form of "namespace/name"
-	// or just "name" if the namespace is the same as the ServiceInterface.
+	// Network is the Network Attachment Definition in the form of
+	// "namespace/name" or just "name" if the namespace is the same as the
+	// ServiceInterface.
 	// +required
 	Network string `json:"network"`
 	// The interface name
@@ -263,18 +269,21 @@ type OVN struct {
 
 // PatchDef defines the configuration for Patch interface type
 type PatchDef struct {
-	// PeerBridge is the name of the bridge to which the patch port is connected.
-	// This bridge must be created before the ServiceInterface is created.
+	// PeerBridge is the name of the bridge to which the patch port is
+	// connected. This bridge must be created before the ServiceInterface is
+	// created.
 	// +required
 	PeerBridge string `json:"peerBridge"`
-	// PeerPatchName is the name of the patch port on the peer bridge.
-	// If not set, it is auto-generated in the format: `p_<bridgeA>_to_<bridgeB>_<hash>`
-	// where bridge names have hyphens removed and `<hash>` is an 8-character FNV-1a hash
-	// derived from the ServiceInterface's namespace/name.
-	// Example: p_brovn_to_brsfc_7aea60f7 (for bridges br-ovn and br-sfc).
+	// PeerPatchName is the name of the patch port on the peer bridge. If not
+	// set, it is auto-generated in the format:
+	// `p_<bridgeA>_to_<bridgeB>_<hash>` where bridge names have hyphens removed
+	// and `<hash>` is an 8-character FNV-1a hash derived from the
+	// ServiceInterface's namespace/name. Example: p_brovn_to_brsfc_7aea60f7
+	// (for bridges br-ovn and br-sfc).
 	// +optional
 	PeerPatchName *string `json:"peerPatchName,omitempty"`
-	// PeerExternalIDs are the external IDs used to identify the peer patch port.
+	// PeerExternalIDs are the external IDs used to identify the peer patch
+	// port.
 	// +optional
 	PeerExternalIDs map[string]string `json:"peerExternalIDs,omitempty"`
 }
@@ -285,7 +294,8 @@ type NICSelectorType string
 const (
 	// NICSelectorTypeDPU selects the DPU NIC
 	NICSelectorTypeDPU NICSelectorType = "dpu"
-	// NICSelectorTypePCI selects NIC according to the provided PCI address of one of the NIC's Embedded CPU PFs (ECPFs)
+	// NICSelectorTypePCI selects NIC according to the provided PCI address of
+	// one of the NIC's Embedded CPU PFs (ECPFs)
 	NICSelectorTypePCI NICSelectorType = "pci"
 )
 
@@ -299,9 +309,12 @@ type NICSelectorSpec struct {
 	// PCI is the PCI selector. valid only for selector type pci
 	// +optional
 	PCI *PCISelector `json:"pci,omitempty"`
-	// ControllerNumber specifies the controller number that will be used to find the matching representor on the DPU.
-	// A value of 0 targets the local controller, >=1 targets external controllers with the specified number. If unspecified controller number 1 is used.
-	// In case of a DPU/NIC with socket direct or MultiHost, the user should specify the controller number explicitly
+	// ControllerNumber specifies the controller number that will be used to
+	// find the matching representor on the DPU. A value of 0 targets the local
+	// controller, >=1 targets external controllers with the specified number.
+	// If unspecified controller number 1 is used. In case of a DPU/NIC with
+	// socket direct or MultiHost, the user should specify the controller
+	// number explicitly
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=255
 	// +optional
@@ -328,7 +341,8 @@ type ServiceInterfaceStatus struct {
 	// Conditions reflect the status of the object
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// ObservedGeneration records the Generation observed on the object the last
+	// time it was patched.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }

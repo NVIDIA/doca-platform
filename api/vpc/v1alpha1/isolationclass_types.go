@@ -31,7 +31,8 @@ const (
 	ProvisionerNameLabel = "vpc.dpu.nvidia.com/provisioner"
 )
 
-// IsolationClassGroupVersionKind is the GroupVersionKind of the IsolationClass object.
+// IsolationClassGroupVersionKind is the GroupVersionKind of the IsolationClass
+// object.
 var IsolationClassGroupVersionKind = GroupVersion.WithKind(IsolationClassKind)
 
 // IsolationClassSpec defines the configuration of IsolationClass

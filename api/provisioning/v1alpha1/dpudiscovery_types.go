@@ -20,7 +20,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// DPUDiscoveryGroupVersionKind is the GroupVersionKind of the DPUDiscovery object
+// DPUDiscoveryGroupVersionKind is the GroupVersionKind of the DPUDiscovery
+// object
 var DPUDiscoveryGroupVersionKind = GroupVersion.WithKind(DPUDiscoveryKind)
 
 const (
@@ -51,15 +52,17 @@ type DPUDiscoverySpec struct {
 	// ScanInterval defines how often to perform the scan
 	// +kubebuilder:default="1h"
 	ScanInterval metav1.Duration `json:"scanInterval,omitempty"`
-	// Workers defines the number of workers to use for the scan (default 1 worker for each 255 IPs in the range)
+	// Workers defines the number of workers to use for the scan (default 1
+	// worker for each 255 IPs in the range)
 	// +optional
 	Workers *int `json:"workers,omitempty"`
 }
 
 // DPUDiscoveryStatus defines the observed state of DPUDiscovery
 type DPUDiscoveryStatus struct {
-	// ObservedGeneration is the generation of the spec that was last applied by a successful scan.
-	// When spec (e.g. IP range) changes, reconciliation runs a scan immediately instead of waiting for the next interval.
+	// ObservedGeneration is the generation of the spec that was last applied
+	// by a successful scan. When spec (e.g. IP range) changes, reconciliation
+	// runs a scan immediately instead of waiting for the next interval.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// LastScanTime is the timestamp of the last successful scan

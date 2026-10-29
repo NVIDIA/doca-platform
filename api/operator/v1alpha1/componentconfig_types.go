@@ -46,32 +46,40 @@ type ProvisioningControllerConfiguration struct {
 	// +optional
 	Image Image `json:"image,omitempty"`
 
-	// Controller contains the configuration for the Provisioning controller component.
-	// It contains the image for the controller and its resource requirements.
+	// Controller contains the configuration for the Provisioning controller
+	// component. It contains the image for the controller and its resource
+	// requirements.
 	// +optional
 	Controller *DefaultOverridesConfiguration `json:"controller,omitempty"`
 
-	// BFCFGTemplateConfigMap is the name of a configMap containing a template for the BF.cfg file used by the DPU controller.
-	// By default the provisioning controller use a hardcoded BF.cfg e.g. https://github.com/NVIDIA/doca-platform/blob/release-v24.10/internal/provisioning/controllers/dpu/bfcfg/bf.cfg.template
-	// Note: Replacing the bf.cfg is an advanced use case. The default bf.cfg is designed for most use cases.
+	// BFCFGTemplateConfigMap is the name of a configMap containing a template
+	// for the BF.cfg file used by the DPU controller. By default the
+	// provisioning controller use a hardcoded BF.cfg e.g.
+	// https://github.com/NVIDIA/doca-platform/blob/release-v24.10/internal/provisioning/controllers/dpu/bfcfg/bf.cfg.template
+	// Note: Replacing the bf.cfg is an advanced use case. The default bf.cfg is
+	// designed for most use cases.
 	//
-	// Deprecated: BFCFGTemplateConfigMap is deprecated and will be removed in a future release.
-	// Use enableDynamicBFCFGTemplates instead for custom bf.cfg templates.
+	// Deprecated: BFCFGTemplateConfigMap is deprecated and will be removed in
+	// a future release. Use enableDynamicBFCFGTemplates instead for custom
+	// bf.cfg templates.
 	// +optional
 	BFCFGTemplateConfigMap *string `json:"bfCFGTemplateConfigMap,omitempty"`
 
-	// EnableDynamicBFCFGTemplates enables runtime discovery of bf.cfg templates via ConfigMaps.
-	// When enabled, the provisioning controller discovers ConfigMaps by matching labels for BFB
-	// name/namespace and DPUCluster name/namespace. Mutually exclusive with bfCFGTemplateConfigMap.
+	// EnableDynamicBFCFGTemplates enables runtime discovery of bf.cfg templates
+	// via ConfigMaps. When enabled, the provisioning controller discovers
+	// ConfigMaps by matching labels for BFB name/namespace and DPUCluster
+	// name/namespace. Mutually exclusive with bfCFGTemplateConfigMap.
 	// +optional
 	EnableDynamicBFCFGTemplates bool `json:"enableDynamicBFCFGTemplates,omitempty"`
 
-	// BFBPersistentVolumeClaimName is the name of the PersistentVolumeClaim used by dpf-provisioning-controller
-	// If not provided, the controller will use local host storage (hostPath)
+	// BFBPersistentVolumeClaimName is the name of the PersistentVolumeClaim
+	// used by dpf-provisioning-controller If not provided, the controller will
+	// use local host storage (hostPath)
 	// +optional
 	BFBPersistentVolumeClaimName *string `json:"bfbPVCName,omitempty"`
 
-	// DMSTimeout is the max time in seconds within which a DMS API must respond, 0 is unlimited
+	// DMSTimeout is the max time in seconds within which a DMS API must
+	// respond, 0 is unlimited
 	// +kubebuilder:validation:Minimum=1
 	// +optional
 	DMSTimeout *int `json:"dmsTimeout,omitempty"`
@@ -89,26 +97,29 @@ type ProvisioningControllerConfiguration struct {
 	// +optional
 	Registry *RegistryConfiguration `json:"registry,omitempty"`
 
-	// MaxDPUParallelInstallations specifies the maximum number of DPUs that can be provisioned concurrently.
-	// A DPU is removed from the concurrent provisioning count as soon as it finishes the "OS Installing" phase and
+	// MaxDPUParallelInstallations specifies the maximum number of DPUs that
+	// can be provisioned concurrently. A DPU is removed from the concurrent
+	// provisioning count as soon as it finishes the "OS Installing" phase and
 	// enters the "Rebooting" phase of its provisioning lifecycle.
 	// +kubebuilder:default=50
 	// +kubebuilder:validation:Minimum=1
 	// +optional
 	MaxDPUParallelInstallations *int32 `json:"maxDPUParallelInstallations,omitempty"`
 
-	// DPUMaxConcurrentReconciles specifies the maximum number of DPU objects that the
-	// provisioning DPU controller may reconcile concurrently. Reconciles for the same
-	// DPU remain serialized by the controller workqueue.
-	// When unset, the provisioning controller defaults to 1, matching the previous
-	// single-worker behavior. Raise this to overlap I/O-bound provisioning of different DPUs.
+	// DPUMaxConcurrentReconciles specifies the maximum number of DPU objects
+	// that the provisioning DPU controller may reconcile concurrently.
+	// Reconciles for the same DPU remain serialized by the controller
+	// workqueue. When unset, the provisioning controller defaults to 1,
+	// matching the previous single-worker behavior. Raise this to overlap
+	// I/O-bound provisioning of different DPUs.
 	// +kubebuilder:default=1
 	// +kubebuilder:validation:Minimum=1
 	// +optional
 	DPUMaxConcurrentReconciles int32 `json:"dpuMaxConcurrentReconciles,omitempty"`
 
-	// MultiDPUOperationsSyncWaitTime is the wait time between DPUs sync operations on the same node.
-	// It would take effect only on DPUNode objects which contain more than one DPU.
+	// MultiDPUOperationsSyncWaitTime is the wait time between DPUs sync
+	// operations on the same node. It would take effect only on DPUNode objects
+	// which contain more than one DPU.
 	// +kubebuilder:default="30s"
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
@@ -116,32 +127,35 @@ type ProvisioningControllerConfiguration struct {
 	// +optional
 	MultiDPUOperationsSyncWaitTime *metav1.Duration `json:"multiDPUOperationsSyncWaitTime,omitempty"`
 
-	// MaxUnavailableDPUNodes is the maximum number of DPUNodes that are unavailable during the node effect period.
-	// It is also used as the maximum number of unavailable DPUs when controlling DPUSet rolling-update deletion.
+	// MaxUnavailableDPUNodes is the maximum number of DPUNodes that are
+	// unavailable during the node effect period. It is also used as the maximum
+	// number of unavailable DPUs when controlling DPUSet rolling-update
+	// deletion.
 	// +kubebuilder:default=50
 	// +kubebuilder:validation:Minimum=1
 	// +optional
 	MaxUnavailableDPUNodes *int32 `json:"maxUnavailableDPUNodes,omitempty"`
 
-	// OSInstallRetries is the maximum number of retryable OS installation attempts in zero-trust mode
-	// before the DPU transitions to Error. Attempts are counted in-process and reset on controller restart.
-	// When unset, the provisioning controller defaults to 2.
+	// OSInstallRetries is the maximum number of retryable OS installation
+	// attempts in zero-trust mode before the DPU transitions to Error.
+	// Attempts are counted in-process and reset on controller restart. When
+	// unset, the provisioning controller defaults to 2.
 	// +kubebuilder:validation:Minimum=1
 	// +optional
 	OSInstallRetries int32 `json:"osInstallRetries,omitempty"`
 
-	// OSInstallTimeout is the maximum time allowed for OS installation.
-	// If the installation exceeds this timeout, the DPU will transition to an error state.
-	// When unset, the provisioning controller defaults to 60m.
+	// OSInstallTimeout is the maximum time allowed for OS installation. If the
+	// installation exceeds this timeout, the DPU will transition to an error
+	// state. When unset, the provisioning controller defaults to 60m.
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
 	// +kubebuilder:validation:Format=duration
 	// +optional
 	OSInstallTimeout *metav1.Duration `json:"osInstallTimeout,omitempty"`
 
-	// NodeJoinTokenTTL is the lifetime of the kubeadm bootstrap token created for
-	// a DPU node to join its DPUCluster. When unset, the provisioning controller
-	// defaults to 3h.
+	// NodeJoinTokenTTL is the lifetime of the kubeadm bootstrap token created
+	// for a DPU node to join its DPUCluster. When unset, the provisioning
+	// controller defaults to 3h.
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
 	// +kubebuilder:validation:Format=duration
@@ -149,18 +163,20 @@ type ProvisioningControllerConfiguration struct {
 	// +optional
 	NodeJoinTokenTTL *metav1.Duration `json:"nodeJoinTokenTTL,omitempty"`
 
-	// FirmwareUpdateTimeout is the maximum time allowed for BF4 firmware update in zero-trust mode.
-	// If the update exceeds this timeout, the DPU will transition to an error state.
-	// When unset, the provisioning controller defaults to 45m.
+	// FirmwareUpdateTimeout is the maximum time allowed for BF4 firmware update
+	// in zero-trust mode. If the update exceeds this timeout, the DPU will
+	// transition to an error state. When unset, the provisioning controller
+	// defaults to 45m.
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
 	// +kubebuilder:validation:Format=duration
 	// +optional
 	FirmwareUpdateTimeout *metav1.Duration `json:"firmwareUpdateTimeout,omitempty"`
 
-	// PreInstallAgentRegistrationTimeout is how long Initializing waits for the in-band dpu-agent
-	// to set preInstall.agentReported on a recreated DPU CR (reprovision). When the timeout elapses,
-	// provisioning continues without agent-assisted pre-install for this cycle.
+	// PreInstallAgentRegistrationTimeout is how long Initializing waits for the
+	// in-band dpu-agent to set preInstall.agentReported on a recreated DPU CR
+	// (reprovision). When the timeout elapses, provisioning continues without
+	// agent-assisted pre-install for this cycle.
 	// +kubebuilder:default="30s"
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
@@ -168,25 +184,26 @@ type ProvisioningControllerConfiguration struct {
 	// +optional
 	PreInstallAgentRegistrationTimeout *metav1.Duration `json:"preInstallAgentRegistrationTimeout,omitempty"`
 
-	// NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect Removal phase.
-	// If the DPUNodeMaintenance CR still has requestors after this timeout, the DPU will transition to an error state.
-	// When unset, the provisioning controller defaults to 0s (timeout disabled).
+	// NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect
+	// Removal phase. If the DPUNodeMaintenance CR still has requestors after
+	// this timeout, the DPU will transition to an error state. When unset, the
+	// provisioning controller defaults to 0s (timeout disabled).
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
 	// +kubebuilder:validation:Format=duration
 	// +optional
 	NodeEffectRemovalTimeout *metav1.Duration `json:"nodeEffectRemovalTimeout,omitempty"`
 
-	// HostAgentDNSPolicy sets the DNS policy for the hostagent pod.
-	// Valid values are 'ClusterFirstWithHostNet', 'ClusterFirst', 'Default' or 'None'.
-	// Defaults to 'ClusterFirstWithHostNet'.
+	// HostAgentDNSPolicy sets the DNS policy for the hostagent pod. Valid
+	// values are 'ClusterFirstWithHostNet', 'ClusterFirst', 'Default' or
+	// 'None'. Defaults to 'ClusterFirstWithHostNet'.
 	// +kubebuilder:validation:Enum=ClusterFirstWithHostNet;ClusterFirst;Default;None
 	// +optional
 	HostAgentDNSPolicy *corev1.DNSPolicy `json:"hostAgentDNSPolicy,omitempty"`
 
-	// BMCServerCertRenewBefore is how long before expiry DPF rotates the DPU BMC mTLS
-	// server certificate.
-	// When unset, the provisioning controller defaults to 720h (30 days).
+	// BMCServerCertRenewBefore is how long before expiry DPF rotates the DPU
+	// BMC mTLS server certificate. When unset, the provisioning controller
+	// defaults to 720h (30 days).
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
 	// +kubebuilder:validation:Format=duration
@@ -198,7 +215,8 @@ func (c *ProvisioningControllerConfiguration) Name() string {
 	return ProvisioningControllerName.String()
 }
 
-// Deprecated: This method is deprecated and will be removed with v31.0.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v31.0.0. Use
+// GetImages instead.
 func (c *ProvisioningControllerConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -229,7 +247,8 @@ type ProvisioningInstallInterface struct {
 	// Deprecated: Use InstallViaHostAgent instead.
 	// +optional
 	InstallViaGNOI *InstallViaGNOI `json:"installViaGNOI,omitempty"`
-	// InstallViaHostAgent is the interface used to install the BFB via HostAgent
+	// InstallViaHostAgent is the interface used to install the BFB via
+	// HostAgent
 	// +optional
 	InstallViaHostAgent *InstallViaHostAgent `json:"installViaHostAgent,omitempty"`
 	// InstallViaRedfish is the interface used to install the BFB via Redfish
@@ -259,10 +278,11 @@ type InstallViaRedfish struct {
 	// +optional
 	// +kubebuilder:default=true
 	SkipDPUNodeDiscovery *bool `json:"skipDPUNodeDiscovery,omitempty"`
-	// DiscoveredDPUDeviceBMCFactoryResetPolicy is the BMC factory reset policy DPUDiscovery
-	// sets on the DPUDevices it creates. It is applied at creation time only: changing it
-	// does not affect DPUDevices that already exist, and it is not consulted when a
-	// DPUDevice is reconciled. When unset, the discovery controller uses OnInitialization.
+	// DiscoveredDPUDeviceBMCFactoryResetPolicy is the BMC factory reset policy
+	// DPUDiscovery sets on the DPUDevices it creates. It is applied at creation
+	// time only: changing it does not affect DPUDevices that already exist, and
+	// it is not consulted when a DPUDevice is reconciled. When unset, the
+	// discovery controller uses OnInitialization.
 	// +kubebuilder:validation:Enum=OnInitialization;Never
 	// +optional
 	DiscoveredDPUDeviceBMCFactoryResetPolicy provisioningv1.BMCFactoryResetPolicy `json:"discoveredDPUDeviceBMCFactoryResetPolicy,omitempty"`
@@ -290,12 +310,15 @@ func (c *BFBRegistryConfiguration) Disabled() bool {
 }
 
 type RegistryConfiguration struct {
-	// Address is the address used to access the BFB Registry. The address must start with "http://" or "https://".
-	// By default, the BFB Registry can be accessed via its Service.
-	// For non-kubernetes environments, this must be set due to the lack of kubelet on worker nodes.
-	// For zero-trust environments, this must be set so that the BFB Registry can be accessed from DPU BMC.
+	// Address is the address used to access the BFB Registry. The address must
+	// start with "http://" or "https://". By default, the BFB Registry can be
+	// accessed via its Service. For non-kubernetes environments, this must be
+	// set due to the lack of kubelet on worker nodes. For zero-trust
+	// environments, this must be set so that the BFB Registry can be accessed
+	// from DPU BMC.
 	//
-	// Deprecated: Address is deprecated and will be removed in a future release.
+	// Deprecated: Address is deprecated and will be removed in a future
+	// release.
 	// +kubebuilder:validation:Pattern="^https?://"
 	// +optional
 	Address *string `json:"address,omitempty"`
@@ -308,9 +331,12 @@ type RegistryConfiguration struct {
 	// +optional
 	Port *int `json:"port,omitempty"`
 
-	// LoadBalancerAddress is the address of the load balancer for the BFB Registry which the hostagent/redfish use to fetch the BFB and generated bf.cfg.
-	// To enable the load balancer, you need to deploy your own load balancer controller and configure the LoadBalancerAddress field.
-	// Then check the bfb-registry nodeport service and make your load balancer controller to distribute the requests to the bfb-registry nodeport.
+	// LoadBalancerAddress is the address of the load balancer for the BFB
+	// Registry which the hostagent/redfish use to fetch the BFB and generated
+	// bf.cfg. To enable the load balancer, you need to deploy your own load
+	// balancer controller and configure the LoadBalancerAddress field. Then
+	// check the bfb-registry nodeport service and make your load balancer
+	// controller to distribute the requests to the bfb-registry nodeport.
 	// +kubebuilder:validation:Pattern="^https?://"
 	// +optional
 	LoadBalancerAddress *string `json:"loadBalancerAddress,omitempty"`
@@ -324,7 +350,8 @@ const (
 	SPIFFETrustBundleFormatSPIFFE SPIFFETrustBundleFormat = "spiffe"
 )
 
-// SPIFFETrustBundleConfigMapReference references a ConfigMap containing the initial SPIRE trust bundle.
+// SPIFFETrustBundleConfigMapReference references a ConfigMap containing the
+// initial SPIRE trust bundle.
 type SPIFFETrustBundleConfigMapReference struct {
 	// Name is the name of the ConfigMap holding the SPIRE trust bundle.
 	// +kubebuilder:validation:MinLength=1
@@ -332,26 +359,30 @@ type SPIFFETrustBundleConfigMapReference struct {
 	// +required
 	Name string `json:"name,omitempty"`
 
-	// Namespace is the namespace of the ConfigMap holding the SPIRE trust bundle.
+	// Namespace is the namespace of the ConfigMap holding the SPIRE trust
+	// bundle.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
 	// +required
 	Namespace string `json:"namespace,omitempty"`
 
-	// Format selects data["bundle.pem"] or data["bundle.spiffe"] and the matching SPIRE Agent parser.
+	// Format selects data["bundle.pem"] or data["bundle.spiffe"] and the
+	// matching SPIRE Agent parser.
 	// +kubebuilder:validation:Enum=pem;spiffe
 	// +kubebuilder:default=pem
 	// +optional
 	Format SPIFFETrustBundleFormat `json:"format,omitempty"`
 }
 
-// DefaultDPUAgentSPIFFEIDTemplate is the default for both DPU Agent identity templates.
-// This default is applied during reconciliation because the generated CRD is shipped as a Helm
-// template, which would evaluate a kubebuilder default containing Go template delimiters.
+// DefaultDPUAgentSPIFFEIDTemplate is the default for both DPU Agent identity
+// templates. This default is applied during reconciliation because the
+// generated CRD is shipped as a Helm template, which would evaluate a
+// kubebuilder default containing Go template delimiters.
 const DefaultDPUAgentSPIFFEIDTemplate = "spiffe://{{ .TrustDomain }}/dpu/{{ .SerialNumber }}/process/dpu-agent"
 
-// DefaultDPUServiceSPIFFEIDTemplate is the default for both DPUService identity templates.
-// Applied during reconciliation for the same reason as DefaultDPUAgentSPIFFEIDTemplate.
+// DefaultDPUServiceSPIFFEIDTemplate is the default for both DPUService identity
+// templates. Applied during reconciliation for the same reason as
+// DefaultDPUAgentSPIFFEIDTemplate.
 const DefaultDPUServiceSPIFFEIDTemplate = "spiffe://{{ .TrustDomain }}/dpu/{{ .SerialNumber }}/service/{{ .Namespace }}/{{ .ServiceID }}"
 
 // SPIFFEConfiguration is the per-cluster SPIFFE bootstrap parameter set
@@ -359,114 +390,123 @@ const DefaultDPUServiceSPIFFEIDTemplate = "spiffe://{{ .TrustDomain }}/dpu/{{ .S
 // +kubebuilder:validation:XValidation:rule="self.spireServerAddress.matches('^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?([.][A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*:[1-9][0-9]{0,4}$')",message="spireServerAddress must be host:port with a valid DNS-1123 host (e.g. spire-server.spire-system.svc:8081)"
 // +kubebuilder:validation:XValidation:rule="!self.spireServerAddress.contains(':') || (int(self.spireServerAddress.split(':')[1]) >= 1 && int(self.spireServerAddress.split(':')[1]) <= 65535)",message="spireServerAddress port must be in 1-65535"
 type SPIFFEConfiguration struct {
-	// SPIREServerAddress is the address of the pre-installed SPIRE Server in host:port form
-	// (e.g. "spire-server.spire-system.svc:8081").
+	// SPIREServerAddress is the address of the pre-installed SPIRE Server in
+	// host:port form (e.g. "spire-server.spire-system.svc:8081").
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=263
 	// +required
 	SPIREServerAddress string `json:"spireServerAddress,omitempty"`
 
-	// SPIRETrustDomain is the SPIRE-internal trust domain (e.g. "cs.internal") embedded in the
-	// DPU Agent SVID URI.
+	// SPIRETrustDomain is the SPIRE-internal trust domain (e.g. "cs.internal")
+	// embedded in the DPU Agent SVID URI.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	// +required
 	SPIRETrustDomain string `json:"spireTrustDomain,omitempty"`
 
-	// DPUAgentSPIFFEIDTemplate renders the local SPIFFE workload identity registered with SPIRE.
-	// It uses Go text/template syntax and receives TrustDomain, normalized SerialNumber, DPUMeta,
-	// DPUSpec, DPUDeviceMeta, and DPUDeviceSpec. Metadata labels and annotations can be accessed
-	// with the built-in index function.
-	// The rendered identity must use SPIRETrustDomain and depend on the DPU serial.
+	// DPUAgentSPIFFEIDTemplate renders the local SPIFFE workload identity
+	// registered with SPIRE. It uses Go text/template syntax and receives
+	// TrustDomain, normalized SerialNumber, DPUMeta, DPUSpec, DPUDeviceMeta,
+	// and DPUDeviceSpec. Metadata labels and annotations can be accessed with
+	// the built-in index function. The rendered identity must use
+	// SPIRETrustDomain and depend on the DPU serial.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=2048
 	// +optional
 	DPUAgentSPIFFEIDTemplate string `json:"dpuAgentSPIFFEIDTemplate,omitempty"`
 
-	// DPUAgentExchangedSPIFFEIDTemplate renders the post-exchange SPIFFE ID subject. It receives
-	// the same Go template data as DPUAgentSPIFFEIDTemplate.
-	// The rendered identity may use a different trust domain and must depend on the DPU serial.
+	// DPUAgentExchangedSPIFFEIDTemplate renders the post-exchange SPIFFE ID
+	// subject. It receives the same Go template data as
+	// DPUAgentSPIFFEIDTemplate. The rendered identity may use a different trust
+	// domain and must depend on the DPU serial.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=2048
 	// +optional
 	DPUAgentExchangedSPIFFEIDTemplate string `json:"dpuAgentExchangedSPIFFEIDTemplate,omitempty"`
 
-	// DPUServiceSPIFFEIDTemplate renders the identity registered with SPIRE for a DPUService that
-	// opts in through its own spec.security.spiffe. It receives TrustDomain, normalized
-	// SerialNumber, Namespace and ServiceID, plus DPUMeta, DPUSpec, DPUServiceMeta and
-	// DPUServiceSpec.
-	// The rendered identity must use SPIRETrustDomain and depend on the namespace, the service ID
-	// and the DPU serial, which together identify one DPUService workload. Dropping any of them
-	// hands a single SVID to distinct workloads, and nothing detects that later: SPIRE keys
-	// entries on the identity, the parent and the selectors, so two DPUServices differing only in
-	// namespace produce two entries carrying the same identity. A label cannot stand in for the
-	// namespace, since nothing ties one to the other.
+	// DPUServiceSPIFFEIDTemplate renders the identity registered with SPIRE for
+	// a DPUService that opts in through its own spec.security.spiffe. It
+	// receives TrustDomain, normalized SerialNumber, Namespace and ServiceID,
+	// plus DPUMeta, DPUSpec, DPUServiceMeta and DPUServiceSpec. The rendered
+	// identity must use SPIRETrustDomain and depend on the namespace, the
+	// service ID and the DPU serial, which together identify one DPUService
+	// workload. Dropping any of them hands a single SVID to distinct workloads,
+	// and nothing detects that later: SPIRE keys entries on the identity, the
+	// parent and the selectors, so two DPUServices differing only in namespace
+	// produce two entries carrying the same identity. A label cannot stand in
+	// for the namespace, since nothing ties one to the other.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=2048
 	// +optional
 	DPUServiceSPIFFEIDTemplate string `json:"dpuServiceSPIFFEIDTemplate,omitempty"`
 
-	// DPUServiceExchangedSPIFFEIDTemplate renders the post-exchange DPUService subject. It
-	// receives the same template data as DPUServiceSPIFFEIDTemplate and may use a different trust
-	// domain.
-	// DPF renders and validates it so the identity layout is declared in one place, but does not
-	// consume it: unlike the DPU Agent, a DPUService identity is never presented back to DPF.
+	// DPUServiceExchangedSPIFFEIDTemplate renders the post-exchange DPUService
+	// subject. It receives the same template data as DPUServiceSPIFFEIDTemplate
+	// and may use a different trust domain. DPF renders and validates it so the
+	// identity layout is declared in one place, but does not consume it: unlike
+	// the DPU Agent, a DPUService identity is never presented back to DPF.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=2048
 	// +optional
 	DPUServiceExchangedSPIFFEIDTemplate string `json:"dpuServiceExchangedSPIFFEIDTemplate,omitempty"`
 
-	// KubeAPIAudience is the audience claim the DPU Agent's JWT-SVID must carry; it must match an
-	// entry in the kube-apiserver AuthenticationConfiguration.audiences[] (owned out-of-band).
+	// KubeAPIAudience is the audience claim the DPU Agent's JWT-SVID must
+	// carry; it must match an entry in the kube-apiserver
+	// AuthenticationConfiguration.audiences[] (owned out-of-band).
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=512
 	// +required
 	KubeAPIAudience string `json:"kubeAPIAudience,omitempty"`
 
-	// tokenExchangeEndpoint exchanges the SPIRE JWT-SVID before the DSX SPIFFE Helper writes it.
-	// When omitted, the DSX SPIFFE Helper writes the SPIRE JWT-SVID directly.
-	// The returned token's audience must match kubeAPIAudience, or the kube-apiserver rejects the
-	// DPU Agent. Only https: the JWT-SVID is sent here as a bearer credential.
+	// tokenExchangeEndpoint exchanges the SPIRE JWT-SVID before the DSX SPIFFE
+	// Helper writes it. When omitted, the DSX SPIFFE Helper writes the SPIRE
+	// JWT-SVID directly. The returned token's audience must match
+	// kubeAPIAudience, or the kube-apiserver rejects the DPU Agent. Only https:
+	// the JWT-SVID is sent here as a bearer credential.
 	// +kubebuilder:validation:Pattern=`^https://[^[:space:]"\\]+$`
 	// +kubebuilder:validation:MaxLength=2048
 	// +optional
 	TokenExchangeEndpoint *string `json:"tokenExchangeEndpoint,omitempty"`
 
-	// SPIREOIDCURL is the OIDC discovery (issuer) URL of the pre-installed SPIRE Server.
-	// The matching kube-apiserver AuthenticationConfiguration.jwt[].issuer value is applied out-of-band.
+	// SPIREOIDCURL is the OIDC discovery (issuer) URL of the pre-installed
+	// SPIRE Server. The matching kube-apiserver
+	// AuthenticationConfiguration.jwt[].issuer value is applied out-of-band.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=2048
 	// +required
 	SPIREOIDCURL string `json:"spireOIDCURL,omitempty"`
 
-	// spireControllerManagerClassName selects the SPIRE controller-manager instance that renders
-	// DPF ClusterStaticEntries.
+	// spireControllerManagerClassName selects the SPIRE controller-manager
+	// instance that renders DPF ClusterStaticEntries.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	// +required
 	SPIREControllerManagerClassName string `json:"spireControllerManagerClassName,omitempty"`
 
-	// trustBundle references a ConfigMap holding the initial SPIRE trust bundle.
+	// trustBundle references a ConfigMap holding the initial SPIRE trust
+	// bundle.
 	// +required
 	TrustBundle SPIFFETrustBundleConfigMapReference `json:"trustBundle,omitzero"`
 
-	// csiDriver contains the configuration for the SPIFFE CSI driver deployed to the DPU clusters.
+	// csiDriver contains the configuration for the SPIFFE CSI driver deployed
+	// to the DPU clusters.
 	// +optional
 	CSIDriver *SPIFFECSIDriverConfiguration `json:"csiDriver,omitempty"`
 }
 
 // SPIFFECSIDriverConfiguration is the configuration for the SPIFFE CSI driver.
-// It is deployed whenever SPIFFE is configured, so it cannot be disabled on its own.
+// It is deployed whenever SPIFFE is configured, so it cannot be disabled
+// on its own.
 type SPIFFECSIDriverConfiguration struct {
 	// driver contains the configuration for the SPIFFE CSI driver container.
 	// It contains the image for the container.
 	// +optional
 	Driver *ImageComponentConfig `json:"driver,omitempty"`
 
-	// nodeDriverRegistrar contains the configuration for the node-driver-registrar container
-	// that registers the SPIFFE CSI driver with the kubelet.
-	// It contains the image for the container.
+	// nodeDriverRegistrar contains the configuration for the
+	// node-driver-registrar container that registers the SPIFFE CSI driver with
+	// the kubelet. It contains the image for the container.
 	// +optional
 	NodeDriverRegistrar *ImageComponentConfig `json:"nodeDriverRegistrar,omitempty"`
 }
@@ -475,7 +515,8 @@ func (c *SPIFFECSIDriverConfiguration) Name() string {
 	return SPIFFECSIDriverName.String()
 }
 
-// Disabled always returns false, because whether the SPIFFE CSI driver is deployed follows the SPIFFE configuration.
+// Disabled always returns false, because whether the SPIFFE CSI driver is
+// deployed follows the SPIFFE configuration.
 func (c *SPIFFECSIDriverConfiguration) Disabled() bool {
 	return false
 }
@@ -506,41 +547,47 @@ type DPUServiceControllerConfiguration struct {
 	// +optional
 	Image Image `json:"image,omitempty"`
 
-	// Controller contains the configuration for the DPU Service controller component.
-	// It contains the image for the controller and its resource requirements.
+	// Controller contains the configuration for the DPU Service controller
+	// component. It contains the image for the controller and its resource
+	// requirements.
 	// +optional
 	Controller *DefaultOverridesConfiguration `json:"controller,omitempty"`
 
-	// DisableDPUReadyTaints is a full taint kill-switch for the DPUReady controller.
-	// When set to true, no taint managed by this controller (NoSchedule for critical
-	// DPUServices, or NoExecute for HostNetworkReady) is added, removed, or otherwise
-	// touched on host worker nodes.
+	// DisableDPUReadyTaints is a full taint kill-switch for the DPUReady
+	// controller. When set to true, no taint managed by this controller
+	// (NoSchedule for critical DPUServices, or NoExecute for HostNetworkReady)
+	// is added, removed, or otherwise touched on host worker nodes.
 	// +optional
 	DisableDPUReadyTaints *bool `json:"disableDPUReadyTaints,omitempty"`
 
-	// DisableHostNetworkReadyNoExecuteTaints disables NoExecute taints on host worker nodes
-	// based on HostNetworkReady. When unset or true, the feature is disabled (safe default).
-	// Set to false to enable NoExecute tainting when HostNetworkReady != True.
+	// DisableHostNetworkReadyNoExecuteTaints disables NoExecute taints on host
+	// worker nodes based on HostNetworkReady. When unset or true, the feature
+	// is disabled (safe default). Set to false to enable NoExecute tainting
+	// when HostNetworkReady != True.
 	// +optional
 	DisableHostNetworkReadyNoExecuteTaints *bool `json:"disableHostNetworkReadyNoExecuteTaints,omitempty"`
 
-	// DefaultServiceDaemonSetMaxUnavailable specifies the fallback maxUnavailable for
-	// ServiceDaemonSet rolling updates. It defaults to 30000 and is applied when
-	// serviceDaemonSet.updateStrategy is omitted or its rollingUpdate.maxUnavailable
-	// is unset and maxSurge is unset or zero. If maxSurge is nonzero, an omitted maxUnavailable
-	// is left unset. Explicit maxUnavailable values and OnDelete strategies
-	// are preserved. Lower this value to limit the number of unavailable pods during updates.
+	// DefaultServiceDaemonSetMaxUnavailable specifies the fallback
+	// maxUnavailable for ServiceDaemonSet rolling updates. It defaults to 30000
+	// and is applied when serviceDaemonSet.updateStrategy is omitted or its
+	// rollingUpdate.maxUnavailable is unset and maxSurge is unset or zero. If
+	// maxSurge is nonzero, an omitted maxUnavailable is left unset. Explicit
+	// maxUnavailable values and OnDelete strategies are preserved. Lower this
+	// value to limit the number of unavailable pods during updates.
 	// +kubebuilder:validation:Minimum=1
 	// +optional
 	DefaultServiceDaemonSetMaxUnavailable int32 `json:"defaultServiceDaemonSetMaxUnavailable,omitempty"`
 }
 
-// DefaultServiceDaemonSetMaxUnavailableFallback is used when DefaultServiceDaemonSetMaxUnavailable
-// is unset. The large absolute value allows rollouts to proceed despite unreachable DPU nodes.
+// DefaultServiceDaemonSetMaxUnavailableFallback is used when
+// DefaultServiceDaemonSetMaxUnavailable is unset. The large absolute value
+// allows rollouts to proceed despite unreachable DPU nodes.
 const DefaultServiceDaemonSetMaxUnavailableFallback int32 = 30000
 
-// ServiceDaemonSetMaxUnavailableValue returns DefaultServiceDaemonSetMaxUnavailable, or
-// DefaultServiceDaemonSetMaxUnavailableFallback when c is nil or the field is unset.
+// ServiceDaemonSetMaxUnavailableValue returns
+// DefaultServiceDaemonSetMaxUnavailable, or
+// DefaultServiceDaemonSetMaxUnavailableFallback when c is nil or the field
+// is unset.
 func (c *DPUServiceControllerConfiguration) ServiceDaemonSetMaxUnavailableValue() int32 {
 	if c == nil || c.DefaultServiceDaemonSetMaxUnavailable == 0 {
 		return DefaultServiceDaemonSetMaxUnavailableFallback
@@ -552,7 +599,8 @@ func (c *DPUServiceControllerConfiguration) Name() string {
 	return DPUServiceControllerName.String()
 }
 
-// Deprecated: This method is deprecated and will be removed with v31.0.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v31.0.0. Use
+// GetImages instead.
 func (c *DPUServiceControllerConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -597,7 +645,8 @@ func (c *DPUDetectorConfiguration) Name() string {
 	return DPUDetectorName.String()
 }
 
-// Deprecated: This method is deprecated and will be removed with v31.0.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v31.0.0. Use
+// GetImages instead.
 func (c *DPUDetectorConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -633,38 +682,44 @@ type KamajiClusterManagerConfiguration struct {
 	// +optional
 	Image Image `json:"image,omitempty"`
 
-	// Controller contains the configuration for the Kamaji Cluster Manager component.
-	// It contains the image for the controller and its resource requirements.
+	// Controller contains the configuration for the Kamaji Cluster Manager
+	// component. It contains the image for the controller and its resource
+	// requirements.
 	// +optional
 	Controller *DefaultOverridesConfiguration `json:"controller,omitempty"`
 
-	// EtcdEncryptionAtRest configures encryption at rest for the etcd datastore of
-	// Kamaji-managed DPU clusters. The provider selection is applied only when a
-	// Kamaji cluster is first created and is not changed for existing clusters.
+	// EtcdEncryptionAtRest configures encryption at rest for the etcd datastore
+	// of Kamaji-managed DPU clusters. The provider selection is applied only
+	// when a Kamaji cluster is first created and is not changed for existing
+	// clusters.
 	// +optional
 	EtcdEncryptionAtRest *EtcdEncryptionAtRestConfiguration `json:"etcdEncryptionAtRest,omitempty"`
 
-	// DPUClusterImages configures the images of Kamaji-managed DPU clusters.
-	// It is applied only when a Kamaji cluster is first created and is not changed for existing clusters.
+	// DPUClusterImages configures the images of Kamaji-managed DPU clusters. It
+	// is applied only when a Kamaji cluster is first created and is not changed
+	// for existing clusters.
 	// +optional
 	DPUClusterImages *DPUClusterImagesConfiguration `json:"dpuClusterImages,omitempty"`
 }
 
-// DPUClusterImagesConfiguration configures the images of Kamaji-managed DPU clusters.
+// DPUClusterImagesConfiguration configures the images of Kamaji-managed
+// DPU clusters.
 type DPUClusterImagesConfiguration struct {
-	// HostedControlPlaneRepository is the image repository the hosted control plane images of the DPU cluster are
-	// pulled from: kube-apiserver, kube-controller-manager and kube-scheduler. For example, for the
-	// repository example.com/k8s, kube-apiserver is pulled from example.com/k8s/kube-apiserver.
-	// This is registry.k8s.io by default.
+	// HostedControlPlaneRepository is the image repository the hosted control
+	// plane images of the DPU cluster are pulled from: kube-apiserver,
+	// kube-controller-manager and kube-scheduler. For example, for the
+	// repository example.com/k8s, kube-apiserver is pulled from
+	// example.com/k8s/kube-apiserver. This is registry.k8s.io by default.
 	// +optional
 	// +kubebuilder:validation:MaxLength=255
 	// +kubebuilder:validation:Pattern=`^(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*$`
 	HostedControlPlaneRepository *string `json:"hostedControlPlaneRepository,omitempty"`
 
-	// AddonsRepository is the image repository the addon images of the DPU cluster, e.g. kube-proxy, are
-	// pulled from. For example, for the repository example.com/k8s, kube-proxy is pulled from
-	// example.com/k8s/kube-proxy.
-	// The Kamaji defaults are used if this is not set.
+	// AddonsRepository is the image repository the addon images of the DPU
+	// cluster, e.g. kube-proxy, are pulled from. For example, for the
+	// repository example.com/k8s, kube-proxy is pulled from
+	// example.com/k8s/kube-proxy. The Kamaji defaults are used if this is
+	// not set.
 	// +optional
 	// +kubebuilder:validation:MaxLength=255
 	// +kubebuilder:validation:Pattern=`^(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*$`
@@ -675,7 +730,8 @@ func (c *KamajiClusterManagerConfiguration) Name() string {
 	return KamajiClusterManagerName.String()
 }
 
-// Deprecated: This method is deprecated and will be removed with v31.0.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v31.0.0. Use
+// GetImages instead.
 func (c *KamajiClusterManagerConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -711,8 +767,9 @@ type StaticClusterManagerConfiguration struct {
 	// +optional
 	Image Image `json:"image,omitempty"`
 
-	// Controller contains the configuration for the Static Cluster Manager controller component.
-	// It contains the image for the controller and its resource requirements.
+	// Controller contains the configuration for the Static Cluster Manager
+	// controller component. It contains the image for the controller and its
+	// resource requirements.
 	// +optional
 	Controller *DefaultOverridesConfiguration `json:"controller,omitempty"`
 }
@@ -721,7 +778,8 @@ func (c *StaticClusterManagerConfiguration) Name() string {
 	return StaticClusterManagerName.String()
 }
 
-// Deprecated: This method is deprecated and will be removed with v31.0.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v31.0.0. Use
+// GetImages instead.
 func (c *StaticClusterManagerConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -752,15 +810,17 @@ type ServiceSetControllerConfiguration struct {
 	TracingControllerConfig `json:",inline"`
 	HelmComponentConfig     `json:",inline"`
 
-	// Image overrides the container image used by the ServiceChainSet Controller.
+	// Image overrides the container image used by the ServiceChainSet
+	// Controller.
 	//
 	// Deprecated: This field is deprecated and will be removed with v31.0.0.
 	// Use the new field `controller` instead.
 	// +optional
 	Image Image `json:"image,omitempty"`
 
-	// Controller contains the configuration for the ServiceChainSet controller component.
-	// It contains the image for the controller and its resource requirements.
+	// Controller contains the configuration for the ServiceChainSet controller
+	// component. It contains the image for the controller and its resource
+	// requirements.
 	// +optional
 	Controller *DefaultOverridesConfiguration `json:"controller,omitempty"`
 }
@@ -769,7 +829,8 @@ func (c *ServiceSetControllerConfiguration) Name() string {
 	return ServiceSetControllerName.String()
 }
 
-// Deprecated: This method is deprecated and will be removed with v31.0.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v31.0.0. Use
+// GetImages instead.
 func (c *ServiceSetControllerConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -811,8 +872,8 @@ type FlannelConfiguration struct {
 	// +optional
 	CNI *FlannelCNI `json:"cni,omitempty"`
 
-	// Daemon is the configuration for the Flannel Daemon component.
-	// It contains the image for the Flannel Daemon container and its resource requirements.
+	// Daemon is the configuration for the Flannel Daemon component. It contains
+	// the image for the Flannel Daemon container and its resource requirements.
 	// +optional
 	Daemon *FlannelDaemon `json:"daemon,omitempty"`
 
@@ -843,8 +904,8 @@ func (c *FlannelConfiguration) Name() string {
 	return FlannelName.String()
 }
 
-// GetImage returns a comma-delimited list of the Flannel images with a specified order.
-// KubeFlannel is first and FlannelCNi is second.
+// GetImage returns a comma-delimited list of the Flannel images with a
+// specified order. KubeFlannel is first and FlannelCNi is second.
 func (c *FlannelConfiguration) GetImage() *string {
 	if c.Images == nil {
 		return nil
@@ -900,7 +961,8 @@ func (c *MultusConfiguration) Name() string {
 	return MultusName.String()
 }
 
-// Deprecated: This method is deprecated and will be removed with v31.0.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v31.0.0. Use
+// GetImages instead.
 func (c *MultusConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -937,8 +999,9 @@ type NVIPAMConfiguration struct {
 	// +optional
 	Image Image `json:"image,omitempty"`
 
-	// Controller contains the configuration for the NVIPAM controller component.
-	// It contains the image for the controller and its resource requirements.
+	// Controller contains the configuration for the NVIPAM controller
+	// component. It contains the image for the controller and its resource
+	// requirements.
 	// +optional
 	Controller *NVIPAMController `json:"controller,omitempty"`
 
@@ -957,7 +1020,8 @@ type NVIPAMNode struct {
 	ResourceComponentConfig `json:",inline"`
 }
 
-// Deprecated: This method is deprecated and will be removed with v31.0.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v31.0.0. Use
+// GetImages instead.
 func (c *NVIPAMConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -994,20 +1058,23 @@ type SRIOVDevicePluginConfiguration struct {
 	BaseComponentConfig `json:",inline"`
 	HelmComponentConfig `json:",inline"`
 
-	// Image overrides the container image used by the SRIOV Device Plugin container.
+	// Image overrides the container image used by the SRIOV Device Plugin
+	// container.
 	//
 	// Deprecated: This field is deprecated and will be removed with v31.0.0.
 	// Use the new field `deviceplugin` instead.
 	// +optional
 	Image Image `json:"image,omitempty"`
 
-	// DevicePlugin contains the configuration for the SRIOV Device Plugin component.
-	// It contains the image for the controller and its resource requirements.
+	// DevicePlugin contains the configuration for the SRIOV Device Plugin
+	// component. It contains the image for the controller and its resource
+	// requirements.
 	// +optional
 	DevicePlugin *DefaultOverridesConfiguration `json:"deviceplugin,omitempty"`
 
-	// ConfigInit contains the configuration for the SR-IOV Device Plugin config-init container.
-	// It contains the image for the init container and its resource requirements.
+	// ConfigInit contains the configuration for the SR-IOV Device Plugin
+	// config-init container. It contains the image for the init container and
+	// its resource requirements.
 	// +optional
 	ConfigInit *DefaultOverridesConfiguration `json:"configInit,omitempty"`
 }
@@ -1016,7 +1083,8 @@ func (c *SRIOVDevicePluginConfiguration) Name() string {
 	return SRIOVDevicePluginName.String()
 }
 
-// Deprecated: This method is deprecated and will be removed with v31.0.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v31.0.0. Use
+// GetImages instead.
 func (c *SRIOVDevicePluginConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -1067,7 +1135,8 @@ func (c *OVSCNIConfiguration) Name() string {
 	return OVSCNIName.String()
 }
 
-// Deprecated: This method is deprecated and will be removed with v31.0.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v31.0.0. Use
+// GetImages instead.
 func (c *OVSCNIConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -1113,9 +1182,11 @@ type SFCControllerConfiguration struct {
 	// +optional
 	Controller *DefaultOverridesConfiguration `json:"controller,omitempty"`
 
-	// SecureFlowDeletionTimeout controls the timeout for which the API server is unreachable after which all the flows
-	// are deleted to prevent unintended packet leaks. It has effect when is greater than zero.
-	// Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration.
+	// SecureFlowDeletionTimeout controls the timeout for which the API server
+	// is unreachable after which all the flows are deleted to prevent
+	// unintended packet leaks. It has effect when is greater than zero. Value
+	// must be in units accepted by Go time.ParseDuration
+	// https://golang.org/pkg/time/#ParseDuration.
 	// +optional
 	SecureFlowDeletionTimeout *metav1.Duration `json:"secureFlowDeletionTimeout,omitempty"`
 }
@@ -1124,7 +1195,8 @@ func (c *SFCControllerConfiguration) Name() string {
 	return SFCControllerName.String()
 }
 
-// Deprecated: This method is deprecated and will be removed with v31.0.0. Use GetImages instead.
+// Deprecated: This method is deprecated and will be removed with v31.0.0. Use
+// GetImages instead.
 func (c *SFCControllerConfiguration) GetImage() *string {
 	return c.Image
 }
@@ -1185,18 +1257,21 @@ type CoreDNSConfiguration struct {
 	HelmComponentConfig `json:",inline"`
 
 	// Deployment contains the configuration for the CoreDNS deployment.
-	// It contains the image for the CoreDNS container and its resource requirements.
+	// It contains the image for the CoreDNS container and its resource
+	// requirements.
 	// +optional
 	Deployment *CoreDNSDeployment `json:"deployment,omitempty"`
 
-	// UpstreamNameservers is passed to the CoreDNS forward plugin for names outside the cluster domain.
-	// It accepts the same space-separated nameserver or resolv.conf path syntax as the CoreDNS chart.
+	// UpstreamNameservers is passed to the CoreDNS forward plugin for names
+	// outside the cluster domain. It accepts the same space-separated
+	// nameserver or resolv.conf path syntax as the CoreDNS chart.
 	// +kubebuilder:validation:MinLength=1
 	// +optional
 	UpstreamNameservers string `json:"upstreamNameservers,omitempty"`
 }
 
-// CoreDNSDeployment contains the configuration for the CoreDNS deployment container.
+// CoreDNSDeployment contains the configuration for the CoreDNS
+// deployment container.
 type CoreDNSDeployment struct {
 	ImageComponentConfig    `json:",inline"`
 	ResourceComponentConfig `json:",inline"`
@@ -1226,37 +1301,40 @@ func (c *CoreDNSConfiguration) GetResources() map[ContainerName]*corev1.Resource
 	}
 }
 
-// NodeSRIOVDevicePluginSettings contains configuration for the SRIOV device plugin pods
-// managed by the NodeSRIOVDevicePlugin controller.
+// NodeSRIOVDevicePluginSettings contains configuration for the SRIOV device
+// plugin pods managed by the NodeSRIOVDevicePlugin controller.
 type NodeSRIOVDevicePluginSettings struct {
-	// Image overrides the container image for the SRIOV device plugin.
-	// If neither a tag nor a digest is set, the tag and digest of the default image are used.
+	// Image overrides the container image for the SRIOV device plugin. If
+	// neither a tag nor a digest is set, the tag and digest of the default
+	// image are used.
 	// +optional
 	Image Image `json:"image,omitempty"`
 
-	// InitImage overrides the container image for the init container
-	// that generates device plugin configuration.
-	// If neither a tag nor a digest is set, the tag and digest of the default image are used.
+	// InitImage overrides the container image for the init container that
+	// generates device plugin configuration. If neither a tag nor a digest is
+	// set, the tag and digest of the default image are used.
 	// +optional
 	InitImage Image `json:"initImage,omitempty"`
 
-	// DefaultResourcePrefix is the default resource prefix for the SRIOV device plugin resources.
-	// Defaults to "nvidia.com".
+	// DefaultResourcePrefix is the default resource prefix for the SRIOV device
+	// plugin resources. Defaults to "nvidia.com".
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	// +optional
 	DefaultResourcePrefix *string `json:"defaultResourcePrefix,omitempty"`
 }
 
-// NodeSRIOVDevicePluginControllerConfiguration is the configuration for the NodeSRIOVDevicePlugin controller.
-// This controller manages per-node SRIOV device plugin pods based on DPU configurations.
-// The controller is disabled by default.
+// NodeSRIOVDevicePluginControllerConfiguration is the configuration for the
+// NodeSRIOVDevicePlugin controller. This controller manages per-node SRIOV
+// device plugin pods based on DPU configurations. The controller is disabled
+// by default.
 type NodeSRIOVDevicePluginControllerConfiguration struct {
 	BaseComponentConfig     `json:",inline"`
 	BaseControllerConfig    `json:",inline"`
 	TracingControllerConfig `json:",inline"`
 
-	// Controller contains the configuration for the NodeSRIOVDevicePlugin controller component.
-	// It contains the image for the controller and its resource requirements.
+	// Controller contains the configuration for the NodeSRIOVDevicePlugin
+	// controller component. It contains the image for the controller and its
+	// resource requirements.
 	// +optional
 	Controller *DefaultOverridesConfiguration `json:"controller,omitempty"`
 
@@ -1293,7 +1371,8 @@ type KubeStateMetricsConfiguration struct {
 	HelmComponentConfig `json:",inline"`
 
 	// Daemon contains the configuration for the kube-state-metrics component.
-	// It contains the image for kube-state-metrics and its resource requirements.
+	// It contains the image for kube-state-metrics and its resource
+	// requirements.
 	// +optional
 	Daemon *DefaultOverridesConfiguration `json:"daemon,omitempty"`
 }
@@ -1324,8 +1403,9 @@ type NodeProblemDetectorConfiguration struct {
 	BaseComponentConfig `json:",inline"`
 	HelmComponentConfig `json:",inline"`
 
-	// Daemon contains the configuration for the node-problem-detector component.
-	// It contains the image for node-problem-detector and its resource requirements.
+	// Daemon contains the configuration for the node-problem-detector
+	// component. It contains the image for node-problem-detector and its
+	// resource requirements.
 	// +optional
 	Daemon *DefaultOverridesConfiguration `json:"daemon,omitempty"`
 }
@@ -1356,66 +1436,76 @@ type OpenTelemetryCollectorConfiguration struct {
 	BaseComponentConfig `json:",inline"`
 	HelmComponentConfig `json:",inline"`
 
-	// Daemon contains the configuration for the opentelemetry-collector component.
-	// It contains the image for opentelemetry-collector and its resource requirements.
+	// Daemon contains the configuration for the opentelemetry-collector
+	// component. It contains the image for opentelemetry-collector and its
+	// resource requirements.
 	// +optional
 	Daemon *DefaultOverridesConfiguration `json:"daemon,omitempty"`
 
-	// Logging contains the configuration for the opentelemetry-collector logging component.
-	// If not specified, logging will not be streamed.
+	// Logging contains the configuration for the opentelemetry-collector
+	// logging component. If not specified, logging will not be streamed.
 	// +optional
 	Logging *OpenTelemetryCollectorExportConfiguration `json:"logging,omitempty"`
 
-	// Metrics contains the configuration for the opentelemetry-collector metrics component.
-	// If not specified, metrics will not be streamed from DPU clusters.
+	// Metrics contains the configuration for the opentelemetry-collector
+	// metrics component. If not specified, metrics will not be streamed from
+	// DPU clusters.
 	// +optional
 	Metrics *OpenTelemetryCollectorExportConfiguration `json:"metrics,omitempty"`
 
-	// Tracing is where the DPU clusters export their trace spans. The collector forwards the spans it
-	// receives locally, and the sfc-controller sends its own. The DPUs must reach it, so use the
-	// address of a management cluster node, not a cluster-local Service. If not specified, none are exported.
+	// Tracing is where the DPU clusters export their trace spans. The collector
+	// forwards the spans it receives locally, and the sfc-controller sends its
+	// own. The DPUs must reach it, so use the address of a management cluster
+	// node, not a cluster-local Service. If not specified, none are exported.
 	// +optional
 	Tracing *OpenTelemetryCollectorExportConfiguration `json:"tracing,omitempty"`
 }
 
-// TracingConfiguration configures how the DPF controllers export their trace spans. The endpoint is
-// used by the controllers of the management cluster, so it can be a cluster-local Service.
+// TracingConfiguration configures how the DPF controllers export their trace
+// spans. The endpoint is used by the controllers of the management cluster, so
+// it can be a cluster-local Service.
 type TracingConfiguration struct {
-	// Otlp is the OTLP export configuration of the controllers of the management cluster, so its
-	// endpoint can be a cluster-local Service. If not specified, these controllers export no trace spans.
+	// Otlp is the OTLP export configuration of the controllers of the
+	// management cluster, so its endpoint can be a cluster-local Service. If
+	// not specified, these controllers export no trace spans.
 	// +optional
 	Otlp OpenTelemetryCollectorExportConfiguration `json:"otlp,omitempty,omitzero"`
 
-	// DisableControllerTraces stops all DPF controllers from exporting trace spans and keeps the
-	// configuration. It takes precedence over disableTracing of the individual controllers.
-	// The collector still forwards the spans it receives locally.
+	// DisableControllerTraces stops all DPF controllers from exporting trace
+	// spans and keeps the configuration. It takes precedence over
+	// disableTracing of the individual controllers. The collector still
+	// forwards the spans it receives locally.
 	// +optional
 	DisableControllerTraces *bool `json:"disableControllerTraces,omitempty"`
 
-	// RecordIdleReconciles exports the spans of idle reconciles. A reconcile is idle when it starts
-	// at the resourceVersion the last successful reconcile of the object left behind, for example a
-	// requeue or a resync. An idle reconcile that fails or changes its object is always exported.
+	// RecordIdleReconciles exports the spans of idle reconciles. A reconcile
+	// is idle when it starts at the resourceVersion the last successful
+	// reconcile of the object left behind, for example a requeue or a resync.
+	// An idle reconcile that fails or changes its object is always exported.
 	// When not set, idle reconciles are not exported.
 	// +optional
 	RecordIdleReconciles *bool `json:"recordIdleReconciles,omitempty"`
 
-	// RecordUnchangedReconciles exports the spans of reconciles that changed nothing on their object,
-	// did not fail and have no child spans. Such a span only says that the reconcile ran. When not
-	// set, they are not exported.
+	// RecordUnchangedReconciles exports the spans of reconciles that changed
+	// nothing on their object, did not fail and have no child spans. Such a
+	// span only says that the reconcile ran. When not set, they are not
+	// exported.
 	// +optional
 	RecordUnchangedReconciles *bool `json:"recordUnchangedReconciles,omitempty"`
 
-	// SamplingPercent is the share of the traces generated by the DPF controllers that is exported, in
-	// percent. The decision is made per trace, so all spans of a change are kept or dropped together.
-	// When not set, all of them are kept.
+	// SamplingPercent is the share of the traces generated by the DPF
+	// controllers that is exported, in percent. The decision is made per trace,
+	// so all spans of a change are kept or dropped together. When not set, all
+	// of them are kept.
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=100
 	// +optional
 	SamplingPercent *int32 `json:"samplingPercent,omitempty"`
 
-	// RolloutTimeout is how long a change may take to become ready before its rollout span is exported
-	// as timed out. When not set, it is one hour. Set it to 0s to turn the timeout off, so a rollout
-	// ends once the change is ready or a newer change replaces it.
+	// RolloutTimeout is how long a change may take to become ready before its
+	// rollout span is exported as timed out. When not set, it is one hour. Set
+	// it to 0s to turn the timeout off, so a rollout ends once the change is
+	// ready or a newer change replaces it.
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern=`^([0-9]+(h|m|s|ms|us|µs|ns))+$`
 	// +kubebuilder:validation:Format=duration
@@ -1423,12 +1513,14 @@ type TracingConfiguration struct {
 	RolloutTimeout *metav1.Duration `json:"rolloutTimeout,omitempty"`
 }
 
-// OpenTelemetryCollectorCASecretKey is the default Secret data key that holds the PEM-encoded CA
-// certificate bundle referenced by a CASecretRef when the reference does not specify a key.
+// OpenTelemetryCollectorCASecretKey is the default Secret data key that holds
+// the PEM-encoded CA certificate bundle referenced by a CASecretRef when the
+// reference does not specify a key.
 const OpenTelemetryCollectorCASecretKey = "ca.crt"
 
-// OpenTelemetryCollectorCASecretReference references a Secret that contains the PEM-encoded CA
-// certificate bundle used to verify the endpoint's TLS certificate.
+// OpenTelemetryCollectorCASecretReference references a Secret that contains the
+// PEM-encoded CA certificate bundle used to verify the endpoint's TLS
+// certificate.
 type OpenTelemetryCollectorCASecretReference struct {
 	// Name is the name of the Secret holding the CA certificate bundle.
 	// +kubebuilder:validation:MinLength=1
@@ -1436,22 +1528,24 @@ type OpenTelemetryCollectorCASecretReference struct {
 	// +required
 	Name string `json:"name,omitempty"`
 
-	// Namespace is the namespace of the Secret holding the CA certificate bundle.
-	// If unset, the DPFOperatorConfig namespace is used.
+	// Namespace is the namespace of the Secret holding the CA certificate
+	// bundle. If unset, the DPFOperatorConfig namespace is used.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
 	// +optional
 	Namespace *string `json:"namespace,omitempty"`
 
-	// Key is the Secret data key that holds the PEM-encoded CA certificate bundle.
-	// If unset, "ca.crt" is used, matching the key that cert-manager writes.
+	// Key is the Secret data key that holds the PEM-encoded CA certificate
+	// bundle. If unset, "ca.crt" is used, matching the key that cert-manager
+	// writes.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	// +optional
 	Key *string `json:"key,omitempty"`
 }
 
-// OpenTelemetryCollectorTransport is the OTLP transport used to export data to the endpoint.
+// OpenTelemetryCollectorTransport is the OTLP transport used to export data to
+// the endpoint.
 type OpenTelemetryCollectorTransport string
 
 const (
@@ -1461,19 +1555,19 @@ const (
 	OpenTelemetryCollectorTransportGRPC OpenTelemetryCollectorTransport = "grpc"
 )
 
-// OpenTelemetryCollectorExportConfiguration configures where and how an opentelemetry signal
-// (logs, metrics or traces) is exported. It is shared by
-// OpenTelemetryCollectorConfiguration.Logging (the DPU cluster opentelemetry-collector's log
-// export destination), .Metrics (its metric export destination) and .Tracing (its trace export
-// destination).
+// OpenTelemetryCollectorExportConfiguration configures where and how an
+// opentelemetry signal (logs, metrics or traces) is exported. It is shared by
+// OpenTelemetryCollectorConfiguration.Logging (the DPU cluster
+// opentelemetry-collector's log export destination), .Metrics (its metric
+// export destination) and .Tracing (its trace export destination).
 // +kubebuilder:validation:XValidation:rule="!has(self.caSecretRef) || !self.endpoint.startsWith('http://')",message="caSecretRef cannot be used with a plaintext http:// endpoint"
 type OpenTelemetryCollectorExportConfiguration struct {
-	// Endpoint is the OTLP endpoint data is sent to. This could be the management cluster's
-	// opentelemetry-collector endpoint.
-	// If not specified, nothing will be exported for this signal.
-	// For the http transport the endpoint must include the scheme, e.g. "https://host:4318".
-	// For the grpc transport the endpoint is "host:4317", optionally prefixed with a
-	// scheme ("https://host:4317") to enforce TLS.
+	// Endpoint is the OTLP endpoint data is sent to. This could be the
+	// management cluster's opentelemetry-collector endpoint. If not specified,
+	// nothing will be exported for this signal. For the http transport the
+	// endpoint must include the scheme, e.g. "https://host:4318". For the grpc
+	// transport the endpoint is "host:4317", optionally prefixed with a scheme
+	// ("https://host:4317") to enforce TLS.
 	// +required
 	Endpoint string `json:"endpoint,omitempty"`
 
@@ -1482,13 +1576,14 @@ type OpenTelemetryCollectorExportConfiguration struct {
 	// +optional
 	Transport *OpenTelemetryCollectorTransport `json:"transport,omitempty"`
 
-	// CASecretRef references a Secret that contains the PEM-encoded CA certificate bundle
-	// (under the "ca.crt" key) used to verify the endpoint's TLS certificate. Set it when the
-	// endpoint serves a certificate issued by a private CA. The Secret may live in any namespace,
-	// for example alongside the endpoint's cert-manager Certificate; if its namespace is empty,
-	// the DPFOperatorConfig namespace is used.
-	// If not specified, TLS endpoints are verified against the system CA pool.
-	// Changes to the Secret content are applied on the next reconciliation of the DPFOperatorConfig.
+	// CASecretRef references a Secret that contains the PEM-encoded CA
+	// certificate bundle (under the "ca.crt" key) used to verify the endpoint's
+	// TLS certificate. Set it when the endpoint serves a certificate issued by
+	// a private CA. The Secret may live in any namespace, for example
+	// alongside the endpoint's cert-manager Certificate; if its namespace is
+	// empty, the DPFOperatorConfig namespace is used. If not specified, TLS
+	// endpoints are verified against the system CA pool. Changes to the Secret
+	// content are applied on the next reconciliation of the DPFOperatorConfig.
 	// +optional
 	CASecretRef *OpenTelemetryCollectorCASecretReference `json:"caSecretRef,omitempty"`
 }
@@ -1565,7 +1660,8 @@ func (c *KataContainersConfiguration) GetImages() map[ContainerName]*string {
 	return images
 }
 
-// SecretKeyRef selects a single key from a Secret living in the same namespace as the DPFOperatorConfig.
+// SecretKeyRef selects a single key from a Secret living in the same namespace
+// as the DPFOperatorConfig.
 type SecretKeyRef struct {
 	// Name is the name of the Secret.
 	// +kubebuilder:validation:MinLength=1
@@ -1578,7 +1674,8 @@ type SecretKeyRef struct {
 	Key string `json:"key,omitempty"`
 }
 
-// ConfigMapKeyRef selects a single key from a ConfigMap living in the same namespace as the DPFOperatorConfig.
+// ConfigMapKeyRef selects a single key from a ConfigMap living in the same
+// namespace as the DPFOperatorConfig.
 type ConfigMapKeyRef struct {
 	// Name is the name of the ConfigMap.
 	// +kubebuilder:validation:MinLength=1
@@ -1596,13 +1693,16 @@ type ConfigMapKeyRef struct {
 type EtcdEncryptionAtRestProvider string
 
 const (
-	// EtcdEncryptionProviderStaticKey encrypts etcd data with an AES-GCM key rendered inline into the encryption config.
+	// EtcdEncryptionProviderStaticKey encrypts etcd data with an AES-GCM key
+	// rendered inline into the encryption config.
 	EtcdEncryptionProviderStaticKey EtcdEncryptionAtRestProvider = "staticKey"
-	// EtcdEncryptionProviderVaultKMS encrypts etcd data via the KMS v2 plugin served by the vaultKMS component.
+	// EtcdEncryptionProviderVaultKMS encrypts etcd data via the KMS v2 plugin
+	// served by the vaultKMS component.
 	EtcdEncryptionProviderVaultKMS EtcdEncryptionAtRestProvider = "vaultKMS"
 )
 
-// EtcdEncryptionAtRestConfiguration is the per-cluster encryption-at-rest selector for Kamaji clusters.
+// EtcdEncryptionAtRestConfiguration is the per-cluster
+// encryption-at-rest selector for Kamaji clusters.
 // +kubebuilder:validation:XValidation:rule="self.provider != 'staticKey' || has(self.staticKey)",message="staticKey is required when provider is staticKey"
 // +kubebuilder:validation:XValidation:rule="self.provider != 'vaultKMS' || !has(self.staticKey)",message="staticKey must not be set when provider is vaultKMS"
 type EtcdEncryptionAtRestConfiguration struct {
@@ -1610,33 +1710,38 @@ type EtcdEncryptionAtRestConfiguration struct {
 	// +required
 	Provider EtcdEncryptionAtRestProvider `json:"provider,omitempty"`
 
-	// StaticKey configures the staticKey provider. It is required when provider is staticKey and
-	// must not be set otherwise.
+	// StaticKey configures the staticKey provider. It is required when provider
+	// is staticKey and must not be set otherwise.
 	// +optional
 	StaticKey *StaticKeyConfiguration `json:"staticKey,omitempty"`
 }
 
 // StaticKeyConfiguration configures the staticKey encryption-at-rest provider.
 type StaticKeyConfiguration struct {
-	// KeySecretRef selects the AES-GCM key from a Secret in the DPFOperatorConfig namespace.
-	// The referenced Secret value must be base64-encoded AES key text whose decoded length is 16,
-	// 24, or 32 bytes. For Kubernetes manifests, use stringData.key with the output of
-	// `openssl rand -base64 32`. For External Secrets, configure the external value or template so
-	// the resulting Kubernetes Secret data decodes to that base64 text, not to raw key bytes.
-	// The referenced key is used as the desired static key source. Changing the referenced
-	// Secret value triggers automatic rotation for existing staticKey-encrypted Kamaji clusters.
-	// The per-cluster rendered encryption configuration must be backed up together with the
-	// cluster etcd backup because Kubernetes encrypted data references encryption config key names.
+	// KeySecretRef selects the AES-GCM key from a Secret in the
+	// DPFOperatorConfig namespace. The referenced Secret value must be
+	// base64-encoded AES key text whose decoded length is 16, 24, or 32 bytes.
+	// For Kubernetes manifests, use stringData.key with the output of
+	// `openssl rand -base64 32`. For External Secrets, configure the external
+	// value or template so the resulting Kubernetes Secret data decodes to that
+	// base64 text, not to raw key bytes. The referenced key is used as the
+	// desired static key source. Changing the referenced Secret value triggers
+	// automatic rotation for existing staticKey-encrypted Kamaji clusters. The
+	// per-cluster rendered encryption configuration must be backed up together
+	// with the cluster etcd backup because Kubernetes encrypted data references
+	// encryption config key names.
 	// +required
 	KeySecretRef SecretKeyRef `json:"keySecretRef,omitzero"`
 
-	// AutomaticRotationDisabled disables automatic staticKey rotation for existing Kamaji clusters.
-	// In-flight rotations stop at the next stable checkpoint; encryption at rest remains enabled.
+	// AutomaticRotationDisabled disables automatic staticKey rotation for
+	// existing Kamaji clusters. In-flight rotations stop at the next stable
+	// checkpoint; encryption at rest remains enabled.
 	// +optional
 	AutomaticRotationDisabled *bool `json:"automaticRotationDisabled,omitempty"`
 }
 
-// VaultKMSAuthMethod selects the Vault/OpenBao auth method used by the KMS plugin.
+// VaultKMSAuthMethod selects the Vault/OpenBao auth method used by
+// the KMS plugin.
 // +kubebuilder:validation:Enum=token;approle;userpass;kubernetes;jwt
 type VaultKMSAuthMethod string
 
@@ -1647,19 +1752,22 @@ const (
 	VaultKMSAuthMethodAppRole VaultKMSAuthMethod = "approle"
 	// VaultKMSAuthMethodUserpass authenticates using the userpass auth method.
 	VaultKMSAuthMethodUserpass VaultKMSAuthMethod = "userpass"
-	// VaultKMSAuthMethodKubernetes authenticates using the Kubernetes auth method.
+	// VaultKMSAuthMethodKubernetes authenticates using the Kubernetes
+	// auth method.
 	VaultKMSAuthMethodKubernetes VaultKMSAuthMethod = "kubernetes"
 	// VaultKMSAuthMethodJWT authenticates using the JWT auth method.
 	VaultKMSAuthMethodJWT VaultKMSAuthMethod = "jwt"
 )
 
-// VaultKMSConfiguration configures the standalone Vault/OpenBao KMS plugin component.
-// The component is deployed as a DaemonSet on control-plane nodes and is disabled by default.
-// The plugin is used for encryption at rest for DPUClusters.
+// VaultKMSConfiguration configures the standalone Vault/OpenBao KMS plugin
+// component. The component is deployed as a DaemonSet on control-plane nodes
+// and is disabled by default. The plugin is used for encryption at rest for
+// DPUClusters.
 type VaultKMSConfiguration struct {
 	BaseComponentConfig `json:",inline"`
 
-	// Daemon contains the image and resource overrides for the KMS plugin DaemonSet.
+	// Daemon contains the image and resource overrides for the KMS plugin
+	// DaemonSet.
 	// +optional
 	Daemon *DefaultOverridesConfiguration `json:"daemon,omitempty"`
 
@@ -1671,48 +1779,54 @@ type VaultKMSConfiguration struct {
 	// +required
 	Auth VaultKMSAuth `json:"auth,omitzero"`
 
-	// TokenCheckIntervalSeconds optionally overrides how often the plugin checks and renews the current Vault token, in seconds.
-	// This is an advanced setting. The plugin default should work for most environments.
+	// TokenCheckIntervalSeconds optionally overrides how often the plugin
+	// checks and renews the current Vault token, in seconds. This is an
+	// advanced setting. The plugin default should work for most environments.
 	// Must be at least 5 seconds.
 	// +kubebuilder:validation:Minimum=5
 	// +optional
 	TokenCheckIntervalSeconds *int32 `json:"tokenCheckIntervalSeconds,omitempty"`
 
-	// LoginTimeoutSeconds optionally overrides the maximum time for one Vault token check cycle, including authentication, in seconds.
-	// This is an advanced setting. The plugin default should work for most environments.
+	// LoginTimeoutSeconds optionally overrides the maximum time for one Vault
+	// token check cycle, including authentication, in seconds. This is an
+	// advanced setting. The plugin default should work for most environments.
 	// Must be at least 1 second.
 	// +kubebuilder:validation:Minimum=1
 	// +optional
 	LoginTimeoutSeconds *int32 `json:"loginTimeoutSeconds,omitempty"`
 
 	// Address is the Vault/OpenBao server address.
-	// WARNING: Changing this field does not automatically rotate the encryption key or
-	// re-encrypt existing DPU cluster secrets. Do not change it while active DPU clusters
-	// depend on this KMS plugin unless the new endpoint provides access to the key material
-	// used by the previous endpoint. Otherwise, those clusters will be unable to decrypt
-	// their existing secrets, causing an outage.
+	// WARNING: Changing this field does not automatically rotate the encryption
+	// key or re-encrypt existing DPU cluster secrets. Do not change it while
+	// active DPU clusters depend on this KMS plugin unless the new endpoint
+	// provides access to the key material used by the previous endpoint.
+	// Otherwise, those clusters will be unable to decrypt their existing
+	// secrets, causing an outage.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=2048
 	// +kubebuilder:validation:Pattern=`^https://.+$`
 	// +required
 	Address string `json:"address,omitempty"`
 
-	// Transit configures the Vault Transit secrets engine used for encrypt/decrypt.
-	// WARNING: Changing this field does not automatically rotate the encryption key or
-	// re-encrypt existing DPU cluster secrets. Do not change it while active DPU clusters
-	// depend on this KMS plugin unless the new Transit configuration provides access to all
-	// key material used by the previous configuration. Otherwise, those clusters will be
-	// unable to decrypt their existing secrets, causing an outage.
+	// Transit configures the Vault Transit secrets engine used for
+	// encrypt/decrypt.
+	// WARNING: Changing this field does not automatically rotate the encryption
+	// key or re-encrypt existing DPU cluster secrets. Do not change it while
+	// active DPU clusters depend on this KMS plugin unless the new Transit
+	// configuration provides access to all key material used by the previous
+	// configuration. Otherwise, those clusters will be unable to decrypt their
+	// existing secrets, causing an outage.
 	// +required
 	Transit VaultKMSTransit `json:"transit,omitzero"`
 
-	// Namespace optionally configures the Vault/OpenBao namespace used for requests.
-	// This is a Vault/OpenBao namespace, not a Kubernetes namespace.
-	// WARNING: Changing this field does not automatically rotate the encryption key or
-	// re-encrypt existing DPU cluster secrets. Do not change it while active DPU clusters
-	// depend on this KMS plugin unless the new namespace provides access to the key material
-	// used by the previous namespace. Otherwise, those clusters will be unable to decrypt
-	// their existing secrets, causing an outage.
+	// Namespace optionally configures the Vault/OpenBao namespace used for
+	// requests. This is a Vault/OpenBao namespace, not a Kubernetes namespace.
+	// WARNING: Changing this field does not automatically rotate the encryption
+	// key or re-encrypt existing DPU cluster secrets. Do not change it while
+	// active DPU clusters depend on this KMS plugin unless the new namespace
+	// provides access to the key material used by the previous namespace.
+	// Otherwise, those clusters will be unable to decrypt their existing
+	// secrets, causing an outage.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=512
 	// +optional
@@ -1721,8 +1835,8 @@ type VaultKMSConfiguration struct {
 
 // VaultKMSTLS configures TLS settings for the connection to Vault/OpenBao.
 type VaultKMSTLS struct {
-	// CACertConfigMapRef selects a CA bundle key from a ConfigMap used to verify the
-	// Vault/OpenBao server certificate. It is mounted as a file.
+	// CACertConfigMapRef selects a CA bundle key from a ConfigMap used to
+	// verify the Vault/OpenBao server certificate. It is mounted as a file.
 	// +optional
 	CACertConfigMapRef *ConfigMapKeyRef `json:"caConfigMapRef,omitempty"`
 }
@@ -1744,7 +1858,8 @@ type VaultKMSTransit struct {
 	Mount *string `json:"mount,omitempty"`
 }
 
-// VaultKMSAuth configures the Vault/OpenBao auth method. Exactly one auth block matching method must be set.
+// VaultKMSAuth configures the Vault/OpenBao auth method. Exactly one auth
+// block matching method must be set.
 // +kubebuilder:validation:XValidation:rule="self.method != 'token' || has(self.token)",message="token is required when method is token"
 // +kubebuilder:validation:XValidation:rule="self.method == 'token' || !has(self.token)",message="token must only be set when method is token"
 // +kubebuilder:validation:XValidation:rule="self.method != 'approle' || has(self.appRole)",message="appRole is required when method is approle"
@@ -1783,19 +1898,23 @@ type VaultKMSAuth struct {
 
 // VaultKMSTokenAuth configures the token auth method.
 type VaultKMSTokenAuth struct {
-	// TokenSecretRef selects the Vault token from a Secret in the DPFOperatorConfig namespace.
+	// TokenSecretRef selects the Vault token from a Secret in the
+	// DPFOperatorConfig namespace.
 	// +required
 	TokenSecretRef SecretKeyRef `json:"tokenSecretRef,omitzero"`
 }
 
-// VaultKMSAppRoleAuth configures the AppRole auth method using a single merged Secret.
+// VaultKMSAppRoleAuth configures the AppRole auth method using a
+// single merged Secret.
 type VaultKMSAppRoleAuth struct {
-	// SecretName is the name of the Secret holding the AppRole role ID and secret ID.
+	// SecretName is the name of the Secret holding the AppRole role ID and
+	// secret ID.
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	SecretName string `json:"secretName,omitempty"`
 
-	// AuthEngineMountPath optionally overrides the Vault auth engine mount path. It is not the transit mount.
+	// AuthEngineMountPath optionally overrides the Vault auth engine mount
+	// path. It is not the transit mount.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=512
 	// +optional
@@ -1812,14 +1931,16 @@ type VaultKMSAppRoleAuth struct {
 	SecretIDKey string `json:"secretIDKey,omitempty"`
 }
 
-// VaultKMSUserpassAuth configures the userpass auth method using a single merged Secret.
+// VaultKMSUserpassAuth configures the userpass auth method using a
+// single merged Secret.
 type VaultKMSUserpassAuth struct {
 	// SecretName is the name of the Secret holding the username and password.
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	SecretName string `json:"secretName,omitempty"`
 
-	// AuthEngineMountPath optionally overrides the Vault auth engine mount path. It is not the transit mount.
+	// AuthEngineMountPath optionally overrides the Vault auth engine mount
+	// path. It is not the transit mount.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=512
 	// +optional
@@ -1843,14 +1964,16 @@ type VaultKMSKubernetesAuth struct {
 	// +required
 	Role string `json:"role,omitempty"`
 
-	// Audience optionally sets the audience for the projected Kubernetes service account token.
-	// Use this when the Vault Kubernetes auth role is configured with bound audiences.
+	// Audience optionally sets the audience for the projected Kubernetes
+	// service account token. Use this when the Vault Kubernetes auth role is
+	// configured with bound audiences.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=512
 	// +optional
 	Audience *string `json:"audience,omitempty"`
 
-	// AuthEngineMountPath optionally overrides the Vault auth engine mount path. It is not the transit mount.
+	// AuthEngineMountPath optionally overrides the Vault auth engine mount
+	// path. It is not the transit mount.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=512
 	// +optional
@@ -1864,11 +1987,13 @@ type VaultKMSJWTAuth struct {
 	// +required
 	Role string `json:"role,omitempty"`
 
-	// JWTSecretRef selects the JWT presented to Vault from a Secret in the DPFOperatorConfig namespace.
+	// JWTSecretRef selects the JWT presented to Vault from a Secret in the
+	// DPFOperatorConfig namespace.
 	// +required
 	JWTSecretRef SecretKeyRef `json:"jwtSecretRef,omitzero"`
 
-	// AuthEngineMountPath optionally overrides the Vault auth engine mount path. It is not the transit mount.
+	// AuthEngineMountPath optionally overrides the Vault auth engine mount
+	// path. It is not the transit mount.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=512
 	// +optional

@@ -26,23 +26,28 @@ import (
 const (
 	// DPUVirtualNetworkKind is the kind of the DPUVirtualNetwork object.
 	DPUVirtualNetworkKind = "DPUVirtualNetwork"
-	// DPUVirtualNetworkListKind is the kind of the DPUVirtualNetwork list object.
+	// DPUVirtualNetworkListKind is the kind of the
+	// DPUVirtualNetwork list object.
 	DPUVirtualNetworkListKind = "DPUVirtualNetworkList"
 )
 
-// DPUVirtualNetworkGroupVersionKind is the GroupVersionKind of the DPUVirtualNetwork object.
+// DPUVirtualNetworkGroupVersionKind is the GroupVersionKind of the
+// DPUVirtualNetwork object.
 var DPUVirtualNetworkGroupVersionKind = GroupVersion.WithKind(DPUVirtualNetworkKind)
 
 // Status related constants
 const (
-	// ConditionPreReqsReady is a condition that is set when the prerequisites for the DPUVirtualNetwork are ready.
+	// ConditionPreReqsReady is a condition that is set when the prerequisites
+	// for the DPUVirtualNetwork are ready.
 	ConditionPreReqsReady conditions.ConditionType = "PrerequisitesReady"
-	// ConditionDPUVirtualNetworkReconciled is a condition that is set when the DPUVirtualNetwork is reconciled.
+	// ConditionDPUVirtualNetworkReconciled is a condition that is set when the
+	// DPUVirtualNetwork is reconciled.
 	ConditionDPUVirtualNetworkReconciled conditions.ConditionType = "DPUVirtualNetworkReconciled"
 )
 
 var (
-	// DPUVirtualNetworkConditions are conditions that can be set on a DPUVirtualNetwork object.
+	// DPUVirtualNetworkConditions are conditions that can be set on a
+	// DPUVirtualNetwork object.
 	DPUVirtualNetworkConditions = []conditions.ConditionType{
 		ConditionPreReqsReady,
 		ConditionDPUVirtualNetworkReconciled,
@@ -65,10 +70,12 @@ const (
 // +kubebuilder:validation:XValidation:rule="self == oldSelf",message="DPUVirtualNetwork spec is immutable"
 // +kubebuilder:validation:XValidation:rule="(self.type == 'Bridged' && has(self.bridgedNetwork))", message="for type=Bridged, bridgedNetwork must be set"
 type DPUVirtualNetworkSpec struct {
-	// NodeSelector Selects the DPU Nodes with specific labels which can belong to the virtual network.
+	// NodeSelector Selects the DPU Nodes with specific labels which can
+	// belong to the virtual network.
 	// +optional
 	NodeSelector *metav1.LabelSelector `json:"nodeSelector,omitempty"`
-	// vpcName is the name of the DPUVPC the virtual network belongs within the same namespace.
+	// vpcName is the name of the DPUVPC the virtual network belongs within
+	// the same namespace.
 	// +required
 	VPCName string `json:"vpcName"`
 	// Type of the virtual network
@@ -77,8 +84,9 @@ type DPUVirtualNetworkSpec struct {
 	// ExternallyRouted defines if the virtual network can be routed externally
 	// +required
 	ExternallyRouted bool `json:"externallyRouted"`
-	// Masquerade defines if the virtual network should masquerade the traffic before egressing to external networks.
-	// valid only if ExternallyRouted is true
+	// Masquerade defines if the virtual network should masquerade the traffic
+	// before egressing to external networks. valid only if ExternallyRouted
+	// is true
 	// +optional
 	// +kubebuilder:default=true
 	Masquerade *bool `json:"masquerade,omitempty"`
@@ -101,12 +109,14 @@ type BridgedNetworkIPAMSpec struct {
 	IPv4 *BridgedNetworkIPAMIPv4Spec `json:"ipv4,omitempty"`
 }
 
-// BridgedNetworkIPAMIPv4Spec contains IPv4 IPAM configuration for bridged network
+// BridgedNetworkIPAMIPv4Spec contains IPv4 IPAM configuration for
+// bridged network
 type BridgedNetworkIPAMIPv4Spec struct {
 	// DHCP if set, enables DHCP for the network
 	// +required
 	DHCP bool `json:"dhcp"`
-	// Subnet is the network subnet in CIDR format to use for DHCP. the first IP in the subnet is the gateway.
+	// Subnet is the network subnet in CIDR format to use for DHCP. the first
+	// IP in the subnet is the gateway.
 	// +required
 	Subnet string `json:"subnet"`
 	// ExcludeIPs are the IPs to exclude from DHCP allocation.
@@ -115,10 +125,12 @@ type BridgedNetworkIPAMIPv4Spec struct {
 }
 
 type ExcludeIPsEntry struct {
-	// IP is the IP address to exclude from DHCP allocation. must be part for the virtual network subnet.
+	// IP is the IP address to exclude from DHCP allocation. must be part
+	// for the virtual network subnet.
 	// +optional
 	IP *string `json:"ip,omitempty"`
-	// Range is the range of IP addresses to exclude from DHCP allocation. must be part for the virtual network subnet.
+	// Range is the range of IP addresses to exclude from DHCP allocation.
+	// must be part for the virtual network subnet.
 	// +optional
 	Range *RangeEntry `json:"range,omitempty"`
 }
@@ -138,7 +150,8 @@ type DPUVirtualNetworkStatus struct {
 	// Conditions reflect the status of the object
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// ObservedGeneration records the Generation observed on the object the last
+	// time it was patched.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
@@ -184,7 +197,8 @@ func (vn *DPUVirtualNetwork) SetConditions(conditions []metav1.Condition) {
 	vn.Status.Conditions = conditions
 }
 
-// GetIPv4Subnet returns the IPv4 subnet of the virtual network if present, otherwise an empty string is returned
+// GetIPv4Subnet returns the IPv4 subnet of the virtual network if present,
+// otherwise an empty string is returned
 func (vn *DPUVirtualNetwork) GetIPv4Subnet() string {
 	if vn.Spec.Type == BridgedVirtualNetworkType && vn.Spec.BridgedNetwork != nil && vn.Spec.BridgedNetwork.IPAM != nil && vn.Spec.BridgedNetwork.IPAM.IPv4 != nil {
 		return vn.Spec.BridgedNetwork.IPAM.IPv4.Subnet

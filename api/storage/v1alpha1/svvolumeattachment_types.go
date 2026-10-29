@@ -26,18 +26,21 @@ const (
 	SVVolumeAttachmentKind = "SVVolumeAttachment"
 )
 
-// SVVolumeAttachmentGroupVersionKind is the GroupVersionKind of the SVVolumeAttachment object
+// SVVolumeAttachmentGroupVersionKind is the GroupVersionKind of the
+// SVVolumeAttachment object
 var SVVolumeAttachmentGroupVersionKind = GroupVersion.WithKind(SVVolumeAttachmentKind)
 
-// NOTE: A separate type for the svvolumeattachment CR is maintained within the nvidia-external-attacher tree.
-// If you modify this CR, please ensure you update it there as well.
+// NOTE: A separate type for the svvolumeattachment CR is maintained within
+// the nvidia-external-attacher tree. If you modify this CR, please ensure you
+// update it there as well.
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced
 // +kubebuilder:metadata:annotations=helm.sh/resource-policy=keep
 
-// SVVolumeAttachment captures the intent to attach/detach the specified Volume to/from the specified node.
+// SVVolumeAttachment captures the intent to attach/detach the specified Volume
+// to/from the specified node.
 type SVVolumeAttachment struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

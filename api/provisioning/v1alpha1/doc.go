@@ -14,7 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package v1alpha1 contains API Schema definitions for the provisioning.dpu v1alpha1 API group
+// Package v1alpha1 contains API Schema definitions for the provisioning.dpu
+// v1alpha1 API group
 // +kubebuilder:object:generate=true
 // +groupName=provisioning.dpu.nvidia.com
 package v1alpha1

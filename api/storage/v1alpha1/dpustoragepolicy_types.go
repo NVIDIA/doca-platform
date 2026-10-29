@@ -25,7 +25,8 @@ import (
 const (
 	// DPUStoragePolicyKind is the kind of the DPUStoragePolicy object
 	DPUStoragePolicyKind = "DPUStoragePolicy"
-	// DPUStoragePolicyFinalizer is the finalizer for the DPUStoragePolicy object
+	// DPUStoragePolicyFinalizer is the finalizer for the DPUStoragePolicy
+	// object
 	DPUStoragePolicyFinalizer = "storage.dpu.nvidia.com/dpustoragepolicy"
 )
 
@@ -36,17 +37,19 @@ const (
 	// Random selection across the vendors defined in the StoragePolicy list.
 	SelectionAlgorithmRandom SelectionAlgorithm = "Random"
 	// Load-balancing on the number of volumes belonging to the StoragePolicy.
-	// The vendor (in the DPUStoragePolicy list) with the minimal number of volumes should be selected.
+	// The vendor (in the DPUStoragePolicy list) with the minimal number of
+	// volumes should be selected.
 	SelectionAlgorithmNumberVolumes SelectionAlgorithm = "NumberVolumes"
 )
 
-// DPUStoragePolicyGroupVersionKind is the GroupVersionKind of the DPUStoragePolicy object
+// DPUStoragePolicyGroupVersionKind is the GroupVersionKind of the
+// DPUStoragePolicy object
 var DPUStoragePolicyGroupVersionKind = GroupVersion.WithKind(DPUStoragePolicyKind)
 
 // Condition types
 const (
-	// ConditionDPUStoragePolicyReconciled is the condition type that indicates that the
-	// DPUStoragePolicy is reconciled.
+	// ConditionDPUStoragePolicyReconciled is the condition type that indicates
+	// that the DPUStoragePolicy is reconciled.
 	ConditionDPUStoragePolicyReconciled conditions.ConditionType = "DPUStoragePolicyReconciled"
 	// ConditionDPUStoragePolicyValid is the condition type that indicates that
 	// all the provided DPUStorageVendors are valid
@@ -54,7 +57,8 @@ const (
 )
 
 var (
-	// DPUStoragePolicyConditions is the list of conditions that the DPUStoragePolicy can have.
+	// DPUStoragePolicyConditions is the list of conditions that the
+	// DPUStoragePolicy can have.
 	DPUStoragePolicyConditions = []conditions.ConditionType{
 		conditions.TypeReady,
 		ConditionDPUStoragePolicyReconciled,
@@ -112,7 +116,8 @@ type DPUStoragePolicyStatus struct {
 	// Current service state conditions
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// ObservedGeneration records the Generation observed on the object the last
+	// time it was patched.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }

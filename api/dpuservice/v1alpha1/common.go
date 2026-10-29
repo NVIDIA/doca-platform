@@ -23,8 +23,8 @@ import (
 
 const SvcDpuGroupName = "svc.dpu.nvidia.com"
 
-// DPUServiceObject is an interface implemented by common DPUService* related objects enabling common functions in the
-// reconcilers
+// DPUServiceObject is an interface implemented by common DPUService* related
+// objects enabling common functions in the reconcilers
 // +kubebuilder:object:generate=false
 type DPUServiceObject interface {
 	client.Object

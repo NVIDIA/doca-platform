@@ -20,6 +20,7 @@ linters:
     - unconvert
     - unparam
     - unused
+    - lll
   settings:
     ginkgolinter:
       forbid-focus-container: true
@@ -89,6 +90,9 @@ linters:
       dot-import-whitelist:
         - github.com/onsi/ginkgo/v2
         - github.com/onsi/gomega
+    lll:
+      line-length: 80
+      tab-width: 4
   exclusions:
     generated: lax
     rules:
@@ -176,6 +180,18 @@ linters:
           - staticcheck
         # BFBRegistry is deprecated in favor of RegistryConfiguration but still supported until configs migrate.
         text: "SA1019: .*\\.BFBRegistry is deprecated"
+      - linters:
+          - lll
+        path-except: '^api/'
+      - linters:
+          - lll
+        source: '^\s*//\s*\+'
+      - linters:
+          - lll
+        source: '^\s*[^/\s]'
+      - linters:
+          - lll
+        source: '^\s*//\s*\S+$'
     paths:
       - third_party
       - third_party$

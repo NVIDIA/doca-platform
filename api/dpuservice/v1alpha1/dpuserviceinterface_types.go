@@ -58,32 +58,39 @@ func (c *DPUServiceInterface) SetConditions(conditions []metav1.Condition) {
 	c.Status.Conditions = conditions
 }
 
-// SetServiceInterfaceSetLabelSelector sets the label selector for the ServiceInterfaceSet
+// SetServiceInterfaceSetLabelSelector sets the label selector for the
+// ServiceInterfaceSet
 func (c *DPUServiceInterface) SetServiceInterfaceSetLabelSelector(selector *metav1.LabelSelector) {
 	c.Spec.Template.Spec.NodeSelector = selector
 }
 
-// GetServiceInterfaceSetLabelSelector returns the label selector for the ServiceInterfaceSet
+// GetServiceInterfaceSetLabelSelector returns the label selector for the
+// ServiceInterfaceSet
 func (c *DPUServiceInterface) GetServiceInterfaceSetLabelSelector() *metav1.LabelSelector {
 	return c.Spec.Template.Spec.NodeSelector
 }
 
-// GetDPUClusterSelector returns the DPUCluster selector of the DPUServiceInterface
+// GetDPUClusterSelector returns the DPUCluster selector of the
+// DPUServiceInterface
 func (c *DPUServiceInterface) GetDPUClusterSelector() *metav1.LabelSelector {
 	return c.Spec.DPUClusterSelector
 }
 
 // DPUServiceInterfaceSpec defines the desired state of DPUServiceInterfaceSpec
 type DPUServiceInterfaceSpec struct {
-	// Select the Clusters with specific labels, ServiceInterfaceSet CRs will be created only for these Clusters
+	// Select the Clusters with specific labels, ServiceInterfaceSet CRs will be
+	// created only for these Clusters
 	//
-	// Deprecated: This field is deprecated and will be removed with v31.0.0. Use DPUClusterSelector instead.
+	// Deprecated: This field is deprecated and will be removed with v31.0.0.
+	// Use DPUClusterSelector instead.
 	// +optional
 	ClusterSelector *metav1.LabelSelector `json:"clusterSelector,omitempty"`
-	// DPUClusterSelector determines in which clusters the DPUServiceInterface controller should apply the configuration.
+	// DPUClusterSelector determines in which clusters the DPUServiceInterface
+	// controller should apply the configuration.
 	// +optional
 	DPUClusterSelector *metav1.LabelSelector `json:"dpuClusterSelector,omitempty"`
-	// Template describes the ServiceInterfaceSet that will be created for each selected Cluster.
+	// Template describes the ServiceInterfaceSet that will be created for each
+	// selected Cluster.
 	Template ServiceInterfaceSetSpecTemplate `json:"template"`
 }
 
@@ -92,7 +99,8 @@ func (s *DPUServiceInterfaceSpec) GetTemplateSpec() *ServiceInterfaceSetSpec {
 	return &s.Template.Spec
 }
 
-// ServiceInterfaceSetSpecTemplate describes the data a ServiceInterfaceSet should have when created from a template.
+// ServiceInterfaceSetSpecTemplate describes the data a ServiceInterfaceSet
+// should have when created from a template.
 type ServiceInterfaceSetSpecTemplate struct {
 	Spec       ServiceInterfaceSetSpec `json:"spec"`
 	ObjectMeta `json:"metadata,omitempty"`
@@ -103,13 +111,15 @@ type DPUServiceInterfaceStatus struct {
 	// Conditions defines current service state.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// ObservedGeneration records the Generation observed on the object the last
+	// time it was patched.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
-// GetVirtualNetworkName returns the virtual network name from the DPUServiceInterface.
-// if it does not have a virtual network, it returns an empty string
+// GetVirtualNetworkName returns the virtual network name from the
+// DPUServiceInterface. if it does not have a virtual network, it returns an
+// empty string
 func (c *DPUServiceInterface) GetVirtualNetworkName() string {
 	si := ServiceInterface{
 		Spec: c.Spec.Template.Spec.Template.Spec,

@@ -25,7 +25,8 @@ const (
 	VolumeAttachmentKind = "VolumeAttachment"
 )
 
-// VolumeAttachmentGroupVersionKind is the GroupVersionKind of the VolumeAttachment object
+// VolumeAttachmentGroupVersionKind is the GroupVersionKind of the
+// VolumeAttachment object
 var VolumeAttachmentGroupVersionKind = GroupVersion.WithKind(VolumeAttachmentKind)
 
 // VolumeSource references to the NV-Volume object
@@ -55,7 +56,8 @@ type VolumeAttachmentStatusDPU struct {
 
 // FSdevAttrs represents the attributes of the underlying filesystem device
 type FSdevAttrs struct {
-	// Filesystem tag identified by SNAP on the host (used for the mount). Relevant for volume of type filesystem
+	// Filesystem tag identified by SNAP on the host (used for the mount).
+	// Relevant for volume of type filesystem
 	FilesystemTag string `json:"filesystemTag,omitempty"`
 }
 
@@ -72,8 +74,9 @@ type BdevAttrs struct {
 // +kubebuilder:resource:scope=Namespaced
 // +kubebuilder:metadata:annotations=helm.sh/resource-policy=keep
 
-// VolumeAttachment captures the intent to attach/detach the specified NV-Volume to/from the specified node.
-// VolumeAttachment is an internal API, it is not intended to be used by users.
+// VolumeAttachment captures the intent to attach/detach the specified NV-Volume
+// to/from the specified node. VolumeAttachment is an internal API, it is not
+// intended to be used by users.
 type VolumeAttachment struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -91,13 +94,15 @@ type VolumeAttachmentSpec struct {
 	VolumeAttachmentRef *ObjectRef `json:"volumeAttachmentRef,omitempty"`
 	// Opaque static publish properties of the volume returned by the plugin
 	Parameters map[string]string `json:"parameters,omitempty"`
-	// FunctionTypeConfig is the configuration for the emulated function that should be used to attach the volume
+	// FunctionTypeConfig is the configuration for the emulated function that
+	// should be used to attach the volume
 	FunctionTypeConfig `json:",inline"`
 }
 
 // VolumeAttachmentStatus defines the observed state of VolumeAttachment
 type VolumeAttachmentStatus struct {
-	// Indicates the volume is successfully attached to the target storage system
+	// Indicates the volume is successfully attached to the target storage
+	// system
 	// +optional
 	StorageAttached bool `json:"storageAttached,omitempty"`
 	// The last error encountered during the attach operation, if any

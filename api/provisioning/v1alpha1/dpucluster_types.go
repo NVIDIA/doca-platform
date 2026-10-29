@@ -41,9 +41,11 @@ const (
 	ConditionCreated  ConditionType = "Created"
 	ConditionReady    ConditionType = "Ready"
 	ConditionUpgraded ConditionType = "Upgraded"
-	// ConditionEtcdEncryptionRotationInProgress indicates static key rotation is in progress.
+	// ConditionEtcdEncryptionRotationInProgress indicates static key rotation
+	// is in progress.
 	ConditionEtcdEncryptionRotationInProgress ConditionType = "EtcdEncryptionRotationInProgress"
-	// ConditionEtcdEncryptionRotationBlocked indicates static key rotation is blocked.
+	// ConditionEtcdEncryptionRotationBlocked indicates static key rotation is
+	// blocked.
 	ConditionEtcdEncryptionRotationBlocked ConditionType = "EtcdEncryptionRotationBlocked"
 )
 
@@ -79,14 +81,18 @@ const (
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// NOTE: json tags are required.  Any new fields you add must have json tags
+// for the fields to be serialized.
 
 // DPUClusterSpec defines the desired state of DPUCluster
 type DPUClusterSpec struct {
 	// Type of the cluster with few supported values
-	// static - existing cluster that is deployed by user. For DPUCluster of this type, the kubeconfig field must be set.
-	// kamaji - DPF managed cluster. The kamaji-cluster-manager will create a DPU cluster on behalf of this CR.
-	// $(others) - any string defined by ISVs, such type names must start with a prefix.
+	// static - existing cluster that is deployed by user. For DPUCluster of
+	// this type, the kubeconfig field must be set.
+	// kamaji - DPF managed cluster. The kamaji-cluster-manager will create a
+	// DPU cluster on behalf of this CR.
+	// $(others) - any string defined by ISVs, such type names must start with
+	// a prefix.
 	// +kubebuilder:validation:Pattern="kamaji|static|[^/]+/.*"
 	// +required
 	Type string `json:"type"`
@@ -123,7 +129,8 @@ type DPUClusterStatus struct {
 	// +optional
 	NodesCount int `json:"nodesCount"`
 
-	// EtcdEncryptionAtRest exposes the observed encryption-at-rest state for the cluster.
+	// EtcdEncryptionAtRest exposes the observed encryption-at-rest state for
+	// the cluster.
 	// +optional
 	EtcdEncryptionAtRest *DPUClusterEtcdEncryptionAtRestStatus `json:"etcdEncryptionAtRest,omitempty"`
 
@@ -131,7 +138,8 @@ type DPUClusterStatus struct {
 	Conditions []metav1.Condition `json:"conditions"`
 }
 
-// DPUClusterEtcdEncryptionAtRestStatus defines the observed encryption-at-rest state for a DPUCluster.
+// DPUClusterEtcdEncryptionAtRestStatus defines the observed
+// encryption-at-rest state for a DPUCluster.
 type DPUClusterEtcdEncryptionAtRestStatus struct {
 	// Provider is the committed encryption-at-rest provider for the cluster.
 	// +kubebuilder:validation:Enum=staticKey;vaultKMS
@@ -143,10 +151,12 @@ type DPUClusterEtcdEncryptionAtRestStatus struct {
 	StaticKey *DPUClusterStaticKeyEncryptionStatus `json:"staticKey,omitempty"`
 }
 
-// DPUClusterStaticKeyEncryptionStatus defines observed staticKey encryption-at-rest state.
+// DPUClusterStaticKeyEncryptionStatus defines observed staticKey
+// encryption-at-rest state.
 type DPUClusterStaticKeyEncryptionStatus struct {
 	// ActiveKeyRef is the source Secret observed for the currently active key.
-	// This field is informational and must not be used by controllers to select desired key material.
+	// This field is informational and must not be used by controllers to
+	// select desired key material.
 	// +optional
 	ActiveKeyRef *ObservedSecretKeyRef `json:"activeKeyRef,omitempty"`
 }
@@ -180,7 +190,8 @@ type ObservedSecretKeyRef struct {
 }
 
 type ClusterEndpointSpec struct {
-	// Keepalived configures the keepalived that will be deployed for the cluster control-plane
+	// Keepalived configures the keepalived that will be deployed for the
+	// cluster control-plane
 	// +optional
 	Keepalived *KeepalivedSpec `json:"keepalived,omitempty"`
 }
@@ -198,7 +209,8 @@ type KeepalivedSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	Interface string `json:"interface"`
 
-	// NodeSelector is used to specify a subnet of control plane nodes to deploy keepalived instances.
+	// NodeSelector is used to specify a subnet of control plane nodes to
+	// deploy keepalived instances.
 	// Note: keepalived instances are always deployed on control plane nodes
 	// +optional
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
@@ -216,10 +228,11 @@ type KeepalivedSpec struct {
 // +kubebuilder:printcolumn:name="NodesCount",type="integer",JSONPath=".status.nodesCount",description="number of assigned DPUs"
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 // +kubebuilder:validation:XValidation:rule="self.metadata.name.size() <= 63", message="name length can't be bigger than 63 chars"
-// The DPUCluster name is used as a prefix for Service names created for its DPUServices, which must be valid
-// DNS-1035 labels (start with a lowercase letter). This is enforced on create only. Clusters that already
-// exist with a non-compliant name are exempt (the name is immutable), so their status and finalizers can
-// still be updated.
+// The DPUCluster name is used as a prefix for Service names created for its
+// DPUServices, which must be valid DNS-1035 labels (start with a lowercase
+// letter). This is enforced on create only. Clusters that already exist with
+// a non-compliant name are exempt (the name is immutable), so their status
+// and finalizers can still be updated.
 // +kubebuilder:validation:XValidation:rule="self.metadata.name.matches('^[a-z]([-a-z0-9]*[a-z0-9])?$') || (oldSelf.hasValue() && oldSelf.value().metadata.name == self.metadata.name)",optionalOldSelf=true,message="name must be a DNS-1035 label: start with a lowercase letter, contain only lowercase alphanumerics or '-', and end with an alphanumeric"
 
 // DPUCluster is the Schema for the dpuclusters API
@@ -249,10 +262,12 @@ func init() {
 }
 
 const (
-	// DPUClusterNameLabelKey is the key of the label linking objects to a specific DPU Cluster. The value should be the
-	// namespace of the DPUCluster.
+	// DPUClusterNameLabelKey is the key of the label linking objects to a
+	// specific DPU Cluster. The value should be the namespace of the
+	// DPUCluster.
 	DPUClusterNameLabelKey = "dpu.nvidia.com/cluster"
-	// DPUClusterNamespaceLabelKey is the key of the label linking objects to a specific DPU Cluster. The value should
-	// be the namespace of the DPUCluster.
+	// DPUClusterNamespaceLabelKey is the key of the label linking objects to
+	// a specific DPU Cluster. The value should be the namespace of the
+	// DPUCluster.
 	DPUClusterNamespaceLabelKey = "dpu.nvidia.com/cluster-namespace"
 )
