@@ -1224,8 +1224,9 @@ func (c *Client) GetRootService(ctx context.Context) (*resty.Response, *RootServ
 
 // BMCCredentialResult contains the resolved BMC credential information.
 type BMCCredentialResult struct {
-	Password   string
-	SecretName string
+	Password    string
+	SecretName  string
+	Annotations map[string]string
 }
 
 // ResolveBMCCredential resolves the BMC password to use for a DPUDevice.
@@ -1252,7 +1253,11 @@ func readPasswordFromSecret(ctx context.Context, namespace, secretName string, k
 	if passwd == "" {
 		return nil, fmt.Errorf("password key is empty or missing in credential secret %q", secretName)
 	}
-	return &BMCCredentialResult{Password: passwd, SecretName: secretName}, nil
+	return &BMCCredentialResult{
+		Password:    passwd,
+		SecretName:  secretName,
+		Annotations: secret.Annotations,
+	}, nil
 }
 
 // ErrBMCPasswordRejected is returned when the BMC answered an authentication attempt and turned it
@@ -1282,9 +1287,16 @@ func PasswordChangeRequired(resp *resty.Response) bool {
 	return false
 }
 
-// VerifyBMCCredential tries to authenticate to the BMC with the given password,
-// attempting BF3 (root) first, then falling back to BF4 (admin).
-// It returns the authenticated client and the BMC username that succeeded.
+// VerifyBMCCredential tries to authenticate to the BMC with the given password. It returns the
+// authenticated client and the BMC username that succeeded.
+//
+// The account comes from the unauthenticated root service whenever it names the model, so that a
+// guess cannot spend a login attempt on the account that actually exists. A BMC fresh out of a
+// factory reset answers the root service with 403 PasswordChangeRequired, and then names no model;
+// in that case both accounts are tried, because a 401 for an account the BMC does not have cannot
+// lock the one it does. Password rotation and the mTLS basic-auth fallback call this too: every
+// call reads the root service, and a failure of that read other than PasswordChangeRequired aborts
+// the check.
 //
 // The probe is GET /redfish/v1/Managers: that is what InitPassword uses, and unlike
 // FirmwareInventory it is the right signal after a factory reset. A 200 means the password is
@@ -1300,35 +1312,80 @@ func VerifyBMCCredential(ctx context.Context, bmcAddress, password string) (*Cli
 	if !strings.HasPrefix(bmcAddress, httpsPrefix) {
 		bmcAddress = httpsPrefix + bmcAddress
 	}
+	users, err := bmcUserCandidatesFromService(ctx, bmcAddress)
+	if err != nil {
+		return nil, "", err
+	}
+	c, user, _, err := probeBMCPassword(ctx, bmcAddress, password, users)
+	if err != nil {
+		return nil, "", err
+	}
+	return c, user, nil
+}
 
-	for _, user := range []string{BF3BMCUser, BF4BMCUser} {
+// bmcUserCandidatesFromService reads the unauthenticated root service and names the accounts to try.
+// A 403 PasswordChangeRequired is not a failure: a post-reset BMC answers that way and names no model.
+// Any other failure aborts the caller.
+func bmcUserCandidatesFromService(ctx context.Context, bmcAddress string) ([]string, error) {
+	rootClient, err := NewRawClient(bmcAddress)
+	if err != nil {
+		return nil, err
+	}
+	defer rootClient.CloseIdleConnections()
+	rootResp, rootServiceInfo, err := rootClient.GetRootService(ctx)
+	if err != nil && (!HasHTTPStatus(err, http.StatusForbidden) || !PasswordChangeRequired(rootResp)) {
+		return nil, err
+	}
+	return bmcUserCandidates(rootServiceInfo), nil
+}
+
+// probeBMCPassword tries password against each account. The first account the BMC accepts (200, or
+// 403 PasswordChangeRequired) wins. A 401 tries the next account. Any other failure aborts.
+func probeBMCPassword(ctx context.Context, bmcAddress, password string, users []string) (*Client, string, *resty.Response, error) {
+	for _, user := range users {
 		c, err := NewBasicAuthClient(ctx, bmcAddress, user, password)
 		if err != nil {
-			return nil, "", err
+			return nil, "", nil, err
 		}
 		resp, _, err := c.GetManagers(ctx)
 		if err != nil && !HasHTTPStatus(err, http.StatusUnauthorized) && !HasHTTPStatus(err, http.StatusForbidden) {
 			c.CloseIdleConnections()
-			return nil, "", err
+			return nil, "", nil, err
 		}
 		switch resp.StatusCode() {
 		case http.StatusOK:
-			return c, user, nil
+			return c, user, resp, nil
 		case http.StatusForbidden:
 			if PasswordChangeRequired(resp) {
-				return c, user, nil
+				return c, user, resp, nil
 			}
 			c.CloseIdleConnections()
-			return nil, "", requestError(resp, nil)
-		case http.StatusUnauthorized:
-			c.CloseIdleConnections()
-			continue
+			return nil, "", nil, requestError(resp, nil)
 		}
+		c.CloseIdleConnections()
 	}
-	return nil, "", ErrBMCPasswordRejected
+	return nil, "", nil, ErrBMCPasswordRejected
+}
+
+// bmcUserCandidates names the Redfish accounts to try, in order. A root service that reports a
+// model identifies the account on its own; a model-less root service rules out neither, so a BF4
+// BMC that has just been reset is not written off as rejecting a password it never saw.
+func bmcUserCandidates(rootServiceInfo *RootServiceInfo) []string {
+	if rootServiceInfo == nil || rootServiceInfo.Product == "" {
+		return []string{BF3BMCUser, BF4BMCUser}
+	}
+	if rootServiceInfo.IsBF4() {
+		return []string{BF4BMCUser}
+	}
+	return []string{BF3BMCUser}
 }
 
 // InitPassword resolves the BMC password and authenticates to the BMC.
+//
+// The account is chosen the same way as VerifyBMCCredential. A BMC just out of a factory reset
+// answers the root service with 403 PasswordChangeRequired and names no model; both accounts are
+// tried, and the one that accepts the factory default is the one that is hardened. Assuming root
+// in that case would write the password to the wrong account on a BlueField-4.
 func InitPassword(ctx context.Context, bmcAddress string, namespace string, bmcCredentialSecretName *string, k8sClient client.Client) (*Client, error) {
 	readCtx, cancel := ReadContext(ctx)
 	defer cancel()
@@ -1342,55 +1399,40 @@ func InitPassword(ctx context.Context, bmcAddress string, namespace string, bmcC
 		bmcAddress = httpsPrefix + bmcAddress
 	}
 
-	user, err := bmcUserForAddress(readCtx, bmcAddress)
+	users, err := bmcUserCandidatesFromService(readCtx, bmcAddress)
 	if err != nil {
+		return nil, err
+	}
+	client, user, resp, err := probeBMCPassword(readCtx, bmcAddress, passwd, users)
+	if err == nil {
+		result, err := completeInitPassword(ctx, client, resp, bmcAddress, user, passwd)
+		if result != client {
+			client.CloseIdleConnections()
+		}
+		return result, err
+	}
+	if !errors.Is(err, ErrBMCPasswordRejected) {
 		return nil, err
 	}
 
-	client, err := NewBasicAuthClient(readCtx, bmcAddress, user, passwd)
+	// The Secret password is not active. Find the account that still holds the factory default
+	// and move it, instead of assuming that account is root.
+	defaultClient, user, _, err := probeBMCPassword(readCtx, bmcAddress, BMCDefaultPassword, users)
 	if err != nil {
 		return nil, err
 	}
-	resp, _, err := client.GetManagers(readCtx)
-	if err != nil && !HasHTTPStatus(err, http.StatusUnauthorized) &&
-		(!HasHTTPStatus(err, http.StatusForbidden) || !PasswordChangeRequired(resp)) {
-		client.CloseIdleConnections()
+	defaultClient.CloseIdleConnections()
+	if err := changeDefaultPassword(ctx, bmcAddress, user, passwd); err != nil {
 		return nil, err
 	}
-	result, err := completeInitPassword(ctx, client, resp, bmcAddress, user, passwd)
-	if result != client {
-		client.CloseIdleConnections()
-	}
-	return result, err
-}
-
-func bmcUserForAddress(ctx context.Context, bmcAddress string) (string, error) {
-	rootClient, err := NewRawClient(bmcAddress)
-	if err != nil {
-		return "", err
-	}
-	defer rootClient.CloseIdleConnections()
-	_, rootServiceInfo, err := rootClient.GetRootService(ctx)
-	if err != nil {
-		return "", err
-	}
-	if rootServiceInfo.IsBF4() {
-		log.FromContext(ctx).Info("Assuming BF4 model, BMC user changed to admin")
-		return BF4BMCUser, nil
-	}
-	return BF3BMCUser, nil
+	return NewBasicAuthClient(ctx, bmcAddress, user, passwd)
 }
 
 // completeInitPassword finishes InitPassword based on the Managers probe response: harden when the
-// BMC still holds the factory default (401 or 403 PasswordChangeRequired), ensure the service
+// BMC still holds the factory default (403 PasswordChangeRequired), ensure the service
 // account matches when the target password already works, or fail on unexpected status.
 func completeInitPassword(ctx context.Context, client *Client, resp *resty.Response, bmcAddress, user, passwd string) (*Client, error) {
 	switch resp.StatusCode() {
-	case http.StatusUnauthorized:
-		if err := changeDefaultPassword(ctx, bmcAddress, user, passwd); err != nil {
-			return nil, err
-		}
-		return client, nil
 	case http.StatusForbidden:
 		return completeInitPasswordForbidden(ctx, resp, bmcAddress, user, passwd)
 	case http.StatusOK:
@@ -1519,9 +1561,10 @@ func NewBasicAuthClient(ctx context.Context, bmcAddress, user, passwd string) (*
 		SetBaseURL(bmcAddress).
 		SetBasicAuth(user, passwd)
 
+	// Preserve the family selected by the root/admin fallback when a post-reset BMC omits its model.
 	client := &Client{
 		Client:      c,
-		IsBF4:       false,
+		IsBF4:       user == BF4BMCUser,
 		traceParent: traceParent,
 	}
 	client.installRedfishTracing(c)
@@ -1535,8 +1578,8 @@ func NewBasicAuthClient(ctx context.Context, bmcAddress, user, passwd string) (*
 		return nil, err
 	}
 
-	if rootServiceInfo != nil && rootServiceInfo.IsBF4() {
-		client.IsBF4 = true
+	if rootServiceInfo != nil && rootServiceInfo.Product != "" {
+		client.IsBF4 = rootServiceInfo.IsBF4()
 	}
 
 	return client, nil

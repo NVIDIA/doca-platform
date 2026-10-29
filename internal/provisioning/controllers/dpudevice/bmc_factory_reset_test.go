@@ -18,6 +18,7 @@ package dpudevice
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -25,6 +26,7 @@ import (
 	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/mock"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -36,8 +38,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 const factoryResetTestPassword = "dpfSecretPassword1"
@@ -49,7 +53,7 @@ var _ = Describe("reconcileBMCFactoryReset", func() {
 
 	// setupFactoryResetTest returns a BMC that enforces authentication and a reconciler holding the
 	// shared credential Secret, which is what the reset step authenticates with.
-	setupFactoryResetTest := func(bmcPassword, secretPassword string) (*mock.RedfishMockServer, *DPUDeviceReconciler) {
+	setupFactoryResetTest := func(bmcPassword, secretPassword string, funcs ...interceptor.Funcs) (*mock.RedfishMockServer, *DPUDeviceReconciler) {
 		scheme := runtime.NewScheme()
 		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())
@@ -58,15 +62,22 @@ var _ = Describe("reconcileBMCFactoryReset", func() {
 		Expect(err).NotTo(HaveOccurred())
 		mockServer.SetEnforceBasicAuth(true)
 
-		fakeClient := fake.NewClientBuilder().
+		builder := fake.NewClientBuilder().
 			WithScheme(scheme).
 			WithStatusSubresource(&provisioningv1.DPUDevice{}).
 			WithObjects(&corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{Name: rfclient.BMCPasswordSecret, Namespace: testNamespace},
-				Data:       map[string][]byte{rfclient.BMCSharedPasswordKey: []byte(secretPassword)},
-			}).
-			Build()
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      rfclient.BMCPasswordSecret,
+					Namespace: testNamespace,
+					UID:       types.UID("factory-reset-secret-uid"),
+				},
+				Data: map[string][]byte{rfclient.BMCSharedPasswordKey: []byte(secretPassword)},
+			})
+		if len(funcs) > 0 {
+			builder = builder.WithInterceptorFuncs(funcs[0])
+		}
 
+		fakeClient := builder.Build()
 		return mockServer, &DPUDeviceReconciler{Client: fakeClient, RedfishClients: rfclient.NewProvider(fakeClient)}
 	}
 
@@ -76,11 +87,19 @@ var _ = Describe("reconcileBMCFactoryReset", func() {
 		bmcIP := mockServer.GetIPAddress()
 		bmcPort := uint32(mockServer.GetPort())
 		dpuDevice := &provisioningv1.DPUDevice{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace, Generation: 1},
-			Spec:       provisioningv1.DPUDeviceSpec{SerialNumber: mock.DpuSerialNumber},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       name,
+				Namespace:  testNamespace,
+				Generation: 1,
+				// The fake client does not assign a UID. The rejection annotation is keyed by it.
+				UID: types.UID(name),
+			},
+			Spec: provisioningv1.DPUDeviceSpec{SerialNumber: mock.DpuSerialNumber},
 		}
 		Expect(reconciler.Client.Create(ctx, dpuDevice)).To(Succeed())
+		patch := client.MergeFrom(dpuDevice.DeepCopy())
 		dpuDevice.Status = provisioningv1.DPUDeviceStatus{BMCIP: &bmcIP, BMCPort: &bmcPort}
+		Expect(reconciler.Client.Status().Patch(ctx, dpuDevice, patch)).To(Succeed())
 		return dpuDevice
 	}
 
@@ -89,6 +108,49 @@ var _ = Describe("reconcileBMCFactoryReset", func() {
 		stored := &provisioningv1.DPUDevice{}
 		Expect(reconciler.Client.Get(ctx, client.ObjectKeyFromObject(dpuDevice), stored)).To(Succeed())
 		return stored.Status.BMCFactoryResetRequestTime
+	}
+
+	updateSecretPassword := func(reconciler *DPUDeviceReconciler, password string) {
+		secret := &corev1.Secret{}
+		Expect(reconciler.Client.Get(ctx, types.NamespacedName{
+			Name:      rfclient.BMCPasswordSecret,
+			Namespace: testNamespace,
+		}, secret)).To(Succeed())
+		patch := client.MergeFrom(secret.DeepCopy())
+		secret.Data[rfclient.BMCSharedPasswordKey] = []byte(password)
+		Expect(reconciler.Client.Patch(ctx, secret, patch)).To(Succeed())
+	}
+
+	It("keeps the rejection annotation key within the annotation name limit", func() {
+		const deviceUID = types.UID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+		key := rejectedPasswordAnnotationKey(deviceUID)
+		name := key[len(provisioningv1.DPUProvisioningPrefix):]
+		Expect(len(name)).To(BeNumerically("<=", 63))
+		Expect(passwordDigest("a")).NotTo(Equal(passwordDigest("b")))
+		Expect(rejectedPasswordAnnotationKey("other-device")).NotTo(Equal(key))
+	})
+
+	rejectedPasswordAnnotation := func(reconciler *DPUDeviceReconciler, dpuDevice *provisioningv1.DPUDevice) string {
+		secret := &corev1.Secret{}
+		Expect(reconciler.Client.Get(ctx, types.NamespacedName{
+			Name:      rfclient.BMCPasswordSecret,
+			Namespace: testNamespace,
+		}, secret)).To(Succeed())
+		return secret.Annotations[rejectedPasswordAnnotationKey(dpuDevice.UID)]
+	}
+
+	requestFactoryResetRetry := func(reconciler *DPUDeviceReconciler, dpuDevice *provisioningv1.DPUDevice) {
+		secret := &corev1.Secret{}
+		Expect(reconciler.Client.Get(ctx, types.NamespacedName{
+			Name:      rfclient.BMCPasswordSecret,
+			Namespace: testNamespace,
+		}, secret)).To(Succeed())
+		patch := client.MergeFrom(secret.DeepCopy())
+		if secret.Annotations == nil {
+			secret.Annotations = map[string]string{}
+		}
+		secret.Annotations[rejectedPasswordAnnotationKey(dpuDevice.UID)] = provisioningv1.BMCFactoryResetRetryAnnotationValue
+		Expect(reconciler.Client.Patch(ctx, secret, patch)).To(Succeed())
 	}
 
 	// expectSameInstant compares two timestamps by the instant they name. A round trip through the
@@ -102,6 +164,105 @@ var _ = Describe("reconcileBMCFactoryReset", func() {
 	resetCondition := func(dpuDevice *provisioningv1.DPUDevice) *metav1.Condition {
 		return findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceBMCFactoryResetReady))
 	}
+
+	DescribeTable("cleans up rejection annotations before deleting a failed device",
+		func(perDeviceSecret, missingSecret, retryCleanup bool) {
+			failCleanup := false
+			mockServer, reconciler := setupFactoryResetTest("unknownPassword", factoryResetTestPassword, interceptor.Funcs{
+				Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+					if _, ok := obj.(*corev1.Secret); ok && failCleanup {
+						return errors.New("cannot remove rejection annotation")
+					}
+					return c.Patch(ctx, obj, patch, opts...)
+				},
+			})
+			defer mockServer.Stop()
+			device := newDevice(reconciler, mockServer, "reset-delete-failed")
+			secretName := rfclient.BMCPasswordSecret
+			if perDeviceSecret {
+				secretName = "per-device-password"
+				status := device.Status
+				patch := client.MergeFrom(device.DeepCopy())
+				device.Spec.BMCCredentialSecretName = ptr.To(secretName)
+				Expect(reconciler.Client.Patch(ctx, device, patch)).To(Succeed())
+				device.Status = status
+				Expect(reconciler.Client.Create(ctx, &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: testNamespace},
+					Data:       map[string][]byte{rfclient.BMCSharedPasswordKey: []byte(factoryResetTestPassword)},
+				})).To(Succeed())
+			}
+			statusPatch := client.MergeFrom(device.DeepCopy())
+			device.Status.BMCFactoryResetRequestTime = ptr.To(metav1.NewTime(time.Now().Add(-5 * time.Minute)))
+			Expect(reconciler.Client.Status().Patch(ctx, device, statusPatch)).To(Succeed())
+			_, err := reconciler.reconcileBMCFactoryReset(ctx, device)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resetCondition(device).Reason).To(Equal(provisioningv1.ReasonFactoryResetFailed))
+			Expect(reconciler.Client.Get(ctx, client.ObjectKeyFromObject(device), device)).To(Succeed())
+			Expect(device.Finalizers).To(ContainElement(provisioningv1.BMCCredentialFinalizer))
+			Expect(device.Status.BMCFactoryResetRequestTime).NotTo(BeNil())
+
+			secret := &corev1.Secret{}
+			secretKey := client.ObjectKey{Namespace: testNamespace, Name: secretName}
+			Expect(reconciler.Client.Get(ctx, secretKey, secret)).To(Succeed())
+			key := rejectedPasswordAnnotationKey(device.UID)
+			Expect(secret.Annotations).To(HaveKeyWithValue(key, passwordDigest(factoryResetTestPassword)))
+			otherKey := rejectedPasswordAnnotationKey("another-device")
+			secretPatch := client.MergeFrom(secret.DeepCopy())
+			secret.Annotations[otherKey] = passwordDigest("anotherPassword")
+			secret.Annotations["example.com/keep"] = "keep"
+			Expect(reconciler.Client.Patch(ctx, secret, secretPatch)).To(Succeed())
+			if missingSecret {
+				Expect(reconciler.Client.Delete(ctx, secret)).To(Succeed())
+			}
+			Expect(reconciler.Client.Delete(ctx, device)).To(Succeed())
+			request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(device)}
+			if retryCleanup {
+				failCleanup = true
+				_, err = reconciler.Reconcile(ctx, request)
+				Expect(err).To(MatchError(ContainSubstring("cannot remove rejection annotation")))
+				Expect(reconciler.Client.Get(ctx, request.NamespacedName, device)).To(Succeed())
+				Expect(device.Finalizers).To(ContainElement(provisioningv1.BMCCredentialFinalizer))
+				Expect(reconciler.Client.Get(ctx, secretKey, secret)).To(Succeed())
+				Expect(secret.Annotations).To(HaveKey(key))
+				failCleanup = false
+			}
+			_, err = reconciler.Reconcile(ctx, request)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(apierrors.IsNotFound(reconciler.Client.Get(ctx, request.NamespacedName, device))).To(BeTrue())
+			if !missingSecret {
+				Expect(reconciler.Client.Get(ctx, secretKey, secret)).To(Succeed())
+				Expect(secret.Annotations).To(Equal(map[string]string{
+					otherKey:           passwordDigest("anotherPassword"),
+					"example.com/keep": "keep",
+				}))
+				Expect(string(secret.Data[rfclient.BMCSharedPasswordKey])).To(Equal(factoryResetTestPassword))
+			}
+		},
+		Entry("shared Secret", false, false, false),
+		Entry("per-device Secret", true, false, false),
+		Entry("Secret already deleted", false, true, false),
+		Entry("transient cleanup failure", false, false, true),
+	)
+
+	It("does not probe if cleanup protection cannot be persisted", func() {
+		mockServer, reconciler := setupFactoryResetTest("unknownPassword", factoryResetTestPassword, interceptor.Funcs{
+			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+				if _, ok := obj.(*provisioningv1.DPUDevice); ok {
+					return errors.New("cannot add credential finalizer")
+				}
+				return c.Patch(ctx, obj, patch, opts...)
+			},
+		})
+		defer mockServer.Stop()
+		device := newDevice(reconciler, mockServer, "reset-finalizer-write-failed")
+		device.Status.BMCFactoryResetRequestTime = ptr.To(metav1.NewTime(time.Now().Add(-5 * time.Minute)))
+		stop, err := reconciler.reconcileBMCFactoryReset(ctx, device)
+		Expect(err).To(MatchError(ContainSubstring("cannot add credential finalizer")))
+		Expect(stop).To(BeTrue())
+		Expect(mockServer.DefaultPasswordAttempts()).To(BeZero())
+		Expect(mockServer.CredentialPasswordAttempts()).To(BeZero())
+		Expect(rejectedPasswordAnnotation(reconciler, device)).To(BeEmpty())
+	})
 
 	Context("submitting the reset", func() {
 		It("submits over the Secret password without writing a password first", func() {
@@ -262,6 +423,7 @@ var _ = Describe("reconcileBMCFactoryReset", func() {
 				stop, err := reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(stop).To(BeTrue())
+				Expect(reconciler.Client.Get(ctx, client.ObjectKeyFromObject(dpuDevice), dpuDevice)).To(Succeed())
 			}
 			Expect(mockServer.GetFactoryResetRequests()).To(Equal(1))
 		})
@@ -283,6 +445,7 @@ var _ = Describe("reconcileBMCFactoryReset", func() {
 			Expect(mockServer.GetPassword()).To(Equal(rfclient.BMCDefaultPassword))
 			Expect(mockServer.GetServiceAccountPassword()).To(Equal(rfclient.BMCDefaultPassword))
 
+			Expect(reconciler.Client.Get(ctx, client.ObjectKeyFromObject(dpuDevice), dpuDevice)).To(Succeed())
 			// Rewind the request time past the settle delay rather than waiting it out. A real BMC
 			// is rebooting for far longer than the delay; the mock compresses that to two seconds.
 			dpuDevice.Status.BMCFactoryResetRequestTime = ptr.To(metav1.NewTime(time.Now().Add(-5 * time.Minute)))
@@ -323,7 +486,7 @@ var _ = Describe("reconcileBMCFactoryReset", func() {
 			Expect(condition).NotTo(BeNil())
 			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
 			Expect(condition.Reason).To(Equal(provisioningv1.ReasonFactoryResetInProgress))
-			Expect(findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceInitialized)).Reason).To(Equal("Pending"))
+			Expect(findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceInitialized)).Reason).To(Equal(string(conditions.ReasonPending)))
 		})
 
 		It("completes once the BMC answers with the factory default password", func() {
@@ -345,10 +508,10 @@ var _ = Describe("reconcileBMCFactoryReset", func() {
 			Expect(condition.Reason).To(Equal(provisioningv1.ReasonFactoryResetCompleted))
 		})
 
-		It("keeps FactoryResetInProgress with an actionable message when the BMC rejects the factory default", func() {
-			// After submit the BMC should still hold the Secret password until ResetToDefaults
-			// actually lands. If it answers and rejects 0penBmc, the BMC is up but the reset has
-			// not taken effect — not "still coming back".
+		It("detects a delayed reset without retrying the rejected factory default", func() {
+			// The BMC still holds the Secret password when the fixed settle delay expires. Keep
+			// checking that accepted credential until the delayed reset changes it, then verify
+			// the factory default and let password hardening proceed.
 			mockServer, reconciler := setupFactoryResetTest(factoryResetTestPassword, factoryResetTestPassword)
 			defer mockServer.Stop()
 			dpuDevice := newDevice(reconciler, mockServer, "reset-default-rejected")
@@ -360,9 +523,460 @@ var _ = Describe("reconcileBMCFactoryReset", func() {
 
 			condition := resetCondition(dpuDevice)
 			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
-			Expect(condition.Reason).To(Equal(provisioningv1.ReasonFactoryResetInProgress))
-			Expect(condition.Message).To(ContainSubstring("still rejects the factory default password"))
-			Expect(condition.Message).NotTo(ContainSubstring("waiting for the BMC to come back"))
+			Expect(condition.Reason).To(Equal(provisioningv1.ReasonFactoryResetAwaitingCompletion))
+			Expect(condition.Message).To(ContainSubstring("credential Secret password still works"))
+			Expect(findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceInitialized)).Reason).To(Equal(string(conditions.ReasonPending)))
+			Expect(mockServer.GetFactoryResetRequests()).To(BeZero())
+			rejectedDefaultAttempts := mockServer.DefaultPasswordAttempts()
+			Expect(rejectedDefaultAttempts).NotTo(BeZero())
+
+			// Another pass uses the known-good Secret password and remains non-terminal.
+			stop, err = reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeTrue())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetAwaitingCompletion))
+			Expect(mockServer.DefaultPasswordAttempts()).To(Equal(rejectedDefaultAttempts))
+
+			// Simulate the accepted ResetToDefaults completing after both checks.
+			mockServer.SetPassword(rfclient.BMCDefaultPassword)
+			stop, err = reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeFalse())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetCompleted))
+		})
+
+		It("probes the factory default when the Secret is changed to it before that password is rejected", func() {
+			// AwaitingCompletion means the previous Secret password still worked, so this pass
+			// has not confirmed a factory-default rejection. Replacing the Secret with 0penBmc
+			// must probe that password; failing immediately would miss a reset that has completed.
+			mockServer, reconciler := setupFactoryResetTest(factoryResetTestPassword, factoryResetTestPassword)
+			defer mockServer.Stop()
+			dpuDevice := newDevice(reconciler, mockServer, "reset-secret-changed-to-default")
+			dpuDevice.Status.BMCFactoryResetRequestTime = ptr.To(metav1.NewTime(time.Now().Add(-5 * time.Minute)))
+
+			stop, err := reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeTrue())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetAwaitingCompletion))
+
+			updateSecretPassword(reconciler, rfclient.BMCDefaultPassword)
+			mockServer.SetPassword(rfclient.BMCDefaultPassword)
+			stop, err = reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeFalse())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetCompleted))
+		})
+
+		It("fails without a second factory-default login when the Secret holds the rejected default", func() {
+			mockServer, reconciler := setupFactoryResetTest("someoneElsesPassword", rfclient.BMCDefaultPassword)
+			defer mockServer.Stop()
+			dpuDevice := newDevice(reconciler, mockServer, "reset-secret-is-rejected-default")
+			dpuDevice.Status.BMCFactoryResetRequestTime = ptr.To(metav1.NewTime(time.Now().Add(-5 * time.Minute)))
+
+			stop, err := reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeTrue())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetFailed))
+			Expect(resetCondition(dpuDevice).Message).To(ContainSubstring("holds that same password"))
+			Expect(mockServer.DefaultPasswordAttempts()).To(Equal(int64(1)))
+			Expect(mockServer.CredentialPasswordAttempts()).To(BeZero())
+		})
+
+		It("does not resend a rejected Secret password after the factory-default probe times out", func() {
+			// The delayed reset rejects the Secret password, then the factory-default probe times
+			// out. The next pass must retry only that probe: sending the Secret password again can
+			// lock the BMC account.
+			mockServer, reconciler := setupFactoryResetTest(factoryResetTestPassword, factoryResetTestPassword)
+			defer mockServer.Stop()
+			dpuDevice := newDevice(reconciler, mockServer, "reset-secret-rejected-timeout")
+			dpuDevice.Status.BMCFactoryResetRequestTime = ptr.To(metav1.NewTime(time.Now().Add(-5 * time.Minute)))
+
+			stop, err := reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeTrue())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetAwaitingCompletion))
+
+			mockServer.SetPassword("someoneElsesPassword")
+			mockServer.SetFactoryDefaultProbeUnavailable(true)
+			stop, err = reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeTrue())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetCredentialRejected))
+			Expect(findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceInitialized)).Reason).To(Equal(string(conditions.ReasonPending)))
+			rejectedSecretAttempts := mockServer.CredentialPasswordAttempts()
+
+			// Another timeout keeps the rejection and does not send the Secret password.
+			stop, err = reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeTrue())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetCredentialRejected))
+			Expect(mockServer.CredentialPasswordAttempts()).To(Equal(rejectedSecretAttempts))
+
+			// The factory default is then rejected. The already-rejected Secret password stays unsent.
+			mockServer.SetFactoryDefaultProbeUnavailable(false)
+			stop, err = reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeTrue())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetFailed))
+			Expect(findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceInitialized)).Reason).To(Equal(string(conditions.ReasonError)))
+			Expect(mockServer.CredentialPasswordAttempts()).To(Equal(rejectedSecretAttempts))
+		})
+
+		It("completes after a preserved Secret rejection once the factory default answers", func() {
+			mockServer, reconciler := setupFactoryResetTest(factoryResetTestPassword, factoryResetTestPassword)
+			defer mockServer.Stop()
+			dpuDevice := newDevice(reconciler, mockServer, "reset-secret-rejected-then-default")
+			dpuDevice.Status.BMCFactoryResetRequestTime = ptr.To(metav1.NewTime(time.Now().Add(-5 * time.Minute)))
+
+			stop, err := reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeTrue())
+
+			mockServer.SetPassword("someoneElsesPassword")
+			mockServer.SetFactoryDefaultProbeUnavailable(true)
+			stop, err = reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeTrue())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetCredentialRejected))
+			rejectedSecretAttempts := mockServer.CredentialPasswordAttempts()
+
+			mockServer.SetFactoryDefaultProbeUnavailable(false)
+			mockServer.SetPassword(rfclient.BMCDefaultPassword)
+			stop, err = reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeFalse())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetCompleted))
+			Expect(mockServer.CredentialPasswordAttempts()).To(Equal(rejectedSecretAttempts))
+		})
+
+		It("stops when the factory default and the Secret password are both rejected", func() {
+			// Both credentials were rejected, so another pass must not send either one again.
+			mockServer, reconciler := setupFactoryResetTest("someoneElsesPassword", factoryResetTestPassword)
+			defer mockServer.Stop()
+			dpuDevice := newDevice(reconciler, mockServer, "reset-both-passwords-rejected")
+			statusPatch := client.MergeFrom(dpuDevice.DeepCopy())
+			dpuDevice.Status.BMCFactoryResetRequestTime = ptr.To(metav1.NewTime(time.Now().Add(-5 * time.Minute)))
+
+			stop, err := reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeTrue())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetFailed))
+			Expect(findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceInitialized)).Reason).To(Equal(string(conditions.ReasonError)))
+			Expect(rejectedPasswordAnnotation(reconciler, dpuDevice)).To(Equal(passwordDigest(factoryResetTestPassword)))
+			// Reconcile's deferred patch owns condition persistence.
+			Expect(reconciler.Client.Status().Patch(ctx, dpuDevice, statusPatch)).To(Succeed())
+			stored := &provisioningv1.DPUDevice{}
+			Expect(reconciler.Client.Get(ctx, client.ObjectKeyFromObject(dpuDevice), stored)).To(Succeed())
+			Expect(findCondition(stored, string(provisioningv1.ConditionDpuDeviceBMCFactoryResetReady)).Reason).To(Equal(provisioningv1.ReasonFactoryResetFailed))
+			attempts := mockServer.DefaultPasswordAttempts()
+			secretAttempts := mockServer.CredentialPasswordAttempts()
+
+			stop, err = reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeTrue())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetFailed))
+			Expect(mockServer.DefaultPasswordAttempts()).To(Equal(attempts))
+			Expect(mockServer.CredentialPasswordAttempts()).To(Equal(secretAttempts))
+		})
+
+		DescribeTable("does not retry rejected credentials when their annotation cannot be saved",
+			func(secretPassword string, delayed bool, previousMarker string) {
+				failWrite := false
+				mockServer, reconciler := setupFactoryResetTest("someoneElsesPassword", secretPassword, interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if secret, ok := obj.(*corev1.Secret); ok && failWrite && len(secret.Annotations) > 0 {
+							return errors.New("cannot save rejection annotation")
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				})
+				defer mockServer.Stop()
+				device := newDevice(reconciler, mockServer, "reset-marker-write-failed")
+				statusPatch := client.MergeFrom(device.DeepCopy())
+				device.Status.BMCFactoryResetRequestTime = ptr.To(metav1.NewTime(time.Now().Add(-5 * time.Minute)))
+				if previousMarker != "" {
+					secret := &corev1.Secret{}
+					Expect(reconciler.Client.Get(ctx, client.ObjectKey{
+						Namespace: testNamespace,
+						Name:      rfclient.BMCPasswordSecret,
+					}, secret)).To(Succeed())
+					patch := client.MergeFrom(secret.DeepCopy())
+					secret.Annotations = map[string]string{rejectedPasswordAnnotationKey(device.UID): previousMarker}
+					Expect(reconciler.Client.Patch(ctx, secret, patch)).To(Succeed())
+					setBMCFactoryResetCondition(device, metav1.ConditionFalse, provisioningv1.ReasonFactoryResetFailed, "previous rejection")
+				}
+				if delayed {
+					setBMCFactoryResetCondition(device, metav1.ConditionFalse, provisioningv1.ReasonFactoryResetAwaitingCompletion, "waiting for reset")
+				}
+
+				failWrite = true
+				_, err := reconciler.reconcileBMCFactoryReset(ctx, device)
+				Expect(err).To(MatchError(ContainSubstring("cannot save rejection annotation")))
+				Expect(resetCondition(device).Reason).To(Equal(provisioningv1.ReasonFactoryResetCredentialRecordFailed))
+				secretAttempts := mockServer.CredentialPasswordAttempts()
+				defaultAttempts := mockServer.DefaultPasswordAttempts()
+				for i := 0; i < 3; i++ {
+					Expect(reconciler.Client.Status().Patch(ctx, device, statusPatch)).To(Succeed())
+					stored := &provisioningv1.DPUDevice{}
+					Expect(reconciler.Client.Get(ctx, client.ObjectKeyFromObject(device), stored)).To(Succeed())
+					device = stored
+					statusPatch = client.MergeFrom(device.DeepCopy())
+					_, err = reconciler.reconcileBMCFactoryReset(ctx, device)
+					Expect(err).NotTo(HaveOccurred())
+				}
+				Expect(mockServer.CredentialPasswordAttempts()).To(Equal(secretAttempts))
+				Expect(mockServer.DefaultPasswordAttempts()).To(Equal(defaultAttempts))
+				Expect(resetCondition(device).Reason).To(Equal(provisioningv1.ReasonFactoryResetCredentialRecordFailed))
+
+				failWrite = false
+				requestFactoryResetRetry(reconciler, device)
+				mockServer.SetPassword(rfclient.BMCDefaultPassword)
+				stop, err := reconciler.reconcileBMCFactoryReset(ctx, device)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(stop).To(BeFalse())
+				Expect(mockServer.GetFactoryResetRequests()).To(BeZero())
+			},
+			Entry("both credentials rejected", factoryResetTestPassword, false, ""),
+			Entry("Secret rejected during a delayed reset", factoryResetTestPassword, true, ""),
+			Entry("Secret is the rejected factory default", rfclient.BMCDefaultPassword, false, ""),
+			Entry("explicit retry also rejected", factoryResetTestPassword, false, provisioningv1.BMCFactoryResetRetryAnnotationValue),
+			Entry("changed password also rejected", factoryResetTestPassword, false, passwordDigest("previouslyRejected")),
+		)
+
+		It("does not authenticate when an explicit retry cannot be consumed", func() {
+			mockServer, reconciler := setupFactoryResetTest("someoneElsesPassword", factoryResetTestPassword, interceptor.Funcs{
+				Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+					if secret, ok := obj.(*corev1.Secret); ok && len(secret.Annotations) == 0 {
+						return errors.New("cannot consume retry")
+					}
+					return c.Patch(ctx, obj, patch, opts...)
+				},
+			})
+			defer mockServer.Stop()
+			device := newDevice(reconciler, mockServer, "reset-retry-write-failed")
+			device.Status.BMCFactoryResetRequestTime = ptr.To(metav1.NewTime(time.Now().Add(-5 * time.Minute)))
+			setBMCFactoryResetCondition(device, metav1.ConditionFalse, provisioningv1.ReasonFactoryResetFailed, "previous rejection")
+			requestFactoryResetRetry(reconciler, device)
+
+			for i := 0; i < 2; i++ {
+				stop, err := reconciler.reconcileBMCFactoryReset(ctx, device)
+				Expect(err).To(MatchError(ContainSubstring("cannot consume retry")))
+				Expect(stop).To(BeTrue())
+			}
+			Expect(mockServer.DefaultPasswordAttempts()).To(BeZero())
+			Expect(mockServer.CredentialPasswordAttempts()).To(BeZero())
+		})
+
+		It("keeps the annotation of the password the BMC rejected when the Secret changes before failure is recorded", func() {
+			// An edit after the rejected probe must not become the stored annotation. The next
+			// pass would then see a match and stop, leaving the corrected password untested.
+			const corrected = "correctedSecretPassword"
+			secretReads := 0
+			replaceAfterRead := interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if err := c.Get(ctx, key, obj, opts...); err != nil {
+						return err
+					}
+					secret, ok := obj.(*corev1.Secret)
+					if !ok || secret.Name != rfclient.BMCPasswordSecret {
+						return nil
+					}
+					secretReads++
+					if secretReads != 1 {
+						return nil
+					}
+					updated := secret.DeepCopy()
+					updated.Data[rfclient.BMCSharedPasswordKey] = []byte(corrected)
+					return c.Patch(ctx, updated, client.MergeFrom(secret))
+				},
+			}
+			mockServer, reconciler := setupFactoryResetTest("someoneElsesPassword", factoryResetTestPassword, replaceAfterRead)
+			defer mockServer.Stop()
+			dpuDevice := newDevice(reconciler, mockServer, "reset-secret-changed-during-failure")
+			dpuDevice.Status.BMCFactoryResetRequestTime = ptr.To(metav1.NewTime(time.Now().Add(-5 * time.Minute)))
+
+			stop, err := reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeTrue())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetFailed))
+			Expect(rejectedPasswordAnnotation(reconciler, dpuDevice)).To(Equal(passwordDigest(factoryResetTestPassword)))
+			rejectedSecretAttempts := mockServer.CredentialPasswordAttempts()
+
+			mockServer.SetPassword(corrected)
+			stop, err = reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeTrue())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetAwaitingCompletion))
+			Expect(mockServer.CredentialPasswordAttempts()).To(BeNumerically(">", rejectedSecretAttempts))
+			Expect(mockServer.GetFactoryResetRequests()).To(BeZero())
+		})
+
+		It("retries completion probes after FactoryResetFailed when the Secret password changes", func() {
+			mockServer, reconciler := setupFactoryResetTest("someoneElsesPassword", factoryResetTestPassword)
+			defer mockServer.Stop()
+			dpuDevice := newDevice(reconciler, mockServer, "reset-retry-on-secret-change")
+			dpuDevice.Status.BMCFactoryResetRequestTime = ptr.To(metav1.NewTime(time.Now().Add(-5 * time.Minute)))
+
+			stop, err := reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeTrue())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetFailed))
+			rejectedDefault := mockServer.DefaultPasswordAttempts()
+			rejectedSecret := mockServer.CredentialPasswordAttempts()
+
+			// A metadata-only Secret write changes resourceVersion but not the password.
+			secret := &corev1.Secret{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{
+				Name:      rfclient.BMCPasswordSecret,
+				Namespace: testNamespace,
+			}, secret)).To(Succeed())
+			patch := client.MergeFrom(secret.DeepCopy())
+			secret.Labels = map[string]string{"tick": "1"}
+			Expect(reconciler.Client.Patch(ctx, secret, patch)).To(Succeed())
+			stop, err = reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeTrue())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetFailed))
+			Expect(mockServer.DefaultPasswordAttempts()).To(Equal(rejectedDefault))
+			Expect(mockServer.CredentialPasswordAttempts()).To(Equal(rejectedSecret))
+
+			updateSecretPassword(reconciler, "correctedSecretPassword")
+			mockServer.SetPassword(rfclient.BMCDefaultPassword)
+			stop, err = reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeFalse())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetCompleted))
+			Expect(dpuDevice.Status.BMCFactoryResetRequestTime).NotTo(BeNil())
+			Expect(rejectedPasswordAnnotation(reconciler, dpuDevice)).To(BeEmpty())
+			Expect(mockServer.GetFactoryResetRequests()).To(BeZero())
+			Expect(mockServer.CredentialPasswordAttempts()).To(Equal(rejectedSecret))
+		})
+
+		It("uses a corrected Secret password after FactoryResetFailed without resubmitting the reset", func() {
+			mockServer, reconciler := setupFactoryResetTest("someoneElsesPassword", factoryResetTestPassword)
+			defer mockServer.Stop()
+			dpuDevice := newDevice(reconciler, mockServer, "reset-retry-corrected-secret")
+			dpuDevice.Status.BMCFactoryResetRequestTime = ptr.To(metav1.NewTime(time.Now().Add(-5 * time.Minute)))
+
+			_, err := reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetFailed))
+
+			updateSecretPassword(reconciler, "someoneElsesPassword")
+			stop, err := reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeTrue())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetAwaitingCompletion))
+			Expect(mockServer.GetFactoryResetRequests()).To(BeZero())
+		})
+
+		It("retries the factory default after FactoryResetFailed when the annotation requests a retry", func() {
+			mockServer, reconciler := setupFactoryResetTest("someoneElsesPassword", factoryResetTestPassword)
+			defer mockServer.Stop()
+			dpuDevice := newDevice(reconciler, mockServer, "reset-retry-cleared-annotation")
+			dpuDevice.Status.BMCFactoryResetRequestTime = ptr.To(metav1.NewTime(time.Now().Add(-5 * time.Minute)))
+
+			_, err := reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetFailed))
+			rejectedSecret := mockServer.CredentialPasswordAttempts()
+
+			mockServer.SetPassword(rfclient.BMCDefaultPassword)
+			requestFactoryResetRetry(reconciler, dpuDevice)
+			stop, err := reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeFalse())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetCompleted))
+			Expect(mockServer.CredentialPasswordAttempts()).To(Equal(rejectedSecret))
+			Expect(mockServer.GetFactoryResetRequests()).To(BeZero())
+		})
+
+		It("does not send a rejected Secret password restored between the change check and the probe", func() {
+			// FactoryResetCredentialRejected reads the Secret to decide the password changed, then
+			// the probe reads it again before sending. A rollback between those reads puts the
+			// rejected password back; sending it is another failed login.
+			const corrected = "correctedSecretPassword"
+			restoreRejected := false
+			secretReads := 0
+			rollbackAfterCheck := interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if err := c.Get(ctx, key, obj, opts...); err != nil {
+						return err
+					}
+					if !restoreRejected {
+						return nil
+					}
+					secret, ok := obj.(*corev1.Secret)
+					if !ok || secret.Name != rfclient.BMCPasswordSecret {
+						return nil
+					}
+					secretReads++
+					if secretReads != 1 {
+						return nil
+					}
+					restored := secret.DeepCopy()
+					restored.Data[rfclient.BMCSharedPasswordKey] = []byte(factoryResetTestPassword)
+					return c.Patch(ctx, restored, client.MergeFrom(secret))
+				},
+			}
+			mockServer, reconciler := setupFactoryResetTest(factoryResetTestPassword, factoryResetTestPassword, rollbackAfterCheck)
+			defer mockServer.Stop()
+			dpuDevice := newDevice(reconciler, mockServer, "reset-secret-rolled-back-before-send")
+			dpuDevice.Status.BMCFactoryResetRequestTime = ptr.To(metav1.NewTime(time.Now().Add(-5 * time.Minute)))
+
+			_, err := reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetAwaitingCompletion))
+
+			mockServer.SetPassword("someoneElsesPassword")
+			mockServer.SetFactoryDefaultProbeUnavailable(true)
+			_, err = reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetCredentialRejected))
+			rejected := rejectedPasswordAnnotation(reconciler, dpuDevice)
+			Expect(rejected).To(Equal(passwordDigest(factoryResetTestPassword)))
+			rejectedSecret := mockServer.CredentialPasswordAttempts()
+
+			updateSecretPassword(reconciler, corrected)
+			restoreRejected = true
+			stop, err := reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeTrue())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetCredentialRejected))
+			Expect(mockServer.CredentialPasswordAttempts()).To(Equal(rejectedSecret))
+			Expect(rejectedPasswordAnnotation(reconciler, dpuDevice)).To(Equal(rejected))
+			Expect(secretReads).To(BeNumerically(">=", 2))
+		})
+
+		It("retries the Secret password from FactoryResetCredentialRejected when it changes", func() {
+			mockServer, reconciler := setupFactoryResetTest(factoryResetTestPassword, factoryResetTestPassword)
+			defer mockServer.Stop()
+			dpuDevice := newDevice(reconciler, mockServer, "reset-secret-changed-after-reject")
+			dpuDevice.Status.BMCFactoryResetRequestTime = ptr.To(metav1.NewTime(time.Now().Add(-5 * time.Minute)))
+
+			_, err := reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetAwaitingCompletion))
+
+			mockServer.SetPassword("someoneElsesPassword")
+			mockServer.SetFactoryDefaultProbeUnavailable(true)
+			_, err = reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetCredentialRejected))
+			Expect(rejectedPasswordAnnotation(reconciler, dpuDevice)).To(Equal(passwordDigest(factoryResetTestPassword)))
+			rejectedSecret := mockServer.CredentialPasswordAttempts()
+
+			_, err = reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mockServer.CredentialPasswordAttempts()).To(Equal(rejectedSecret))
+
+			updateSecretPassword(reconciler, "someoneElsesPassword")
+			mockServer.SetFactoryDefaultProbeUnavailable(false)
+			stop, err := reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeTrue())
+			Expect(resetCondition(dpuDevice).Reason).To(Equal(provisioningv1.ReasonFactoryResetAwaitingCompletion))
+			Expect(mockServer.CredentialPasswordAttempts()).To(BeNumerically(">", rejectedSecret))
 			Expect(mockServer.GetFactoryResetRequests()).To(BeZero())
 		})
 

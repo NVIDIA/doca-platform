@@ -33,9 +33,8 @@ const (
 	// while DPU is using it
 	DPUDeviceFinalizer = DPUProvisioningPrefix + "dpudevice-protection"
 
-	// BMCCredentialFinalizer is the finalizer added to per-device BMC
-	// credential secrets to prevent accidental deletion while the DPUDevice
-	// depends on them.
+	// BMCCredentialFinalizer protects per-device BMC credential Secrets and
+	// holds DPUDevice deletion until credential cleanup completes.
 	BMCCredentialFinalizer = DPUProvisioningPrefix + "bmc-credential"
 
 	// DPUDeviceLabelSkipHWProvisioning indicates the device should skip
@@ -57,6 +56,23 @@ const (
 	// rotation the controller copies the value into observedManualTrigger so
 	// the same trigger is not processed twice.
 	RotateBMCServerCertificateAnnotation = DPUProvisioningPrefix + "rotate-bmc-server-certificate"
+
+	// BMCFactoryResetRejectedPasswordAnnotationPrefix is the annotation key
+	// prefix on the BMC credential Secret. The full key is this prefix plus the
+	// DPUDevice UID, and the value is the hex SHA-256 of the Secret password
+	// the BMC rejected while a factory reset was being confirmed. It lives on
+	// the Secret, which a DPUDevice reader cannot get, so the marker is not a
+	// password oracle. A shared Secret records one rejection per device. Set
+	// the annotation to "retry" after an out-of-band reset that did not change
+	// the password; absence alone is not a retry.
+	//
+	// The name segment stays within the 63-character annotation limit for a
+	// UUID UID: "fr-rejected-" is 12 characters and a UID is 36.
+	BMCFactoryResetRejectedPasswordAnnotationPrefix = DPUProvisioningPrefix + "fr-rejected-"
+
+	// BMCFactoryResetRetryAnnotationValue requests another completion probe
+	// without changing the password.
+	BMCFactoryResetRetryAnnotationValue = "retry"
 )
 
 // DPUDeviceGroupVersionKind is the GroupVersionKind of the DPUDevice object
@@ -159,8 +175,29 @@ const (
 	// ReasonFactoryResetInProgress indicates ResetToDefaults was accepted by
 	// the BMC and DPF is waiting for the BMC to come back.
 	ReasonFactoryResetInProgress = "FactoryResetInProgress"
-	// ReasonFactoryResetFailed indicates DPF could not submit ResetToDefaults.
-	// It is not terminal: the submission is retried with backoff.
+	// ReasonFactoryResetAwaitingCompletion indicates the BMC still accepts its
+	// pre-reset credential after accepting ResetToDefaults. DPF keeps checking
+	// that credential until the delayed reset starts, without repeatedly
+	// trying the rejected factory-default credential.
+	ReasonFactoryResetAwaitingCompletion = "FactoryResetAwaitingCompletion"
+	// ReasonFactoryResetCredentialRejected indicates the pre-reset credential
+	// Secret password was rejected while a delayed factory reset was being
+	// confirmed. Later passes try only the factory default password unless the
+	// Secret password changes, so a timeout cannot cause that rejected password
+	// to be sent again.
+	ReasonFactoryResetCredentialRejected = "FactoryResetCredentialRejected"
+	// ReasonFactoryResetCredentialRecordFailed indicates the rejected password
+	// could not be recorded on the Secret. Completion probes pause until an
+	// explicit retry is requested.
+	ReasonFactoryResetCredentialRecordFailed = "FactoryResetCredentialRecordFailed"
+	// ReasonFactoryResetFailed indicates the factory reset step failed. Before
+	// ResetToDefaults is accepted, submission is retried with backoff. After a
+	// request time is set, both completion-probe passwords were rejected. The
+	// rejected Secret password is not sent again until it changes. A retry
+	// after that change sends the factory default again, so a BMC put back on
+	// the factory default out of band can complete. Set the rejection
+	// annotation on the credential Secret to "retry" to retry without changing
+	// the password.
 	ReasonFactoryResetFailed = "FactoryResetFailed"
 	// ReasonFactoryResetCompleted indicates the BMC came back from the factory
 	// reset and initialization may continue.

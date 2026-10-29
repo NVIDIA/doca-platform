@@ -58,6 +58,12 @@ type fakeAccountBMC struct {
 	servicePatchFail bool
 	rejectPolicy     bool
 	patches          []accountPatch
+	authAttempts     []string
+
+	// postFactoryReset models a BMC fresh out of ResetToDefaults: the unauthenticated root service
+	// answers 403 PasswordChangeRequired and so names no model, and Managers answers the same way
+	// even for the correct password, until hardening changes it.
+	postFactoryReset bool
 }
 
 func newFakeAccountBMC(isBF4 bool, initialPassword string) *fakeAccountBMC {
@@ -88,13 +94,28 @@ func (b *fakeAccountBMC) passwords() (redfish, service string) {
 	return b.redfishPassword, b.servicePassword
 }
 
+// recordedAuthAttempts lists the accounts the BMC was asked to authenticate, in order.
+func (b *fakeAccountBMC) recordedAuthAttempts() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.authAttempts...)
+}
+
 func (b *fakeAccountBMC) serve(w http.ResponseWriter, req *http.Request) {
 	// The handler runs on the server's own goroutine, where a failed Expect would otherwise crash
 	// the suite instead of being reported against the spec that made the request.
 	defer GinkgoRecover()
+	b.mu.Lock()
+	postFactoryReset := b.postFactoryReset
+	b.mu.Unlock()
 
 	switch {
 	case req.URL.Path == "/redfish/v1" || req.URL.Path == "/redfish/v1/":
+		if postFactoryReset {
+			writeAccountError(w, http.StatusForbidden, "Base.1.18.1.PasswordChangeRequired",
+				"The password provided for this account must be changed before access is granted.")
+			return
+		}
 		product := "BlueField-3 DPU"
 		if b.isBF4 {
 			product = "B4240"
@@ -110,6 +131,11 @@ func (b *fakeAccountBMC) serve(w http.ResponseWriter, req *http.Request) {
 			_, _ = w.Write([]byte(`{}`))
 			return
 		}
+		if postFactoryReset {
+			writeAccountError(w, http.StatusForbidden, "Base.1.18.1.PasswordChangeRequired",
+				"The password provided for this account must be changed before access is granted.")
+			return
+		}
 		_, _ = w.Write([]byte(`{"Version":"BF-24.10-17"}`))
 	default:
 		http.NotFound(w, req)
@@ -123,6 +149,7 @@ func (b *fakeAccountBMC) authorized(req *http.Request) bool {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.authAttempts = append(b.authAttempts, user)
 	return user == b.redfishUser && password == b.redfishPassword
 }
 
@@ -170,6 +197,7 @@ func (b *fakeAccountBMC) handleAccountPatch(w http.ResponseWriter, req *http.Req
 			return
 		}
 		b.redfishPassword = body.Password
+		b.postFactoryReset = false
 	default:
 		writeAccountError(w, http.StatusNotFound, "Base.1.18.1.ResourceMissingAtURI",
 			"The resource at the URI "+req.URL.Path+" was not found.")
@@ -311,6 +339,80 @@ var _ = Describe("BMC password hardening", func() {
 
 		_, service := bmc.passwords()
 		Expect(service).To(Equal(newPassword))
+	})
+
+	It("hardens both BF4 accounts when a post-reset BMC names no model", func() {
+		bmc := newFakeAccountBMC(true, BMCDefaultPassword)
+		defer bmc.Close()
+		bmc.postFactoryReset = true
+
+		k8sClient := fakeClientWithSharedPassword(newPassword)
+		client, err := InitPassword(ctx, bmc.server.URL, testNamespace, nil, k8sClient)
+		Expect(err).NotTo(HaveOccurred())
+		defer client.CloseIdleConnections()
+		Expect(client.IsBF4).To(BeTrue())
+
+		patches := bmc.recordedPatches()
+		Expect(patches).To(HaveLen(2))
+		Expect(patches[0].account).To(Equal(BF4BMCUser))
+		Expect(patches[0].authUser).To(Equal(BF4BMCUser))
+		Expect(patches[1].account).To(Equal(BF4ServiceUser))
+		Expect(patches[1].authPass).To(Equal(newPassword))
+		redfish, service := bmc.passwords()
+		Expect(redfish).To(Equal(newPassword))
+		Expect(service).To(Equal(newPassword))
+	})
+
+	It("reports and retries service hardening failure after a model-less BF4 reset", func() {
+		bmc := newFakeAccountBMC(true, BMCDefaultPassword)
+		defer bmc.Close()
+		bmc.postFactoryReset = true
+		bmc.servicePatchFail = true
+		k8sClient := fakeClientWithSharedPassword(newPassword)
+
+		client, err := InitPassword(ctx, bmc.server.URL, testNamespace, nil, k8sClient)
+		Expect(err).To(MatchError(ContainSubstring(BF4ServiceUser)))
+		Expect(client).To(BeNil())
+		redfish, service := bmc.passwords()
+		Expect(redfish).To(Equal(newPassword))
+		Expect(service).To(Equal(BMCDefaultPassword))
+
+		bmc.servicePatchFail = false
+		client, err = InitPassword(ctx, bmc.server.URL, testNamespace, nil, k8sClient)
+		Expect(err).NotTo(HaveOccurred())
+		defer client.CloseIdleConnections()
+		_, service = bmc.passwords()
+		Expect(service).To(Equal(newPassword))
+	})
+
+	It("accepts the BF4 account when a post-reset BMC names no model", func() {
+		bmc := newFakeAccountBMC(true, BMCDefaultPassword)
+		defer bmc.Close()
+		bmc.postFactoryReset = true
+
+		client, user, err := VerifyBMCCredential(ctx, bmc.server.URL, BMCDefaultPassword)
+		Expect(err).NotTo(HaveOccurred())
+		defer client.CloseIdleConnections()
+		Expect(user).To(Equal(BF4BMCUser))
+		Expect(client.IsBF4).To(BeTrue())
+	})
+
+	It("still reports a wrong password as rejected when the model is unknown", func() {
+		bmc := newFakeAccountBMC(true, BMCDefaultPassword)
+		defer bmc.Close()
+		bmc.postFactoryReset = true
+
+		_, _, err := VerifyBMCCredential(ctx, bmc.server.URL, "not-the-password")
+		Expect(err).To(MatchError(ErrBMCPasswordRejected))
+	})
+
+	It("spends one login attempt on the account the BMC's model names", func() {
+		bmc := newFakeAccountBMC(true, BMCDefaultPassword)
+		defer bmc.Close()
+
+		_, _, err := VerifyBMCCredential(ctx, bmc.server.URL, "not-the-password")
+		Expect(err).To(MatchError(ErrBMCPasswordRejected))
+		Expect(bmc.recordedAuthAttempts()).To(ConsistOf(BF4BMCUser))
 	})
 
 	It("names the account and quotes the BMC's reason when the password is rejected", func() {

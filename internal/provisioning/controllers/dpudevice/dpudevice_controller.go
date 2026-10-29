@@ -228,6 +228,10 @@ func (r *DPUDeviceReconciler) reconcileDelete(ctx context.Context, dpuDevice *pr
 	// The device is going away: drop its cached clients so they do not outlive it.
 	r.RedfishClients.RetireEndpoint(dpuDevice.BMCAddress())
 
+	if err := r.clearRejectedFactoryResetSecret(ctx, dpuDevice); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to clear BMC factory-reset rejection annotation: %w", err)
+	}
+
 	if controllerutil.ContainsFinalizer(dpuDevice, provisioningv1.SPIFFEDeregistrationFinalizer) {
 		// Keep SPIFFE identity and credentials available until the DPU releases the device.
 		if controllerutil.ContainsFinalizer(dpuDevice, provisioningv1.DPUDeviceFinalizer) {
