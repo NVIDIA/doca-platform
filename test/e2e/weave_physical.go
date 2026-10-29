@@ -20,12 +20,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/test/e2e/cleanup"
 	"github.com/nvidia/doca-platform/test/utils/dpuservice"
 	"github.com/nvidia/doca-platform/test/utils/remotehost"
@@ -180,11 +182,21 @@ func (t *weavePhysicalTestInput) configureDPUDeployment() {
 	// Replace skeleton nodeKey with DPUNodeSelector (CRD forbids both).
 	Expect(t.dpuDeployment.Spec.DPUs.DPUSets).NotTo(BeEmpty())
 	skeletonDPUSet := t.dpuDeployment.Spec.DPUs.DPUSets[0]
+
+	dpuAnnotations := maps.Clone(skeletonDPUSet.DPUAnnotations)
+	if dpuAnnotations == nil {
+		dpuAnnotations = map[string]string{}
+	}
+	// Force the firmware update so the DPUs accept the pinned bundle even when a
+	// newer firmware is already flashed, which happens on lab boards shared between
+	// jobs that pin different drops.
+	dpuAnnotations[cutil.DPUForceFwUpdateAnnotation] = "true"
+
 	t.dpuDeployment.Spec.DPUs.DPUSets[0] = dpuservicev1.DPUSet{
 		NameSuffix:         skeletonDPUSet.NameSuffix,
 		DPUDeviceSelector:  skeletonDPUSet.DPUDeviceSelector,
 		DPUClusterSelector: skeletonDPUSet.DPUClusterSelector,
-		DPUAnnotations:     skeletonDPUSet.DPUAnnotations,
+		DPUAnnotations:     dpuAnnotations,
 		DPUNodeSelector: &metav1.LabelSelector{
 			MatchLabels: map[string]string{"feature.node.kubernetes.io/dpu-enabled": "true"},
 		},
