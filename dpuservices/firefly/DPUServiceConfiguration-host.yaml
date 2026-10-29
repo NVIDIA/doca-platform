@@ -1,0 +1,14 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: firefly-host
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: firefly-host
+  upgradePolicy:
+    applyNodeEffect: false
+  serviceConfiguration:
+    deployInCluster: true
+    helmChart:
+      values:
+        monitorState: '{{ (index .Services "firefly-dpu").Name }}.{{ (index .Services "firefly-dpu").Namespace }}'

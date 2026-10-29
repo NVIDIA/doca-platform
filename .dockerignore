@@ -1,0 +1,33 @@
+# More info: https://docs.docker.com/engine/reference/builder/#dockerignore-file
+
+# gitlab config
+.gitlab/
+
+# Build artifacts
+bin/
+artifacts/
+*.tgz
+*.tar.gz
+*.zip
+
+# Temporary and cache files
+*.swp
+*.swo
+*~
+.DS_Store
+.gocache/
+*/.cache/
+
+# Logs
+*.log
+*.out
+
+# Don't copy hack directory (except needed tools)
+hack/*
+!hack/tools/tools.mk
+!hack/boilerplate.go.txt
+!hack/repos/ovn-kubernetes/**
+
+# Other directories not needed for build
+.vscode/
+.idea/

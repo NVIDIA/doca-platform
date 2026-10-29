@@ -1,0 +1,5 @@
+resources:
+- bases/storage.dpu.nvidia.com_dpuvolumeattachments.yaml
+- bases/storage.dpu.nvidia.com_dpuvolumes.yaml
+- bases/storage.dpu.nvidia.com_dpustoragepolicies.yaml
+- bases/storage.dpu.nvidia.com_dpustoragevendors.yaml

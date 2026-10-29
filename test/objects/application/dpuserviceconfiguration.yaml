@@ -1,0 +1,16 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: dpudeployment-example-serviceconfiguration
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: "example"
+  serviceConfiguration:
+    serviceDaemonSet:
+      labels:
+        labelKey: labelVal
+      annotations:
+        annKey: annVal
+  interfaces:
+  - name: app-iface
+    network: mynad

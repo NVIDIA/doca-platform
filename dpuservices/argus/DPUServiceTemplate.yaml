@@ -1,0 +1,12 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: argus
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: argus
+  helmChart:
+    source:
+      chart: doca-argus
+      repoURL: https://helm.ngc.nvidia.com/nvidia/doca
+      version: 1.0.0

@@ -1,0 +1,12 @@
+{{- if .Values.dpu.enabled }}
+apiVersion: storage.k8s.io/v1
+kind: CSIDriver
+metadata:
+  name: csi.spdk.io
+  labels:
+    {{- include "spdk-csi-controller.labels" . | nindent 4 }}
+spec:
+  attachRequired: false
+  volumeLifecycleModes:
+  - Persistent
+{{- end }}

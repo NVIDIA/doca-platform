@@ -1,0 +1,17 @@
+apiVersion: vpc.dpu.nvidia.com/v1alpha1
+kind: DPUVPC
+metadata:
+  name: example-vpc
+  namespace: default
+spec:
+  # Tenant identifier
+  tenant: my-tenant
+  
+  # Optional: Select specific DPU nodes (empty = all nodes)
+  nodeSelector: {}
+  
+  # Isolation class to use, referenced by name
+  isolationClassName: "ovn.vpc.dpu.nvidia.com"
+  
+  # Whether virtual networks within the DPUVPC can communicate with each other
+  interNetworkAccess: true

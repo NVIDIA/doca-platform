@@ -1,0 +1,10 @@
+apiVersion: "svc.dpu.nvidia.com/v1alpha1"
+kind: DPUServiceInterface
+metadata:
+  name: my-interface
+spec:
+  template:
+    spec:
+      template:
+        spec:
+          interfaceType: type

@@ -1,0 +1,12 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceNAD
+metadata:
+  name: mybrsfc-firefly
+  namespace: dpf-operator-system
+  annotations:
+    dpuservicenad.svc.dpu.nvidia.com/use-trusted-sfs: ""
+spec:
+  resourceType: sf
+  ipam: false
+  bridge: "br-sfc"
+  serviceMTU: 1500

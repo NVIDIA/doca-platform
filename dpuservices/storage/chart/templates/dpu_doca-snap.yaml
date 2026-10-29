@@ -1,0 +1,164 @@
+{{ include "validate" . }}
+{{- if .Values.dpu.docaSnap.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "doca-snap.fullname" . }}
+  labels:
+    {{- include "doca-snap.labels" . | nindent 4 }}
+    {{- with .Values.serviceDaemonSet.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    {{- with .Values.serviceDaemonSet.annotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "doca-snap.selectorLabels" . | nindent 6 }}
+  {{- with .Values.serviceDaemonSet.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "doca-snap.selectorLabels" . | nindent 8 }}
+        {{- with .Values.serviceDaemonSet.labels }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- with .Values.serviceDaemonSet.annotations }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+        checksum/config: {{ print .Values.dpu.docaSnap.snapRpcInitConf .Values.dpu.docaSnap.spdkRpcInitConf | sha256sum }}
+    spec:
+      {{- with .Values.dpu.docaSnap.imagePullSecrets | default .Values.imagePullSecrets | default list }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.dpu.docaSnap.podSecurityContext | nindent 8 }}
+      restartPolicy: {{ .Values.dpu.docaSnap.restartPolicy }}
+      hostNetwork: {{ .Values.dpu.docaSnap.hostNetwork | default false }}
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ include "doca-snap.fullname" . }}-config
+        - name: hugepages
+          emptyDir:
+            medium: HugePages
+        - name: shm
+          hostPath:
+            path: /dev/shm
+            type: DirectoryOrCreate
+        - name: infiniband
+          hostPath:
+            path: /dev/infiniband
+            type: DirectoryOrCreate
+        - name: vfio
+          hostPath:
+            path: /dev/vfio
+            type: DirectoryOrCreate
+        - name: snap-log
+          hostPath:
+            path: /var/log/snap-log
+            type: DirectoryOrCreate
+        - name: virtiofs-log
+          hostPath:
+            path: /var/log/virtiofs
+            type: DirectoryOrCreate
+        - name: workdir
+          hostPath:
+            path: /var/lib/nvidia/storage/snap/providers/nvidia
+            type: DirectoryOrCreate
+      {{- with toYaml .Values.serviceDaemonSet.nodeSelector }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+              {{- . | nindent 12 }}
+      {{- end }}
+      {{- with .Values.dpu.docaSnap.tolerations | default list }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: init
+          image: "{{ .Values.dpu.docaSnap.image.repository }}:{{ .Values.dpu.docaSnap.image.tag }}"
+          imagePullPolicy: {{ .Values.dpu.docaSnap.imagePullPolicy }}
+          command: ['sh', '-c', "cd /var/tmp && ln -sf spdk.sock snap.sock"]
+          securityContext:
+            {{ toYaml .Values.dpu.docaSnap.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: workdir
+              mountPath: /var/tmp
+      containers:
+        - name: doca-snap
+          image: "{{ .Values.dpu.docaSnap.image.repository }}:{{ .Values.dpu.docaSnap.image.tag }}"
+          imagePullPolicy: {{ .Values.dpu.docaSnap.imagePullPolicy }}
+          securityContext:
+            {{ toYaml .Values.dpu.docaSnap.securityContext | nindent 12 }}
+          volumeMounts:
+            - mountPath: /startup_config
+              name: config-volume
+            - name: hugepages
+              mountPath: /dev/hugepages
+            - name: shm
+              mountPath: /dev/shm
+            - name: infiniband
+              mountPath: /dev/infiniband
+            - name: vfio
+              mountPath: /dev/vfio
+            - name: snap-log
+              mountPath: /var/log/snap-log
+            - name: virtiofs-log
+              mountPath: /var/log/virtiofs
+            - name: workdir
+              mountPath: /var/tmp
+            - name: workdir
+              mountPath: /var/lib/nvidia/storage/snap/providers/nvidia
+              mountPropagation: "HostToContainer"
+          {{- with toYaml .Values.serviceDaemonSet.resources }}
+          resources:
+            limits:
+              {{- . | nindent 14 }}
+            requests:
+              {{- . | nindent 14 }}
+          {{- end }}
+          env:
+            - name: SPDK_RPC_INIT_CONF
+              value: /startup_config/spdk_rpc_init.conf
+            - name: SNAP_RPC_INIT_CONF
+              value: /startup_config/snap_rpc_init.conf
+            {{- if .Values.dpu.docaSnap.env.SPDK_XLIO_PATH }}
+            - name: SPDK_XLIO_PATH
+              value: "{{ .Values.dpu.docaSnap.env.SPDK_XLIO_PATH }}"
+            {{- end }}
+            {{- if .Values.dpu.docaSnap.env.APP_ARGS }}
+            - name: APP_ARGS
+              value: "{{ .Values.dpu.docaSnap.env.APP_ARGS }}"
+            {{- end }}
+            {{- if .Values.dpu.docaSnap.env.SPDK_RPC_INIT_CONF_JSON }}
+            - name: SPDK_RPC_INIT_CONF_JSON
+              value: "{{ .Values.dpu.docaSnap.env.SPDK_RPC_INIT_CONF_JSON }}"
+            {{- end }}
+            {{- if .Values.dpu.docaSnap.env.SNAP_SPDK_SOCK }}
+            - name: SNAP_SPDK_SOCK
+              value: "{{ .Values.dpu.docaSnap.env.SNAP_SPDK_SOCK }}"
+            {{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "doca-snap.fullname" . }}-config
+  labels:
+    {{- include "doca-snap.labels" . | nindent 4 }}
+data:
+  {{- if .Values.dpu.docaSnap.snapRpcInitConf }}
+  snap_rpc_init.conf: | {{ .Values.dpu.docaSnap.snapRpcInitConf | nindent 4}}
+  {{- end }}
+  {{- if .Values.dpu.docaSnap.spdkRpcInitConf }}
+  spdk_rpc_init.conf: | {{ .Values.dpu.docaSnap.spdkRpcInitConf | nindent 4}}
+  {{- end }}
+{{- end }}

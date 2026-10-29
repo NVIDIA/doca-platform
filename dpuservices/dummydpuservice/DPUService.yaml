@@ -1,0 +1,43 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: dummydpuservice
+  namespace: dummydpuservice
+spec:
+  helmChart:
+    source:
+      repoURL: https://$DPUSERVICE_HELM_REGISTRY/dpf
+      version: v0.1.0
+      chart: dummydpuservice-chart
+    values:
+      image:
+        tag: v0.1.0
+        repository: $DPUSERVICE_DOCKER_REGISTRY/dummydpuservice
+  serviceID: dummydpuservice
+  serviceDaemonSet:
+    nodeSelector:
+      nodeSelectorTerms:
+      - matchExpressions:
+          - key: dpu
+            operator: In
+            values:
+              - dpu
+    updateStrategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxUnavailable: 2
+    labels:
+      dpuservice.dpu.nvidia.com/name: dummydpuservice
+    annotations:
+      dpuservice.dpu.nvidia.com/name: dummydpuservice
+    resources:
+      nvidia.com/bf_sf: 1
+  configPorts:
+    serviceType: NodePort
+    ports:
+      - name: exampletcp
+        port: 8080
+        protocol: TCP
+      - name: exampleudp
+        port: 8081
+        protocol: UDP

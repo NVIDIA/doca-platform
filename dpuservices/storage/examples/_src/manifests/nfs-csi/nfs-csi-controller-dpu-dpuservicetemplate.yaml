@@ -1,0 +1,13 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: nfs-csi-controller-dpu
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: nfs-csi-controller-dpu
+  helmChart:
+    source:
+      repoURL: $NFS_CSI_CHART_REPO
+      version: $NFS_CSI_CHART_VERSION
+      chart: nfs-csi-controller-chart

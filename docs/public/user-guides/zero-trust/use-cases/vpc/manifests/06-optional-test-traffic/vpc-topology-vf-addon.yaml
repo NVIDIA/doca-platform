@@ -1,0 +1,50 @@
+---
+apiVersion: vpc.dpu.nvidia.com/v1alpha1
+kind: DPUVirtualNetwork
+metadata:
+  name: vfnet
+  namespace: default
+spec:
+  vpcName: myvpc
+  type: Bridged
+  externallyRouted: true
+  masquerade: true
+  bridgedNetwork:
+    ipam:
+      ipv4:
+        dhcp: true
+        subnet: 10.200.0.0/16
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: vf0
+  namespace: default
+spec:
+  template:
+    spec:
+      template:
+        spec:
+          interfaceType: vf
+          vf:
+            pfID: 0
+            vfID: 0
+            virtualNetwork: vfnet
+            parentInterfaceRef: ""
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: vf1
+  namespace: default
+spec:
+  template:
+    spec:
+      template:
+        spec:
+          interfaceType: vf
+          vf:
+            pfID: 0
+            vfID: 1
+            virtualNetwork: vfnet
+            parentInterfaceRef: ""

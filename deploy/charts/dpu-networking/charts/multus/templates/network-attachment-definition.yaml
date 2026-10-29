@@ -1,0 +1,19 @@
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: mybrhbn
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    k8s.v1.cni.cncf.io/resourceName: nvidia.com/bf_sf
+  labels:
+    {{- include "multus.labels" . | nindent 4 }}
+spec:
+  config: |-
+    {
+      "cniVersion": "0.4.0",
+      "type": "ovs",
+      "mtu": {{ .Values.mtu }},
+      "bridge": "br-hbn",
+      "interface_type": "dpdk"
+    }

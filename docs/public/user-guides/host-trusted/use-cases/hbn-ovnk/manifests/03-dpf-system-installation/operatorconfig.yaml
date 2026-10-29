@@ -1,0 +1,15 @@
+---
+apiVersion: operator.dpu.nvidia.com/v1alpha1
+kind: DPFOperatorConfig
+metadata:
+  name: dpfoperatorconfig
+  namespace: dpf-operator-system
+spec:
+  overrides:
+    kubernetesAPIServerVIP: $TARGETCLUSTER_API_SERVER_HOST
+    kubernetesAPIServerPort: $TARGETCLUSTER_API_SERVER_PORT
+  provisioningController:
+    bfbPVCName: "bfb-pvc"
+    dmsTimeout: 900
+  kamajiClusterManager:
+    disable: false

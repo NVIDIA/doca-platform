@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ovn-kubernetes-resource-injector.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    dpu.nvidia.com/component: ovn-kubernetes-resource-injector
+  {{- include "ovn-kubernetes-resource-injector.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.controllerManager.replicas }}
+  selector:
+    matchLabels:
+      dpu.nvidia.com/component: ovn-kubernetes-resource-injector
+    {{- include "ovn-kubernetes-resource-injector.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        dpu.nvidia.com/component: ovn-kubernetes-resource-injector
+      {{- include "ovn-kubernetes-resource-injector.selectorLabels" . | nindent 8 }}
+        ovn.dpu.nvidia.com/skip-injection: ""
+    spec:
+      containers:
+      - args: {{- include "ovn-kubernetes-resource-injector.webhook.args" . | nindent 8 }}
+        command: {{- toYaml .Values.controllerManager.webhook.command | nindent 8 }}
+        image: {{ .Values.controllerManager.webhook.image.repository }}:{{ .Values.controllerManager.webhook.image.tag
+          | default .Chart.AppVersion }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: webhook
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources: {{- toYaml .Values.controllerManager.webhook.resources | nindent 10
+          }}
+        securityContext: {{- toYaml .Values.controllerManager.webhook.containerSecurityContext
+          | nindent 10 }}
+        ports:
+        - containerPort: 9443
+          name: webhook-server
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /tmp/k8s-webhook-server/serving-certs
+          name: cert
+          readOnly: true
+      imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
+      securityContext:
+        runAsNonRoot: true
+      serviceAccountName: {{ include "ovn-kubernetes-resource-injector.fullname" . }}
+      terminationGracePeriodSeconds: 10
+      {{- with .Values.controllerManager.nodeSelector }}
+      nodeSelector:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controllerManager.tolerations }}
+      tolerations:
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
+      volumes:
+      - name: cert
+        secret:
+          defaultMode: 420
+          secretName: {{ include "ovn-kubernetes-resource-injector.webhook.secretName" . }}

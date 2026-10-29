@@ -1,0 +1,33 @@
+nfd:
+  enabled: false
+  deployNodeFeatureRules: false
+sriovNetworkOperator:
+  enabled: true
+sriov-network-operator:
+  operator:
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: node-role.kubernetes.io/master
+                  operator: Exists
+            - matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: Exists
+  crds:
+    enabled: true
+  sriovOperatorConfig:
+    deploy: true
+    configDaemonNodeSelector: null
+operator:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: node-role.kubernetes.io/master
+                operator: Exists
+          - matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists

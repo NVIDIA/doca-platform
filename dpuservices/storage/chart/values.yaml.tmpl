@@ -1,0 +1,375 @@
+####################
+### DPF contract ###
+####################
+
+# configuration for the service
+serviceDaemonSet:
+  # selects nodes on which this service will run by label. Can be set in DPUService `.spec.serviceDaemonSet.nodeSelector`
+  # nodeSelector:
+  #   nodeSelectorTerms:
+  #   - matchExpressions:
+  #       - key: dpu
+  #         operator: In
+  #         values:
+  #           - dpu
+  # labels on the DaemonSet and pod template. Can be set in DPUService `.spec.serviceDaemonSet.labels`
+  labels: {}
+  # annotations on the DaemonSet and pod template. Can be set in DPUService `.spec.serviceDaemonSet.annotations`
+  annotations: {}
+  # updateStrategy on the DaemonSet. Can be set in DPUService `.spec.serviceDaemonSet.updateStrategy.`
+  updateStrategy: {}
+  #  type: RollingUpdate
+  #  rollingUpdate:
+  #    maxUnavailable: 1
+  # resources on the DaemonSet and pod template. Can be set in DPUService `.spec.serviceDaemonSet.resources`
+  resources: {}
+
+# default imagePullSecrets
+imagePullSecrets: []
+
+
+# Note: This chart includes multiple components but is designed to deploy only one at a time.
+# By default, all components are disabled.
+# To deploy a specific component, explicitly set the "enabled" flag to true.
+
+#######################################
+### Components for the host cluster ###
+#######################################
+host:
+  ### snap-csi-plugin ###
+  snapCsiPlugin:
+    # enable deployment of the snap-csi-plugin component
+    # Note: Only one component can be enabled at a time.
+    enabled: false
+    controller:
+      # imagePullSecrets to add to the controller Pod spec,
+      # if not set use .Values.imagePullSecrets
+      imagePullSecrets: []
+      # count of replicas for controller pod
+      replicas: 1
+      # configuration for plugin container
+      plugin:
+        # args for the plugin container
+        args:
+          # log level for the plugin container
+          logLevel: 2
+        # image settings for plugin container
+        image:
+          repository: ${STORAGE_SYSTEM_UPSTREAM_IMAGE}
+          tag: ${TAG}
+        # imagePullPolicy for plugin image
+        imagePullPolicy: IfNotPresent
+        # securityContext for plugin container
+        securityContext:
+          allowPrivilegeEscalation: false
+        # resources for plugin container
+        resources: {}
+      externalProvisioner:
+        image:
+          # image settings for external-provisioner container
+          repository: "registry.k8s.io/sig-storage/csi-provisioner"
+          # tag for csi-provisioner image
+          tag: v5.1.0
+        # imagePullPolicy for external-provisioner image
+        imagePullPolicy: IfNotPresent
+        # securityContext for external-provisioner container
+        securityContext:
+          allowPrivilegeEscalation: false
+        # resources for external container
+        resources: {}
+      externalAttacher:
+        image:
+          # image settings for external-attacher container
+          repository: "registry.k8s.io/sig-storage/csi-attacher"
+          # tag for csi-attacher image
+          tag: v4.7.0
+        # imagePullPolicy for external-attacher image
+        imagePullPolicy: IfNotPresent
+        # securityContext for external-attacher container
+        securityContext:
+          allowPrivilegeEscalation: false
+        # resources for external container
+        resources: {}
+      livenessProbe:
+        image:
+          # image settings for livenessprobe container
+          repository: "registry.k8s.io/sig-storage/livenessprobe"
+          # tag for liveness-probe image
+          tag: v2.14.0
+        # imagePullPolicy for liveness-probe image
+        imagePullPolicy: IfNotPresent
+        # securityContext for liveness-probe container
+        securityContext:
+          allowPrivilegeEscalation: false
+        # resources for liveness-probe container
+        resources: {}
+      # podAnnotations to add to the Pod spec
+      podAnnotations: {}
+      # podLabels to add to the Pod spec
+      podLabels: {}
+      # podSecurityContext to add to the Pod spec
+      podSecurityContext: {}
+      #  runAsNonRoot: true
+      # nodeSelector to add to the Pod spec
+      nodeSelector: {}
+      # tolerations to add to the Pod spec
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+          operator: Exists
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+          operator: Exists
+      # affinity to add to the Pod spec
+      affinity: {}
+    node:
+      config:
+        # pci device ID of the snap controller device
+        snapControllerDeviceId: "6001"
+        # max number of volumes that can be published to a node,
+        # the value allows to override the auto-discovered value if it is not accurate.
+        # the value is set to 0 by default, which means that the auto-discovered value will be used
+        maxVolumesPerNode: 0
+      # imagePullSecrets to add to the controller Pod spec,
+      # if not set use .Values.imagePullSecrets
+      imagePullSecrets: []
+      # configuration for plugin container
+      plugin:
+        # args for the plugin container
+        args:
+          # log level for the plugin container
+          logLevel: 2
+        # image settings for plugin container
+        image:
+          repository: ${STORAGE_HOST_UPSTREAM_IMAGE}
+          tag: ${TAG}
+        # imagePullPolicy for plugin image
+        imagePullPolicy: IfNotPresent
+        # securityContext for plugin container
+        securityContext:
+          runAsUser: 0
+          privileged: true
+          capabilities:
+            add: ["SYS_ADMIN"]
+          allowPrivilegeEscalation: true
+      livenessProbe:
+        image:
+          # liveness-probe image name
+          repository: "registry.k8s.io/sig-storage/livenessprobe"
+          # tag for liveness-probe image
+          tag: v2.14.0
+        # imagePullPolicy for liveness-probe image
+        imagePullPolicy: IfNotPresent
+        # securityContext for liveness-probe container
+        securityContext:
+          allowPrivilegeEscalation: false
+        # resources for liveness-probe container
+        resources: {}
+      nodeDriverRegistrar:
+        image:
+          # node-driver-registrar image name
+          repository: "registry.k8s.io/sig-storage/csi-node-driver-registrar"
+          # tag for node-driver-registrar image
+          tag: v2.12.0
+        # imagePullPolicy for liveness-probe image
+        imagePullPolicy: IfNotPresent
+        # securityContext for node-driver-registrar container
+        securityContext:
+          allowPrivilegeEscalation: false
+        # resources for plugin container
+        resources: {}
+      # kubelet dir on the host
+      kubeletDir: /var/lib/kubelet
+      # podSecurityContext to add to the Pod spec
+      podSecurityContext: {}
+      #  runAsNonRoot: true
+      # tolerations to add to the Pod spec
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+          operator: Exists
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+          operator: Exists
+
+  ### snap-controller ###
+  snapController:
+    # enable deployment of the snap-controller component
+    # Note: Only one component can be enabled at a time.
+    enabled: false
+    config:
+      # required, name of the secret that stores credentials and connection details for DPU cluster
+      dpuClusterSecret: ""
+      # controls in which namespace to search for StorageVendor and StoragePolicy CRs
+      configNamespace: "nvidia-storage"
+    # image settings
+    image:
+      repository: ${STORAGE_SYSTEM_UPSTREAM_IMAGE}
+      tag: ${TAG}
+    imagePullSecrets: []
+    # count of replicas for controller pod
+    replicas: 1
+    # podAnnotations to add to the Pod spec
+    podAnnotations: {}
+    # podLabels to add to the Pod spec
+    podLabels: {}
+    # podSecurityContext to add to the Pod spec
+    podSecurityContext: {}
+    #  runAsNonRoot: true
+    # nodeSelector to add to the Pod spec
+    nodeSelector: {}
+    # tolerations to add to the Pod spec
+    tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+        operator: Exists
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+        operator: Exists
+    # affinity to add to the Pod spec
+    affinity: {}
+
+  ### snap-host-controller ###
+  snapHostController:
+    # enable deployment of the snap-host-controller component
+    # Note: Only one component can be enabled at a time.
+    enabled: false
+    config:
+      # required, name of the DPU cluster to create Volume and VolumeAttachment objects
+      dpuClusterName: ""
+      # required, namespace of the DPU to create Volume and VolumeAttachment objects
+      dpuClusterNamespace: ""
+      # required, namespace in the DPU cluster to create Volume and VolumeAttachment objects
+      targetNamespace: ""
+      # namespace in which controller will reconcile resources, if not set, defaults to deployment namespace
+      namespace: ""
+    # image settings
+    image:
+      repository: ${STORAGE_SYSTEM_UPSTREAM_IMAGE}
+      tag: ${TAG}
+    imagePullSecrets: []
+    # count of replicas for controller pod
+    replicas: 1
+    # podAnnotations to add to the Pod spec
+    podAnnotations: {}
+    # podLabels to add to the Pod spec
+    podLabels: {}
+    # podSecurityContext to add to the Pod spec
+    podSecurityContext: {}
+    #  runAsNonRoot: true
+    # nodeSelector to add to the Pod spec
+    nodeSelector: {}
+    # tolerations to add to the Pod spec
+    tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+        operator: Exists
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+        operator: Exists
+    # affinity to add to the Pod spec
+    affinity: {}
+
+
+#######################################
+### Components for the DPU cluster ###
+#######################################
+dpu:
+  deployCrds: false
+  ### snap-node-driver ###
+  snapNodeDriver:
+    # enable deployment of the snap-node-driver component
+    # Note: Only one component can be enabled at a time.
+    enabled: false
+    tolerations: []
+    image:
+      repository: ${STORAGE_SYSTEM_UPSTREAM_IMAGE}
+      tag: ${TAG}
+    imagePullPolicy: IfNotPresent
+    imagePullSecrets: []
+    securityContext:
+      runAsUser: 0
+    env: []
+
+  ### block-storage-vendor-dpu-plugin ###
+  blockStorageVendorDpuPlugin:
+    # enable deployment of the block-storage-vendor-dpu-plugin component
+    # Note: Only one component can be enabled at a time.
+    enabled: false
+    config:
+      pluginName: "nvidia-block"
+      providerName: "nvidia"
+    tolerations: []
+    image:
+      repository: ${STORAGE_SYSTEM_UPSTREAM_IMAGE}
+      tag: ${TAG}
+    imagePullPolicy: IfNotPresent
+    imagePullSecrets: []
+    securityContext:
+      runAsUser: 0
+    env: []
+
+  ### fs-storage-vendor-dpu-plugin ###
+  fsStorageVendorDpuPlugin:
+    # enable deployment of the fs-storage-vendor-dpu-plugin component
+    # Note: Only one component can be enabled at a time.
+    enabled: false
+    config:
+      pluginName: "nvidia-fs"
+      providerName: "nvidia"
+    tolerations: []
+    image:
+      repository: ${STORAGE_HOST_UPSTREAM_IMAGE}
+      tag: ${TAG}
+    imagePullPolicy: IfNotPresent
+    imagePullSecrets: []
+    securityContext:
+      runAsUser: 0
+      privileged: true
+    env: []
+
+  ### doca-snap ###
+  docaSnap:
+    # enable deployment of the doca-snap component
+    # Note: Only one component can be enabled at a time.
+    enabled: false
+    name: "doca-snap"
+    image:
+      repository: nvcr.io/nvidia/doca/doca_vfs
+      tag: 1.4.0-doca3.1.0
+    tolerations: []
+    imagePullSecrets: []
+    restartPolicy: "Always"
+    hostNetwork: false
+    imagePullPolicy: IfNotPresent
+    securityContext:
+      privileged: true
+      capabilities:
+        add:
+          - "IPC_LOCK"
+          - "SYS_RAWIO"
+          - "SYS_NICE"
+    env:
+      SPDK_XLIO_PATH: "" # e.g., "/usr/lib/libxlio.so" to enable XLIO
+      APP_ARGS: "-m 0xff"      # e.g., "--wait-for-rpc"
+      SPDK_RPC_INIT_CONF_JSON: ""  # e.g., "/etc/nvda_snap/config.json"
+      SPDK_RPC_INIT_CONF: ""       # e.g., "/etc/nvda_snap/spdk_rpc_init.conf"
+      SNAP_RPC_INIT_CONF: ""       # e.g., "/etc/nvda_snap/snap_rpc_init.conf"
+      SNAP_SPDK_SOCK: "/var/lib/nvidia/storage/snap/providers/nvidia/snap.sock"
+    snapRpcInitConf: ""
+    spdkRpcInitConf: ""
+
+  ### Configuration for the dpu cluster ###
+  configuration:
+    # enable deployment of the configuration component
+    # Note: Only one component can be enabled at a time.
+    enabled: false
+    # RBAC roles for clients from host cluster
+    rbacRoles:
+      enabled: true
+      snapCsiPlugin:
+        create: true
+        serviceAccount: snap-csi-plugin-sa
+      snapController:
+        create: true
+        serviceAccount: snap-controller-sa

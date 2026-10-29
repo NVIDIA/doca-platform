@@ -1,0 +1,24 @@
+{{- if .Values.dpu.enabled }}
+{{- range .Values.dpu.storageClasses }}
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: "{{ .name }}"
+  labels:
+    {{- include "nfs-csi-controller.labels" $ | nindent 4 }}
+provisioner: nfs.csi.k8s.io
+parameters:
+{{- range $key, $value := .parameters }}
+  {{ $key }}: "{{ $value }}"
+{{- end }}
+  # csi.storage.k8s.io/provisioner-secret is only needed for providing mountOptions in DeleteVolume
+reclaimPolicy: {{ .reclaimPolicy | default "Delete" }}
+volumeBindingMode: {{ .volumeBindingMode | default "Immediate" }}
+allowVolumeExpansion: {{ .allowVolumeExpansion | default true }}
+{{- if .mountOptions }}
+mountOptions:
+{{- toYaml .mountOptions | nindent 2 }}
+{{- end }}
+{{- end }}
+{{- end }}

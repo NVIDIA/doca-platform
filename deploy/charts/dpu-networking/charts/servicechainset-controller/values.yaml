@@ -1,0 +1,67 @@
+controllerManager:
+  manager:
+    args:
+    - --leader-elect
+    - --leader-election-namespace=$(POD_NAMESPACE)
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+    image:
+      repository: example.com/dpf-system
+      tag: v0.1.0
+    resources:
+      limits:
+        cpu: 500m
+        memory: 128Mi
+      requests:
+        cpu: 10m
+        memory: 64Mi
+  replicas: 1
+  serviceAccount:
+    annotations: {}
+imagePullSecrets: []
+kubernetesClusterDomain: cluster.local
+forDPUCluster: false
+chart:
+  repoURL: ""
+  chart: ""
+  version: ""
+volumes:
+  - name: tokenfile
+    projected:
+      sources:
+        - secret:
+            name: servicechainset-controller-manager-credentials
+            items:
+              - key: TOKEN_FILE
+                path: token
+        - secret:
+            name: servicechainset-controller-manager-credentials
+            items:
+              - key: KUBERNETES_CA_DATA
+                path: ca.crt
+env:
+  - name: POD_NAMESPACE
+    valueFrom:
+      fieldRef:
+        apiVersion: v1
+        fieldPath: metadata.namespace
+  - name: KUBERNETES_SERVICE_HOST
+    valueFrom:
+      secretKeyRef:
+        name: servicechainset-controller-manager-credentials
+        key: KUBERNETES_SERVICE_HOST
+  - name: KUBERNETES_SERVICE_PORT
+    valueFrom:
+      secretKeyRef:
+        name: servicechainset-controller-manager-credentials
+        key: KUBERNETES_SERVICE_PORT
+volumeMounts:
+    - name: tokenfile
+      mountPath: "/var/run/secrets/kubernetes.io/serviceaccount"
+      readOnly: true
+dpucluster:
+  name: ""
+  namespace: ""

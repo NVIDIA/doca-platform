@@ -1,0 +1,29 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUService
+metadata:
+  name: vpc-ovn-controller
+  namespace: dpf-operator-system
+spec:
+  serviceID: vpc-ovn-controller
+  deployInCluster: true
+  helmChart:
+    source:
+      repoURL: oci://example.com
+      version: v1.0.0
+      chart: dpf-vpc-ovn
+    values:
+      host:
+        vpcOVNController:
+          enabled: true
+          imagePullSecrets:
+            - name: dpf-pull-secret
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: "node-role.kubernetes.io/master"
+                    operator: Exists
+                - matchExpressions:
+                  - key: "node-role.kubernetes.io/control-plane"
+                    operator: Exists

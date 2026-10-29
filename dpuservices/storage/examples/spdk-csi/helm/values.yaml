@@ -1,0 +1,106 @@
+#====================================================
+# Settings for the host cluster portion of the chart
+#====================================================
+
+host:
+  enabled: false
+  config:
+    # required, name of the secret that stores credentials and connection details for DPU cluster
+    dpuClusterSecret: ""
+    targets:
+      nodes:
+        - name: localhost
+          rpcURL: "http://127.0.0.1:9009"
+          targetType: nvme-tcp
+          targetAddr: 127.0.0.1
+  # imagePullSecrets to add to the Pod spec
+  imagePullSecrets: []
+  # count of replicas for pod
+  replicas: 1
+  # configuration for plugin container
+  plugin:
+    # image settings for plugin container
+    image:
+      repository: "example.com/spdkcsi"
+      tag: "v0.1.0"
+    # pullPolicy for plugin image
+    pullPolicy: IfNotPresent
+    # securityContext for plugin container
+    securityContext:
+      allowPrivilegeEscalation: false
+    # resources for plugin container
+    resources: {}
+
+  # configuration for external-provisioner container
+  externalProvisioner:
+    image:
+      # image settings for external-provisioner container
+      repository: "registry.k8s.io/sig-storage/csi-provisioner"
+      # tag for csi-provisioner image
+      tag: v3.5.0
+    # pullPolicy for external-provisioner image
+    pullPolicy: IfNotPresent
+    # securityContext for external-provisioner container
+    securityContext:
+      allowPrivilegeEscalation: false
+    # resources for external container
+    resources: {}
+
+  # configuration for external-snapshotter container
+  externalSnapshotter:
+    image:
+      # image settings for external-snapshotter container
+      repository: registry.k8s.io/sig-storage/csi-snapshotter
+      # tag for external-snapshotter image
+      tag: v6.2.2
+    # pullPolicy for external-attacher image
+    pullPolicy: IfNotPresent
+    # securityContext for external-attacher container
+    securityContext:
+      allowPrivilegeEscalation: false
+    # resources for external container
+    resources: {}
+
+  # podAnnotations to add to the Pod spec
+  podAnnotations: {}
+  # podLabels to add to the Pod spec
+  podLabels: {}
+  # podSecurityContext to add to the Pod spec
+  podSecurityContext: {}
+  #  runAsNonRoot: true
+  # nodeSelector to add to the Pod spec
+  nodeSelector: {}
+  # tolerations to add to the Pod spec
+  tolerations:
+    - effect: NoSchedule
+      key: node-role.kubernetes.io/control-plane
+      operator: Exists
+    - effect: NoSchedule
+      key: node-role.kubernetes.io/master
+      operator: Exists
+  # affinity to add to the Pod spec
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/master"
+                operator: Exists
+          - matchExpressions:
+              - key: "node-role.kubernetes.io/control-plane"
+                operator: Exists
+
+#====================================================
+# Settings for the DPU cluster portion of the chart
+#====================================================
+
+dpu:
+  enabled: false
+  storageClass:
+    name: spdkcsi-sc
+    secretName: spdkcsi-secret
+    secretNamespace: nvidia-storage
+  rbacRoles:
+    spdkCsiController:
+      create: true
+      serviceAccount: spdk-csi-controller-sa

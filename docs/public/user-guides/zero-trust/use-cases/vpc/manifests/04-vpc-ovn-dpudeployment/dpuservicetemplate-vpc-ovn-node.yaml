@@ -1,0 +1,13 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: vpc-ovn-node
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: vpc-ovn-node
+  helmChart:
+    source:
+      repoURL: $HELM_REGISTRY_REPO_URL
+      version: $TAG
+      chart: dpf-vpc-ovn

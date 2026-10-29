@@ -1,0 +1,14 @@
+[Unit]
+Description=VF MAC Address Management Service
+After=network.target
+Wants=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/vfmac
+ExecStop=/bin/true
+User=root
+
+[Install]
+WantedBy=multi-user.target 

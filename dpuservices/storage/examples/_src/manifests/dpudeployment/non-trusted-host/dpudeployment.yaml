@@ -1,0 +1,55 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUDeployment
+metadata:
+  name: storage
+  namespace: dpf-operator-system
+spec:
+  dpus:
+    bfb: bf-bundle
+    flavor: dpf-provisioning-storage
+    dpuSets:
+      - nameSuffix: "dpuset1"
+        nodeSelector:
+          matchLabels:
+            feature.node.kubernetes.io/dpu-enabled: "true"
+  services:
+    snap-host-controller:
+      serviceTemplate: snap-host-controller
+      serviceConfiguration: snap-host-controller
+    snap-controller:
+      serviceTemplate: snap-controller
+      serviceConfiguration: snap-controller
+    snap-node-driver:
+      serviceTemplate: snap-node-driver
+      serviceConfiguration: snap-node-driver
+    snap-configuration:
+      serviceTemplate: snap-configuration
+      serviceConfiguration: snap-configuration
+    doca-snap:
+      serviceTemplate: doca-snap
+      serviceConfiguration: doca-snap
+    block-storage-dpu-plugin:
+      serviceTemplate: block-storage-dpu-plugin
+      serviceConfiguration: block-storage-dpu-plugin
+    spdk-csi-controller:
+      serviceTemplate: spdk-csi-controller
+      serviceConfiguration: spdk-csi-controller
+    spdk-csi-controller-dpu:
+      serviceTemplate: spdk-csi-controller-dpu
+      serviceConfiguration: spdk-csi-controller-dpu
+  serviceChains:
+    switches:
+      - ports:
+          - serviceInterface:
+              matchLabels:
+                uplink: p1
+          - serviceInterface:
+              matchLabels:
+                uplink: pf1hpf
+          - service:
+              name: doca-snap
+              interface: app_sf
+              ipam:
+                matchLabels:
+                  svc.dpu.nvidia.com/pool: storage-pool

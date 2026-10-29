@@ -1,0 +1,26 @@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: validating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-svc-dpu-nvidia-com-v1alpha1-dpuserviceipam
+  failurePolicy: Fail
+  name: ipam-validator.svc.dpu.nvidia.com
+  rules:
+  - apiGroups:
+    - svc.dpu.nvidia.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - dpuserviceipams
+  sideEffects: None

@@ -1,0 +1,21 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: fs-storage-dpu-plugin
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: fs-storage-dpu-plugin
+  serviceConfiguration:
+    helmChart:
+      values:
+        imagePullSecrets: $DPF_IMAGE_PULL_SECRET
+        dpu:
+          fsStorageVendorDpuPlugin:
+            enabled: true
+            image:
+              repository: $DPF_IMAGE_REGISTRY/storage-host
+              tag: $DPF_IMAGE_TAG
+  interfaces:
+    - name: app_sf
+      network: mybrsfc

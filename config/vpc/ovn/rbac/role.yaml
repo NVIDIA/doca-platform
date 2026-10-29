@@ -1,0 +1,84 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+- apiGroups:
+  - provisioning.dpu.nvidia.com
+  resources:
+  - dpuclusters
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - svc.dpu.nvidia.com
+  resources:
+  - dpuserviceinterfaces
+  - serviceinterfaces
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - vpc.dpu.nvidia.com
+  resources:
+  - dpuvirtualnetworks
+  - dpuvpcs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - vpc.dpu.nvidia.com
+  resources:
+  - dpuvirtualnetworks/finalizers
+  - dpuvpcs/finalizers
+  - isolationclasses/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - vpc.dpu.nvidia.com
+  resources:
+  - dpuvirtualnetworks/status
+  - dpuvpcs/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - vpc.dpu.nvidia.com
+  resources:
+  - isolationclasses
+  verbs:
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch

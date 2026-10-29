@@ -1,0 +1,59 @@
+resources:
+- daemonset.yaml
+- serviceaccount.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+images:
+- name: dpu-detector
+  newName: example.com/hostdriver
+  newTag: v0.1.0
+sortOptions:
+  legacySortOptions:
+    orderFirst:
+    - PriorityClass
+    - Namespace
+    - NetworkPolicy
+    - ResourceQuota
+    - LimitRange
+    - PodSecurityPolicy
+    - PodDisruptionBudget
+    - ServiceAccount
+    - Secret
+    - SecretList
+    - ConfigMap
+    - StorageClass
+    - PersistentVolume
+    - PersistentVolumeClaim
+    - CustomResourceDefinition
+    - ClusterRole
+    - ClusterRoleList
+    - ClusterRoleBinding
+    - ClusterRoleBindingList
+    - Role
+    - RoleList
+    - RoleBinding
+    - RoleBindingList
+    - Service
+    - DaemonSet
+    - Pod
+    - ReplicationController
+    - ReplicaSet
+    - Deployment
+    - HorizontalPodAutoscaler
+    - StatefulSet
+    - Job
+    - CronJob
+    - IngressClass
+    - Ingress
+    - APIService
+    - Certificate
+    - Issuer
+    orderLast: null
+  order: legacy
+
+labels:
+- includeSelectors: true
+  includeTemplates: true
+  pairs:
+    app.kubernetes.io/part-of: dpu-detector
+    dpu.nvidia.com/component: dpu-detector

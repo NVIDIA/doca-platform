@@ -1,0 +1,8 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: blueman
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: "blueman"

@@ -1,0 +1,18 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceChain
+metadata:
+  name: my-chain
+spec:
+  template:
+    spec:
+      nodeSelector:
+      template:
+        spec:      
+          switches:
+            - ports:
+              - serviceInterface:
+                  matchLabels:
+                    uplink: p0
+              - serviceInterface:
+                  matchLabels:
+                    vf: pf0vf5

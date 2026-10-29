@@ -1,0 +1,34 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  labels:
+    dpu.nvidia.com/component: ovn-kubernetes-resource-injector
+    {{- include "ovn-kubernetes-resource-injector.labels" . | nindent 4 }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "ovn-kubernetes-resource-injector.webhook.certificateName" . }}
+  name: {{ include "ovn-kubernetes-resource-injector.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: {{ include "ovn-kubernetes-resource-injector.fullname" . }}-webhook
+      namespace: {{ .Release.Namespace }}
+      path: /mutate--v1-pod
+  failurePolicy: Fail
+  name: ovn.dpu.nvidia.com
+  rules:
+  - apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    resources:
+    - pods
+  sideEffects: None
+  objectSelector:
+    matchExpressions:
+    - key: ovn.dpu.nvidia.com/skip-injection
+      operator: DoesNotExist

@@ -1,0 +1,14 @@
+{{- if .Values.host.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "spdk-csi-controller.fullname" . }}-config
+  labels:
+    {{- include "spdk-csi-controller.labels" . | nindent 4 }}
+data:
+  # rpcURL: spdk json rpc target
+  # targetType: nvme-rdma, nvme-tcp, iscsi
+  # targetAddr: target service IP
+  config.json: |-
+{{ toJson .Values.host.config.targets | indent 4 -}}
+{{- end }}

@@ -1,0 +1,77 @@
+ARG builder_image
+
+FROM --platform=${BUILDPLATFORM} ${builder_image} AS builder
+
+WORKDIR /workspace
+
+# Copy the Go Modules manifests
+COPY go.mod go.mod
+COPY go.sum go.sum
+
+# Cache deps before building and copying source so that we don't need to re-download as much
+# and so that source changes don't invalidate our downloaded layer
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+COPY ./ ./
+
+# Ensure that no additional tools or artifacts are included.
+RUN make clean
+
+ARG gcflags
+ARG ldflags
+ARG storage_snap_csi_driver_go_ldflags
+ARG TARGETARCH
+
+ENV STORAGE_SNAP_CSI_DRIVER_GO_LDFLAGS=\"${storage_snap_csi_driver_go_ldflags}\"
+ENV GO_LDFLAGS=\"${ldflags}\"
+ENV GO_GCFLAGS=\"${gcflags}\"
+ENV ARCH=${TARGETARCH}
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    make binaries-storage-host
+
+# Copy the go source code so it can be distributed in the final image.
+RUN go mod vendor
+RUN mkdir src && \
+    find . -name '*.go' -not -path "./hack/*" -not -path "./.gocache/*" \
+    -not -path "./internal/vpc/*" -exec cp --parents \{\}  src/ \; && \
+    tar -czf source-code.tar.gz src
+
+FROM nvcr.io/nvidia/doca/doca:3.0.0-base-rt-host
+
+ARG PACKAGES="dpkg-dev keyutils libdevmapper1.02.1 libevent-core-2.1-7 libmpdec3 libnfsidmap1 libpython3-stdlib libpython3.10-minimal libpython3.10-stdlib libreadline8 libsqlite3-0 libwrap0 media-types nfs-common python3 python3-minimal python3.10 python3.10-minimal readline-common rpcbind ucf"
+
+# Enable deb-src to be able to fetch sources
+RUN sed -i 's/^# deb-src/deb-src/g' /etc/apt/sources.list /etc/apt/sources.list.d/*
+
+ARG ubuntu_mirror=http://archive.ubuntu.com/ubuntu/
+RUN find /etc/apt/sources.list* -type f -exec sed -i \
+      -e "s|http://archive.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" \
+      -e "s|http://ports.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" \
+      -e "s|http://security.ubuntu.com/ubuntu/|${ubuntu_mirror}|g" '{}' \;
+
+# install nfs-common required by the fs-storage-vendor-dpu-plugin
+RUN apt-get update && apt-get install -y -qq --no-install-recommends ${PACKAGES}
+
+WORKDIR /
+
+# Move source code to a directory
+ARG PACKAGE_SOURCES
+RUN test "${PACKAGE_SOURCES}" = "false" || ( \
+      mkdir /src && \
+      cd /src && \
+      apt-get update && \
+      apt-get source --download-only ${PACKAGES} && \
+      cd / && \
+      tar -cf pkg-source-code.tar /src && \
+      rm -rf /src && rm -rf /var/lib/apt/lists/* \
+    )
+
+# Add the source code.
+COPY --from=builder /workspace/source-code.tar.gz /source-code.tar.gz
+
+# Add the DPF binaries
+COPY --from=builder /workspace/bin/snap-csi-plugin /snap-csi-plugin
+COPY --from=builder /workspace/bin/fs-storage-vendor-dpu-plugin /fs-storage-vendor-dpu-plugin

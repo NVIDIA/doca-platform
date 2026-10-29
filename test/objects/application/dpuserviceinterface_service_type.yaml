@@ -1,0 +1,17 @@
+apiVersion: "svc.dpu.nvidia.com/v1alpha1"
+kind: DPUServiceInterface
+metadata:
+  name: net1-service
+spec:
+  template:
+    spec:
+      nodeSelector:
+        matchLabels:
+          role: "firewall"
+      template:
+        spec:
+          interfaceType: service
+          service:
+            serviceID: "my-service"
+            network: "my-network"
+            interfaceName: net1

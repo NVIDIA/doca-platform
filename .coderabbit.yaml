@@ -1,0 +1,10 @@
+## Full configuration options can be found at https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+tone_instructions: ''
+early_access: false
+enable_free_tier: true
+reviews:
+  profile: chill
+  poem: false
+  path_filters:
+  - "!third_party/**"

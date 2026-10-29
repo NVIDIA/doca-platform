@@ -1,0 +1,223 @@
+syntax = "proto3";
+
+package nvidia.storage.plugins.v1;
+
+import "google/protobuf/wrappers.proto";
+
+// The Identity service provides APIs to identify the plugin and verify its health.
+service IdentityService {
+  // GetPluginInfo returns the name and version of the plugin.
+  rpc GetPluginInfo(GetPluginInfoRequest) returns (GetPluginInfoResponse);
+
+  // Probe checks the health and readiness of the plugin.
+  rpc Probe(ProbeRequest) returns (ProbeResponse);
+}
+
+// The StoragePlugin service provides APIs to manage storage devices.
+service StoragePluginService {
+  // StoragePluginGetCapabilities returns the capabilities supported by the plugin.
+  rpc StoragePluginGetCapabilities(StoragePluginGetCapabilitiesRequest)
+      returns (StoragePluginGetCapabilitiesResponse);
+
+  // GetSNAPProvider retrieves the name of the SNAP provider used by the plugin.
+  rpc GetSNAPProvider(GetSNAPProviderRequest) returns (GetSNAPProviderResponse);
+
+  // CreateDevice creates a new storage device and exposes it.
+  rpc CreateDevice(CreateDeviceRequest) returns (CreateDeviceResponse);
+
+  // DeleteDevice removes a storage device.
+  rpc DeleteDevice(DeleteDeviceRequest) returns (DeleteDeviceResponse);
+
+  // GetDevice gets a storage device.
+  rpc GetDevice(GetDeviceRequest) returns (GetDeviceResponse);
+
+  // ListDevices list all devices information
+  rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse);
+
+}
+
+// GetPluginInfoRequest is used to request the plugin's information.
+message GetPluginInfoRequest {}
+
+// GetPluginInfoResponse provides the plugin's name, version, and manifest details.
+message GetPluginInfoResponse {
+  // The name of the plugin. It must follow domain name notation format
+  // (https://tools.ietf.org/html/rfc1035#section-2.3.1) and must be 63 characters
+  // or less. This field is required.
+  string name = 1;
+
+  // The version of the plugin. This field is required.
+  string vendor_version = 2;
+
+  // The manifest provides additional opaque information about the plugin.
+  // This field is required.
+  map<string, string> manifest = 3;
+}
+
+// ProbeRequest is used to check the plugin's health and readiness.
+message ProbeRequest {}
+
+// ProbeResponse indicates the plugin's health and readiness status.
+message ProbeResponse {
+  // Ready indicates whether the plugin is healthy and ready.
+  google.protobuf.BoolValue ready = 1;
+}
+
+// StoragePluginGetCapabilitiesRequest is used to request the plugin's capabilities.
+message StoragePluginGetCapabilitiesRequest {}
+
+// StoragePluginGetCapabilitiesResponse provides the list of supported capabilities.
+message StoragePluginGetCapabilitiesResponse {
+  // Capabilities supported by the plugin.
+  repeated StoragePluginServiceCapability capabilities = 1;
+}
+
+// StoragePluginServiceCapability describes a capability of the storage plugin service.
+message StoragePluginServiceCapability {
+  // RPC specifies an RPC capability type.
+  message RPC {
+    // Type defines the specific capability.
+    enum Type {
+      // UNSPECIFIED indicates an undefined capability.
+      TYPE_UNSPECIFIED = 0;
+
+      // CREATE_DELETE_BLOCK_DEVICE indicates support for block device creation and deletion.
+      TYPE_CREATE_DELETE_BLOCK_DEVICE = 1;
+
+      // CREATE_DELETE_FS_DEVICE indicates support for filesystem device creation and deletion.
+      TYPE_CREATE_DELETE_FS_DEVICE = 2;
+
+      // GET_DEVICE_STATS indicates support for retrieving device statistics.
+      TYPE_GET_DEVICE_STATS = 3;
+
+      // LIST_DEVICES indicates support for listing devices.
+      TYPE_LIST_DEVICES = 4;
+    }
+
+    // The type of the capability.
+    Type type = 1;
+  }
+
+  // The specific type of capability.
+  oneof type {
+    // Specifies the RPC capabilities of the service.
+    RPC rpc = 1;
+  }
+}
+
+// GetSNAPProviderRequest is used to retrieve the SNAP provider's name.
+message GetSNAPProviderRequest {}
+
+// GetSNAPProviderResponse provides the SNAP provider's name.
+message GetSNAPProviderResponse {
+  // The name of the SNAP provider. If this field is empty, the default provider
+  // (e.g., NVIDIA) is used. This field is optional.
+  string provider_name = 1;
+}
+
+// CreateDeviceRequest is used to create a new storage device.
+message CreateDeviceRequest {
+  // The unique identifier for the volume.
+  string volume_id = 1;
+
+  // The access modes for the volume.
+  repeated AccessMode access_modes = 2;
+
+  // The volume mode, either Filesystem or Block. Default is Filesystem.
+  string volume_mode = 3;
+
+  // Static properties of the volume. This field is optional.
+  map<string, string> publish_context = 4;
+
+  // Static properties of the volume. This field is optional.
+  map<string, string> volume_context = 5;
+
+  // Static properties of the storage class. This field is optional.
+  map<string, string> storage_parameters = 6;
+}
+
+// CreateDeviceResponse provides the details of the created device.
+message CreateDeviceResponse {
+  // The name of the created device (e.g., SPDK FSdev/Bdev name).
+  string device_name = 1;
+}
+
+// DeleteDeviceRequest is used to delete a storage device.
+message DeleteDeviceRequest {
+  // The unique identifier for the volume.
+  string volume_id = 1;
+
+  // The name of the device to be deleted.
+  string device_name = 2;
+}
+
+// DeleteDeviceResponse is the response for deleting a device.
+message DeleteDeviceResponse {}
+
+// GetDeviceRequest is used to get information about the device
+message GetDeviceRequest {
+  // volume identifier
+  string volume_id = 1;
+
+  // The device name. For example, SPDK FSdev/Bdev name
+  string device_name = 2;
+}
+
+message GetDeviceResponse {
+  // list of access modes for the volume.
+  repeated AccessMode access_modes = 1;
+
+  // Indicates the volume mode. Either Filesystem or Block. Default value is Filesystem. This field is OPTIONAL
+  string volume_mode = 2;
+
+  // Opaque static publish properties of the volume. This field is OPTIONAL
+  map<string, string> publish_context = 3;
+
+  // Opaque static properties of the volume. This field is OPTIONAL
+  map<string, string> volume_context = 4;
+
+  // Opaque static properties of the storage class. This field is OPTIONAL
+  map<string, string> storage_parameters = 5;
+}
+
+message ListDevicesRequest {
+  // number of entries that can be returned.
+  int32 max_entries = 1;
+
+  // A token to specify where to start paginating. Set this field to
+  // `next_token` returned by a previous `ListDevices` call to get the
+  // next page of entries.
+  string starting_token = 2;
+}
+
+message ListDevicesResponse {
+
+  message Entry {
+    string volume_id = 1;
+    string device_name = 2;
+  }
+
+  repeated Entry entries = 1;
+
+  // This token allows the caller to get the next page of entries for
+  // `ListDevices` request.
+  string next_token = 2;
+}
+
+// AccessMode specifies how a volume can be accessed.
+enum AccessMode {
+  // ACCESS_MODE_UNSPECIFIED indicates an unspecified access mode.
+  ACCESS_MODE_UNSPECIFIED = 0;
+
+  // ACCESS_MODE_RWO indicates read/write on a single node.
+  ACCESS_MODE_RWO = 1;
+
+  // ACCESS_MODE_ROX indicates read-only on multiple nodes.
+  ACCESS_MODE_ROX = 2;
+
+  // ACCESS_MODE_RWX indicates read/write on multiple nodes.
+  ACCESS_MODE_RWX = 3;
+
+  // ACCESS_MODE_RWOP indicates read/write on a single pod.
+  ACCESS_MODE_RWOP = 4;
+}

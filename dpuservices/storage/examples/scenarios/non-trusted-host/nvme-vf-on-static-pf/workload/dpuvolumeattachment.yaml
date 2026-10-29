@@ -1,0 +1,11 @@
+---
+apiVersion: storage.dpu.nvidia.com/v1alpha1
+kind: DPUVolumeAttachment
+metadata:
+  name: test-volume-attachment-nvme-vf
+  namespace: dpf-operator-system
+spec:
+  dpuNodeName: $KUBE_NODE_NAME
+  dpuVolumeName: test-volume-nvme-vf
+  functionType: vf
+  hotplugFunction: false

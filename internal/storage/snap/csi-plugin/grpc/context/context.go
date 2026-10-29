@@ -1,0 +1,43 @@
+/*
+Copyright 2024 NVIDIA
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package context
+
+import (
+	"context"
+	"fmt"
+)
+
+type CtxKey string
+
+const (
+	// CtxKeyReqID is a key with which request id will be store as a context value
+	CtxKeyReqID CtxKey = "reqID"
+)
+
+// GetRequestID reads request ID from context
+func GetRequestID(ctx context.Context) (string, error) {
+	reqID, ok := ctx.Value(CtxKeyReqID).(string)
+	if !ok {
+		return "", fmt.Errorf("request ID not found in context")
+	}
+	return reqID, nil
+}
+
+// SetRequestID save request id to context
+func SetRequestID(ctx context.Context, reqID string) context.Context {
+	return context.WithValue(ctx, CtxKeyReqID, reqID)
+}

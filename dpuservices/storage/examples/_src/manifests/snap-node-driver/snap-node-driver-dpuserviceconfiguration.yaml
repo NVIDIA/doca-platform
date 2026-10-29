@@ -1,0 +1,18 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: snap-node-driver
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: snap-node-driver
+  serviceConfiguration:
+    helmChart:
+      values:
+        imagePullSecrets: $DPF_IMAGE_PULL_SECRET
+        dpu:
+          snapNodeDriver:
+            enabled: true
+            image:
+              repository: $DPF_IMAGE_REGISTRY/storage-system
+              tag: $DPF_IMAGE_TAG

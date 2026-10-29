@@ -1,0 +1,51 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUDeployment
+metadata:
+  name: hbn
+  namespace: dpf-operator-system
+spec:
+  dpus:
+    bfb: bf-bundle
+    flavor: hbn
+    nodeEffect:
+      noEffect: true
+    dpuSets:
+    - nameSuffix: "dpuset1"
+      nodeSelector:
+        matchLabels:
+          feature.node.kubernetes.io/dpu-enabled: "true"
+  services:
+    doca-hbn:
+      serviceTemplate: doca-hbn
+      serviceConfiguration: doca-hbn
+  serviceChains:
+    switches:
+      - ports:
+        - serviceInterface:
+            matchLabels:
+              interface: p0
+        - service:
+            name: doca-hbn
+            interface: p0_if
+      - ports:
+        - serviceInterface:
+            matchLabels:
+              interface: p1
+        - service:
+            name: doca-hbn
+            interface: p1_if
+      - ports:
+        - serviceInterface:
+            matchLabels:
+              interface: pf0hpf
+        - service:
+            name: doca-hbn
+            interface: pf0hpf_if
+      - ports:
+        - serviceInterface:
+            matchLabels:
+              interface: pf1hpf
+        - service:
+            name: doca-hbn
+            interface: pf1hpf_if
