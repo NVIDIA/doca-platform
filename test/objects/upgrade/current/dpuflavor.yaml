@@ -26,11 +26,6 @@ spec:
     path: /etc/mellanox/mlnx-sf.conf
     permissions: "0644"
     raw: ""
-  # BFB 3.6 ships an OOB network unit, empty it out.
-  - operation: override
-    path: /usr/lib/systemd/network/02-oob.network
-    permissions: "0644"
-    raw: ""
   grub:
     kernelParameters:
     - console=hvc0

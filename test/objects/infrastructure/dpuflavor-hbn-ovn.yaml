@@ -110,11 +110,6 @@ spec:
     operation: override
     raw: ""
     permissions: "0644"
-  # BFB 3.6 ships an OOB network unit, empty it out.
-  - path: /usr/lib/systemd/network/02-oob.network
-    operation: override
-    raw: ""
-    permissions: "0644"
   - path: /etc/apparmor.d/local/usr.sbin.rsyslogd
     operation: override
     permissions: "0644"
