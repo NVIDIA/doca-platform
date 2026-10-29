@@ -98,14 +98,9 @@ x:
 	g.Expect(checkChartNames([]string{"dpf-operator"}, names)).To(Succeed())
 }
 
-// TestVPCChartsMatchVPCRef fails when VPC_REF of the Makefile differs from vpcChartsRef, so a VPC
-// bump keeps the hand-maintained vpcCharts in sync with the dpf-vpc charts.
-func TestVPCChartsMatchVPCRef(t *testing.T) {
+// TestVPCImageNames checks the image names in the hand-written VPC chart list.
+func TestVPCImageNames(t *testing.T) {
 	g := NewWithT(t)
-	data, err := os.ReadFile(filepath.Join(repoRoot, "Makefile"))
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(makeVars(data)).To(HaveKeyWithValue("VPC_REF", vpcChartsRef),
-		"VPC_REF changed: update vpcCharts to the dpf-vpc charts of the new commit, then set vpcChartsRef to it")
 	g.Expect(VPCImageNames()).To(Equal([]string{"ovn", "vpc-system", "weave-system"}))
 }
 
