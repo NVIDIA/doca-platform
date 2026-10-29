@@ -7,7 +7,7 @@
 # - Container runs on control-plane nodes; only network reachability to BMC needed.
 # - Supports multiple reboot methods based on $DPUNODE_REBOOT_METHOD:
 #   - NoAction: exit 0;
-#   - PowerCycle/SystemLevelReset/SystemReboot: hard power cycle (ForceOff → On);
+#   - PowerCycle/SystemLevelReset/SystemReboot: hard power cycle (ForceOff → On, retried until PowerState=On);
 #   - FirmwareReset/DPUWarmReboot: graceful restart;
 #   - any other value (including unset): exit 1 to surface the misconfiguration.
 # - Discovers the Redfish System path at runtime, vendor-agnostic.
@@ -86,7 +86,8 @@ data:
                          | grep -oE '"@odata.id"[ ]*:[ ]*"/redfish/v1/Systems/[^"]+"' \
                          | head -n1 | cut -d'"' -f4)
               : "${SYS_PATH:?could not resolve Members[0].@odata.id from $BASE/Systems}"
-              RESET_URL="https://${BMC_IP}${SYS_PATH}/Actions/ComputerSystem.Reset"
+              SYS_URL="https://${BMC_IP}${SYS_PATH}"
+              RESET_URL="${SYS_URL}/Actions/ComputerSystem.Reset"
               echo "Resolved Redfish System: $SYS_PATH"
 
               redfish_reset() {
@@ -106,9 +107,15 @@ data:
                 redfish_reset GracefulRestart
               else
                 redfish_reset ForceOff
-                # Brief pause so the BMC acks ForceOff before we issue On.
-                sleep 30
-                redfish_reset On
+                # BMCs may ack On (2xx) yet ignore it while settling from ForceOff,
+                # so keep sending On until the BMC reports PowerState=On.
+                for attempt in $(seq 1 10); do
+                  sleep 30
+                  redfish_reset On || true
+                  sleep 30
+                  $CURL "$SYS_URL" | grep -E '"PowerState"[ ]*:[ ]*"On"' >/dev/null && break
+                  [ "$attempt" = 10 ] && { echo "Host still not On; manual BMC intervention needed." >&2; exit 1; }
+                done
               fi
 
               echo "Reset issued; sleeping 300s before exiting for graceful bringup."
