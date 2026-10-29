@@ -2263,21 +2263,13 @@ spec:
                         default: dpf-ca-trust-bundle
                         description: |-
                           TrustBundleConfigMapName is the ConfigMap holding the CA certificate(s)
-                          that DPF components validate their peers against.
+                          that DPF components validate their peers against. Who maintains its
+                          content depends on the authority the PKI is anchored to, see the
+                          External Certificate Authority guide.
 
-                          Name it when the chart is anchored to an authority of your own, the mode
-                          in which the content of the bundle is yours to provide. With the
-                          self-signed root of DPF the operator generates the content itself, under
-                          this name. To trust additional CAs alongside the root of DPF, merge them
-                          into the ConfigMap directly, DPF preserves certificates it did not add.
-
-                          The name is fixed once the config exists. It reaches each DPU in the
-                          provisioning configuration it is installed with, so renaming it later
-                          would leave the DPUs already provisioned reading a ConfigMap DPF no
-                          longer maintains, holding trust material that silently stops being
-                          updated. That is enforced on the spec rather than here, because leaving
-                          this field out falls back to a name too, and a rule on the field cannot
-                          see a rename that adds or removes it.
+                          The name is fixed once the config exists, enforced by a rule on the spec
+                          rather than on this field, which cannot see a rename that adds or
+                          removes it.
                         maxLength: 253
                         minLength: 1
                         pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$

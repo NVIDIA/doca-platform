@@ -127,6 +127,62 @@ A certificate that stays not ready is usually a policy problem on the side of th
 kubectl -n dpf-operator-system describe certificaterequests.cert-manager.io
 ```
 
+The anchor itself is reported on the `CertManagementReady` condition of the `DPFOperatorConfig`,
+which you can read with [`dpfctl`](../operational-readiness/troubleshooting/dpfctl/README.md) or
+`kubectl`:
+
+**Using dpfctl (recommended):**
+
+```bash
+dpfctl describe all --show-resources=dpfoperatorconfig --show-conditions=all --show-pending
+```
+
+**Using kubectl:**
+
+```bash
+kubectl -n dpf-operator-system get dpfoperatorconfig dpfoperatorconfig \
+  -o jsonpath='{range .status.conditions[?(@.type=="CertManagementReady")]}{.status}/{.reason}{"\n"}{.message}{"\n"}{end}'
+```
+
+`IssuerNotFound` means the issuer named in `certificateAuthority.issuerRef` does not exist, and the
+message names the kind and name that were looked for. `Pending` with a message waiting for it to
+become ready means the issuer is there but its own readiness is still outstanding, which for a `ca`
+issuer is usually the Secret behind it.
+
+# The trust bundle
+
+The components of DPF, the DPU operating systems and the DPU BMC truststores validate the peers they
+talk to against one ConfigMap in the namespace of the release, `dpf-ca-trust-bundle`. Its `ca.crt`
+holds the authorities to trust, and the `bundle-hash` beside it is what the convergence of the DPUs
+and the BMCs on a change of that content is measured against.
+
+Which side writes `ca.crt` follows the choice of authority:
+
+* Anchored to the self-signed root of DPF, the operator writes it. It holds the root, so it can
+  derive what the peers have to trust. Certificates of authorities it does not publish are
+  preserved, which is how an additional CA merged into the ConfigMap stays there. Another
+  certificate of an authority it does publish is taken away, since the one published in its place
+  carries the same subject and key and so validates everything it did.
+* Anchored to an issuer of yours, the content is yours. DPF cannot derive what the peers have to
+  trust from an authority it has no access to, so it does not write `ca.crt` and maintains only
+  `bundle-hash`. Populating it, and carrying two authorities in it across a rotation, is part of
+  running your own PKI.
+
+The name defaults to `dpf-ca-trust-bundle`, in both modes, and is set on the `DPFOperatorConfig`
+rather than in the chart. Name a bundle of your own when you keep the trust material of the cluster
+under a name of your choosing:
+
+```yaml
+spec:
+  security:
+    certManagement:
+      trustBundleConfigMapName: enterprise-ca-trust-bundle
+```
+
+It is fixed once the config exists. The name reaches a DPU in the provisioning configuration it is
+installed with, so renaming it afterwards would leave the DPUs already provisioned reading a
+ConfigMap DPF no longer maintains.
+
 # Dependencies
 
 The components DPF depends on bring their own PKI and are installed from their own charts. DPF does
@@ -158,7 +214,8 @@ Afterwards it is a CA rotation. The certificates below `dpf-platform-intermediat
 DPU BMCs and DPU operating systems are provisioned to trust, and their truststores are reached
 through `dpf-ca-trust-bundle` rather than rewritten by the chart. DPF reports this on the
 `CertManagementReady` condition as `CARotationRequired` and keeps reporting it until the rotation has
-been carried out. See [CA Certificate Rotation](ca-certificate-rotation.md).
+been carried out. See
+[Switching a provisioned cluster to your own authority](#switching-a-provisioned-cluster-to-your-own-authority).
 
 The rotation is less disruptive than it sounds, because `dpf-platform-intermediate-ca` is declared
 with `privateKey.rotationPolicy: Never`: it keeps its key and subject DN when the new authority
@@ -169,7 +226,8 @@ On a cluster upgraded from a release that provisioned its DPUs under the self-si
 `dpf-provisioning-ca-cert` and the chain over it are retained and stay self-signed. DPF collapses
 them into the platform intermediate CA only where it owns the authority at the top of the chain;
 under an issuer of your own it owns no keys, and the trust material below that issuer is yours to
-curate rather than DPF's to publish.
+curate rather than DPF's to publish. That makes the certificate of `dpf-provisioning-ca-cert` part of
+what your `ca.crt` has to carry, for as long as a DPU provisioned under it is in the cluster.
 
 The webhook serving certificates are safe to re-root at any time, including on upgrade. Their trust
 is distributed inside the cluster through the `cert-manager.io/inject-ca-from` annotation, so
@@ -178,7 +236,53 @@ configuration with no manual action. The webhooks use `failurePolicy: Fail`, so 
 affected custom resources can be rejected for the short period between the new CA bundle reaching the
 API server and the reissued certificate reaching the webhook pod.
 
-With an external issuer the trust bundle is yours. DPF cannot derive the certificates peers have to
-trust from an authority it has no access to, so it does not write `dpf-ca-trust-bundle` and only
-maintains the `bundle-hash` that convergence is tracked against. Populating it, and adding a second
-authority to it across a rotation, is part of running your own PKI.
+# Switching a provisioned cluster to your own authority
+
+> [!WARNING]
+> This is a manual, one-time and disruptive procedure. A peer that has not been given the new
+> authority to trust cannot validate the chain, which means provisioning and BMC mTLS downtime for
+> that peer until it has. DPF reports that the authority changed and reissues what it owns, but
+> moving the truststores over is yours to drive.
+
+Carry it out in the order below, which is the anchor rotation in
+[CA Certificate Rotation](ca-certificate-rotation.md) with its first step replaced: there the new
+authority is a re-keyed self-signed root, here it is your issuer. Use that guide for the commands and
+the convergence checks. Its `hack/scripts/ca-rotation.sh` covers the two steps that remain DPF's
+under an external issuer, re-signing the intermediates and rotating the leaf and DPU BMC
+certificates, and refuses the ones that act on a root or on the content of the bundle. Those are the
+manual steps here.
+
+1. **Record what is being retired.** The current `bundle-hash` and the authority in `ca.crt` that the
+   peers trust today, per step 1 of the rotation guide. Keep the copy of the bundle: once the chart is
+   anchored elsewhere DPF stops writing `ca.crt`, and this is the only record of what was in it.
+
+2. **Create your issuer** and confirm it reports `Ready`, as in
+   [Using your own certificate authority](#using-your-own-certificate-authority).
+
+3. **Add your authority to the bundle before it signs anything.** Merge the certificate of your root
+   into `ca.crt` of `dpf-ca-trust-bundle`, keeping the one already there, and wait for the DPUs and
+   the BMCs to converge on the resulting `bundle-hash` before going on. Your authority is not one
+   DPF publishes, so it survives the reconciles in between. Doing it first is what makes the rest of
+   the procedure a window rather than an outage: every peer then trusts both authorities.
+
+4. **Upgrade the chart with `certificateAuthority.issuerRef` set.** It stops creating
+   `dpf-global-bootstrapper`, `dpf-global-root-ca` and `dpf-global-root-issuer`, and requests both
+   intermediate CAs from your issuer instead. `ca.crt` becomes yours to maintain at this point, see
+   [The trust bundle](#the-trust-bundle). DPF records the authority it has rolled out under
+   `status.security.certManagement.anchor` and reports `CertManagementReady` as `CARotationRequired`
+   until the authority in the chart is the one it has rolled out.
+
+5. **Reissue the leaves, and re-push the certificates that are installed rather than mounted.** Per
+   step 4 of the rotation guide. The DPU BMC server certificate is the one that does not follow from
+   a reissue on its own: it is installed over Redfish, so it is re-pushed by annotating the
+   `DPUDevice` with `provisioning.dpu.nvidia.com/rotate-bmc-server-certificate`.
+
+6. **Drop the retired authority from `ca.crt`** once every DPU and DPUDevice reports the current
+   `bundle-hash`, per step 5 of the rotation guide. Removing it earlier is what turns the switch into
+   an outage for whatever has not converged yet.
+
+Moving on to a third authority is the same procedure. Going back to the self-signed root of DPF drops
+step 3: that root does not exist until the chart upgrade creates it, and the operator publishes it
+into `ca.crt` itself, keeping your authority beside it as one it does not publish. Upgrade the chart
+with `certificateAuthority.issuerRef` removed, wait there for every peer to converge on the resulting
+`bundle-hash` rather than ahead of it, and then carry out steps 5 and 6.

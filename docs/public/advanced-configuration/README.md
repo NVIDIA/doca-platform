@@ -14,7 +14,7 @@ This page contains advanced configuration documentation for the DOCA Platform Fr
 * [Air-Gapped DPUs with a SOCKS Proxy](air-gapped-socks-proxy.md) - Letting DPUs without internet access pull images through a SOCKS5 proxy by configuring containerd with a DPUFlavor
 * [Zero Trust Advanced Configuration](zero-trust-advanced-configuration.md) - Advanced configuration for the DPF Zero Trust
 * [CA Certificate Rotation](ca-certificate-rotation.md) - Runbook for rotating the certificate authority that anchors the PKI of DPF, with dual-trust convergence checks on BMC and DPU sides
-* [External Certificate Authority](external-certificate-authority.md) - Chaining the certificates of DPF to a cert-manager issuer you own instead of the self-signed DPF root
+* [External Certificate Authority](external-certificate-authority.md) - Chaining the certificates of DPF to a cert-manager issuer you own instead of the self-signed DPF root, who owns the trust bundle in each case, and how to switch a cluster with provisioned DPUs over
 * [SPIFFE Workload Identity](spiffe-identity.md) - Configuration for authenticating the DPU Agent to the management cluster with a SPIRE-issued JWT-SVID, and for giving DPUServices their own SPIRE identities, instead of bootstrap tokens
 * [Hostless DPU Provisioning](hostless-dpu-provisioning.md) - Configuration for provisioning DPUs without host-side discovery or host-side reboot handling
 * [Secondary Network support for HBN-OVNK use case](secondary-networks/README.md) - Documentation for enabling secondary network support for Host Based Networking and OVN Kubernetes

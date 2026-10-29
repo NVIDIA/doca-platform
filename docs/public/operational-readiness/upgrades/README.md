@@ -292,6 +292,53 @@ Or, using [`dpfctl`](../troubleshooting/dpfctl/README.md):
 dpfctl describe all --show-resources=dpfoperatorconfig
 ```
 
+## The Provisioning PKI
+
+Upgrading moves the certificates that provision a DPU onto the certificate hierarchy the
+`dpf-operator` chart creates, under `dpf-platform-intermediate-ca`. No action is required, and this
+is not a CA rotation from the point of view of any peer: the platform intermediate CA takes over the
+keypair and the subject name of the provisioning CA the DPU BMCs and the DPU operating systems were
+provisioned to trust, so no truststore is rewritten and no DPU is re-provisioned. A cluster anchored
+to a certificate authority of your own is the exception, where the previous chain is retained rather
+than collapsed, see
+[External Certificate Authority](../../advanced-configuration/external-certificate-authority.md).
+
+The handover runs over a handful of reconciles and reports on the `CertManagementReady` condition,
+which you can follow with [`dpfctl`](../troubleshooting/dpfctl/README.md) or `kubectl`:
+
+**Using dpfctl (recommended):**
+
+```bash
+dpfctl describe all --show-resources=dpfoperatorconfig --show-conditions=all --show-pending
+```
+
+**Using kubectl:**
+
+```bash
+kubectl -n dpf-operator-system get dpfoperatorconfig dpfoperatorconfig \
+  -o jsonpath='{range .status.conditions[?(@.type=="CertManagementReady")]}{.status}/{.reason}{"\n"}{.message}{"\n"}{end}'
+```
+
+`True/Success` is the completed state. Two reasons report that it stopped short, neither of them an
+outage: the trust bundle publishes both authorities until the handover completes.
+
+* `CAMigrationBlocked`: a CA rotation has `dpf-provisioning-issuer` pinned to a Secret of its own,
+  and what that Secret holds is not necessarily what signed the certificates the peers hold. Finish
+  the rotation or abandon it, then clear the pin on the live issuer and on
+  `spec.overrides.provisioningIssuerCASecretName`, see
+  [CA Certificate Rotation](../../advanced-configuration/ca-certificate-rotation.md).
+* `CAMigrationRefused`: a `dpf-provisioning-ca-secret` holding a keypair that signed nothing has
+  appeared beside the platform intermediate CA that already stands in for it. Delete the
+  `Certificate` first and the Secret after it, in that order:
+
+  ```bash
+  kubectl -n dpf-operator-system delete certificate dpf-provisioning-ca-cert
+  kubectl -n dpf-operator-system delete secret dpf-provisioning-ca-secret
+  ```
+
+  The other way round is what produced the state: cert-manager reissues into the Secret of a
+  `Certificate` that is still live, and the next reconcile refuses that keypair too.
+
 ## What to Do Next
 
 After completing your DPF Operator upgrade, follow these steps to ensure everything is working correctly:
