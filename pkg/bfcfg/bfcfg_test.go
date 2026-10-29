@@ -19,13 +19,18 @@ package bfcfg
 import (
 	"bytes"
 	"context"
+	_ "embed"
+	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"text/template"
 
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/cloudinit"
+	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 
 	"github.com/Masterminds/sprig/v3"
 	. "github.com/onsi/ginkgo/v2"
@@ -33,9 +38,16 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/yaml"
 )
+
+// ignitionTemplate is a minimal CoreOS Ignition config written as a custom
+// bf.cfg template, modeled on the one the OpenShift DPF HCP provisioner ships.
+//
+//go:embed testdata/ignition.bf.cfg.template
+var ignitionTemplate []byte
 
 func skipFirstEmptyLine(s string) string {
 	return strings.TrimPrefix(s, "\n")
@@ -426,6 +438,85 @@ chroot /mnt env PATH="$CHROOT_PATH" /usr/sbin/update-grub
 				Expect(err).NotTo(HaveOccurred())
 				Expect(string(got)).To(ContainSubstring("ovs-vsctl add-br br-test"))
 			})
+		})
+
+		// A custom bf.cfg template is not necessarily a shell script: the OpenShift
+		// DPF HCP provisioner ships a CoreOS Ignition config, which is JSON. The
+		// rendered bf.cfg must be exactly what the template produces, with nothing
+		// injected (such as shell comments) that a JSON parser would reject.
+		It("renders a custom JSON (Ignition) template as valid JSON", func() {
+			const operatorNamespace = "dpf-operator-system"
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{Name: "dpu-1", Namespace: "ns-1"},
+				Spec: provisioningv1.DPUSpec{
+					BFB:       ptr.To("bfb"),
+					DPUFlavor: "flavor",
+					Cluster:   provisioningv1.K8sCluster{Name: "cluster", Namespace: "ns-1"},
+				},
+			}
+			templateCM := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "ignition-bfcfg-template",
+					Namespace: operatorNamespace,
+					Labels:    map[string]string{TemplateLabel: "true"},
+					Annotations: map[string]string{
+						TemplateBFBNameAnnotation:            *dpu.Spec.BFB,
+						TemplateBFBNamespaceAnnotation:       dpu.Namespace,
+						TemplateClusterNameAnnotation:        dpu.Spec.Cluster.Name,
+						TemplateClusterNamespaceAnnotation:   dpu.Spec.Cluster.Namespace,
+						TemplateDPUFlavorNameAnnotation:      dpu.Spec.DPUFlavor,
+						TemplateDPUFlavorNamespaceAnnotation: dpu.Namespace,
+					},
+				},
+				Data: map[string]string{ConfigMapDataKey: string(ignitionTemplate)},
+			}
+			scheme := runtime.NewScheme()
+			Expect(corev1.AddToScheme(scheme)).To(Succeed())
+			controllerCtx := &util.ControllerContext{
+				Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(templateCM).Build(),
+			}
+			operatorConfig := operatorv1.DPFOperatorConfig{
+				ObjectMeta: metav1.ObjectMeta{Namespace: operatorNamespace},
+				Spec: operatorv1.DPFOperatorConfigSpec{
+					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
+						EnableDynamicBFCFGTemplates: true,
+					},
+				},
+			}
+			params := cloudinit.Params{
+				DPUHostName:         "test-dpu",
+				DPUName:             "dpu-1",
+				DPUNamespace:        "ns-1",
+				DPUUID:              "uid-123",
+				ControlPlaneMTU:     1500,
+				BootstrapKubeconfig: sampleKubeconfig,
+			}
+
+			out, err := GenerateBFConfigWithParams(context.Background(), controllerCtx, dpu, &provisioningv1.DPUFlavor{}, params, operatorConfig)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(json.Valid(out)).To(BeTrue(), "rendered bf.cfg is not valid JSON:\n%s", out)
+
+			var ign struct {
+				Storage struct {
+					Files []struct {
+						Path     string `json:"path"`
+						Contents struct {
+							Source string `json:"source"`
+						} `json:"contents"`
+					} `json:"files"`
+				} `json:"storage"`
+			}
+			Expect(json.Unmarshal(out, &ign)).To(Succeed())
+			sources := map[string]string{}
+			for _, f := range ign.Storage.Files {
+				sources[f.Path] = f.Contents.Source
+			}
+			Expect(sources).To(Equal(map[string]string{
+				"/etc/temp_bfcfg_strings.env":                "data:,bfb_pre_install%20bfb_modify_os%20bfb_post_install",
+				"/etc/hostname":                              "data:,test-dpu",
+				"/etc/dpf/environment":                       "data:,DPUName=dpu-1%0ADPUNamespace=ns-1%0ADPUUID=uid-123%0ADPUMode=zero-trust%0AControlPlaneMTU=1500%0A",
+				"/var/lib/dpf/dpuagent/bootstrap-kubeconfig": "data:;base64," + base64.StdEncoding.EncodeToString([]byte(sampleKubeconfig)),
+			}))
 		})
 
 		Describe("cloud-init YAML with default template", func() {
