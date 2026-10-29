@@ -48,7 +48,7 @@ func newTestRunner(t *testing.T, ops []stagedOp, delays *phasedelay.Delays) *Run
 func always(*operations.Context) bool { return true }
 
 func TestRunnerWaitsTheShareOfEachRunOperation(t *testing.T) {
-	const total = 1600 * time.Millisecond
+	const total = 3 * time.Second
 	delays := phasedelay.New(map[provisioningv1.DPUPhase]phasedelay.Range{
 		provisioningv1.DPUConfig: {Min: total, Max: total},
 	})
@@ -57,7 +57,7 @@ func TestRunnerWaitsTheShareOfEachRunOperation(t *testing.T) {
 		min, max time.Duration
 	}{
 		"both run":    {never, total, 10 * time.Second},
-		"one skipped": {always, total / 2, total - 100*time.Millisecond},
+		"one skipped": {always, total / 2, total - 500*time.Millisecond},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ops := stage(provisioningv1.DPUConfig, phasedelay.StepOperation,
@@ -66,8 +66,9 @@ func TestRunnerWaitsTheShareOfEachRunOperation(t *testing.T) {
 			)
 			ctx, cancel := context.WithCancel(context.Background())
 			t.Cleanup(cancel)
+			r := newTestRunner(t, ops, delays)
 			start := time.Now()
-			if err := newTestRunner(t, ops, delays).Run(ctx); err != nil {
+			if err := r.Run(ctx); err != nil {
 				t.Fatal(err)
 			}
 			if elapsed := time.Since(start); elapsed < tc.min || elapsed > tc.max {
