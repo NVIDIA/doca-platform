@@ -101,6 +101,9 @@ type RedfishMockServer struct {
 	armPoweredOff                   atomic.Bool              // DPU Arm reported as shut down by GET System, toggled by NvidiaChassis.Reset from another goroutine
 	armShutdownRequests             atomic.Int64             // Number of NvidiaChassis.Reset ArmShutdown requests received
 	networkDeviceFunctionRequests   atomic.Int64             // Number of PF0 GET requests received
+	defaultPasswordAttempts         atomic.Int64             // Requests that presented the factory default password
+	credentialPasswordAttempts      atomic.Int64             // Requests that presented some other password
+	factoryDefaultProbeUnavailable  atomic.Bool              // Factory-default logins answer 503 instead of a rejection
 
 	// mu guards the account and factory-reset state below, which tests mutate while requests are
 	// in flight and which the crawler exercises from several goroutines at once.
@@ -246,9 +249,11 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 // and after a factory reset it answers PasswordChangeRequired until the account password is changed.
 func (r *RedfishMockServer) withBMCState(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if r.isOffline() {
+		if r.isOffline() || r.factoryDefaultPasswordUnavailable(req) {
 			// A rebooting BMC does not answer at all. 503 with a Redfish error body is close
-			// enough for the client, which treats any non-200 as "not reachable".
+			// enough for the client, which treats any non-200 as "not reachable". The factory-default
+			// probe can be made unavailable on its own so a rejected Secret password is not forgotten
+			// when only that probe times out.
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -310,11 +315,31 @@ func (r *RedfishMockServer) requestAuthorized(req *http.Request) bool {
 	if !enforce {
 		return true
 	}
+	// The service root is unauthenticated on a BMC. VerifyBMCCredential reads it to choose the
+	// Redfish user before any password is sent.
+	if req.Method == http.MethodGet && (req.URL.Path == "/redfish/v1" || req.URL.Path == "/redfish/v1/") {
+		return true
+	}
 	user, password, ok := req.BasicAuth()
 	if !ok {
 		return false
 	}
+	if password == client.BMCDefaultPassword {
+		r.defaultPasswordAttempts.Add(1)
+	} else {
+		r.credentialPasswordAttempts.Add(1)
+	}
 	return user == r.redfishUser() && password == expected
+}
+
+// factoryDefaultPasswordUnavailable reports whether this request presented the factory default
+// password and the test wants it answered 503 rather than as a rejected password.
+func (r *RedfishMockServer) factoryDefaultPasswordUnavailable(req *http.Request) bool {
+	if !r.factoryDefaultProbeUnavailable.Load() {
+		return false
+	}
+	_, password, ok := req.BasicAuth()
+	return ok && password == client.BMCDefaultPassword
 }
 
 func (r *RedfishMockServer) redfishUser() string {
@@ -1160,6 +1185,22 @@ func (r *RedfishMockServer) SetFactoryResetResponse(status int, body string) {
 	defer r.mu.Unlock()
 	r.factoryResetStatus = status
 	r.factoryResetBody = body
+}
+
+// DefaultPasswordAttempts returns how many requests presented the factory default password.
+func (r *RedfishMockServer) DefaultPasswordAttempts() int64 {
+	return r.defaultPasswordAttempts.Load()
+}
+
+// CredentialPasswordAttempts returns how many requests presented a password other than the factory default.
+func (r *RedfishMockServer) CredentialPasswordAttempts() int64 {
+	return r.credentialPasswordAttempts.Load()
+}
+
+// SetFactoryDefaultProbeUnavailable makes logins that present the factory default password get 503
+// instead of a rejection, as if that probe timed out. Other passwords are unaffected.
+func (r *RedfishMockServer) SetFactoryDefaultProbeUnavailable(unavailable bool) {
+	r.factoryDefaultProbeUnavailable.Store(unavailable)
 }
 
 // GetFactoryResetRequests returns how many ResetToDefaults requests the mock has accepted.

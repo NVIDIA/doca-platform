@@ -103,10 +103,22 @@ step is finished, not that a reset is running:
 | `BMCFactoryResetReady=True` | `FactoryResetCompleted` | The BMC was reset and is reachable again |
 | `BMCFactoryResetReady=True` | `FactoryResetSkipped` | No reset was performed, because the policy is `Never`, because DPF already managed the device before this feature existed, or because the install interface is not Redfish |
 | `BMCFactoryResetReady=False` | `FactoryResetInProgress` | The BMC accepted the reset and DPF is waiting for it to come back |
-| `BMCFactoryResetReady=False` | `FactoryResetFailed` | DPF could not submit the reset. This is retried, not terminal |
+| `BMCFactoryResetReady=False` | `FactoryResetAwaitingCompletion` | The BMC accepted the reset but still answers with its pre-reset password. DPF keeps checking that password until the reset starts |
+| `BMCFactoryResetReady=False` | `FactoryResetCredentialRejected` | The pre-reset Secret password was rejected. DPF retries only the factory default unless that Secret password changes |
+| `BMCFactoryResetReady=False` | `FactoryResetCredentialRecordFailed` | DPF could not save the rejected-password marker. Completion probes pause until an explicit retry |
+| `BMCFactoryResetReady=False` | `FactoryResetFailed` | DPF could not submit the reset, or the BMC rejected both known passwords after accepting one. A submission failure is retried. After the reset was accepted, the rejected Secret password is not sent again until that password changes. A retry after the Secret changes sends the factory default again |
 
-`status.bmcFactoryResetRequestTime` records when the reset was submitted. It is never cleared, and
-it is what guarantees a BMC is not reset twice for the same DPUDevice.
+`status.bmcFactoryResetRequestTime` records when the reset was submitted. Once persisted, this
+timestamp prevents another reset submission for the same DPUDevice and is never cleared. The credential Secret
+carries `provisioning.dpu.nvidia.com/fr-rejected-<dpudevice-uid>`, the SHA-256 of the Secret
+password the BMC rejected while confirming that reset. A later Secret edit can be distinguished
+from the password the BMC already refused. The marker is on the Secret, not the DPUDevice.
+DPF removes the device's marker from the currently referenced Secret when the DPUDevice is deleted.
+
+Rejection conditions are saved through the normal deferred status patch. If saving the Secret
+marker fails, `FactoryResetCredentialRecordFailed` stops completion probes once status is persisted.
+A crash or status-write failure can still repeat a login; rejection tracking is best effort across
+persistence failures.
 
 ```bash
 kubectl get dpudevice MT25066004C7 -n dpf-operator-system \
@@ -124,22 +136,66 @@ probe has not succeeded yet. The condition message carries the time elapsed sinc
   different address — statically configured, or DHCP handed it a new lease. Correct
   `status.bmcIp` — by letting discovery find the BMC at its new address, or by patching it — and
   the device continues on the next reconcile.
-* If the message says the BMC is reachable but still rejects the factory default password, the BMC
-  answered and the reset has not taken effect (for example it never rebooted and still holds the
-  Secret password). DPF does not resubmit the reset. Reset the BMC out of band, or delete and
-  recreate the DPUDevice if a fresh onboarding is acceptable.
 
-DPF waits indefinitely rather than failing on either path, and never resubmits the reset while
-`status.bmcFactoryResetRequestTime` is set.
+**The condition reason is `FactoryResetAwaitingCompletion`.** The BMC answered and the reset has
+not taken effect yet (for example it has not rebooted and still holds the Secret password). DPF
+keeps checking that password and does not resubmit the reset. Once the password stops working, DPF
+checks the factory default once and continues initialization, including password hardening. If that
+check times out, the reason becomes `FactoryResetCredentialRejected`: DPF retries only the factory
+default and does not send the rejected Secret password again, because another rejection can lock
+the BMC account. Updating the Secret password is treated as a new credential and is probed.
 
 A post-reset BlueField BMC that answers `/redfish/v1` with the factory default password but returns
 `403 PasswordChangeRequired` on Managers is **not** stuck: that is how DPF detects the reset took
 effect, and the next initialization step changes the password to clear the requirement.
 
+**The condition reason is `FactoryResetCredentialRecordFailed`.** Fix the Secret write error
+reported in the condition message, then set the rejection annotation to `retry` using the command
+below. A password change alone cannot resume probes because the stored marker may be missing or stale.
+
 **The device is stuck at `FactoryResetFailed` with "the BMC accepts neither the password in the
-credential Secret nor the factory default".** The BMC holds a password DPF does not know, so it
-cannot be reset over Redfish. Put the correct password in the credential secret, or reset the BMC
-out of band, and DPF proceeds on the next reconcile.
+credential Secret nor the factory default".** This is a *submission* failure:
+`status.bmcFactoryResetRequestTime` is still unset, so DPF has not yet asked the BMC to reset.
+The BMC holds a password DPF does not know. Put the correct password in the credential secret, or
+reset the BMC out of band, and DPF submits on the next reconcile.
+
+**The device is stuck at `FactoryResetFailed` after the reset was accepted.**
+`status.bmcFactoryResetRequestTime` is set, so DPF will not submit `ResetToDefaults` again. Both
+the factory default password and the Secret password were rejected while confirming the reset;
+repeating either can lock the BMC account.
+
+Recovery, without clearing the request time:
+
+* **Update the credential Secret** with the password the BMC now holds, or with the password you
+  want DPF to set after an out-of-band factory reset. DPF records the rejected password on the
+  Secret and probes again only when that password changes. That retry sends the factory default
+  again, so a BMC that is back on the factory default completes without the new Secret password
+  needing to work yet. A metadata-only Secret edit (labels, other annotations) does not count as
+  a change. Switching `spec.bmcCredentialSecretName` to a new Secret is also not treated as a
+  password change. Set the rejection annotation to `retry` on the new Secret using the command
+  in the next item. After switching, manually remove this device's marker from the old Secret;
+  DPF no longer tracks it for marker cleanup:
+
+  ```bash
+  uid=$(kubectl get dpudevice <name> -n dpf-operator-system -o jsonpath='{.metadata.uid}')
+  kubectl annotate secret <old-bmc-credential-secret> -n dpf-operator-system \
+    "provisioning.dpu.nvidia.com/fr-rejected-${uid}-"
+  ```
+
+* **Set the rejection annotation to `retry`** if the Secret password did not change — for example
+  you reset the BMC out of band and it is back on the factory default. Use this also after fixing
+  a failure to save the rejection marker: without a reliable marker, DPF cannot identify the rejected
+  password. Deleting the annotation alone does not authorize another login.
+
+  ```bash
+  uid=$(kubectl get dpudevice <name> -n dpf-operator-system -o jsonpath='{.metadata.uid}')
+  kubectl annotate secret <bmc-credential-secret> -n dpf-operator-system \
+    "provisioning.dpu.nvidia.com/fr-rejected-${uid}=retry" --overwrite
+  ```
+
+  Do **not** clear `status.bmcFactoryResetRequestTime`. That would submit a second factory reset.
+* Recreating the DPUDevice also recovers, and resets the BMC again unless the recreated device
+  opts out.
 
 **A reset that must not happen already did.** There is no undo. Restore the BMC configuration
 manually, and set `spec.bmcFactoryResetPolicy: Never` on the remaining devices, or

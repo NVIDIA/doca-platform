@@ -18,6 +18,8 @@ package dpudevice
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -27,11 +29,14 @@ import (
 	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -39,6 +44,8 @@ import (
 // submitted. A BMC keeps answering for a few seconds after accepting ResetToDefaults and only then
 // reboots, so probing immediately would read the pre-reset BMC as the post-reset one.
 const bmcFactoryResetSettleDelay = 60 * time.Second
+
+const bmcFactoryResetPasswordsRejectedMessage = "BMC rejected the factory default password and the password in the credential Secret"
 
 // reconcileBMCFactoryReset runs the one-per-device BMC factory reset step of initialization. It
 // reports whether the caller must pause initialization and let the existing requeue drive the next
@@ -60,6 +67,17 @@ func (r *DPUDeviceReconciler) reconcileBMCFactoryReset(ctx context.Context, dpuD
 	}
 
 	if dpuDevice.Status.BMCFactoryResetRequestTime != nil {
+		// Persist cleanup protection before a probe can leave a rejection marker on the Secret.
+		if !controllerutil.ContainsFinalizer(dpuDevice, provisioningv1.BMCCredentialFinalizer) {
+			protected := dpuDevice.DeepCopy()
+			patch := client.MergeFromWithOptions(protected.DeepCopy(), client.MergeFromWithOptimisticLock{})
+			controllerutil.AddFinalizer(protected, provisioningv1.BMCCredentialFinalizer)
+			if err := r.Client.Patch(ctx, protected, patch); err != nil {
+				return true, fmt.Errorf("failed to protect BMC factory-reset annotation cleanup: %w", err)
+			}
+			dpuDevice.Finalizers = protected.Finalizers
+			dpuDevice.ResourceVersion = protected.ResourceVersion
+		}
 		return r.awaitBMCFactoryReset(ctx, dpuDevice)
 	}
 
@@ -225,14 +243,34 @@ func (r *DPUDeviceReconciler) privilegedClientForFactoryReset(ctx context.Contex
 	return client, nil
 }
 
-// awaitBMCFactoryReset probes a BMC whose reset is in flight. There is no deadline: a BMC that has
-// not come back is reported rather than given up on, because a deadline could not distinguish a
-// reset that never landed from a BMC that is slow to return, and the only remedy it would enable —
-// resubmitting — would wipe and reboot a device that has already reset.
+// awaitBMCFactoryReset probes a BMC whose reset is in flight. A BMC that is not answering is waited
+// on, because resubmitting ResetToDefaults could wipe a device that has already reset. A BMC that
+// answers is tried with the factory default password. If that is rejected but the pre-reset Secret
+// password still works, later passes keep using the Secret password until the accepted reset
+// starts, and only then try the factory default once. A recorded rejection prevents the Secret
+// password from being sent again until that Secret changes or a retry is requested. A retry after
+// FactoryResetFailed sends the factory default again to detect an out-of-band reset.
 func (r *DPUDeviceReconciler) awaitBMCFactoryReset(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (bool, error) {
 	log := log.FromContext(ctx)
-
+	condition := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceBMCFactoryResetReady)
 	elapsed := time.Since(dpuDevice.Status.BMCFactoryResetRequestTime.Time)
+
+	// FactoryResetFailed while a request time is set means both passwords were already rejected.
+	// Probe again only when the Secret password no longer matches the rejected marker. That retry
+	// sends the factory default again; it does not send the rejected Secret password. ResetToDefaults
+	// is not submitted again: the request time stays set.
+	// A failed marker write requires an explicit retry because the rejected password is unknown.
+	if condition != nil && (condition.Reason == provisioningv1.ReasonFactoryResetFailed || condition.Reason == provisioningv1.ReasonFactoryResetCredentialRecordFailed) {
+		retry, err := r.factoryResetRetryAllowed(ctx, dpuDevice)
+		if err != nil {
+			return true, err
+		}
+		if !retry {
+			return true, nil
+		}
+		log.Info("Retrying BMC factory-reset completion probes after a credential change or explicit retry")
+	}
+
 	if elapsed < bmcFactoryResetSettleDelay {
 		setBMCFactoryResetCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonFactoryResetInProgress,
 			"ResetToDefaults accepted by the BMC; waiting for it to come back")
@@ -240,19 +278,235 @@ func (r *DPUDeviceReconciler) awaitBMCFactoryReset(ctx context.Context, dpuDevic
 		return true, nil
 	}
 
-	// The submission left the BMC on the Secret password, so the factory default answering now can
-	// only mean the reset took effect. After ResetToDefaults a BlueField BMC typically accepts
-	// 0penBmc but returns PasswordChangeRequired on Managers until hardening changes it; that
-	// still counts as the factory default being in effect (see VerifyBMCCredential).
-	client, _, err := rfclient.VerifyBMCCredential(ctx, dpuDevice.BMCAddress(), rfclient.BMCDefaultPassword)
-	if err != nil {
-		message := awaitBMCFactoryResetMessage(elapsed, err)
+	// The Secret password was already rejected. Retry only the factory default unless the Secret
+	// password has changed since that rejection; probing the same Secret again is another failed login.
+	// That check and the probe read the Secret separately. The probe compares the credential it
+	// actually sends, so a rollback between the two reads cannot log in with the rejected password.
+	if condition != nil && condition.Reason == provisioningv1.ReasonFactoryResetCredentialRejected {
+		retry, err := r.factoryResetRetryAllowed(ctx, dpuDevice)
+		if err != nil {
+			return true, err
+		}
+		if retry {
+			return r.probeDelayedBMCFactoryReset(ctx, dpuDevice, elapsed, false)
+		}
+		return r.awaitFactoryDefaultAfterRejectedSecret(ctx, dpuDevice, elapsed)
+	}
+
+	if condition != nil && condition.Reason == provisioningv1.ReasonFactoryResetAwaitingCompletion {
+		return r.probeDelayedBMCFactoryReset(ctx, dpuDevice, elapsed, false)
+	}
+
+	// After ResetToDefaults a BlueField BMC typically accepts 0penBmc but returns
+	// PasswordChangeRequired on Managers until hardening changes it; that still counts as the
+	// factory default being in effect (see VerifyBMCCredential).
+	bmcAddress := dpuDevice.BMCAddress()
+	client, _, err := rfclient.VerifyBMCCredential(ctx, bmcAddress, rfclient.BMCDefaultPassword)
+	if err == nil {
+		client.CloseIdleConnections()
+		return r.completeBMCFactoryReset(ctx, dpuDevice, elapsed)
+	}
+	if !errors.Is(err, rfclient.ErrBMCPasswordRejected) {
+		message := fmt.Sprintf("waiting for the BMC to come back from the factory reset, %s elapsed since the request: %v",
+			elapsed.Round(time.Second), err)
 		setBMCFactoryResetCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonFactoryResetInProgress, message)
 		setInitializedPending(dpuDevice, message)
 		return true, nil
 	}
 
-	client.CloseIdleConnections()
+	return r.probeDelayedBMCFactoryReset(ctx, dpuDevice, elapsed, true)
+}
+
+// awaitFactoryDefaultAfterRejectedSecret retries only the factory default password. The Secret
+// password was already rejected, so a timeout must leave that fact in place for the next pass.
+func (r *DPUDeviceReconciler) awaitFactoryDefaultAfterRejectedSecret(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, elapsed time.Duration) (bool, error) {
+	client, _, err := rfclient.VerifyBMCCredential(ctx, dpuDevice.BMCAddress(), rfclient.BMCDefaultPassword)
+	if err == nil {
+		client.CloseIdleConnections()
+		return r.completeBMCFactoryReset(ctx, dpuDevice, elapsed)
+	}
+	if errors.Is(err, rfclient.ErrBMCPasswordRejected) {
+		setBMCFactoryResetCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonFactoryResetFailed, bmcFactoryResetPasswordsRejectedMessage)
+		conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized,
+			conditions.ReasonError, conditions.ConditionMessage(bmcFactoryResetPasswordsRejectedMessage))
+		return true, nil
+	}
+	message := fmt.Sprintf("waiting for the BMC to come back from the delayed factory reset, %s elapsed since the request: %v",
+		elapsed.Round(time.Second), err)
+	setBMCFactoryResetCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonFactoryResetCredentialRejected, message)
+	setInitializedPending(dpuDevice, message)
+	return true, nil
+}
+
+// probeDelayedBMCFactoryReset checks the Secret credential and only tries the factory default if it has not already been rejected.
+func (r *DPUDeviceReconciler) probeDelayedBMCFactoryReset(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, elapsed time.Duration, defaultAlreadyRejected bool) (bool, error) {
+	bmcAddress := dpuDevice.BMCAddress()
+	cred, err := rfclient.ResolveBMCCredential(ctx, dpuDevice.Namespace, dpuDevice.Spec.BMCCredentialSecretName, r.Client)
+	if err != nil {
+		message := fmt.Sprintf("waiting for the delayed BMC factory reset; failed to read the credential Secret: %v", err)
+		setBMCFactoryResetCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonFactoryResetAwaitingCompletion, message)
+		setInitializedPending(dpuDevice, message)
+		return true, nil
+	}
+	// A Secret that holds 0penBmc is the factory-default probe. Fail only after this pass already
+	// had that password rejected; otherwise probe it once. Sending it again would be a second
+	// failed login. Record the password already read so a later Secret edit is not mistaken for
+	// the rejected password.
+	if cred.Password == rfclient.BMCDefaultPassword {
+		if err := r.rememberRejectedFactoryResetSecret(ctx, dpuDevice, cred); err != nil {
+			setBMCFactoryResetCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonFactoryResetCredentialRecordFailed, err.Error())
+			setInitializedPending(dpuDevice, err.Error())
+			return true, err
+		}
+		if defaultAlreadyRejected {
+			message := "BMC rejected the factory default password and the credential Secret holds that same password"
+			setBMCFactoryResetCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonFactoryResetFailed, message)
+			conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized,
+				conditions.ReasonError, conditions.ConditionMessage(message))
+			return true, nil
+		}
+		return r.awaitFactoryDefaultAfterRejectedSecret(ctx, dpuDevice, elapsed)
+	}
+	// factoryResetRetryAllowed and this read are separate. A Secret change that is rolled
+	// back in between restores the rejected password; compare the credential about to be sent and
+	// skip it. Another failed login with that password can lock the BMC account.
+	if rejectedFactoryResetCredential(dpuDevice, cred) {
+		if defaultAlreadyRejected {
+			setBMCFactoryResetCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonFactoryResetFailed, bmcFactoryResetPasswordsRejectedMessage)
+			conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized,
+				conditions.ReasonError, conditions.ConditionMessage(bmcFactoryResetPasswordsRejectedMessage))
+			return true, nil
+		}
+		return r.awaitFactoryDefaultAfterRejectedSecret(ctx, dpuDevice, elapsed)
+	}
+	client, _, err := rfclient.VerifyBMCCredential(ctx, bmcAddress, cred.Password)
+	if err == nil {
+		client.CloseIdleConnections()
+		message := fmt.Sprintf("ResetToDefaults was accepted but the credential Secret password still works after %s; waiting for the reset to start",
+			elapsed.Round(time.Second))
+		setBMCFactoryResetCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonFactoryResetAwaitingCompletion, message)
+		setInitializedPending(dpuDevice, message)
+		return true, nil
+	}
+	if !errors.Is(err, rfclient.ErrBMCPasswordRejected) {
+		message := fmt.Sprintf("waiting for the delayed BMC factory reset, %s elapsed since the request: %v",
+			elapsed.Round(time.Second), err)
+		setBMCFactoryResetCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonFactoryResetAwaitingCompletion, message)
+		setInitializedPending(dpuDevice, message)
+		return true, nil
+	}
+
+	if err := r.rememberRejectedFactoryResetSecret(ctx, dpuDevice, cred); err != nil {
+		setBMCFactoryResetCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonFactoryResetCredentialRecordFailed, err.Error())
+		setInitializedPending(dpuDevice, err.Error())
+		return true, err
+	}
+	if defaultAlreadyRejected {
+		setBMCFactoryResetCondition(dpuDevice, metav1.ConditionFalse, provisioningv1.ReasonFactoryResetFailed, bmcFactoryResetPasswordsRejectedMessage)
+		conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized,
+			conditions.ReasonError, conditions.ConditionMessage(bmcFactoryResetPasswordsRejectedMessage))
+		return true, nil
+	}
+
+	return r.awaitFactoryDefaultAfterRejectedSecret(ctx, dpuDevice, elapsed)
+}
+
+// rejectedFactoryResetCredential reports whether cred is the Secret password the BMC already refused.
+func rejectedFactoryResetCredential(dpuDevice *provisioningv1.DPUDevice, cred *rfclient.BMCCredentialResult) bool {
+	if dpuDevice == nil || cred == nil || dpuDevice.UID == "" {
+		return false
+	}
+	stored := cred.Annotations[rejectedPasswordAnnotationKey(dpuDevice.UID)]
+	return stored != "" && stored == passwordDigest(cred.Password)
+}
+
+// factoryResetRetryAllowed accepts a changed password or consumes an explicit retry request.
+// After a failed marker write, only an explicit retry is safe: the old digest may be stale.
+func (r *DPUDeviceReconciler) factoryResetRetryAllowed(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (bool, error) {
+	cred, err := rfclient.ResolveBMCCredential(ctx, dpuDevice.Namespace, dpuDevice.Spec.BMCCredentialSecretName, r.Client)
+	if err != nil {
+		return false, fmt.Errorf("failed to check BMC factory-reset retry: %w", err)
+	}
+	marker := cred.Annotations[rejectedPasswordAnnotationKey(dpuDevice.UID)]
+	if marker == provisioningv1.BMCFactoryResetRetryAnnotationValue {
+		if err := r.clearRejectedFactoryResetSecret(ctx, dpuDevice); err != nil {
+			return false, fmt.Errorf("failed to consume BMC factory-reset retry: %w", err)
+		}
+		return true, nil
+	}
+	condition := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceBMCFactoryResetReady)
+	if condition != nil && condition.Reason == provisioningv1.ReasonFactoryResetCredentialRecordFailed {
+		return false, nil
+	}
+	return marker != "" && !rejectedFactoryResetCredential(dpuDevice, cred), nil
+}
+
+// rememberRejectedFactoryResetSecret writes the rejected-password annotation before this pass returns.
+// The value is the digest of the password that was probed, not of whatever the Secret holds by the
+// time the patch is built: an edit after the probe must not be recorded as a password the BMC refused.
+func (r *DPUDeviceReconciler) rememberRejectedFactoryResetSecret(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, cred *rfclient.BMCCredentialResult) error {
+	if cred == nil || cred.SecretName == "" || dpuDevice.UID == "" {
+		return fmt.Errorf("cannot record a rejected BMC password without the credential Secret and the DPUDevice UID")
+	}
+	secret := &corev1.Secret{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: cred.SecretName, Namespace: dpuDevice.Namespace}, secret); err != nil {
+		return fmt.Errorf("failed to get credential secret %q: %w", cred.SecretName, err)
+	}
+	key := rejectedPasswordAnnotationKey(dpuDevice.UID)
+	digest := passwordDigest(cred.Password)
+	if secret.Annotations[key] == digest {
+		return nil
+	}
+	patch := client.MergeFrom(secret.DeepCopy())
+	if secret.Annotations == nil {
+		secret.Annotations = map[string]string{}
+	}
+	secret.Annotations[key] = digest
+	if err := r.Client.Patch(ctx, secret, patch); err != nil {
+		return fmt.Errorf("failed to record the rejected BMC password on secret %q: %w", cred.SecretName, err)
+	}
+	return nil
+}
+
+// clearRejectedFactoryResetSecret removes the annotation after completion, on deletion, or to consume an explicit retry.
+func (r *DPUDeviceReconciler) clearRejectedFactoryResetSecret(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) error {
+	if dpuDevice.UID == "" {
+		return nil
+	}
+	secretName := rfclient.BMCPasswordSecret
+	if dpuDevice.Spec.BMCCredentialSecretName != nil && *dpuDevice.Spec.BMCCredentialSecretName != "" {
+		secretName = *dpuDevice.Spec.BMCCredentialSecretName
+	}
+	secret := &corev1.Secret{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: secretName, Namespace: dpuDevice.Namespace}, secret); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	key := rejectedPasswordAnnotationKey(dpuDevice.UID)
+	if _, ok := secret.Annotations[key]; !ok {
+		return nil
+	}
+	patch := client.MergeFrom(secret.DeepCopy())
+	delete(secret.Annotations, key)
+	return r.Client.Patch(ctx, secret, patch)
+}
+
+// rejectedPasswordAnnotationKey scopes the rejection marker to one DPUDevice.
+func rejectedPasswordAnnotationKey(deviceUID types.UID) string {
+	return provisioningv1.BMCFactoryResetRejectedPasswordAnnotationPrefix + string(deviceUID)
+}
+
+// passwordDigest returns the hex SHA-256 digest stored on the credential Secret.
+func passwordDigest(password string) string {
+	sum := sha256.Sum256([]byte(password))
+	return hex.EncodeToString(sum[:])
+}
+
+// completeBMCFactoryReset records that the factory default password is in effect.
+func (r *DPUDeviceReconciler) completeBMCFactoryReset(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, elapsed time.Duration) (bool, error) {
+	log := log.FromContext(ctx)
 	// The reset wiped the BMC's truststore and server certificate, so every cached client built
 	// against the pre-reset BMC is obsolete regardless of which family or device UID it was keyed under.
 	r.RedfishClients.RetireEndpoint(dpuDevice.BMCAddress())
@@ -263,25 +517,13 @@ func (r *DPUDeviceReconciler) awaitBMCFactoryReset(ctx context.Context, dpuDevic
 		return true, err
 	}
 
+	if err := r.clearRejectedFactoryResetSecret(ctx, dpuDevice); err != nil {
+		log.Error(err, "Failed to clear the rejected BMC password annotation")
+	}
 	log.Info("BMC came back from the factory reset", "elapsed", elapsed.Round(time.Second))
 	setBMCFactoryResetCondition(dpuDevice, metav1.ConditionTrue, provisioningv1.ReasonFactoryResetCompleted,
 		"BMC was reset to factory defaults and is reachable again")
 	return false, nil
-}
-
-// awaitBMCFactoryResetMessage reports why await is still waiting. ErrBMCPasswordRejected means the
-// BMC answered and rejected the factory default — it is up, but the reset has not taken effect —
-// so the message must not claim the BMC is still coming back. Every other error is treated as the
-// BMC not giving a usable answer yet. The reason stays FactoryResetInProgress either way: the
-// request time is already set, so DPF will not resubmit, and there is no safe automatic recovery.
-func awaitBMCFactoryResetMessage(elapsed time.Duration, err error) string {
-	rounded := elapsed.Round(time.Second)
-	if errors.Is(err, rfclient.ErrBMCPasswordRejected) {
-		return fmt.Sprintf("BMC is reachable but still rejects the factory default password after %s; "+
-			"the reset may not have taken effect (DPF will not resubmit): %v", rounded, err)
-	}
-	return fmt.Sprintf("waiting for the BMC to come back from the factory reset, %s elapsed since the request: %v",
-		rounded, err)
 }
 
 // deleteServerCertRequest removes the device's server CertificateRequest, if any.
