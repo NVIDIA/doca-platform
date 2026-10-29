@@ -53,6 +53,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	machineryruntime "k8s.io/apimachinery/pkg/runtime"
@@ -987,7 +988,8 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 		} else {
 			logDPURebootRequests(rebootingDPUs.Items, tracker)
 		}
-		g.Expect(nodes.Items).To(HaveLen(expectedDPUs))
+		g.Expect(nodes.Items).To(HaveLen(expectedDPUs), "DPU cluster has %d/%d nodes.%s",
+			len(nodes.Items), expectedDPUs, describeUnreadyDPUs(rebootingDPUs.Items))
 	}).WithTimeout(provisioningTimeout).WithPolling(1 * time.Second).Should(Succeed())
 
 	// Verify DPUs are ready
@@ -1114,6 +1116,38 @@ func logDPURebootRequests(dpus []provisioningv1.DPU, tracker *ByTracker) {
 		tracker.By(key, "DPU %s rebooting from phase %q: requested method=%s reason=%q message=%s",
 			dpu.Name, dpu.Status.PreviousPhase, *rs.Method, rs.Reason, msg)
 	}
+}
+
+// describeUnreadyDPUs returns one line per non-ready DPU naming the condition blocking provisioning, so a
+// failed assertion carries the cause instead of only a count. The blocking condition is the first one with
+// Status=False (Unknown means pending and is skipped); the Ready condition is the fallback.
+func describeUnreadyDPUs(dpus []provisioningv1.DPU) string {
+	var sb strings.Builder
+	for i := range dpus {
+		dpu := &dpus[i]
+		if dpu.Status.Phase == provisioningv1.DPUReady {
+			continue
+		}
+		blocking := metav1.Condition{Type: "-", Reason: "NoFalseCondition"}
+		for _, c := range dpu.Status.Conditions {
+			if c.Status == metav1.ConditionFalse && c.Type != string(provisioningv1.DPUCondReady) {
+				blocking = c
+				break
+			}
+		}
+		if blocking.Type == "-" {
+			if ready := meta.FindStatusCondition(dpu.Status.Conditions, string(provisioningv1.DPUCondReady)); ready != nil {
+				blocking = *ready
+			}
+		}
+		msg := strings.Join(strings.Fields(blocking.Message), " ")
+		if len(msg) > rebootStatusMessageLimit {
+			msg = msg[:rebootStatusMessageLimit] + "..."
+		}
+		fmt.Fprintf(&sb, "\n  DPU %s phase=%q condition=%s status=%s reason=%q message=%q",
+			dpu.Name, dpu.Status.Phase, blocking.Type, blocking.Status, blocking.Reason, msg)
+	}
+	return sb.String()
 }
 
 // VerifyClusterPods waits until, for each name substring in podSubstrToVerify, at least one pod in the
