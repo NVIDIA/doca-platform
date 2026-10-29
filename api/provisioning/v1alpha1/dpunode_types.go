@@ -49,29 +49,34 @@ type DPUNodeConditionType string
 const (
 	// DPUNodeConditionReady means the DPU is ready.
 	DPUNodeConditionReady DPUNodeConditionType = "Ready"
-	// DPUNodeConditionInvalidDPUDetails means the DPU details provided are invalid.
+	// DPUNodeConditionInvalidDPUDetails means the DPU details provided are
+	// invalid.
 	DPUNodeConditionInvalidDPUDetails DPUNodeConditionType = "InvalidDPUDetails"
-	// DPUNodeConditionRebootInProgress means the DPUNode is in the process of rebooting.
+	// DPUNodeConditionRebootInProgress means the DPUNode is in the process of
+	// rebooting.
 	DPUNodeConditionRebootInProgress DPUNodeConditionType = "DPUNodeRebootInProgress"
-	// DPUNodeConditionDPUUpdateInProgress means the DPU is in the process of being updated.
+	// DPUNodeConditionDPUUpdateInProgress means the DPU is in the process of
+	// being updated.
 	DPUNodeConditionDPUUpdateInProgress DPUNodeConditionType = "DPUUpdateInProgress"
 	// DPUNodeConditionNeedDMSUpgrade means the DMS needs to be upgraded.
 	DPUNodeConditionNeedHostAgentUpgrade DPUNodeConditionType = "NeedHostAgentUpgrade"
-	// DPUNodeConditionBridgeConfigured means the out-of-band management bridge is configured.
+	// DPUNodeConditionBridgeConfigured means the out-of-band management
+	// bridge is configured.
 	DPUNodeConditionBridgeConfigured DPUNodeConditionType = "OOBBridgeConfigured"
 	// DPUNodeConditionRshimAvailable means the rshim is available.
 	DPUNodeConditionRshimAvailable DPUNodeConditionType = "RshimAvailable"
-	// DPUNodeConditionNodeEffectInProgress means the node effect is processing on the node.
+	// DPUNodeConditionNodeEffectInProgress means the node effect is
+	// processing on the node.
 	DPUNodeConditionNodeEffectInProgress DPUNodeConditionType = "DPUNodeNodeEffectInProgress"
 )
 
 const (
 	DPUNodeExternalRebootRequiredAnnotation = "provisioning.dpu.nvidia.com/dpunode-external-reboot-required"
-	// DPUNodeNameLabel is the label added to the DPU Kubernetes Node that indicates the name of
-	// the DPUNode that this DPU belongs to.
+	// DPUNodeNameLabel is the label added to the DPU Kubernetes Node that
+	// indicates the name of the DPUNode that this DPU belongs to.
 	DPUNodeNameLabel = "provisioning.dpu.nvidia.com/dpunode-name"
-	// DPUNodeNamespaceLabel is the label added to the DPU Kubernetes Node that indicates
-	// the namespace of the DPUNode that this DPU belongs to.
+	// DPUNodeNamespaceLabel is the label added to the DPU Kubernetes Node
+	// that indicates the namespace of the DPUNode that this DPU belongs to.
 	DPUNodeNamespaceLabel = "provisioning.dpu.nvidia.com/dpunode-namespace"
 )
 
@@ -93,7 +98,8 @@ func (c *DPUNode) SetConditions(conditions []metav1.Condition) {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced
 // +kubebuilder:metadata:annotations=helm.sh/resource-policy=keep
-// TODO: Add e2e test when we add scenarios that include creating our own DPUNode and DPUDevice objects
+// TODO: Add e2e test when we add scenarios that include creating our own
+// DPUNode and DPUDevice objects
 // +kubebuilder:validation:XValidation:rule="self.metadata.name.size() <= 48", message="name length can't be bigger than 48 chars"
 
 // DPUNode is the Schema for the dpunodes API
@@ -130,12 +136,14 @@ type NodeRebootMethod struct {
 	// Use the HostAgent to reboot the host.
 	// +optional
 	HostAgent *HostAgent `json:"hostAgent,omitempty"`
-	// Reboot the host via an external means, not controlled by the DPU controller.
+	// Reboot the host via an external means, not controlled by the DPU
+	// controller.
 	// +optional
 	External *External `json:"external,omitempty"`
-	// Reboot the host by executing a custom script. This field defined which ConfigMap store the custom script.
-	// The ConfigMap should include a pod template of Job object under the `pod-template` key.
-	// That pod template will be put in a Job object to be executed.
+	// Reboot the host by executing a custom script. This field defined which
+	// ConfigMap store the custom script. The ConfigMap should include a pod
+	// template of Job object under the `pod-template` key. That pod template
+	// will be put in a Job object to be executed.
 	// +optional
 	Script *Script `json:"script,omitempty"`
 	// Do not reboot a host through the DPUNode. Used for hostless devices where
@@ -155,8 +163,8 @@ type DPURef struct {
 type DPUNodeSpec struct {
 	// Defines the method for rebooting the host.
 	// One of the following options can be chosen for this field:
-	//    - "external": Reboot the host via an external means, not controlled by the
-	//      DPU controller.
+	//    - "external": Reboot the host via an external means, not controlled
+	//      by the DPU controller.
 	//    - "script": Reboot the host by executing a custom script.
 	//    - "hostAgent": Use the host agent to reboot the host.
 	//    - "none": Do not reboot a host through the DPUNode.
@@ -165,7 +173,8 @@ type DPUNodeSpec struct {
 	// +optional
 	NodeRebootMethod *NodeRebootMethod `json:"nodeRebootMethod,omitempty"`
 
-	// The IP address and port where the DMS is exposed. Only applicable if dpuInstallInterface is set to gNOI.
+	// The IP address and port where the DMS is exposed. Only applicable if
+	// dpuInstallInterface is set to gNOI.
 	//
 	// Deprecated: this field is no longer used.
 	// +optional
@@ -196,16 +205,19 @@ func (d *DMSAddress) String() string {
 
 // DPUNodeStatus defines the observed state of DPUNode
 type DPUNodeStatus struct {
-	// Conditions represent the latest available observations of an object's state.
+	// Conditions represent the latest available observations of an object's
+	// state.
 	// +kubebuilder:validation:Type=array
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// The name of the interface which will be used to install the bfb image, can be one of hostAgent,redfish
+	// The name of the interface which will be used to install the bfb image,
+	// can be one of hostAgent,redfish
 	// +kubebuilder:validation:Enum=gNOI;hostAgent;redfish
 	// +optional
 	DPUInstallInterface *string `json:"dpuInstallInterface,omitempty"`
 	// The name of the Kubernetes Node object that this DPUNode represents.
-	// This field is optional and only relevant if the x86 host is part of the DPF Kubernetes cluster.
+	// This field is optional and only relevant if the x86 host is part of the
+	// DPF Kubernetes cluster.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="KubeNodeRef is immutable"
 	// +optional
 	KubeNodeRef *string `json:"kubeNodeRef,omitempty"`

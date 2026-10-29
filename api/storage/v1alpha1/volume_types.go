@@ -101,9 +101,10 @@ type VolumeSpecDPU struct {
 // +kubebuilder:resource:scope=Namespaced
 // +kubebuilder:metadata:annotations=helm.sh/resource-policy=keep
 
-// Volume represents a persistent volume on the DPU cluster.
-// It maps between the tenant K8S persistent volume (PV) object on the tenant cluster into the actual volume on the DPU cluster.
-// Volume is an internal API, it is not intended to be used by users.
+// Volume represents a persistent volume on the DPU cluster. It maps between
+// the tenant K8S persistent volume (PV) object on the tenant cluster into the
+// actual volume on the DPU cluster. Volume is an internal API, it is not
+// intended to be used by users.
 type Volume struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -113,7 +114,8 @@ type Volume struct {
 
 // VolumeSpec defines the desired state of Volume
 type VolumeSpec struct {
-	// List of storage parameters supported by the policy, values are string only
+	// List of storage parameters supported by the policy, values are string
+	// only
 	// +optional
 	StorageParameters map[string]string `json:"storageParameters,omitempty"`
 	// The capacity of the required storage space in bytes
@@ -122,7 +124,8 @@ type VolumeSpec struct {
 	// Reference to the StoragePolicy object
 	// +optional
 	StoragePolicyRef *ObjectRef `json:"storagePolicyRef,omitempty"`
-	// List of storage parameters supported by the policy, values are string only
+	// List of storage parameters supported by the policy, values are string
+	// only
 	// +optional
 	StoragePolicyParameters map[string]string `json:"storagePolicyParameters,omitempty"`
 	// Describe volume information in DPU cluster

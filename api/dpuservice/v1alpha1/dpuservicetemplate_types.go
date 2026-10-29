@@ -26,11 +26,13 @@ import (
 const (
 	// DPUServiceTemplateKind is the kind of the DPUServiceTemplate object
 	DPUServiceTemplateKind = "DPUServiceTemplate"
-	// DPUServiceTemplateFinalizer is the finalizer added to DPUServiceTemplate objects by their controller
+	// DPUServiceTemplateFinalizer is the finalizer added to DPUServiceTemplate
+	// objects by their controller
 	DPUServiceTemplateFinalizer = "dpu.nvidia.com/dpuservicetemplate"
 )
 
-// DPUServiceTemplateGroupVersionKind is the GroupVersionKind of the DPUServiceTemplate object
+// DPUServiceTemplateGroupVersionKind is the GroupVersionKind of the
+// DPUServiceTemplate object
 var DPUServiceTemplateGroupVersionKind = GroupVersion.WithKind(DPUServiceTemplateKind)
 
 // Status related variables
@@ -60,10 +62,12 @@ func (c *DPUServiceTemplate) SetConditions(conditions []metav1.Condition) {
 // +kubebuilder:resource:scope=Namespaced
 // +kubebuilder:metadata:annotations=helm.sh/resource-policy=keep
 
-// DPUServiceTemplate is the Schema for the DPUServiceTemplate API. This object is intended to be used in
-// conjunction with a DPUDeployment object. This object is the template from which the DPUService will be created. It
-// contains configuration options related to resources required by the service to be deployed. The rest of the
-// configuration options must be defined in a DPUServiceConfiguration object.
+// DPUServiceTemplate is the Schema for the DPUServiceTemplate API. This object
+// is intended to be used in conjunction with a DPUDeployment object. This
+// object is the template from which the DPUService will be created. It contains
+// configuration options related to resources required by the service to be
+// deployed. The rest of the configuration options must be defined in a
+// DPUServiceConfiguration object.
 type DPUServiceTemplate struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -74,20 +78,24 @@ type DPUServiceTemplate struct {
 
 // DPUServiceTemplateSpec defines the desired state of DPUServiceTemplate
 type DPUServiceTemplateSpec struct {
-	// DeploymentServiceName is the name of the DPU service this configuration refers to. It must match
-	// .spec.deploymentServiceName of a DPUServiceConfiguration object and one of the keys in .spec.services of a
+	// DeploymentServiceName is the name of the DPU service this configuration
+	// refers to. It must match .spec.deploymentServiceName of a
+	// DPUServiceConfiguration object and one of the keys in .spec.services of a
 	// DPUDeployment object.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=28
 	// +required
 	DeploymentServiceName string `json:"deploymentServiceName"`
-	// HelmChart reflects the Helm related configuration. The user is supposed to configure the values that are static
-	// across any DPUServiceConfiguration used with this DPUServiceTemplate in a DPUDeployment. These values act as a
-	// baseline and are merged with values specified in the DPUServiceConfiguration. In case of conflict, the
+	// HelmChart reflects the Helm related configuration. The user is supposed
+	// to configure the values that are static across any
+	// DPUServiceConfiguration used with this DPUServiceTemplate in a
+	// DPUDeployment. These values act as a baseline and are merged with values
+	// specified in the DPUServiceConfiguration. In case of conflict, the
 	// DPUServiceConfiguration values take precedence.
 	// +required
 	HelmChart HelmChart `json:"helmChart"`
-	// ResourceRequirements contains the overall resources required by this particular service to run on a single node
+	// ResourceRequirements contains the overall resources required by this
+	// particular service to run on a single node
 	// +optional
 	ResourceRequirements corev1.ResourceList `json:"resourceRequirements,omitempty"`
 	// Security contains security-related settings for the generated DPUService.
@@ -103,10 +111,12 @@ type DPUServiceTemplateStatus struct {
 	// Conditions reflect the status of the object
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// ObservedGeneration records the Generation observed on the object the last
+	// time it was patched.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-	// Versions reflects the required versions the generated DPUService needs in order to function correctly.
+	// Versions reflects the required versions the generated DPUService needs in
+	// order to function correctly.
 	// +optional
 	Versions map[string]string `json:"versions,omitempty"`
 }

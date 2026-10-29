@@ -24,15 +24,17 @@ import (
 )
 
 const (
-	// ServiceInterfaceSetKind is the kind of the ServiceInterfaceSet in string format.
+	// ServiceInterfaceSetKind is the kind of the ServiceInterfaceSet in string
+	// format.
 	ServiceInterfaceSetKind = "ServiceInterfaceSet"
-	// ServiceInterfaceSetFinalizer is set on a ServiceInterfaceSet when it is first handled by
-	// the controller, and removed when this object is deleted.
+	// ServiceInterfaceSetFinalizer is set on a ServiceInterfaceSet when it is
+	// first handled by the controller, and removed when this object is deleted.
 	ServiceInterfaceSetFinalizer = "dpu.nvidia.com/serviceinterfaceset"
 )
 
 var (
-	// ServiceInterfaceSetGroupVersionKind is the GroupVersionKind of the ServiceInterfaceSet
+	// ServiceInterfaceSetGroupVersionKind is the GroupVersionKind of the
+	// ServiceInterfaceSet
 	ServiceInterfaceSetGroupVersionKind = GroupVersion.WithKind(ServiceInterfaceSetKind)
 )
 
@@ -77,8 +79,8 @@ func (s *ServiceInterfaceSetSpec) GetTemplateSpec() *ServiceInterfaceSpec {
 	return &s.Template.Spec
 }
 
-// ServiceInterfaceSpecTemplate defines the template from which ServiceInterfaceSpecs
-// are created
+// ServiceInterfaceSpecTemplate defines the template from which
+// ServiceInterfaceSpecs are created
 type ServiceInterfaceSpecTemplate struct {
 	// ServiceInterfaceSpec is the spec for the ServiceInterfaceSpec
 	// +required
@@ -94,11 +96,13 @@ type ServiceInterfaceSetStatus struct {
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// ObservedGeneration records the Generation observed on the object the last
+	// time it was patched.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// The number of nodes where the service chain is applied and is supposed to be applied.
+	// The number of nodes where the service chain is applied and is supposed to
+	// be applied.
 	// +optional
 	NumberApplied int32 `json:"numberApplied,omitempty"`
 

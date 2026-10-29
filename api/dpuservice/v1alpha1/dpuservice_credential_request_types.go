@@ -26,11 +26,13 @@ import (
 )
 
 const (
-	// DPUServiceCredentialRequestFinalizer is the finalizer that will be added to the
+	// DPUServiceCredentialRequestFinalizer is the finalizer that will be added
+	// to the
 	DPUServiceCredentialRequestFinalizer      = "dpu.nvidia.com/dpuservicecredentialrequest"
 	DPUServiceCredentialRequestKind           = "DPUServiceCredentialRequest"
 	DPUServiceCredentialRequestControllerName = "dpuservicecredentialrequestcontroller"
-	// Label keys for identifying ServiceAccounts and Secrets managed by this controller.
+	// Label keys for identifying ServiceAccounts and Secrets managed by this
+	// controller.
 	DPUServiceCredentialRequestManagedByLabelKey   = "svc.dpu.nvidia.com/managed-by-controller"
 	DPUServiceCredentialRequestManagedByLabelValue = DPUServiceCredentialRequestControllerName
 	CredentialRequestNameLabelKey                  = "svc.dpu.nvidia.com/credential-request-name"
@@ -47,18 +49,18 @@ const (
 )
 
 const (
-	// ConditionServiceAccountReconciled is the condition type that indicates that the
-	// service account is ready.
+	// ConditionServiceAccountReconciled is the condition type that indicates
+	// that the service account is ready.
 	ConditionServiceAccountReconciled conditions.ConditionType = "ServiceAccountReconciled"
 
-	// ConditionSecretReconciled is the condition type that indicates that the secret
-	// is ready.
+	// ConditionSecretReconciled is the condition type that indicates that the
+	// secret is ready.
 	ConditionSecretReconciled conditions.ConditionType = "SecretReconciled"
 )
 
 var (
-	// DPUCredentialRequestConditions is the list of conditions that the DPUServiceCredentialRequest
-	// can have.
+	// DPUCredentialRequestConditions is the list of conditions that the
+	// DPUServiceCredentialRequest can have.
 	DPUCredentialRequestConditions = []conditions.ConditionType{
 		conditions.TypeReady,
 		ConditionServiceAccountReconciled,
@@ -68,16 +70,18 @@ var (
 
 var _ conditions.GetSet = &DPUServiceCredentialRequest{}
 
-// DPUServiceCredentialRequestSpec defines the desired state of DPUServiceCredentialRequest
+// DPUServiceCredentialRequestSpec defines the desired state of
+// DPUServiceCredentialRequest
 type DPUServiceCredentialRequestSpec struct {
-	// ServiceAccount defines the needed information to create the service account.
+	// ServiceAccount defines the needed information to create the service
+	// account.
 	// +required
 	ServiceAccount NamespacedName `json:"serviceAccount"`
 
-	// Duration is the duration for which the token will be valid.
-	// Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration.
-	// e.g. "1h", "1m", "1s", "1ms", "1.5h", "2h45m".
-	// Value duration must not be less than 10 minutes.
+	// Duration is the duration for which the token will be valid. Value must be
+	// in units accepted by Go time.ParseDuration
+	// https://golang.org/pkg/time/#ParseDuration. e.g. "1h", "1m", "1s", "1ms",
+	// "1.5h", "2h45m". Value duration must not be less than 10 minutes.
 	// **Note:** The maximum TTL for a token is 24 hours, after which the token
 	// will be rotated.
 	// +kubebuilder:validation:Type=string
@@ -92,13 +96,13 @@ type DPUServiceCredentialRequestSpec struct {
 	// +optional
 	TargetCluster *NamespacedName `json:"targetCluster,omitempty"`
 
-	// Type is the type of the secret that will be created.
-	// The supported types are `kubeconfig` and `tokenFile`.
-	// If `kubeconfig` is selected, the secret will contain a kubeconfig file,
-	// that can be used to access the cluster.
-	// If `tokenFile` is selected, the secret will contain a token file and several
-	// environment variables that can be used to access the cluster. It can be used
-	// with https://github.com/kubernetes/client-go/blob/v11.0.0/rest/config.go#L52
+	// Type is the type of the secret that will be created. The supported types
+	// are `kubeconfig` and `tokenFile`. If `kubeconfig` is selected, the secret
+	// will contain a kubeconfig file, that can be used to access the cluster.
+	// If `tokenFile` is selected, the secret will contain a token file and
+	// several environment variables that can be used to access the cluster. It
+	// can be used with
+	// https://github.com/kubernetes/client-go/blob/v11.0.0/rest/config.go#L52
 	// to create a client that will handle file rotation.
 	// +kubebuilder:validation:Enum=kubeconfig;tokenFile
 	// +required
@@ -114,8 +118,8 @@ type DPUServiceCredentialRequestSpec struct {
 	ObjectMeta *ObjectMeta `json:"metadata,omitempty"`
 }
 
-// NamespacedName contains enough information to locate the referenced Kubernetes resource object in any
-// namespace.
+// NamespacedName contains enough information to locate the referenced
+// Kubernetes resource object in any namespace.
 type NamespacedName struct {
 	// Name of the object.
 	// +required
@@ -141,25 +145,27 @@ func (n *NamespacedName) GetNamespace() string {
 	return *n.Namespace
 }
 
-// DPUServiceCredentialRequestStatus defines the observed state of DPUServiceCredentialRequest
+// DPUServiceCredentialRequestStatus defines the observed state of
+// DPUServiceCredentialRequest
 type DPUServiceCredentialRequestStatus struct {
 	// Conditions defines current service state.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// ServiceAccount is the namespaced name of the ServiceAccount resource created by
-	// the controller for the DPUServiceCredentialRequest.
+	// ServiceAccount is the namespaced name of the ServiceAccount resource
+	// created by the controller for the DPUServiceCredentialRequest.
 	// +optional
 	ServiceAccount *string `json:"serviceAccount,omitempty"`
 
-	// TargetCluster is the cluster where the service account was created.
-	// It has to be persisted in the status to be able to delete the service account
-	// when the DPUServiceCredentialRequest is updated.
+	// TargetCluster is the cluster where the service account was created. It
+	// has to be persisted in the status to be able to delete the service
+	// account when the DPUServiceCredentialRequest is updated.
 	// +optional
 	TargetCluster *string `json:"targetCluster,omitempty"`
 
-	// TargetClusterUID is the UID of the DPUCluster the credentials were last issued against.
-	// Used to detect cluster recreation with the same name and force credential refresh.
+	// TargetClusterUID is the UID of the DPUCluster the credentials were last
+	// issued against. Used to detect cluster recreation with the same name and
+	// force credential refresh.
 	// +optional
 	TargetClusterUID *string `json:"targetClusterUID,omitempty"`
 
@@ -171,8 +177,8 @@ type DPUServiceCredentialRequestStatus struct {
 	// +optional
 	IssuedAt *metav1.Time `json:"issuedAt,omitempty"`
 
-	// Sercet is the namespaced name of the Secret resource created by the controller for
-	// the DPUServiceCredentialRequest.
+	// Sercet is the namespaced name of the Secret resource created by the
+	// controller for the DPUServiceCredentialRequest.
 	// +optional
 	Secret *string `json:"secret,omitempty"`
 }
@@ -218,7 +224,8 @@ func (n *DPUServiceCredentialRequestStatus) GetTargetCluster() (string, string) 
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 // +kubebuilder:validation:XValidation:rule="self.metadata.name.size() <= 63", message="name length can't be bigger than 63 chars"
 
-// DPUServiceCredentialRequest is the Schema for the dpuserviceCredentialRequests API
+// DPUServiceCredentialRequest is the Schema for the
+// dpuserviceCredentialRequests API
 type DPUServiceCredentialRequest struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -237,7 +244,8 @@ func (c *DPUServiceCredentialRequest) SetConditions(conditions []metav1.Conditio
 	c.Status.Conditions = conditions
 }
 
-// DPUServiceCredentialRequestList contains a list of DPUServiceCredentialRequest
+// DPUServiceCredentialRequestList contains a list of
+// DPUServiceCredentialRequest
 // +kubebuilder:object:root=true
 type DPUServiceCredentialRequestList struct {
 	metav1.TypeMeta `json:",inline"`

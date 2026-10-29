@@ -45,10 +45,11 @@ const (
 	// ConditionDPUSetReconciled is the condition type that indicates that the
 	// DPUSet is reconciled.
 	ConditionDPUSetReconciled conditions.ConditionType = "DPUSetPrereqsReconciled"
-	// ConditionDPUFlavorTemplateExists indicates whether the DPUFlavorTemplate referenced by a
-	// template-mode DPUSet exists. It is only meaningful for template-mode DPUSets, so it is
-	// owned but NOT ensured: it is set on demand (and cleared when the DPUSet reverts to a static
-	// DPUFlavor) rather than pre-seeded as Unknown on every DPUSet.
+	// ConditionDPUFlavorTemplateExists indicates whether the
+	// DPUFlavorTemplate referenced by a template-mode DPUSet exists. It is
+	// only meaningful for template-mode DPUSets, so it is owned but NOT
+	// ensured: it is set on demand (and cleared when the DPUSet reverts to a
+	// static DPUFlavor) rather than pre-seeded as Unknown on every DPUSet.
 	ConditionDPUFlavorTemplateExists conditions.ConditionType = "DPUFlavorTemplateExists"
 )
 
@@ -94,14 +95,16 @@ type DPUSetStrategy struct {
 	// +required
 	Type StrategyType `json:"type"`
 
-	// Rolling update config params. Present only if StrategyType = RollingUpdate.
+	// Rolling update config params. Present only if StrategyType =
+	// RollingUpdate.
 	// +optional
 	RollingUpdate *RollingUpdateDPU `json:"rollingUpdate,omitempty"`
 }
 
 // RollingUpdateDPU is the rolling update strategy for a DPUSet.
 type RollingUpdateDPU struct {
-	// MaxUnavailable is the maximum number of DPUs that can be unavailable during the update.
+	// MaxUnavailable is the maximum number of DPUs that can be unavailable
+	// during the update.
 	//
 	// Deprecated: This field is deprecated and will be removed with v31.0.0.
 	// +optional
@@ -129,7 +132,8 @@ type ClusterSpec struct {
 	// NodeAnnotations specifies the annotations to be added to the node.
 	// +optional
 	NodeAnnotations map[string]string `json:"nodeAnnotations,omitempty"`
-	// Selector defines the selector of the DPUClusters the produced DPUs should join
+	// Selector defines the selector of the DPUClusters the produced DPUs
+	// should join
 	// +optional
 	Selector *metav1.LabelSelector `json:"selector,omitempty"`
 }
@@ -150,14 +154,14 @@ type DPUTemplateSpec struct {
 	// Specifies details on the K8S cluster to join
 	// +optional
 	Cluster *ClusterSpec `json:"cluster,omitempty"`
-	// DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU.
-	// Mutually exclusive with DPUFlavorTemplate.
+	// DPUFlavor is the name of the DPUFlavor that will be used to deploy the
+	// DPU. Mutually exclusive with DPUFlavorTemplate.
 	// +kubebuilder:validation:MinLength=1
 	// +optional
 	DPUFlavor *string `json:"dpuFlavor,omitempty"`
-	// DPUFlavorTemplate is the name of a DPUFlavorTemplate that is rendered per-DPU
-	// (against DPUDevice.spec.values) into a generated DPUFlavor. Mutually exclusive
-	// with DPUFlavor.
+	// DPUFlavorTemplate is the name of a DPUFlavorTemplate that is rendered
+	// per-DPU (against DPUDevice.spec.values) into a generated DPUFlavor.
+	// Mutually exclusive with DPUFlavor.
 	// +kubebuilder:validation:MinLength=1
 	// +optional
 	DPUFlavorTemplate *string `json:"dpuFlavorTemplate,omitempty"`
@@ -178,14 +182,16 @@ type DPUTemplate struct {
 }
 
 // NodeEffect is the effect the DPU has on Nodes during provisioning.
-// Only one of Taint, NoEffect, CustomLabel, Drain, CustomAction, Hold can be set.
+// Only one of Taint, NoEffect, CustomLabel, Drain, CustomAction, Hold can be
+// set.
 type NodeEffect struct {
 	Action        `json:",inline"`
 	UpgradePolicy `json:",inline"`
 }
 
-// Action defines the mutually exclusive node effect applied during provisioning.
-// Exactly one of taint, noEffect=true, drain=true, non-empty customLabel, non-empty customAction, or hold=true must be set.
+// Action defines the mutually exclusive node effect applied during
+// provisioning. Exactly one of taint, noEffect=true, drain=true, non-empty
+// customLabel, non-empty customAction, or hold=true must be set.
 // +kubebuilder:validation:XValidation:rule="(has(self.taint) ? 1 : 0) + ((has(self.noEffect) && self.noEffect) ? 1 : 0) + ((has(self.customLabel) && size(self.customLabel) > 0) ? 1 : 0) + ((has(self.drain) && self.drain) ? 1 : 0) + ((has(self.customAction) && size(self.customAction) > 0) ? 1 : 0) + ((has(self.hold) && self.hold) ? 1 : 0) == 1", message="exactly one of taint, noEffect=true, drain=true, non-empty customLabel, non-empty customAction, hold=true must be set"
 type Action struct {
 	// Add specify taint on the DPU node
@@ -204,21 +210,29 @@ type Action struct {
 	// +optional
 	Drain *bool `json:"drain,omitempty"`
 
-	// Name of a config map which contains a pod yaml definition to run which will apply the nodeEffect.
-	// The pod is expected to exit when node effect is done, if pod terminates with error then DPU would move to an error phase.
-	// The DPUNode's name will be exported as an environment variable, named as DPUNODE_NAME, to each container and init container in the pod.
-	// The labels and annotations of DPUNode will be exported in `/etc/dpu/dpf-pod-info/labels` and `/etc/dpu/dpf-pod-info/annotations` accordingly; the volume name `dpf-pod-info` is used to mount the labels and annotations.
-	// If any name confliction for env or volume, the controller will not export the name or labels/annotations of DPUNode accordingly.
+	// Name of a config map which contains a pod yaml definition to run which
+	// will apply the nodeEffect. The pod is expected to exit when node effect
+	// is done, if pod terminates with error then DPU would move to an error
+	// phase. The DPUNode's name will be exported as an environment variable,
+	// named as DPUNODE_NAME, to each container and init container in the pod.
+	// The labels and annotations of DPUNode will be exported in
+	// `/etc/dpu/dpf-pod-info/labels` and `/etc/dpu/dpf-pod-info/annotations`
+	// accordingly; the volume name `dpf-pod-info` is used to mount the labels
+	// and annotations. If any name confliction for env or volume, the
+	// controller will not export the name or labels/annotations of DPUNode
+	// accordingly.
 	// +optional
 	CustomAction *string `json:"customAction,omitempty"`
 
-	// Places annotation `wait-for-external-nodeeffect` and waits for it to be removed
-	// this is the default behavior in a non K8S environment
+	// Places annotation `wait-for-external-nodeeffect` and waits for it to be
+	// removed this is the default behavior in a non K8S environment
 	// +optional
 	Hold *bool `json:"hold,omitempty"`
 
-	// Force is the flag to indicate if the node effect should be applied immediately.
-	// If true, dpfOperatorConfig.multiDPUOperationsSyncWaitTime and dpfOperatorConfig.maxUnavailableDPUNodes will be ignored when applying node effect for DPUNodeMaintenance CR
+	// Force is the flag to indicate if the node effect should be applied
+	// immediately. If true, dpfOperatorConfig.multiDPUOperationsSyncWaitTime
+	// and dpfOperatorConfig.maxUnavailableDPUNodes will be ignored when
+	// applying node effect for DPUNodeMaintenance CR
 	// +kubebuilder:default=false
 	// +optional
 	Force *bool `json:"force,omitempty"`
@@ -227,11 +241,13 @@ type Action struct {
 // UpgradePolicy is the policy for the upgrade of the DPUSet.
 type UpgradePolicy struct {
 	// Apply node effect when labels change on the DPU object
-	// When set to true, label changes in Ready state will trigger node effect logic
+	// When set to true, label changes in Ready state will trigger node effect
+	// logic
 	// +optional
 	// +kubebuilder:default=false
 	ApplyOnLabelChange *bool `json:"applyOnLabelChange,omitempty"`
-	// Additional requestors to be added to the NvidiaNodeMaintenance CR when Drain is selected
+	// Additional requestors to be added to the NvidiaNodeMaintenance CR when
+	// Drain is selected
 	// +optional
 	NodeMaintenanceAdditionalRequestors []string `json:"nodeMaintenanceAdditionalRequestors,omitempty"`
 }
@@ -295,7 +311,8 @@ func (n *NodeEffect) IsNoEffect() bool {
 
 // DPUSetSpec defines the desired state of DPUSet
 type DPUSetSpec struct {
-	// The rolling update strategy to use to updating existing DPUs with new ones.
+	// The rolling update strategy to use to updating existing DPUs with new
+	// ones.
 	// +required
 	Strategy DPUSetStrategy `json:"strategy"`
 
@@ -305,15 +322,18 @@ type DPUSetSpec struct {
 
 	// Select the DPU with specific labels
 	//
-	// Deprecated: This field is deprecated and will be removed with v31.0.0. Use DPUDeviceSelector instead.
+	// Deprecated: This field is deprecated and will be removed with v31.0.0.
+	// Use DPUDeviceSelector instead.
 	// +optional
 	DPUSelector map[string]string `json:"dpuSelector,omitempty"`
 
-	// DPUDeviceSelector defines the selector for DPUDevices that the DPUSet should target and should create a DPU for.
+	// DPUDeviceSelector defines the selector for DPUDevices that the DPUSet
+	// should target and should create a DPU for.
 	// +optional
 	DPUDeviceSelector *metav1.LabelSelector `json:"dpuDeviceSelector,omitempty"`
 
-	// Object that describes the DPU that will be created if insufficient replicas are detected
+	// Object that describes the DPU that will be created if insufficient
+	// replicas are detected
 	// +required
 	DPUTemplate DPUTemplate `json:"dpuTemplate"`
 }
@@ -326,24 +346,26 @@ type DPUSetStatus struct {
 	// Conditions reflect the status of the object
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// ObservedGeneration records the Generation observed on the object the
+	// last time it was patched.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// DPUReconfig is the in-place reconfig round owned by the DPUSet controller.
-	// The user starts a round with annotation provisioning.dpu.nvidia.com/inplace-reconfig=true.
+	// DPUReconfig is the in-place reconfig round owned by the DPUSet
+	// controller. The user starts a round with annotation
+	// provisioning.dpu.nvidia.com/inplace-reconfig=true.
 	// Nil means no round has started.
 	// +optional
 	DPUReconfig *DPUSetReconfigStatus `json:"dpuReconfig,omitempty,omitzero"`
 }
 
 // DPUSetReconfigStatus is one annotation round of in-place DPU reconfig.
-// A nil DPUSetStatus.DPUReconfig means no round has started. The controller sets
-// round, active, and startedAt together.
+// A nil DPUSetStatus.DPUReconfig means no round has started. The controller
+// sets round, active, and startedAt together.
 type DPUSetReconfigStatus struct {
-	// Round identifies the current or last round. It increases by one when a new
-	// annotation round starts and is not reset when the annotation is removed.
-	// Zero means no round has started.
+	// Round identifies the current or last round. It increases by one when a
+	// new annotation round starts and is not reset when the annotation is
+	// removed. Zero means no round has started.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	Round int32 `json:"round,omitempty"`
@@ -352,9 +374,10 @@ type DPUSetReconfigStatus struct {
 	// +optional
 	Active *bool `json:"active,omitempty"`
 
-	// StartedAt is when this round became active. It distinguishes a DPU that was
-	// already Ready before the round from one that first becomes Ready during it.
-	// The controller sets it with round and active, and never leaves it zero.
+	// StartedAt is when this round became active. It distinguishes a DPU that
+	// was already Ready before the round from one that first becomes Ready
+	// during it. The controller sets it with round and active, and never
+	// leaves it zero.
 	// +optional
 	StartedAt *metav1.Time `json:"startedAt,omitempty"`
 }
@@ -376,8 +399,8 @@ type DPUSet struct {
 	Status DPUSetStatus `json:"status,omitempty"`
 }
 
-// IsAstraEnabledForNonBlueField4 returns true if Astra is enabled on this DPUSet
-// and the target DPUDevice is not a BlueField4.
+// IsAstraEnabledForNonBlueField4 returns true if Astra is enabled on this
+// DPUSet and the target DPUDevice is not a BlueField4.
 func (c *DPUSet) IsAstraEnabledForNonBlueField4(dpuDevice DPUDevice) bool {
 	return c.Spec.DPUTemplate.Spec.AstraEnabled != nil &&
 		*c.Spec.DPUTemplate.Spec.AstraEnabled &&

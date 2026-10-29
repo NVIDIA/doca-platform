@@ -25,13 +25,16 @@ import (
 const (
 	// DPUNodeMaintenanceKind is the kind of the DPUNodeMaintenance object
 	DPUNodeMaintenanceKind = "DPUNodeMaintenance"
-	// DPUNodeMaintenanceListKind is the kind of the DPUNodeMaintenanceList object
+	// DPUNodeMaintenanceListKind is the kind of the DPUNodeMaintenanceList
+	// object
 	DPUNodeMaintenanceListKind = "DPUNodeMaintenanceList"
-	// DPUNodeMaintenanceFinalizer is the finalizer for the DPUNodeMaintenance object
+	// DPUNodeMaintenanceFinalizer is the finalizer for the DPUNodeMaintenance
+	// object
 	DPUNodeMaintenanceFinalizer = "provisioning.dpu.nvidia.com/dpunodemaintenance-protection"
 )
 
-// DPUNodeMaintenanceGroupVersionKind is the GroupVersionKind of the DPUNodeMaintenance object
+// DPUNodeMaintenanceGroupVersionKind is the GroupVersionKind of the
+// DPUNodeMaintenance object
 var DPUNodeMaintenanceGroupVersionKind = GroupVersion.WithKind(DPUNodeMaintenanceKind)
 
 // Status related variables
@@ -71,10 +74,12 @@ type DPUNodeMaintenanceStatus struct {
 	// NodeEffectSyncStartTime is the time when the node effect sync started.
 	// +optional
 	NodeEffectSyncStartTime *metav1.Time `json:"nodeEffectSyncStartTime,omitempty"`
-	// MultiDPUOperationsSyncWaitTime  is the wait time between DPUs on the same node.
+	// MultiDPUOperationsSyncWaitTime  is the wait time between DPUs on the
+	// same node.
 	// +optional
 	MultiDPUOperationsSyncWaitTime *metav1.Duration `json:"multiDPUOperationsSyncWaitTime,omitempty"`
-	// MaxUnavailableDPUNodes is the maximum number of DPUNodes that are unavailable during the node effect period.
+	// MaxUnavailableDPUNodes is the maximum number of DPUNodes that are
+	// unavailable during the node effect period.
 	// +kubebuilder:validation:Minimum=1
 	// +optional
 	MaxUnavailableDPUNodes *int32 `json:"maxUnavailableDPUNodes,omitempty"`

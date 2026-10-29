@@ -25,13 +25,14 @@ import (
 const (
 	// ServiceChainSetKind is the kind of the ServiceChainSet in string format.
 	ServiceChainSetKind = "ServiceChainSet"
-	// ServiceChainSetFinalizer is set on a ServiceChainSet when it is first handled by
-	// the controller, and removed when this object is deleted.
+	// ServiceChainSetFinalizer is set on a ServiceChainSet when it is first
+	// handled by the controller, and removed when this object is deleted.
 	ServiceChainSetFinalizer = "dpu.nvidia.com/servicechainset"
 )
 
 var (
-	// ServiceChainSetGroupVersionKind is the GroupVersionKind of the ServiceChainSet
+	// ServiceChainSetGroupVersionKind is the GroupVersionKind of the
+	// ServiceChainSet
 	ServiceChainSetGroupVersionKind = GroupVersion.WithKind(ServiceChainSetKind)
 )
 
@@ -87,11 +88,13 @@ type ServiceChainSetStatus struct {
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// ObservedGeneration records the Generation observed on the object the last
+	// time it was patched.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// The number of nodes where the service chain is applied and is supposed to be applied.
+	// The number of nodes where the service chain is applied and is supposed to
+	// be applied.
 	// +optional
 	NumberApplied int32 `json:"numberApplied,omitempty"`
 

@@ -55,24 +55,25 @@ These types are implemented in go in the DPUService API package.
 ```go
 // Condition types
 const (
-	// ConditionDPUServiceInterfaceReconciled is the condition type that indicates that the
-	// DPUServiceInterface is reconciled.
+	// ConditionDPUServiceInterfaceReconciled is the condition type that
+	// indicates that the DPUServiceInterface is reconciled.
 	ConditionDPUServiceInterfaceReconciled conditions.ConditionType = "DPUServiceInterfaceReconciled"
-	// ConditionApplicationPrereqsReconciled is the condition type that indicates that the
-	// application prerequisites are reconciled.
+	// ConditionApplicationPrereqsReconciled is the condition type that
+	// indicates that the application prerequisites are reconciled.
 	ConditionApplicationPrereqsReconciled conditions.ConditionType = "ApplicationPrereqsReconciled"
-	// ConditionApplicationsReconciled is the condition type that indicates that the
-	// applications are reconciled.
+	// ConditionApplicationsReconciled is the condition type that indicates that
+	// the applications are reconciled.
 	ConditionApplicationsReconciled conditions.ConditionType = "ApplicationsReconciled"
-	// ConditionConfigPortsReconciled is the condition type that indicates that the
-	// applications config ports are reconciled.
+	// ConditionConfigPortsReconciled is the condition type that indicates that
+	// the applications config ports are reconciled.
 	ConditionConfigPortsReconciled conditions.ConditionType = "ConfigPortsReconciled"
 	// ConditionApplicationsReady is the condition type that indicates that the
 	// applications are ready.
 	ConditionApplicationsReady conditions.ConditionType = "ApplicationsReady"
-	// ConditionSPIFFEEntriesReady reports whether this DPUService's per-DPU SPIRE
-	// ClusterStaticEntries have been rendered. True with no entries when SPIFFE is not
-	// used, so it does not hold back the Ready summary of existing DPUServices.
+	// ConditionSPIFFEEntriesReady reports whether this DPUService's per-DPU
+	// SPIRE ClusterStaticEntries have been rendered. True with no entries when
+	// SPIFFE is not used, so it does not hold back the Ready summary of
+	// existing DPUServices.
 	ConditionSPIFFEEntriesReady conditions.ConditionType = "SPIFFEEntriesReady"
 )
 

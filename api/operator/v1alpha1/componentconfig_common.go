@@ -65,9 +65,11 @@ func (c ComponentName) WithContainer(cName ContainerName) string {
 	return fmt.Sprintf("%s,%s", c.String(), cName.String())
 }
 
-// Container names for the helm path provider in internal/operator/inventory/helm_paths_provider.go.
+// Container names for the helm path provider in
+// internal/operator/inventory/helm_paths_provider.go.
 var (
-	// ControllerManagerContainer is the default name of the scaffolded controller-runtime manager container.
+	// ControllerManagerContainer is the default name of the scaffolded
+	// controller-runtime manager container.
 	ControllerManagerContainer ContainerName = "manager"
 	// DPUDetectorContainer is the default name of the DPU Detector container.
 	DPUDetectorContainer ContainerName = "dpu-detector"
@@ -79,32 +81,41 @@ var (
 	NVIPAMContainerController ContainerName = "controller"
 	// NVIPAMContainerNode is the name of the NVIPAM node container.
 	NVIPAMContainerNode ContainerName = "node"
-	// MultusContainer is the default name of the scaffolded MultusContainer CNI container.
+	// MultusContainer is the default name of the scaffolded MultusContainer
+	// CNI container.
 	MultusContainer ContainerName = "kube-multus"
-	// SRIOVDevicePluginContainer is the default name of the scaffolded SR-IOV Device Plugin container.
+	// SRIOVDevicePluginContainer is the default name of the scaffolded SR-IOV
+	// Device Plugin container.
 	SRIOVDevicePluginContainer ContainerName = "kube-sriovdp"
-	// SRIOVDevicePluginConfigInitContainer is the name of the SR-IOV Device Plugin init container
-	// that resolves which config the plugin consumes.
+	// SRIOVDevicePluginConfigInitContainer is the name of the SR-IOV Device
+	// Plugin init container that resolves which config the plugin consumes.
 	SRIOVDevicePluginConfigInitContainer ContainerName = "config-init"
 	// OVSCNI is the default name of the scaffolded OVS CNI
 	OVSCNI ContainerName = "ovs-cni-plugin"
-	// CNIInstallerContainer is the default name of the scaffolded CNI Installer container.
+	// CNIInstallerContainer is the default name of the scaffolded CNI
+	// Installer container.
 	CNIInstallerContainer ContainerName = "cni-installer"
-	// KubeStateMetricsContainer is the default name of the kube-state-metrics container.
+	// KubeStateMetricsContainer is the default name of the
+	// kube-state-metrics container.
 	KubeStateMetricsContainer ContainerName = "kube-state-metrics"
-	// NodeProblemDetectorContainer is the default name of the node-problem-detector container.
+	// NodeProblemDetectorContainer is the default name of the
+	// node-problem-detector container.
 	NodeProblemDetectorContainer ContainerName = "node-problem-detector"
-	// OpenTelemetryCollectorContainer is the default name of the opentelemetry-collector container.
+	// OpenTelemetryCollectorContainer is the default name of the
+	// opentelemetry-collector container.
 	OpenTelemetryCollectorContainer ContainerName = "opentelemetry-collector"
 	// KataDeployContainer is the default name of the kata-deploy container.
 	KataDeployContainer ContainerName = "kata-deploy"
 	// VaultKMSContainer is the default name of the Vault KMS plugin container.
 	VaultKMSContainer ContainerName = "vault-kms"
-	// CoreDNSContainer is the default name of the host cluster CoreDNS container.
+	// CoreDNSContainer is the default name of the host cluster
+	// CoreDNS container.
 	CoreDNSContainer ContainerName = "coredns"
-	// SPIFFECSIDriverContainer is the default name of the SPIFFE CSI driver container.
+	// SPIFFECSIDriverContainer is the default name of the SPIFFE CSI
+	// driver container.
 	SPIFFECSIDriverContainer ContainerName = "spiffe-csi-driver"
-	// SPIFFECSINodeDriverRegistrarContainer is the default name of the SPIFFE CSI node-driver-registrar container.
+	// SPIFFECSINodeDriverRegistrarContainer is the default name of the SPIFFE
+	// CSI node-driver-registrar container.
 	SPIFFECSINodeDriverRegistrarContainer ContainerName = "node-driver-registrar"
 )
 
@@ -183,7 +194,8 @@ func (c *DPFOperatorConfig) ComponentConfigs() []ComponentConfigurable {
 	return out
 }
 
-// ComponentConfigurable defines the shared config for all components deployed by the DPF Operator.
+// ComponentConfigurable defines the shared config for all components deployed
+// by the DPF Operator.
 // +kubebuilder:object:generate=false
 type ComponentConfigurable interface {
 	Name() string
@@ -203,8 +215,8 @@ func (b *BaseComponentConfig) Disabled() bool {
 	return b.Disable != nil && *b.Disable
 }
 
-// BaseControllerConfig provides common configuration fields that can be embedded
-// by all controller configurations to reduce code duplication.
+// BaseControllerConfig provides common configuration fields that can be
+// embedded by all controller configurations to reduce code duplication.
 type BaseControllerConfig struct {
 	// Replicas is the number of replicas for the controller deployment.
 	// Used for High Availability via leader election.
@@ -220,11 +232,12 @@ func (b *BaseControllerConfig) SetReplicas(replicas *int32) {
 	b.Replicas = replicas
 }
 
-// TracingControllerConfig is embedded by the controllers that can opt out of exporting trace spans.
+// TracingControllerConfig is embedded by the controllers that can opt out of
+// exporting trace spans.
 type TracingControllerConfig struct {
-	// DisableTracing stops the controller from exporting trace spans although tracing is
-	// configured. The controller then also stops
-	// passing the trace context on to the objects it creates, so a trace ends at this controller.
+	// DisableTracing stops the controller from exporting trace spans although
+	// tracing is configured. The controller then also stops passing the trace
+	// context on to the objects it creates, so a trace ends at this controller.
 	// +optional
 	DisableTracing *bool `json:"disableTracing,omitempty"`
 }
@@ -241,9 +254,9 @@ type HelmComponentConfigurable interface {
 type HelmChart *string
 
 type HelmComponentConfig struct {
-	// HelmChart overrides the helm chart used by the ServiceSet controller.
-	// The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid
-	// OCI registry or a web-based repository.
+	// HelmChart overrides the helm chart used by the ServiceSet controller. The
+	// URL must begin with either 'oci://' or 'https://', ensuring it points to
+	// a valid OCI registry or a web-based repository.
 	// +optional
 	HelmChart HelmChart `json:"helmChart,omitempty"`
 }
@@ -252,32 +265,34 @@ func (b *HelmComponentConfig) GetHelmChart() *string {
 	return b.HelmChart
 }
 
-// Image is a reference to a container image.
-// If neither a tag nor a digest is set, the tag and digest of the component's default image are used.
+// Image is a reference to a container image. If neither a tag nor a digest is
+// set, the tag and digest of the component's default image are used.
 // +kubebuilder:validation:Pattern= `^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$`
 type Image *string // Validation is the same as the implementation at https://github.com/containers/image/blob/93fa49b0f1fb78470512e0484012ca7ad3c5c804/docker/reference/regexp.go
 
-// DeprecatedImageComponentConfigurable is the shared config for helm components.
+// DeprecatedImageComponentConfigurable is the shared config for helm
+// components.
 //
 // Deprecated: new components should use the ImageComponentConfigurable instead.
 //
 // +kubebuilder:object:generate=false
 type DeprecatedImageComponentConfigurable interface {
-	// GetImage returns a string with one or more images to be configured for the components.
-	// This is a comma-delimited string if the component has more than one image to be configured.
+	// GetImage returns a string with one or more images to be configured for
+	// the components. This is a comma-delimited string if the component has
+	// more than one image to be configured.
 	GetImage() *string
 }
 
-// ImageComponentConfigurable defines configuration for overriding the images of a component’s containers.
-// Specified at the pod container level.
+// ImageComponentConfigurable defines configuration for overriding the images of
+// a component’s containers. Specified at the pod container level.
 // +kubebuilder:object:generate=false
 type ImageComponentConfigurable interface {
 	// GetImages returns a map of container names to their images.
 	GetImages() map[ContainerName]*string
 }
 
-// ImageComponentConfig provides common configuration fields that can be embedded
-// by all component configurations to reduce code duplication.
+// ImageComponentConfig provides common configuration fields that can be
+// embedded by all component configurations to reduce code duplication.
 type ImageComponentConfig struct {
 	// +optional
 	Image Image `json:"image,omitempty"`
@@ -288,18 +303,20 @@ func (b *ImageComponentConfig) GetImage() *string {
 	return b.Image
 }
 
-// ResourcesComponentConfigurable defines configuration for overriding the resources of a component’s containers.
-// Specified at the pod container level.
+// ResourcesComponentConfigurable defines configuration for overriding the
+// resources of a component’s containers. Specified at the pod container level.
 // +kubebuilder:object:generate=false
 type ResourcesComponentConfigurable interface {
-	// GetResources returns a map of container names to their resource requirements.
+	// GetResources returns a map of container names to their resource
+	// requirements.
 	GetResources() map[ContainerName]*corev1.ResourceRequirements
 }
 
 // ResourceComponentConfig defines the resource requirements for a container.
 type ResourceComponentConfig struct {
-	// Resources defines the memory and CPU resource requests and limits for the component.
-	// This field is optional, and if not set, the component will use the default resource.
+	// Resources defines the memory and CPU resource requests and limits for the
+	// component. This field is optional, and if not set, the component will use
+	// the default resource.
 	// +optional
 	Resources *ResourceRequirements `json:"resources,omitempty"`
 }
@@ -322,8 +339,8 @@ type Resources struct {
 	Memory *resource.Quantity `json:"memory,omitempty"`
 }
 
-// GetResource converts the ResourceComponentConfig to a Kubernetes ResourceRequirements.
-// Returns nil if no resource configuration is specified.
+// GetResource converts the ResourceComponentConfig to a Kubernetes
+// ResourceRequirements. Returns nil if no resource configuration is specified.
 // Only CPU and Memory resources are supported.
 func (r *ResourceComponentConfig) GetResource() *corev1.ResourceRequirements {
 	if r.Resources == nil {

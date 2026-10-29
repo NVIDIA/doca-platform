@@ -109,8 +109,8 @@ type BFBVersions struct {
 	BSP string `json:"bsp,omitempty"`
 
 	// DOCA version
-	// Specifies the version of NVIDIA's Data Center-on-a-Chip Architecture (DOCA),
-	// a platform for developing applications on DPUs
+	// Specifies the version of NVIDIA's Data Center-on-a-Chip Architecture
+	// (DOCA), a platform for developing applications on DPUs
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="DOCA version is immutable"
 	DOCA string `json:"doca,omitempty"`
@@ -131,8 +131,8 @@ type BFBVersions struct {
 
 // BFBStatus defines the observed state of BFB
 type BFBStatus struct {
-	// Filename is the name of the file where the BFB can be accessed on its volume.
-	// This is the same as `.spec.Filename` if set.
+	// Filename is the name of the file where the BFB can be accessed on its
+	// volume. This is the same as `.spec.Filename` if set.
 	// +optional
 	FileName string `json:"fileName,omitempty"`
 	// The current state of BFB.
@@ -143,7 +143,8 @@ type BFBStatus struct {
 	// Holds detailed version information for each component within the BFB
 	// +optional
 	Versions BFBVersions `json:"versions,omitempty"`
-	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// ObservedGeneration records the Generation observed on the object the
+	// last time it was patched.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// Conditions represent the latest available observations of BFB state

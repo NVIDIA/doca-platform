@@ -56,36 +56,44 @@ func (c *DPUServiceChain) SetConditions(conditions []metav1.Condition) {
 	c.Status.Conditions = conditions
 }
 
-// SetServiceChainSetLabelSelector sets the label selector for the ServiceChainSet
+// SetServiceChainSetLabelSelector sets the label selector for the
+// ServiceChainSet
 func (c *DPUServiceChain) SetServiceChainSetLabelSelector(selector *metav1.LabelSelector) {
 	c.Spec.Template.Spec.NodeSelector = selector
 }
 
-// GetServiceChainSetLabelSelector returns the label selector for the ServiceChainSet
+// GetServiceChainSetLabelSelector returns the label selector for the
+// ServiceChainSet
 func (c *DPUServiceChain) GetServiceChainSetLabelSelector() *metav1.LabelSelector {
 	return c.Spec.Template.Spec.NodeSelector
 }
 
-// GetDPUClusterSelector returns the DPUCluster selector of the DPUServiceChain
+// GetDPUClusterSelector returns the DPUCluster selector of the
+// DPUServiceChain
 func (c *DPUServiceChain) GetDPUClusterSelector() *metav1.LabelSelector {
 	return c.Spec.DPUClusterSelector
 }
 
 // DPUServiceChainSpec defines the desired state of DPUServiceChainSpec
 type DPUServiceChainSpec struct {
-	// Select the Clusters with specific labels, ServiceChainSet CRs will be created only for these Clusters
+	// Select the Clusters with specific labels, ServiceChainSet CRs will be
+	// created only for these Clusters
 	//
-	// Deprecated: This field is deprecated and will be removed with v31.0.0. Use DPUClusterSelector instead.
+	// Deprecated: This field is deprecated and will be removed with v31.0.0.
+	// Use DPUClusterSelector instead.
 	// +optional
 	ClusterSelector *metav1.LabelSelector `json:"clusterSelector,omitempty"`
-	// DPUClusterSelector determines in which clusters the DPUServiceChain controller should apply the configuration.
+	// DPUClusterSelector determines in which clusters the DPUServiceChain
+	// controller should apply the configuration.
 	// +optional
 	DPUClusterSelector *metav1.LabelSelector `json:"dpuClusterSelector,omitempty"`
-	// Template describes the ServiceChainSet that will be created for each selected Cluster.
+	// Template describes the ServiceChainSet that will be created for each
+	// selected Cluster.
 	Template ServiceChainSetSpecTemplate `json:"template"`
 }
 
-// ServiceChainSetSpecTemplate describes the data a ServiceChainSet should have when created from a template.
+// ServiceChainSetSpecTemplate describes the data a ServiceChainSet should have
+// when created from a template.
 type ServiceChainSetSpecTemplate struct {
 	Spec       ServiceChainSetSpec `json:"spec"`
 	ObjectMeta `json:"metadata,omitempty"`
@@ -96,7 +104,8 @@ type DPUServiceChainStatus struct {
 	// Conditions reflect the status of the object
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// ObservedGeneration records the Generation observed on the object the last
+	// time it was patched.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }

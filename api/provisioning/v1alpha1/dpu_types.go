@@ -27,14 +27,15 @@ const (
 	// DPUKind is the kind of the DPU object
 	DPUKind = "DPU"
 
-	// DPUAgentConditionNVConfigApplied is reported when mlxconfig has been applied for the current boot.
-	// It may appear on agentStatus.conditions (DPU Config phase) or agentStatus.preInstall.conditions
-	// (best-effort Config FW Parameters phase during reprovision).
+	// DPUAgentConditionNVConfigApplied is reported when mlxconfig has been
+	// applied for the current boot. It may appear on agentStatus.conditions
+	// (DPU Config phase) or agentStatus.preInstall.conditions (best-effort
+	// Config FW Parameters phase during reprovision).
 	DPUAgentConditionNVConfigApplied = "NVConfigApplied"
 
-	// DPUAgentConditionSPIREWorkloadAttestorEnabled is reported on SPIFFE DPUs once the
-	// SPIRE Kubernetes workload attestor is configured, which is what lets the SPIRE
-	// agent issue SVIDs to pods.
+	// DPUAgentConditionSPIREWorkloadAttestorEnabled is reported on SPIFFE DPUs
+	// once the SPIRE Kubernetes workload attestor is configured, which is what
+	// lets the SPIRE agent issue SVIDs to pods.
 	DPUAgentConditionSPIREWorkloadAttestorEnabled = "SPIREWorkloadAttestorEnabled"
 )
 
@@ -51,46 +52,60 @@ type DPUPhase string
 const (
 	DPUFinalizer = "provisioning.dpu.nvidia.com/dpu-protection"
 
-	// AnnotationArmRestartTracker stores ARM restart tracking state for Secure Boot configuration
+	// AnnotationArmRestartTracker stores ARM restart tracking state for
+	// Secure Boot configuration
 	AnnotationArmRestartTracker = "provisioning.dpu.nvidia.com/arm-restart-tracker"
 
 	// DPUInitializing is the first phase after the DPU is created.
 	DPUInitializing DPUPhase = "Initializing"
-	// DPUNodeEffect means the controller will handle the node effect provided by the user.
+	// DPUNodeEffect means the controller will handle the node effect
+	// provided by the user.
 	DPUNodeEffect DPUPhase = "Node Effect"
 	// DPUPending means the controller is waiting for the BFB to be ready.
 	DPUPending DPUPhase = "Pending"
-	// DPUPrepareBFB means the controller is preparing the BFB and bf.cfg to be installed to DPU
+	// DPUPrepareBFB means the controller is preparing the BFB and bf.cfg to
+	// be installed to DPU
 	DPUPrepareBFB DPUPhase = "Prepare BFB"
-	// DPUUpdateFirmware means the controller will update the DPU firmware for BlueField4.
+	// DPUUpdateFirmware means the controller will update the DPU firmware
+	// for BlueField4.
 	DPUUpdateFirmware DPUPhase = "Update Firmware"
 	// DPUConfig means the DPU agent will configure the DPU
 	DPUConfig DPUPhase = "DPU Config"
-	// DPUConfigFWParameters means the controller will manipulate DPU firmware, e.g., set DPU mode, check firmware version
+	// DPUConfigFWParameters means the controller will manipulate DPU firmware,
+	// e.g., set DPU mode, check firmware version
 	DPUConfigFWParameters DPUPhase = "Config FW Parameters"
-	// DPUInitializeInterface means the controller will intitialize the interface used to provision the DPUs, e.g., create the DMS pod, set up RedFish account.
+	// DPUInitializeInterface means the controller will intitialize the
+	// interface used to provision the DPUs, e.g., create the DMS pod, set up
+	// RedFish account.
 	DPUInitializeInterface DPUPhase = "Initialize Interface"
-	// DPUOSInstalling means the controller will provision the DPU through the DMS gNOI interface.
+	// DPUOSInstalling means the controller will provision the DPU through
+	// the DMS gNOI interface.
 	DPUOSInstalling DPUPhase = "OS Installing"
-	// DPUClusterConfig  means the node configuration and Kubernetes Node join procedure are in progress .
+	// DPUClusterConfig  means the node configuration and Kubernetes Node join
+	// procedure are in progress .
 	DPUClusterConfig DPUPhase = "DPU Cluster Config"
-	// DPUHostNetworkConfiguration means the host network configuration is running.
+	// DPUHostNetworkConfiguration means the host network configuration
+	// is running.
 	DPUHostNetworkConfiguration DPUPhase = "Host Network Configuration"
-	// DPUServiceReadiness waits for DPU services to become ready before the DPU is put into service.
-	// When the flavor configures a gate the phase blocks on it; it also waits for the DPU agent to
-	// release a host OS init hold when one was requested.
+	// DPUServiceReadiness waits for DPU services to become ready before the DPU
+	// is put into service. When the flavor configures a gate the phase blocks
+	// on it; it also waits for the DPU agent to release a host OS init hold
+	// when one was requested.
 	DPUServiceReadiness DPUPhase = "Service Readiness"
-	// DPUNodeEffectRemoval means the controller will remove the node effect from the DPU.
+	// DPUNodeEffectRemoval means the controller will remove the node effect
+	// from the DPU.
 	DPUNodeEffectRemoval DPUPhase = "Node Effect Removal"
 	// DPUReady means the DPU is ready to use.
 	DPUReady DPUPhase = "Ready"
 	// DPUError means error occurred.
 	DPUError DPUPhase = "Error"
-	// DPUDeleting means the DPU CR will be deleted, controller will do some cleanup works.
+	// DPUDeleting means the DPU CR will be deleted, controller will do
+	// some cleanup works.
 	DPUDeleting DPUPhase = "Deleting"
 	// DPURebooting means the host of DPU is rebooting.
 	DPURebooting DPUPhase = "Rebooting"
-	// DPUPerformArmForceRestart means ARM ForceRestart operations are in progress for Secure Boot configuration.
+	// DPUPerformArmForceRestart means ARM ForceRestart operations are in
+	// progress for Secure Boot configuration.
 	DPUPerformArmForceRestart DPUPhase = "Perform ARM Force Restart"
 )
 
@@ -139,17 +154,23 @@ const (
 type DPUOperationalConditionType string
 
 const (
-	// DPUOperationalCondReady is the summary condition indicating overall operational readiness
+	// DPUOperationalCondReady is the summary condition indicating overall
+	// operational readiness
 	DPUOperationalCondReady DPUOperationalConditionType = "OperationalReady"
-	// DPUOperationalCondNodeProblemsReady indicates whether the DPU node has problems reported by node-problem-detector
+	// DPUOperationalCondNodeProblemsReady indicates whether the DPU node has
+	// problems reported by node-problem-detector
 	DPUOperationalCondNodeProblemsReady DPUOperationalConditionType = "NodeProblemsReady"
-	// DPUOperationalCondDPUServiceCriticalPodsReady indicates whether critical DPU service pods are ready
+	// DPUOperationalCondDPUServiceCriticalPodsReady indicates whether critical
+	// DPU service pods are ready
 	DPUOperationalCondDPUServiceCriticalPodsReady DPUOperationalConditionType = "DPUServiceCriticalPodsReady"
-	// DPUOperationalCondDPUServiceNonCriticalPodsReady indicates whether non-critical DPU service pods are ready
+	// DPUOperationalCondDPUServiceNonCriticalPodsReady indicates whether
+	// non-critical DPU service pods are ready
 	DPUOperationalCondDPUServiceNonCriticalPodsReady DPUOperationalConditionType = "DPUServiceNonCriticalPodsReady"
-	// DPUOperationalCondDPUServiceInterfacesReady indicates whether DPU service interfaces are ready
+	// DPUOperationalCondDPUServiceInterfacesReady indicates whether DPU
+	// service interfaces are ready
 	DPUOperationalCondDPUServiceInterfacesReady DPUOperationalConditionType = "DPUServiceInterfacesReady"
-	// DPUOperationalCondDPUServiceChainsReady indicates whether DPU service chains are ready
+	// DPUOperationalCondDPUServiceChainsReady indicates whether DPU service
+	// chains are ready
 	DPUOperationalCondDPUServiceChainsReady DPUOperationalConditionType = "DPUServiceChainsReady"
 )
 
@@ -162,34 +183,42 @@ const (
 type DPUConditionMessage string
 
 const (
-	// DPUCondMessageModeUpdate is the message for updating the DPU mode in gNOI interface
+	// DPUCondMessageModeUpdate is the message for updating the DPU mode in
+	// gNOI interface
 	DPUCondMessageModeUpdate DPUConditionMessage = "DPU switches from NIC mode to DPU mode"
-	// DPUCondMessageRebootFinishedForModeUpdate is the message for rebooting the DPU for mode update
+	// DPUCondMessageRebootFinishedForModeUpdate is the message for rebooting
+	// the DPU for mode update
 	DPUCondMessageRebootFinishedForModeUpdate DPUConditionMessage = "Reboot finished for DPU mode update"
 )
 
-// Keep in sync with deploy/charts/dpu-networking/charts/node-problem-detector/templates/configmap.yaml
+// Keep in sync with
+// deploy/charts/dpu-networking/charts/node-problem-detector/templates/configmap.yaml
 const (
-	// NPDConditionKernelDeadlock indicates the node is in a kernel deadlock state.
+	// NPDConditionKernelDeadlock indicates the node is in a kernel
+	// deadlock state.
 	NPDConditionKernelDeadlock corev1.NodeConditionType = "KernelDeadlock"
 	// NPDConditionReadonlyFilesystem indicates the filesystem is read-only.
 	NPDConditionReadonlyFilesystem corev1.NodeConditionType = "ReadonlyFilesystem"
-	// NPDConditionOVSvSwitchdHealthy indicates the ovs-vswitchd service is running
+	// NPDConditionOVSvSwitchdHealthy indicates the ovs-vswitchd service
+	// is running
 	NPDConditionOVSvSwitchdHealthy corev1.NodeConditionType = "OVSvSwitchdHealthy"
 	// NPDConditionOVSDBHealthy indicates the ovsdb-server service is running
 	NPDConditionOVSDBHealthy corev1.NodeConditionType = "OVSDBHealthy"
-	// NPDConditionOVSHealthy indicates OVS processes have not been OOM killed recently
+	// NPDConditionOVSHealthy indicates OVS processes have not been OOM
+	// killed recently
 	NPDConditionOVSHealthy corev1.NodeConditionType = "OVSHealthy"
 	// NPDConditionUplinkHealthy indicates the physical uplink interface is up
 	NPDConditionUplinkHealthy corev1.NodeConditionType = "UplinkHealthy"
-	// NPDConditionPFRepresentorsHealthy indicates host PF representors are present on the DPU eswitch
+	// NPDConditionPFRepresentorsHealthy indicates host PF representors are
+	// present on the DPU eswitch
 	NPDConditionPFRepresentorsHealthy corev1.NodeConditionType = "PFRepresentorsHealthy"
 	// NPDConditionMTUConfigured indicates network MTU is correctly configured
 	NPDConditionMTUConfigured corev1.NodeConditionType = "MTUConfigured"
 )
 
-// GetNodeProblemDetectorConditions returns all expected node-problem-detector condition types
-// that should be present on DPUCluster nodes for health monitoring.
+// GetNodeProblemDetectorConditions returns all expected
+// node-problem-detector condition types that should be present on DPUCluster
+// nodes for health monitoring.
 func GetNodeProblemDetectorConditions() []string {
 	return []string{
 		string(NPDConditionKernelDeadlock),
@@ -212,9 +241,10 @@ const (
 	InstallViaMock      DPUInstallInterfaceType = "mock"
 )
 
-// DeploymentMode describes the cluster deployment model for provisioning (zero-trust vs host-trusted).
-// This type is intentionally duplicated from operator/v1alpha1.DeploymentMode: the provisioning API
-// must not import the operator API group. Keep values and semantics aligned with
+// DeploymentMode describes the cluster deployment model for provisioning
+// (zero-trust vs host-trusted). This type is intentionally duplicated from
+// operator/v1alpha1.DeploymentMode: the provisioning API must not import the
+// operator API group. Keep values and semantics aligned with
 // DPFOperatorConfig.spec.deploymentMode.
 type DeploymentMode string
 
@@ -244,7 +274,8 @@ type K8sCluster struct {
 	// +kubebuilder:validation:XValidation:rule="self==oldSelf", message="Value is immutable"
 	// +optional
 	Name string `json:"name,omitempty"`
-	// Namespace is the tenants namespace name where the Kubernetes cluster will be deployed
+	// Namespace is the tenants namespace name where the Kubernetes cluster
+	// will be deployed
 	// +kubebuilder:validation:XValidation:rule="self==oldSelf", message="Value is immutable"
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
@@ -298,7 +329,8 @@ type DPUSpec struct {
 	// +optional
 	Cluster K8sCluster `json:"cluster,omitempty"`
 
-	// DPUFlavor is the name of the DPUFlavor that will be used to deploy the DPU.
+	// DPUFlavor is the name of the DPUFlavor that will be used to
+	// deploy the DPU.
 	// +kubebuilder:validation:XValidation:rule="self==oldSelf", message="Value is immutable"
 	// +kubebuilder:validation:MinLength=1
 	// +required
@@ -334,8 +366,8 @@ const (
 // is presence-based: when the DPU matches the template, DPUStatus.Outdated is
 // nil. The DPUSet controller is the sole writer.
 type DPUOutdated struct {
-	// TimeStamp records when this drift was first observed for the current Reason.
-	// It is preserved across reconciles as long as Reason is unchanged.
+	// TimeStamp records when this drift was first observed for the current
+	// Reason. It is preserved across reconciles as long as Reason is unchanged.
 	// +required
 	TimeStamp metav1.Time `json:"timeStamp"`
 
@@ -351,10 +383,12 @@ type DPUOutdated struct {
 	Message string `json:"message"`
 }
 
-// DPUReconfigStatus is the in-place reconfig state of one DPU. DPUSet is the only writer.
+// DPUReconfigStatus is the in-place reconfig state of one DPU.
+// DPUSet is the only writer.
 type DPUReconfigStatus struct {
-	// InProgress permits the DPU controller to jump to Node Effect. It is cleared when
-	// this DPU is Ready again for this round. Do not set it together with Outdated.
+	// InProgress permits the DPU controller to jump to Node Effect. It is
+	// cleared when this DPU is Ready again for this round. Do not set it
+	// together with Outdated.
 	// +optional
 	InProgress *bool `json:"inProgress,omitempty"`
 
@@ -364,9 +398,10 @@ type DPUReconfigStatus struct {
 	// +kubebuilder:validation:Minimum=1
 	Round int32 `json:"round,omitempty"`
 
-	// CompletedRound is the last round that reached Ready. Zero means this DPU has not
-	// finished an in-place round. While it equals DPUSet status.dpuReconfig.round, this
-	// DPU is not started again for the same annotation.
+	// CompletedRound is the last round that reached Ready. Zero means this DPU
+	// has not finished an in-place round. While it equals DPUSet
+	// status.dpuReconfig.round, this DPU is not started again for the
+	// same annotation.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	CompletedRound int32 `json:"completedRound,omitempty"`
@@ -380,9 +415,10 @@ type DPUStatus struct {
 	// +optional
 	Phase DPUPhase `json:"phase,omitempty"`
 
-	// PreviousPhase is the last non-empty Phase before the current Phase, set by the controller
-	// when Phase transitions. It may be unset during early initialization (empty Phase) or until
-	// the first transition from a non-empty Phase. Internal controller tracking only.
+	// PreviousPhase is the last non-empty Phase before the current Phase, set
+	// by the controller when Phase transitions. It may be unset during early
+	// initialization (empty Phase) or until the first transition from a
+	// non-empty Phase. Internal controller tracking only.
 	// +optional
 	PreviousPhase DPUPhase `json:"previousPhase,omitempty"`
 
@@ -396,9 +432,10 @@ type DPUStatus struct {
 	// +optional
 	Conditions []metav1.Condition `json:"conditions"`
 
-	// OperationalConditions represents aggregated operational readiness conditions.
-	// These conditions reflect the runtime health and readiness of DPU services and node health,
-	// separate from the provisioning lifecycle represented by Conditions.
+	// OperationalConditions represents aggregated operational readiness
+	// conditions. These conditions reflect the runtime health and readiness of
+	// DPU services and node health, separate from the provisioning lifecycle
+	// represented by Conditions.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
@@ -443,24 +480,26 @@ type DPUStatus struct {
 	// +optional
 	DPUInstallInterface *string `json:"dpuInstallInterface,omitempty"`
 
-	// Indicates that node effect was triggered by post-provisioning label changes
+	// Indicates that node effect was triggered by
+	// post-provisioning label changes
 	// +optional
 	PostProvisioningNodeEffect *bool `json:"postProvisioningNodeEffect,omitempty"`
 
-	// PostProvisioningDPUConfig must be set before entering Node Effect for an in-place
-	// flavor reconfig, so Node Effect exits to DPU Config instead of Initialize Interface.
-	// The DPU controller owns this field. If both this and PostProvisioningNodeEffect would
-	// be set, only this one is set.
+	// PostProvisioningDPUConfig must be set before entering Node Effect for an
+	// in-place flavor reconfig, so Node Effect exits to DPU Config instead of
+	// Initialize Interface. The DPU controller owns this field. If both this
+	// and PostProvisioningNodeEffect would be set, only this one is set.
 	// +optional
 	PostProvisioningDPUConfig *bool `json:"postProvisioningDPUConfig,omitempty"`
 
-	// DPUReconfig is the in-place reconfig round state for this DPU. DPUSet writes it.
-	// The DPU controller reads inProgress and does not write these fields.
-	// Nil means no round has been assigned.
+	// DPUReconfig is the in-place reconfig round state for this DPU. DPUSet
+	// writes it. The DPU controller reads inProgress and does not write these
+	// fields. Nil means no round has been assigned.
 	// +optional
 	DPUReconfig *DPUReconfigStatus `json:"dpuReconfig,omitempty,omitzero"`
 
-	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// ObservedGeneration records the Generation observed on the object
+	// the last time it was patched.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
@@ -470,7 +509,8 @@ type DPUStatus struct {
 	// +optional
 	DPUType DPUType `json:"dpuType,omitempty"`
 
-	// AgentLastStartupTime is the time when the DPU agent was last started. This is copied from agentStatus.lastStartupTime.
+	// AgentLastStartupTime is the time when the DPU agent was last started.
+	// This is copied from agentStatus.lastStartupTime.
 	// +optional
 	AgentLastStartupTime *metav1.Time `json:"agentLastStartupTime,omitempty"`
 
@@ -488,8 +528,8 @@ type DPUStatus struct {
 	// +optional
 	DPUMode DpuModeType `json:"dpuMode,omitempty"`
 
-	// DeploymentMode is copied from DPFOperatorConfig.spec.deploymentMode by the controller.
-	// This field is read-only for users.
+	// DeploymentMode is copied from DPFOperatorConfig.spec.deploymentMode by
+	// the controller. This field is read-only for users.
 	// +kubebuilder:validation:Enum=zero-trust;host-trusted
 	// +optional
 	DeploymentMode DeploymentMode `json:"deploymentMode,omitempty"`
@@ -503,10 +543,11 @@ type DPUStatus struct {
 	// +optional
 	SecureBoot *SecureBootStatus `json:"secureBoot,omitempty"`
 
-	// IdentityMode records which authentication mechanism the DPU Agent uses to reach the
-	// management-cluster kube-apiserver. Stamped exactly once by the DPU controller during phase
-	// Initializing (nil guard); immutable thereafter. Pre-SPIFFE legacy DPUs have IdentityMode
-	// unset (nil) which consumers MUST treat semantically as bootstrap-token.
+	// IdentityMode records which authentication mechanism the DPU Agent uses to
+	// reach the management-cluster kube-apiserver. Stamped exactly once by
+	// the DPU controller during phase Initializing (nil guard); immutable
+	// thereafter. Pre-SPIFFE legacy DPUs have IdentityMode unset (nil) which
+	// consumers MUST treat semantically as bootstrap-token.
 	// +kubebuilder:validation:Enum=spiffe;bootstrap-token
 	// +optional
 	IdentityMode *IdentityMode `json:"identityMode,omitempty"`
@@ -525,30 +566,34 @@ type Firmware struct {
 	UEFI string `json:"uefi,omitempty"`
 }
 
-// RebootMethodType is the type of reset/reboot required after NVConfig or firmware changes.
-// Set by the DPU agent. Most values align with NVIDIA BlueField Reset and Reboot Procedures (mlxfwreset levels).
+// RebootMethodType is the type of reset/reboot required after NVConfig or
+// firmware changes. Set by the DPU agent. Most values align with NVIDIA
+// BlueField Reset and Reboot Procedures (mlxfwreset levels).
 // +kubebuilder:validation:Enum=Unknown;NoAction;PowerCycle;SystemReboot;SystemLevelReset;FirmwareReset;DPUWarmReboot
 type RebootMethodType string
 
 const (
-	// RebootMethodUnknown is the initial value set by the DPU agent on startup before
-	// HandleReboot determines the actual method. It prevents the controller from acting
-	// on a stale RebootMethod left over from a previous agent session.
+	// RebootMethodUnknown is the initial value set by the DPU agent on startup
+	// before HandleReboot determines the actual method. It prevents the
+	// controller from acting on a stale RebootMethod left over from a previous
+	// agent session.
 	RebootMethodUnknown RebootMethodType = "Unknown"
 	// RebootMethodNoAction indicates no reset or reboot is required.
 	RebootMethodNoAction RebootMethodType = "NoAction"
-	// RebootMethodPowerCycle indicates a full server power cycle (cold boot) is required.
+	// RebootMethodPowerCycle indicates a full server power cycle (cold boot)
+	// is required.
 	RebootMethodPowerCycle RebootMethodType = "PowerCycle"
 	// RebootMethodSystemReboot firmware update without full server power cycle.
 	RebootMethodSystemReboot RebootMethodType = "SystemReboot"
-	// RebootMethodSystemLevelReset firmware configuration changes to take effect.
+	// RebootMethodSystemLevelReset firmware configuration changes to
+	// take effect.
 	RebootMethodSystemLevelReset RebootMethodType = "SystemLevelReset"
 	// RebootMethodFirmwareReset driver restart and PCI reset.
 	RebootMethodFirmwareReset RebootMethodType = "FirmwareReset"
-	// RebootMethodDPUWarmReboot indicates the DPU OS is rebooting itself to apply
-	// configuration changes (e.g. grub kernel parameters) that do not originate
-	// from firmware or NVConfig. The provisioning controller should stay in the
-	// current phase and wait for the agent to come back.
+	// RebootMethodDPUWarmReboot indicates the DPU OS is rebooting itself to
+	// apply configuration changes (e.g. grub kernel parameters) that do not
+	// originate from firmware or NVConfig. The provisioning controller should
+	// stay in the current phase and wait for the agent to come back.
 	RebootMethodDPUWarmReboot RebootMethodType = "DPUWarmReboot"
 )
 
@@ -562,21 +607,22 @@ type AgentStatus struct {
 
 	// RebootMethod is the type of reset/reboot set by the DPU agent
 	// See enum values in RebootMethodType.
-	// No default is set intentionally: nil means "check not run or not applicable"
-	// (e.g. legacy flow, or agent has not run the check yet);
-	// a non-nil value means the check ran and this is the result.
+	// No default is set intentionally: nil means "check not run or not
+	// applicable" (e.g. legacy flow, or agent has not run the check yet); a
+	// non-nil value means the check ran and this is the result.
 	// +optional
 	RebootMethod *RebootMethodType `json:"rebootMethod,omitempty"`
 
-	// LastObservedPendingNVConfig stores the last pending NVConfig parameters seen
-	// during reboot-method discovery on this boot. It is used on the next boot to
-	// ignore repeated parameters that remained unchanged across boots.
+	// LastObservedPendingNVConfig stores the last pending NVConfig parameters
+	// seen during reboot-method discovery on this boot. It is used on the next
+	// boot to ignore repeated parameters that remained unchanged across boots.
 	// +optional
 	LastObservedPendingNVConfig *PendingNVConfigState `json:"lastObservedPendingNvconfig,omitempty"`
 
-	// RebootSequenceCount is the length of the current non-NoAction RebootMethod sequence:
-	// it increments on each agent run that reports a RebootMethod other than NoAction and
-	// resets to 0 when the agent reports NoAction. Used with RebootMethod to bound host reboot loops.
+	// RebootSequenceCount is the length of the current non-NoAction
+	// RebootMethod sequence: it increments on each agent run that reports a
+	// RebootMethod other than NoAction and resets to 0 when the agent reports
+	// NoAction. Used with RebootMethod to bound host reboot loops.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	RebootSequenceCount *int32 `json:"rebootSequenceCount,omitempty"`
@@ -584,35 +630,40 @@ type AgentStatus struct {
 	// KubeletVersion represents the kubelet version running on the DPU.
 	KubeletVersion *string `json:"kubeletVersion,omitempty"`
 
-	// Version is set by an agent that can GET the live DPUFlavor and start a second Run().
-	// Empty means an old agent; do not start in-place reconfig for this DPU.
+	// Version is set by an agent that can GET the live DPUFlavor and start a
+	// second Run(). Empty means an old agent; do not start in-place reconfig
+	// for this DPU.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	Version string `json:"version,omitempty"`
 
-	// AppliedFlavorGeneration is the metadata.generation of the DPUFlavor this Run() applied.
-	// Generation advances only with the spec, so it identifies the applied spec, not
-	// metadata-only writes. Debug only. It is not used to decide whether to start in-place reconfig.
-	// Zero means the agent has not reported an applied flavor yet.
+	// AppliedFlavorGeneration is the metadata.generation of the DPUFlavor this
+	// Run() applied. Generation advances only with the spec, so it identifies
+	// the applied spec, not metadata-only writes. Debug only. It is not used to
+	// decide whether to start in-place reconfig. Zero means the agent has not
+	// reported an applied flavor yet.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	AppliedFlavorGeneration int64 `json:"appliedFlavorGeneration,omitempty"`
 
-	// PreInstall holds agent-reported status for work done before OS install in the reprovisioning process.
+	// PreInstall holds agent-reported status for work done before OS install
+	// in the reprovisioning process.
 	// +optional
 	PreInstall *AgentPreInstallStatus `json:"preInstall,omitempty"`
 	// TrustBundleHash is the bundle-hash value last applied by the DPU agent.
 	// +optional
 	TrustBundleHash *string `json:"trustBundleHash,omitempty"`
 
-	// TrustBundleLastUpdateTime is when the trust bundle was last updated by the DPU agent.
+	// TrustBundleLastUpdateTime is when the trust bundle was last updated by
+	// the DPU agent.
 	// +optional
 	TrustBundleLastUpdateTime *metav1.Time `json:"trustBundleLastUpdateTime,omitempty"`
 
-	// Clock is the DPU clock compared against the host clock, recorded while the DPU agent was
-	// acquiring its identity. A DPU whose clock is skewed cannot verify the API server certificate,
-	// so it never obtains the identity it would need to report this itself. Set by the host agent,
-	// in trusted-host mode only.
+	// Clock is the DPU clock compared against the host clock, recorded while
+	// the DPU agent was acquiring its identity. A DPU whose clock is skewed
+	// cannot verify the API server certificate, so it never obtains the
+	// identity it would need to report this itself. Set by the host agent, in
+	// trusted-host mode only.
 	// +optional
 	Clock *ClockStatus `json:"clock,omitempty"`
 
@@ -620,48 +671,55 @@ type AgentStatus struct {
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// Spiffe contains the SPIFFE heartbeat status reported by the DPU Agent when running in
-	// SPIFFE identity mode.
+	// Spiffe contains the SPIFFE heartbeat status reported by the DPU Agent
+	// when running in SPIFFE identity mode.
 	// +optional
 	Spiffe *SpiffeStatus `json:"spiffe,omitempty"`
 
-	// hostOSInit reports terminal host OS init release status from the DPU agent.
-	// Unset while the agent is polling or has not reached ReleaseHostOSInit.
+	// hostOSInit reports terminal host OS init release status from the DPU
+	// agent. Unset while the agent is polling or has not
+	// reached ReleaseHostOSInit.
 	// +optional
 	HostOSInit *HostOSInitStatus `json:"hostOSInit,omitempty"`
 
-	// ewnicRuntimeConfig reports E/W NIC runtime configuration on this boot. The DPU agent
-	// sets it when NIC provisioning starts; when set, the controller waits for runtime
-	// configuration before leaving DPU Config. Unset means runtime configuration is not required.
+	// ewnicRuntimeConfig reports E/W NIC runtime configuration on this boot.
+	// The DPU agent sets it when NIC provisioning starts; when set, the
+	// controller waits for runtime configuration before leaving DPU Config.
+	// Unset means runtime configuration is not required.
 	// +optional
 	EWNICRuntimeConfig *EWNICRuntimeConfigStatus `json:"ewnicRuntimeConfig,omitempty"`
 }
 
 // EWNICRuntimeConfigStatus reports the result of E/W NIC runtime configuration.
-// configuredDevices + len(failedDevices) < discoveredDevices means the first runtime
-// configuration pass over all devices has not finished yet. An unset count means 0.
+// configuredDevices + len(failedDevices) < discoveredDevices means the first
+// runtime configuration pass over all devices has not finished yet. An unset
+// count means 0.
 type EWNICRuntimeConfigStatus struct {
 	// discoveredDevices is the number of E/W NIC devices found on this boot.
 	// +optional
 	DiscoveredDevices *int32 `json:"discoveredDevices,omitempty"`
 
-	// configuredDevices is the number of devices whose last runtime configuration apply succeeded.
+	// configuredDevices is the number of devices whose last runtime
+	// configuration apply succeeded.
 	// +optional
 	ConfiguredDevices *int32 `json:"configuredDevices,omitempty"`
 
-	// failedDevices lists devices whose last runtime configuration apply failed.
+	// failedDevices lists devices whose last runtime configuration
+	// apply failed.
 	// +optional
 	FailedDevices []EWNICDeviceFailure `json:"failedDevices,omitempty"`
 }
 
-// EWNICDeviceFailure describes an E/W NIC device whose runtime configuration apply failed.
+// EWNICDeviceFailure describes an E/W NIC device whose runtime
+// configuration apply failed.
 type EWNICDeviceFailure struct {
 	// pciAddress is the device's PCI address without the function number
 	// (Domain:Bus:Device, e.g. 0000:03:00), shared by all ports of the device.
 	// +required
 	PCIAddress *string `json:"pciAddress,omitempty"`
 
-	// reason is a CamelCase reason for the failure, e.g. NoCarrier or ApplyFailed.
+	// reason is a CamelCase reason for the failure,
+	// e.g. NoCarrier or ApplyFailed.
 	// +required
 	Reason *string `json:"reason,omitempty"`
 
@@ -670,17 +728,19 @@ type EWNICDeviceFailure struct {
 	Message *string `json:"message,omitempty"`
 }
 
-// ClockStatus holds two readings of the same instant, taken on the DPU and on the host.
+// ClockStatus holds two readings of the same instant, taken on the DPU and
+// on the host.
 type ClockStatus struct {
 	// dpuTime is the DPU clock as reported by the DPU agent.
 	DPUTime metav1.Time `json:"dpuTime"`
 
-	// hostTime is the host clock when that report arrived. The host is the trusted side of the
-	// comparison, so a difference is attributed to the DPU.
+	// hostTime is the host clock when that report arrived. The host is the
+	// trusted side of the comparison, so a difference is attributed to the DPU.
 	HostTime metav1.Time `json:"hostTime"`
 }
 
-// HostOSInitStatus is the agent-reported terminal status for host OS init release.
+// HostOSInitStatus is the agent-reported terminal status for host OS
+// init release.
 // +kubebuilder:validation:XValidation:rule="(has(self.skipped) ? 1 : 0) + (has(self.succeeded) ? 1 : 0) == 1",message="exactly one of skipped or succeeded must be set"
 type HostOSInitStatus struct {
 	// skipped indicates release was not required for this DPU.
@@ -708,29 +768,33 @@ type HostOSInitSucceeded struct {
 	Gate ServiceReadinessGate `json:"gate,omitempty"`
 }
 
-// IdentityMode records which authentication mechanism the DPU Agent uses to reach the
-// management-cluster kube-apiserver. It is immutable once set (see DPUStatus.IdentityMode).
+// IdentityMode records which authentication mechanism the DPU Agent uses to
+// reach the management-cluster kube-apiserver. It is immutable once set
+// (see DPUStatus.IdentityMode).
 type IdentityMode string
 
 const (
-	// IdentityModeSpiffe indicates the DPU Agent authenticates with a SPIFFE-issued JWT-SVID.
+	// IdentityModeSpiffe indicates the DPU Agent authenticates with a
+	// SPIFFE-issued JWT-SVID.
 	IdentityModeSpiffe IdentityMode = "spiffe"
-	// IdentityModeBootstrapToken indicates the DPU Agent authenticates with a kubeadm bootstrap token.
-	// An unset (nil) IdentityMode is treated semantically as bootstrap-token; no sentinel is declared
-	// for the unset case deliberately, to force explicit handling by consumers.
+	// IdentityModeBootstrapToken indicates the DPU Agent authenticates with a
+	// kubeadm bootstrap token. An unset (nil) IdentityMode is treated
+	// semantically as bootstrap-token; no sentinel is declared for the unset
+	// case deliberately, to force explicit handling by consumers.
 	IdentityModeBootstrapToken IdentityMode = "bootstrap-token"
 )
 
 // SpiffeStatus is the DPU Agent's SPIFFE heartbeat sub-status.
 type SpiffeStatus struct {
-	// LastProbeTime is the wall-clock timestamp the DPU Agent recorded on its most recent successful
-	// status report. It is informational and subject to DPU clock skew, so it is not a precise
-	// liveness signal on its own.
+	// LastProbeTime is the wall-clock timestamp the DPU Agent recorded on its
+	// most recent successful status report. It is informational and subject to
+	// DPU clock skew, so it is not a precise liveness signal on its own.
 	// +optional
 	LastProbeTime *metav1.Time `json:"lastProbeTime,omitempty"`
 
-	// LastProbeMessage is a structured one-line diagnostic for the most recent self-probe. Unset in
-	// the steady-state happy path. Bounded to 256 chars (truncated agent-side).
+	// LastProbeMessage is a structured one-line diagnostic for the most recent
+	// self-probe. Unset in the steady-state happy path. Bounded to 256 chars
+	// (truncated agent-side).
 	// +kubebuilder:validation:MaxLength=256
 	// +optional
 	LastProbeMessage *string `json:"lastProbeMessage,omitempty"`
@@ -738,11 +802,13 @@ type SpiffeStatus struct {
 
 // AgentPreInstallStatus is agent status for reprovisioning.
 type AgentPreInstallStatus struct {
-	// AgentReported is set with a timestamp when dpu-agent detects a new DPU CR is created for reprovisioning.
+	// AgentReported is set with a timestamp when dpu-agent detects a new DPU
+	// CR is created for reprovisioning.
 	// +optional
 	AgentReported *metav1.Time `json:"agentReported,omitempty"`
 
-	// Conditions contains pre-install conditions (e.g. NVConfigApplied for reprovisioning).
+	// Conditions contains pre-install conditions (e.g. NVConfigApplied for
+	// reprovisioning).
 	// +patchMergeKey=type
 	// +patchStrategy=merge
 	// +listType=map
@@ -765,7 +831,8 @@ type PendingNVConfigEntry struct {
 	Name    string `json:"name,omitempty"`
 	Default string `json:"default,omitempty"`
 	Current string `json:"current,omitempty"`
-	// NextBoot uses the "next_boot" so this type can be reused for parsing mlxfwrest output
+	// NextBoot uses the "next_boot" so this type can be reused for parsing
+	// mlxfwrest output
 	NextBoot string `json:"next_boot,omitempty"`
 }
 
@@ -774,13 +841,13 @@ type PendingNVConfigEntry struct {
 type RebootStatusPhase string
 
 const (
-	// RebootStatusWaitForShutdown means the host reboot is held until the DPU has
-	// completed its graceful shutdown. Used in Zero Trust mode for a System Level
-	// Reset so the External/Script host reboot is not triggered while the Arm OS is
-	// still shutting down.
+	// RebootStatusWaitForShutdown means the host reboot is held until the DPU
+	// has completed its graceful shutdown. Used in Zero Trust mode for a System
+	// Level Reset so the External/Script host reboot is not triggered while the
+	// Arm OS is still shutting down.
 	RebootStatusWaitForShutdown RebootStatusPhase = "WaitForShutdown"
-	// RebootStatusPending means reboot is requested but execution has not started yet
-	// (for example, waiting for a manual external reboot trigger).
+	// RebootStatusPending means reboot is requested but execution has not
+	// started yet (for example, waiting for a manual external reboot trigger).
 	RebootStatusPending RebootStatusPhase = "Pending"
 	// RebootStatusSucceeded means reboot completed successfully.
 	RebootStatusSucceeded RebootStatusPhase = "Succeeded"

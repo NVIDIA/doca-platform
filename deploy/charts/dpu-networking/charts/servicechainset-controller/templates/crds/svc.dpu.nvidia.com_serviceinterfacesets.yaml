@@ -127,8 +127,9 @@ spec:
                     description: ServiceInterfaceSpec is the spec for the ServiceInterfaceSpec
                     properties:
                       interfaceType:
-                        description: The interface type ("vlan", "physical", "pf",
-                          "vf", "ovn", "patch", "service")
+                        description: |-
+                          The interface type ("vlan", "physical", "pf", "vf", "ovn", "patch",
+                          "service")
                         enum:
                         - vlan
                         - physical
@@ -146,7 +147,8 @@ spec:
                           The OVN definition
 
                           Deprecated: This field is deprecated and will be removed with v31.0.0.
-                          Migrate to interfaceType="patch" with spec.patch.peerBridge and spec.patch.peerPatchName instead.
+                          Migrate to interfaceType="patch" with spec.patch.peerBridge and
+                          spec.patch.peerPatchName instead.
                         properties:
                           externalBridge:
                             default: br-ovn
@@ -158,22 +160,25 @@ spec:
                         properties:
                           peerBridge:
                             description: |-
-                              PeerBridge is the name of the bridge to which the patch port is connected.
-                              This bridge must be created before the ServiceInterface is created.
+                              PeerBridge is the name of the bridge to which the patch port is
+                              connected. This bridge must be created before the ServiceInterface is
+                              created.
                             type: string
                           peerExternalIDs:
                             additionalProperties:
                               type: string
-                            description: PeerExternalIDs are the external IDs used
-                              to identify the peer patch port.
+                            description: |-
+                              PeerExternalIDs are the external IDs used to identify the peer patch
+                              port.
                             type: object
                           peerPatchName:
                             description: |-
-                              PeerPatchName is the name of the patch port on the peer bridge.
-                              If not set, it is auto-generated in the format: `p_<bridgeA>_to_<bridgeB>_<hash>`
-                              where bridge names have hyphens removed and `<hash>` is an 8-character FNV-1a hash
-                              derived from the ServiceInterface's namespace/name.
-                              Example: p_brovn_to_brsfc_7aea60f7 (for bridges br-ovn and br-sfc).
+                              PeerPatchName is the name of the patch port on the peer bridge. If not
+                              set, it is auto-generated in the format:
+                              `p_<bridgeA>_to_<bridgeB>_<hash>` where bridge names have hyphens removed
+                              and `<hash>` is an 8-character FNV-1a hash derived from the
+                              ServiceInterface's namespace/name. Example: p_brovn_to_brsfc_7aea60f7
+                              (for bridges br-ovn and br-sfc).
                             type: string
                         required:
                         - peerBridge
@@ -187,9 +192,12 @@ spec:
                             properties:
                               controllerNumber:
                                 description: |-
-                                  ControllerNumber specifies the controller number that will be used to find the matching representor on the DPU.
-                                  A value of 0 targets the local controller, >=1 targets external controllers with the specified number. If unspecified controller number 1 is used.
-                                  In case of a DPU/NIC with socket direct or MultiHost, the user should specify the controller number explicitly
+                                  ControllerNumber specifies the controller number that will be used to
+                                  find the matching representor on the DPU. A value of 0 targets the local
+                                  controller, >=1 targets external controllers with the specified number.
+                                  If unspecified controller number 1 is used. In case of a DPU/NIC with
+                                  socket direct or MultiHost, the user should specify the controller
+                                  number explicitly
                                 format: int32
                                 maximum: 255
                                 minimum: 0
@@ -256,8 +264,9 @@ spec:
                             type: string
                           network:
                             description: |-
-                              Network is the Network Attachment Definition in the form of "namespace/name"
-                              or just "name" if the namespace is the same as the ServiceInterface.
+                              Network is the Network Attachment Definition in the form of
+                              "namespace/name" or just "name" if the namespace is the same as the
+                              ServiceInterface.
                             type: string
                           serviceID:
                             description: ServiceID is the DPU Service Identifier
@@ -285,9 +294,12 @@ spec:
                             properties:
                               controllerNumber:
                                 description: |-
-                                  ControllerNumber specifies the controller number that will be used to find the matching representor on the DPU.
-                                  A value of 0 targets the local controller, >=1 targets external controllers with the specified number. If unspecified controller number 1 is used.
-                                  In case of a DPU/NIC with socket direct or MultiHost, the user should specify the controller number explicitly
+                                  ControllerNumber specifies the controller number that will be used to
+                                  find the matching representor on the DPU. A value of 0 targets the local
+                                  controller, >=1 targets external controllers with the specified number.
+                                  If unspecified controller number 1 is used. In case of a DPU/NIC with
+                                  socket direct or MultiHost, the user should specify the controller
+                                  number explicitly
                                 format: int32
                                 maximum: 255
                                 minimum: 0
@@ -436,8 +448,9 @@ spec:
                   type: object
                 type: array
               numberApplied:
-                description: The number of nodes where the service chain is applied
-                  and is supposed to be applied.
+                description: |-
+                  The number of nodes where the service chain is applied and is supposed to
+                  be applied.
                 format: int32
                 type: integer
               numberReady:
@@ -446,8 +459,9 @@ spec:
                 format: int32
                 type: integer
               observedGeneration:
-                description: ObservedGeneration records the Generation observed on
-                  the object the last time it was patched.
+                description: |-
+                  ObservedGeneration records the Generation observed on the object the last
+                  time it was patched.
                 format: int64
                 type: integer
             type: object

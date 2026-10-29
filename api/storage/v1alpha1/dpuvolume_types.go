@@ -35,8 +35,8 @@ var DPUVolumeGroupVersionKind = GroupVersion.WithKind(DPUVolumeKind)
 
 // Condition types
 const (
-	// ConditionDPUVolumeReconciled is the condition type that indicates that the
-	// DPUVolume is reconciled.
+	// ConditionDPUVolumeReconciled is the condition type that indicates that
+	// the DPUVolume is reconciled.
 	ConditionDPUVolumeReconciled conditions.ConditionType = "DPUVolumeReconciled"
 	// ConditionDPUVolumeScheduled is the condition type that indicates that the
 	// DPUVolume is scheduled.
@@ -56,7 +56,8 @@ const (
 )
 
 var (
-	// DPUVolumeConditions is the list of conditions that the DPUVolume can have.
+	// DPUVolumeConditions is the list of conditions that the DPUVolume can
+	// have.
 	DPUVolumeConditions = []conditions.ConditionType{
 		conditions.TypeReady,
 		ConditionDPUVolumeReconciled,
@@ -123,29 +124,35 @@ type DPUVolume struct {
 
 // DPUVolumeSpec defines the desired state of DPUVolume
 type DPUVolumeSpec struct {
-	// Name of the DPUStoragePolicyName object that will be used to create the volume.
+	// Name of the DPUStoragePolicyName object that will be used to create the
+	// volume.
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	DPUStoragePolicyName string `json:"dpuStoragePolicyName"`
-	// Additional parameters for the volume, these parameters are merged with the values from the DPUStoragePolicy object.
+	// Additional parameters for the volume, these parameters are merged with
+	// the values from the DPUStoragePolicy object.
 	// +kubebuilder:default={}
 	// +optional
 	Parameters map[string]string `json:"parameters,omitempty"`
-	// Access modes define how the volume can be mounted. These modes are directly passed to the
-	// PersistentVolumeClaim created for the Vendor CSI Plugin selected by the DPUStoragePolicy.
+	// Access modes define how the volume can be mounted. These modes are
+	// directly passed to the PersistentVolumeClaim created for the Vendor CSI
+	// Plugin selected by the DPUStoragePolicy.
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=3
 	// +kubebuilder:validation:XValidation:rule="self.all(mode, mode in ['ReadWriteOnce', 'ReadOnlyMany', 'ReadWriteMany'])", message="accessModes must contain only valid PersistentVolumeAccessMode values: ReadWriteOnce, ReadOnlyMany, ReadWriteMany"
 	// +required
 	AccessModes []corev1.PersistentVolumeAccessMode `json:"accessModes"`
-	// Resources represents the storage resources requested for the volume. These resource requirements
-	// are directly passed to the PersistentVolumeClaim created for the Vendor CSI Plugin selected
-	// by the DPUStoragePolicy. Since volume resizing is not supported, modifications to the resource request are prohibited.
+	// Resources represents the storage resources requested for the volume.
+	// These resource requirements are directly passed to the
+	// PersistentVolumeClaim created for the Vendor CSI Plugin selected by the
+	// DPUStoragePolicy. Since volume resizing is not supported, modifications
+	// to the resource request are prohibited.
 	// +kubebuilder:validation:XValidation:rule="has(self.requests) && has(self.requests.storage)", message="resource requirements must contain storage resource"
 	// +required
 	Resources corev1.VolumeResourceRequirements `json:"resources"`
-	// Volume mode defines how the volume should be mounted and used. This value is directly passed to the
-	// PersistentVolumeClaim created for the Vendor CSI Plugin selected by the DPUStoragePolicy.
+	// Volume mode defines how the volume should be mounted and used. This value
+	// is directly passed to the PersistentVolumeClaim created for the Vendor
+	// CSI Plugin selected by the DPUStoragePolicy.
 	// +kubebuilder:validation:Enum=Filesystem;Block
 	// +kubebuilder:default=Filesystem
 	// +optional
@@ -158,50 +165,63 @@ type DPUVolumeStatus struct {
 	// +kubebuilder:validation:Enum=Pending;Bound
 	// +optional
 	Phase *DPUVolumePhase `json:"phase,omitempty"`
-	// State of the volume. This field is managed by the controller. User usually do not need to set fields from this struct.
+	// State of the volume. This field is managed by the controller. User
+	// usually do not need to set fields from this struct.
 	// +optional
 	State *DPUVolumeState `json:"state,omitempty"`
 	// Conditions defines current service state.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// ObservedGeneration records the Generation observed on the object the last
+	// time it was patched.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 // DPUVolumeState defines the state of the volume.
 type DPUVolumeState struct {
-	// DPUCluster contains the reference to the DPUCluster object that was selected for volume creation.
+	// DPUCluster contains the reference to the DPUCluster object that was
+	// selected for volume creation.
 	// +optional
 	DPUCluster *ObjectReference `json:"dpuCluster,omitempty"`
-	// Parameters contains the final set of parameters for volume creation, computed by merging
-	// the parameters from the DPUStoragePolicy object with user-provided parameters.
+	// Parameters contains the final set of parameters for volume creation,
+	// computed by merging the parameters from the DPUStoragePolicy object with
+	// user-provided parameters.
 	// +optional
 	Parameters map[string]string `json:"parameters,omitempty"`
-	// SelectedDPUStorageVendorName contains the name of the DPUStorageVendor object that was selected for volume creation.
+	// SelectedDPUStorageVendorName contains the name of the DPUStorageVendor
+	// object that was selected for volume creation.
 	// +optional
 	SelectedDPUStorageVendorName *string `json:"selectedDPUStorageVendorName,omitempty"`
-	// StorageVendorPluginName contains the name of the storage vendor plugin deployed on the DPU cluster that was selected for volume creation.
+	// StorageVendorPluginName contains the name of the storage vendor plugin
+	// deployed on the DPU cluster that was selected for volume creation.
 	// +optional
 	StorageVendorPluginName *string `json:"storageVendorPluginName,omitempty"`
-	// StorageClassName contains the name of the storage class in the DPU cluster that was selected for volume creation.
+	// StorageClassName contains the name of the storage class in the DPU
+	// cluster that was selected for volume creation.
 	// +optional
 	StorageClassName *string `json:"storageClassName,omitempty"`
-	// CSIDriverName contains the name of the CSI driver in the DPU cluster that was selected for volume creation.
+	// CSIDriverName contains the name of the CSI driver in the DPU cluster that
+	// was selected for volume creation.
 	// +optional
 	CSIDriverName *string `json:"csiDriverName,omitempty"`
-	// PersistentVolumeClaimRef contains the reference to the PersistentVolumeClaim object in the DPU cluster that was created for the volume.
+	// PersistentVolumeClaimRef contains the reference to the
+	// PersistentVolumeClaim object in the DPU cluster that was created for
+	// the volume.
 	// +optional
 	PersistentVolumeClaimRef *ObjectReference `json:"persistentVolumeClaimRef,omitempty"`
-	// VolumeInfo contains a subset of fields from the PersistentVolume object created in the DPU cluster
+	// VolumeInfo contains a subset of fields from the PersistentVolume object
+	// created in the DPU cluster
 	// +optional
 	VolumeInfo *VolumeInfo `json:"volumeInfo,omitempty"`
 }
 
-// VolumeInfo represents a subset of fields from the PersistentVolume object that was created in the DPU cluster.
-// This struct is used to track and expose key volume information without carrying the full PersistentVolume object.
+// VolumeInfo represents a subset of fields from the PersistentVolume object
+// that was created in the DPU cluster. This struct is used to track and expose
+// key volume information without carrying the full PersistentVolume object.
 type VolumeInfo struct {
-	// VolumeName contains the name of the PersistentVolume object in the DPU cluster
+	// VolumeName contains the name of the PersistentVolume object in the DPU
+	// cluster
 	// +optional
 	VolumeName *string `json:"volumeName,omitempty"`
 	// Actual capacity of the volume in the DPU cluster
@@ -214,7 +234,8 @@ type VolumeInfo struct {
 	// +optional
 	VolumeMode *corev1.PersistentVolumeMode `json:"volumeMode,omitempty"`
 	// VolumeAttributes from the PersistentVolume object in the DPU cluster
-	// This field usually contains parameters returned by the Vendor CSI plugin on volume creation.
+	// This field usually contains parameters returned by the Vendor CSI plugin
+	// on volume creation.
 	// +optional
 	VolumeAttributes map[string]string `json:"volumeAttributes,omitempty"`
 }

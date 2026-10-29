@@ -25,25 +25,29 @@ import (
 const (
 	// DPUStorageVendorKind is the kind of the DPUStorageVendor object
 	DPUStorageVendorKind = "DPUStorageVendor"
-	// DPUStorageVendorFinalizer is the finalizer for the DPUStorageVendor object
+	// DPUStorageVendorFinalizer is the finalizer for the DPUStorageVendor
+	// object
 	DPUStorageVendorFinalizer = "storage.dpu.nvidia.com/dpustoragevendor"
 )
 
-// DPUStorageVendorGroupVersionKind is the GroupVersionKind of the DPUStorageVendor object
+// DPUStorageVendorGroupVersionKind is the GroupVersionKind of the
+// DPUStorageVendor object
 var DPUStorageVendorGroupVersionKind = GroupVersion.WithKind(DPUStorageVendorKind)
 
 // Condition types
 const (
-	// ConditionDPUStorageVendorReconciled is the condition type that indicates that the
-	// DPUStorageVendor is reconciled.
+	// ConditionDPUStorageVendorReconciled is the condition type that indicates
+	// that the DPUStorageVendor is reconciled.
 	ConditionDPUStorageVendorReconciled conditions.ConditionType = "DPUStorageVendorReconciled"
-	// ConditionDPUStorageVendorValid is the condition type that indicates that the
-	// DPUStorageVendor is valid (StorageClass and CSIDriver are present in the DPU cluster).
+	// ConditionDPUStorageVendorValid is the condition type that indicates that
+	// the DPUStorageVendor is valid (StorageClass and CSIDriver are present in
+	// the DPU cluster).
 	ConditionDPUStorageVendorValid conditions.ConditionType = "Valid"
 )
 
 var (
-	// DPUStorageVendorConditions is the list of conditions that the DPUStorageVendor can have.
+	// DPUStorageVendorConditions is the list of conditions that the
+	// DPUStorageVendor can have.
 	DPUStorageVendorConditions = []conditions.ConditionType{
 		conditions.TypeReady,
 		ConditionDPUStorageVendorReconciled,
@@ -94,13 +98,15 @@ type DPUStorageVendorSpec struct {
 
 // DPUStorageVendorStatus defines the observed state of DPUStorageVendor
 type DPUStorageVendorStatus struct {
-	// DPUClusters is the list of clusters on which the DPUStorageVendor is deployed.
+	// DPUClusters is the list of clusters on which the
+	// DPUStorageVendor is deployed.
 	// +optional
 	DPUClusters []ObjectReference `json:"dpuClusters,omitempty"`
 	// Conditions defines current service state.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// ObservedGeneration records the Generation observed on the object the last time it was patched.
+	// ObservedGeneration records the Generation observed on the object the last
+	// time it was patched.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
