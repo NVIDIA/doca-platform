@@ -422,7 +422,7 @@ func (d *DpfCNI) CmdAdd(args *skel.CmdArgs) error {
 
 	dpfId += "/" + contIface.Name
 
-	if err := cleanupStaleBridgePorts(ctx, api, bridgeName, contPodUid, contIface.Name); err != nil {
+	if err := cleanupStaleBridgePorts(ctx, api, bridgeName); err != nil {
 		return err
 	}
 
@@ -598,7 +598,7 @@ func waitLinkUp(ctx context.Context, api ovsutils.API, ofPortName string, retryC
 }
 
 func removeOvsPort(ctx context.Context, api ovsutils.API, bridgeName, portName string) error {
-	return api.DelPort(ctx, bridgeName, portName, &ovsutils.DelPortOpt{Owner: ovsPortOwner})
+	return api.DelPortByName(ctx, bridgeName, portName, &ovsutils.DelPortOpt{Owner: ovsPortOwner})
 }
 
 // CmdDel handles removing a container from the configured network.

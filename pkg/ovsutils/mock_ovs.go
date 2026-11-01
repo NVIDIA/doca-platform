@@ -177,18 +177,32 @@ func (mr *MockAPIMockRecorder) CurrentEndpoint() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CurrentEndpoint", reflect.TypeOf((*MockAPI)(nil).CurrentEndpoint))
 }
 
-// DelPort mocks base method.
-func (m *MockAPI) DelPort(ctx context.Context, bridgeName, portName string, opt *DelPortOpt) error {
+// DelPortByName mocks base method.
+func (m *MockAPI) DelPortByName(ctx context.Context, bridgeName, portName string, opt *DelPortOpt) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DelPort", ctx, bridgeName, portName, opt)
+	ret := m.ctrl.Call(m, "DelPortByName", ctx, bridgeName, portName, opt)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// DelPort indicates an expected call of DelPort.
-func (mr *MockAPIMockRecorder) DelPort(ctx, bridgeName, portName, opt any) *gomock.Call {
+// DelPortByName indicates an expected call of DelPortByName.
+func (mr *MockAPIMockRecorder) DelPortByName(ctx, bridgeName, portName, opt any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DelPort", reflect.TypeOf((*MockAPI)(nil).DelPort), ctx, bridgeName, portName, opt)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DelPortByName", reflect.TypeOf((*MockAPI)(nil).DelPortByName), ctx, bridgeName, portName, opt)
+}
+
+// DelPortByUUID mocks base method.
+func (m *MockAPI) DelPortByUUID(ctx context.Context, bridgeName, portUUID string, opt *DelPortOpt) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DelPortByUUID", ctx, bridgeName, portUUID, opt)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DelPortByUUID indicates an expected call of DelPortByUUID.
+func (mr *MockAPIMockRecorder) DelPortByUUID(ctx, bridgeName, portUUID, opt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DelPortByUUID", reflect.TypeOf((*MockAPI)(nil).DelPortByUUID), ctx, bridgeName, portUUID, opt)
 }
 
 // DeleteBridge mocks base method.
@@ -379,19 +393,19 @@ func (mr *MockAPIMockRecorder) GetPortVLANState(ctx, name any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPortVLANState", reflect.TypeOf((*MockAPI)(nil).GetPortVLANState), ctx, name)
 }
 
-// IsIfaceInBr mocks base method.
-func (m *MockAPI) IsIfaceInBr(ctx context.Context, bridgeName, portName string) (bool, error) {
+// IsPortInBr mocks base method.
+func (m *MockAPI) IsPortInBr(ctx context.Context, bridgeName, portName string) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsIfaceInBr", ctx, bridgeName, portName)
+	ret := m.ctrl.Call(m, "IsPortInBr", ctx, bridgeName, portName)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// IsIfaceInBr indicates an expected call of IsIfaceInBr.
-func (mr *MockAPIMockRecorder) IsIfaceInBr(ctx, bridgeName, portName any) *gomock.Call {
+// IsPortInBr indicates an expected call of IsPortInBr.
+func (mr *MockAPIMockRecorder) IsPortInBr(ctx, bridgeName, portName any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsIfaceInBr", reflect.TypeOf((*MockAPI)(nil).IsIfaceInBr), ctx, bridgeName, portName)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsPortInBr", reflect.TypeOf((*MockAPI)(nil).IsPortInBr), ctx, bridgeName, portName)
 }
 
 // List mocks base method.

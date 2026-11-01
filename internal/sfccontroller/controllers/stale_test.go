@@ -196,7 +196,7 @@ var _ = Describe("stale ports cleanup", func() {
 		).Times(1)
 		ovsMock.EXPECT().WhereAll(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(ovsConditionalAPIMock).Times(1)
 
-		ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(nil).Times(1)
+		ovsMock.EXPECT().DelPortByName(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(nil).Times(1)
 
 		Expect(sor.removeStalePorts(ctx)).To(Succeed())
 	})
@@ -221,7 +221,7 @@ var _ = Describe("stale ports cleanup", func() {
 		).Times(1)
 		ovsMock.EXPECT().WhereAll(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(ovsConditionalAPIMock).Times(1)
 
-		ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(fmt.Errorf("failed to delete port"))
+		ovsMock.EXPECT().DelPortByName(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(fmt.Errorf("failed to delete port"))
 
 		Expect(sor.removeStalePorts(ctx)).NotTo(Succeed())
 	})
@@ -288,7 +288,7 @@ var _ = Describe("stale ports cleanup", func() {
 			},
 		).Times(1)
 		ovsMock.EXPECT().WhereAll(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(ovsConditionalAPIMock).Times(1)
-		ovsMock.EXPECT().DelPort(gomock.Any(), SFCBridge, "some-port", nil).Return(nil).Times(1)
+		ovsMock.EXPECT().DelPortByName(gomock.Any(), SFCBridge, "some-port", nil).Return(nil).Times(1)
 		ECPFManagerMock.EXPECT().GetRepresentorForVFServiceInterface(gomock.Any()).Return("pf0vf3", nil).Times(1)
 
 		Expect(sor.removeStalePorts(ctx)).To(Succeed())
@@ -328,7 +328,7 @@ var _ = Describe("stale ports cleanup", func() {
 		).Times(1)
 		ovsMock.EXPECT().WhereAll(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(ovsConditionalAPIMock).Times(1)
 
-		// This port backs the NSI VF entry and must survive; only "some-port" may hit DelPort below.
+		// This port backs the NSI VF entry and must survive; only "some-port" may hit DelPortByName below.
 		ovsConditionalAPIMock.EXPECT().List(gomock.Any(), gomock.Any()).DoAndReturn(
 			func(_ context.Context, ports *[]ovsmodel.Port) error {
 				*ports = []ovsmodel.Port{{Name: "pf0vf3"}}
@@ -336,7 +336,7 @@ var _ = Describe("stale ports cleanup", func() {
 			},
 		).Times(1)
 		ovsMock.EXPECT().WhereAll(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(ovsConditionalAPIMock).Times(1)
-		ovsMock.EXPECT().DelPort(gomock.Any(), SFCBridge, "some-port", nil).Return(nil).Times(1)
+		ovsMock.EXPECT().DelPortByName(gomock.Any(), SFCBridge, "some-port", nil).Return(nil).Times(1)
 		ECPFManagerMock.EXPECT().GetRepresentorForVFServiceInterface(gomock.Any()).Return("pf0vf3", nil).Times(1)
 
 		Expect(sor.removeStalePorts(ctx)).To(Succeed())
@@ -376,7 +376,7 @@ var _ = Describe("stale ports cleanup", func() {
 			},
 		).Times(1)
 		ovsMock.EXPECT().WhereAll(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(ovsConditionalAPIMock).Times(1)
-		// The terminating entry's port is protected; NodeServiceInterfacesReconciler owns its teardown, so DelPort must not fire.
+		// The terminating entry's port is protected; NodeServiceInterfacesReconciler owns its teardown, so DelPortByName must not fire.
 		ECPFManagerMock.EXPECT().GetRepresentorForVFServiceInterface(gomock.Any()).Return("pf0vf3", nil).Times(1)
 
 		Expect(sor.removeStalePorts(ctx)).To(Succeed())

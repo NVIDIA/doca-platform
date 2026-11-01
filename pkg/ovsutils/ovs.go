@@ -57,7 +57,8 @@ type API interface {
 
 	// Port Commands
 	AddPort(ctx context.Context, portConfig PortConfig) error
-	DelPort(ctx context.Context, bridgeName, portName string, opt *DelPortOpt) error
+	DelPortByName(ctx context.Context, bridgeName, portName string, opt *DelPortOpt) error
+	DelPortByUUID(ctx context.Context, bridgeName, portUUID string, opt *DelPortOpt) error
 	GetPortVLANState(ctx context.Context, name string) (PortVLANState, error)
 	SetPortExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error
 
@@ -67,7 +68,7 @@ type API interface {
 	SetIfaceExternalIDs(ctx context.Context, name string, externalIDs map[string]string) error
 	GetIfaceWithExternalIDs(ctx context.Context, externalIDs map[string]string) (*ovsmodel.Interface, error)
 	SetIfaceOptions(ctx context.Context, name string, options map[string]string) error
-	IsIfaceInBr(ctx context.Context, bridgeName, portName string) (bool, error)
+	IsPortInBr(ctx context.Context, bridgeName, portName string) (bool, error)
 	GetIfaceWithName(ctx context.Context, name string) (*ovsmodel.Interface, error)
 }
 
@@ -252,8 +253,9 @@ type PortVLANState struct {
 	Trunks []int
 }
 
-// DelPortOpt configures optional DelPort guards.
+// DelPortOpt configures optional port delete guards.
 type DelPortOpt struct {
+	// owner is the owner of the port to delete.
 	Owner string
 }
 
@@ -304,7 +306,7 @@ func (c *Client) AddPort(ctx context.Context, portConfig PortConfig) error {
 
 	// Port already exists
 	if err == nil {
-		isPortInBridge, err := c.IsIfaceInBr(ctx, portConfig.BridgeName, portConfig.Name)
+		isPortInBridge, err := c.IsPortInBr(ctx, portConfig.BridgeName, portConfig.Name)
 		if err != nil {
 			return fmt.Errorf("failed to check if port %s is in bridge %s: %v", portConfig.Name, portConfig.BridgeName, err)
 		}
@@ -404,13 +406,24 @@ func (c *Client) AddPort(ctx context.Context, portConfig PortConfig) error {
 	return nil
 }
 
-// DelPort deletes a port from a bridge.
+// DelPortByName deletes the port with name portName from a bridge.
 // When opt.Owner is set, ports with a different owner are rejected.
-func (c *Client) DelPort(ctx context.Context, bridgeName, portName string, opt *DelPortOpt) error {
-	// get port
-	port := &ovsmodel.Port{
-		Name: portName,
+func (c *Client) DelPortByName(ctx context.Context, bridgeName, portName string, opt *DelPortOpt) error {
+	return c.delPort(ctx, bridgeName, &ovsmodel.Port{Name: portName}, opt)
+}
+
+// DelPortByUUID deletes the port with UUID portUUID from a bridge.
+// When opt.Owner is set, ports with a different owner are rejected.
+func (c *Client) DelPortByUUID(ctx context.Context, bridgeName, portUUID string, opt *DelPortOpt) error {
+	return c.delPort(ctx, bridgeName, &ovsmodel.Port{UUID: portUUID}, opt)
+}
+
+// delPort deletes the port that resolves from port, keyed on its name or its UUID.
+func (c *Client) delPort(ctx context.Context, bridgeName string, port *ovsmodel.Port, opt *DelPortOpt) error {
+	if port == nil || (port.Name == "" && port.UUID == "") {
+		return errors.New("port name or UUID must be provided")
 	}
+
 	err := c.Get(ctx, port)
 
 	// Make delete operations non fatal if the port does not exist
@@ -419,36 +432,41 @@ func (c *Client) DelPort(ctx context.Context, bridgeName, portName string, opt *
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("failed to get port %s: %v", portName, err)
+		return fmt.Errorf("failed to get port %s (%s): %v", port.Name, port.UUID, err)
 	}
 
+	id := fmt.Sprintf("%s (%s)", port.Name, port.UUID)
+
 	if opt != nil && opt.Owner != "" && port.ExternalIDs["owner"] != opt.Owner {
-		return fmt.Errorf("port %s owner %q does not match required owner %q", portName, port.ExternalIDs["owner"], opt.Owner)
+		return fmt.Errorf("port %s owner %q does not match required owner %q", id, port.ExternalIDs["owner"], opt.Owner)
 	}
 
 	// Make delete operations non fatal if the port does not exist on the requested bridge
-	isPortInBridge, err := c.IsIfaceInBr(ctx, bridgeName, portName)
+	isPortInBridge, err := c.isPortInBridge(ctx, bridgeName, port.UUID)
 	if err != nil {
-		return fmt.Errorf("failed to check if port %s is in bridge %s: %v", portName, bridgeName, err)
+		return fmt.Errorf("failed to check if port %s is in bridge %s: %v", id, bridgeName, err)
 	}
 	// Does not delete port because it exists on a different bridge
 	if !isPortInBridge {
 		return nil
 	}
 
-	delInterfaceOps, err := c.Where(&ovsmodel.Interface{
-		Name: portName,
-	}).Delete()
-	if err != nil {
-		return fmt.Errorf("failed to delete interface %s: %v", portName, err)
+	// Delete the interfaces this port row references.
+	var operations []ovsdb.Operation
+	for _, ifaceUUID := range port.Interfaces {
+		delInterfaceOps, err := c.Where(&ovsmodel.Interface{UUID: ifaceUUID}).Delete()
+		if err != nil {
+			return fmt.Errorf("failed to delete interface %s of port %s: %v", ifaceUUID, id, err)
+		}
+		operations = append(operations, delInterfaceOps...)
 	}
 
 	delPortOps, err := c.Where(port).Delete()
 	if err != nil {
-		return fmt.Errorf("failed to delete port %s: %v", portName, err)
+		return fmt.Errorf("failed to delete port %s: %v", id, err)
 	}
 
-	operations := append(delInterfaceOps, delPortOps...)
+	operations = append(operations, delPortOps...)
 
 	bridge := &ovsmodel.Bridge{Name: bridgeName}
 	mutateOps, err := c.Where(bridge).Mutate(bridge, model.Mutation{
@@ -457,18 +475,18 @@ func (c *Client) DelPort(ctx context.Context, bridgeName, portName string, opt *
 		Value:   []string{port.UUID},
 	})
 	if err != nil {
-		return fmt.Errorf("failed to delete port %s reference: %v", portName, err)
+		return fmt.Errorf("failed to delete port %s reference: %v", id, err)
 	}
 
 	operations = append(operations, mutateOps...)
 
 	reply, err := c.Transact(ctx, operations...)
 	if err != nil {
-		return fmt.Errorf("failed to exec delete port transaction %s: %v", portName, err)
+		return fmt.Errorf("failed to exec delete port transaction %s: %v", id, err)
 	}
 
 	if _, err := ovsdb.CheckOperationResults(reply, operations); err != nil {
-		return fmt.Errorf("failed to delete port %s: %v", portName, err)
+		return fmt.Errorf("failed to delete port %s: %v", id, err)
 	}
 
 	return nil
@@ -655,7 +673,8 @@ func (c *Client) SetBridgeOtherConfig(ctx context.Context, name string, otherCon
 	return c.mutateOVSMapField(ctx, bridge, &bridge.OtherConfig, otherConfig)
 }
 
-func (c *Client) IsIfaceInBr(ctx context.Context, bridgeName, portName string) (bool, error) {
+// IsPortInBr reports whether the port named portName is in bridge bridgeName.
+func (c *Client) IsPortInBr(ctx context.Context, bridgeName, portName string) (bool, error) {
 	port := &ovsmodel.Port{
 		Name: portName,
 	}
@@ -664,14 +683,19 @@ func (c *Client) IsIfaceInBr(ctx context.Context, bridgeName, portName string) (
 		return false, fmt.Errorf("failed to get port %s: %v", portName, err)
 	}
 
+	return c.isPortInBridge(ctx, bridgeName, port.UUID)
+}
+
+// isPortInBridge reports whether bridgeName holds the port with portUUID.
+func (c *Client) isPortInBridge(ctx context.Context, bridgeName, portUUID string) (bool, error) {
 	var bridges []ovsmodel.Bridge
 	bridge := &ovsmodel.Bridge{}
-	err = c.WhereAll(
+	err := c.WhereAll(
 		bridge,
 		model.Condition{
 			Field:    &bridge.Ports,
 			Function: ovsdb.ConditionIncludes,
-			Value:    []string{port.UUID}},
+			Value:    []string{portUUID}},
 	).List(ctx, &bridges)
 	if err != nil {
 		return false, fmt.Errorf("failed to list bridges: %v", err)

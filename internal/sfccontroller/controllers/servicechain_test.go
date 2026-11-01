@@ -182,7 +182,7 @@ var _ = Describe("findInterface", func() {
 				return mockConditional
 			},
 		)
-		ovsMock.EXPECT().IsIfaceInBr(gomock.Any(), SFCBridge, "test-iface").Return(true, nil)
+		ovsMock.EXPECT().IsPortInBr(gomock.Any(), SFCBridge, "test-iface").Return(true, nil)
 
 		port, err := findInterface(ctx, ovsMock, condition)
 		Expect(err).ToNot(HaveOccurred())
@@ -220,7 +220,7 @@ var _ = Describe("findInterface", func() {
 		)
 
 		// First interface is in br-sfc, should be selected
-		ovsMock.EXPECT().IsIfaceInBr(gomock.Any(), SFCBridge, "p_brsfc_to_peer_patch").Return(true, nil)
+		ovsMock.EXPECT().IsPortInBr(gomock.Any(), SFCBridge, "p_brsfc_to_peer_patch").Return(true, nil)
 
 		port, err := findInterface(ctx, ovsMock, condition)
 		Expect(err).ToNot(HaveOccurred())
@@ -258,9 +258,9 @@ var _ = Describe("findInterface", func() {
 		)
 
 		// First interface is NOT in br-sfc
-		ovsMock.EXPECT().IsIfaceInBr(gomock.Any(), SFCBridge, "peer_patch").Return(false, nil)
+		ovsMock.EXPECT().IsPortInBr(gomock.Any(), SFCBridge, "peer_patch").Return(false, nil)
 		// Second interface IS in br-sfc, should be selected
-		ovsMock.EXPECT().IsIfaceInBr(gomock.Any(), SFCBridge, "p_brsfc_to_peer_patch").Return(true, nil)
+		ovsMock.EXPECT().IsPortInBr(gomock.Any(), SFCBridge, "p_brsfc_to_peer_patch").Return(true, nil)
 
 		port, err := findInterface(ctx, ovsMock, condition)
 		Expect(err).ToNot(HaveOccurred())
@@ -295,8 +295,8 @@ var _ = Describe("findInterface", func() {
 			},
 		)
 
-		ovsMock.EXPECT().IsIfaceInBr(gomock.Any(), SFCBridge, "iface1").Return(false, nil)
-		ovsMock.EXPECT().IsIfaceInBr(gomock.Any(), SFCBridge, "iface2").Return(false, nil)
+		ovsMock.EXPECT().IsPortInBr(gomock.Any(), SFCBridge, "iface1").Return(false, nil)
+		ovsMock.EXPECT().IsPortInBr(gomock.Any(), SFCBridge, "iface2").Return(false, nil)
 
 		port, err := findInterface(ctx, ovsMock, condition)
 		Expect(err).To(HaveOccurred())
@@ -387,7 +387,7 @@ var _ = Describe("findInterface", func() {
 				return mockConditional
 			},
 		)
-		ovsMock.EXPECT().IsIfaceInBr(gomock.Any(), SFCBridge, "test-iface").Return(true, nil)
+		ovsMock.EXPECT().IsPortInBr(gomock.Any(), SFCBridge, "test-iface").Return(true, nil)
 
 		port, err := findInterface(ctx, ovsMock, condition)
 		Expect(err).To(HaveOccurred())
@@ -476,7 +476,7 @@ var _ = Describe("service chain controller port resolution", func() {
 				return mockConditional
 			},
 		).AnyTimes()
-		ovsMock.EXPECT().IsIfaceInBr(gomock.Any(), SFCBridge, name).Return(true, nil).AnyTimes()
+		ovsMock.EXPECT().IsPortInBr(gomock.Any(), SFCBridge, name).Return(true, nil).AnyTimes()
 	}
 
 	// registerOVSLookup is registerOVSLookupForCondition for a legacy ServiceInterface.
@@ -823,7 +823,7 @@ var _ = Describe("service chain controller port resolution", func() {
 				return mockConditional
 			},
 		)
-		ovsMock.EXPECT().IsIfaceInBr(gomock.Any(), SFCBridge, "test-iface-service").Return(true, nil)
+		ovsMock.EXPECT().IsPortInBr(gomock.Any(), SFCBridge, "test-iface-service").Return(true, nil)
 
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme.Scheme).
@@ -969,7 +969,7 @@ var _ = Describe("service chain controller port resolution", func() {
 				return mockConditional
 			},
 		)
-		ovsMock.EXPECT().IsIfaceInBr(gomock.Any(), SFCBridge, "test-iface-service-nsi").Return(true, nil)
+		ovsMock.EXPECT().IsPortInBr(gomock.Any(), SFCBridge, "test-iface-service-nsi").Return(true, nil)
 
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme.Scheme).
@@ -1389,7 +1389,7 @@ var _ = Describe("service chain controller flow application", func() {
 				return mockConditional
 			},
 		)
-		ovsMock.EXPECT().IsIfaceInBr(gomock.Any(), SFCBridge, "test-iface").Return(true, nil)
+		ovsMock.EXPECT().IsPortInBr(gomock.Any(), SFCBridge, "test-iface").Return(true, nil)
 	}
 
 	It("applies flows on every reconcile, even across repeated reconciles with nothing changed", func() {
@@ -1654,7 +1654,7 @@ var _ = Describe("service chain controller flow application on the NSI path", fu
 				return mockConditional
 			},
 		)
-		ovsMock.EXPECT().IsIfaceInBr(gomock.Any(), SFCBridge, ifaceName).Return(true, nil)
+		ovsMock.EXPECT().IsPortInBr(gomock.Any(), SFCBridge, ifaceName).Return(true, nil)
 	}
 
 	expectPortLookup := func() {
