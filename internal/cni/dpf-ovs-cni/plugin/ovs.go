@@ -212,7 +212,7 @@ func cleanupStaleHbn(ctx context.Context, api ovsutils.API, contIfaceName string
 	}
 
 	for _, row := range results {
-		if err := api.DelPort(ctx, hbnBridge, row["name"].(string), &ovsutils.DelPortOpt{Owner: ovsPortOwner}); err != nil {
+		if err := api.DelPortByName(ctx, hbnBridge, row["name"].(string), &ovsutils.DelPortOpt{Owner: ovsPortOwner}); err != nil {
 			return err
 		}
 	}
@@ -232,7 +232,7 @@ func cleanupStaleSfc(ctx context.Context, api ovsutils.API, contIfaceName string
 	}
 
 	for _, row := range results {
-		if err := api.DelPort(ctx, sfcBridge, row["name"].(string), &ovsutils.DelPortOpt{Owner: ovsPortOwner}); err != nil {
+		if err := api.DelPortByName(ctx, sfcBridge, row["name"].(string), &ovsutils.DelPortOpt{Owner: ovsPortOwner}); err != nil {
 			return err
 		}
 	}
@@ -241,8 +241,7 @@ func cleanupStaleSfc(ctx context.Context, api ovsutils.API, contIfaceName string
 
 // cleanupStaleBridgePorts removes plugin-owned ports on bridgeName whose container netns is
 // gone. Keyed on the netns rather than the port name, which changes when the device does.
-// A leftover of contPodUid/contIfaceName, the interface being attached, is fatal.
-func cleanupStaleBridgePorts(ctx context.Context, api ovsutils.API, bridgeName, contPodUid, contIfaceName string) error {
+func cleanupStaleBridgePorts(ctx context.Context, api ovsutils.API, bridgeName string) error {
 	bridge, err := api.GetBridgeWithName(ctx, bridgeName)
 	if err != nil {
 		return err
@@ -273,13 +272,8 @@ func cleanupStaleBridgePorts(ctx context.Context, api ovsutils.API, bridgeName, 
 			continue
 		}
 		log.Printf("CmdAdd removing stale port %s on %s left by pod %s", name, bridgeName, extIDs["contPodUid"])
-		if err := removeOvsPort(ctx, api, bridgeName, name); err != nil {
-			// Attaching beside our own leftover would duplicate traffic, so fail instead.
-			// An empty pod uid would match rows written without one.
-			if contPodUid != "" && extIDs["contPodUid"] == contPodUid && extIDs["contIface"] == contIfaceName {
-				return fmt.Errorf("remove stale port %s left by this pod on %s: %w", name, bridgeName, err)
-			}
-			// Best-effort, a leftover we do not own must not block this pod from being attached.
+		// Best-effort, a leftover we do not own must not block this pod from being attached.
+		if err := api.DelPortByUUID(ctx, bridgeName, rowUUID(row), &ovsutils.DelPortOpt{Owner: ovsPortOwner}); err != nil {
 			log.Printf("Failed best-effort cleanup of stale port %s on %s: %v", name, bridgeName, err)
 		}
 	}
@@ -344,7 +338,7 @@ func patchPortName(intfName, bridge string) string {
 }
 
 func addPatchPort(ctx context.Context, api ovsutils.API, bridgeName, portName, peerName, hostIfaceName, contIfaceName string) error {
-	if err := api.DelPort(ctx, bridgeName, portName, &ovsutils.DelPortOpt{Owner: ovsPortOwner}); err != nil {
+	if err := api.DelPortByName(ctx, bridgeName, portName, &ovsutils.DelPortOpt{Owner: ovsPortOwner}); err != nil {
 		return fmt.Errorf("delete stale patch port %s: %w", portName, err)
 	}
 

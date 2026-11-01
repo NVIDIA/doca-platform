@@ -144,7 +144,7 @@ var _ = Describe("service chain controller custom flows", func() {
 					return mockConditional
 				},
 			)
-			ovsMock.EXPECT().IsIfaceInBr(gomock.Any(), SFCBridge, condition).Return(true, nil)
+			ovsMock.EXPECT().IsPortInBr(gomock.Any(), SFCBridge, condition).Return(true, nil)
 		}
 		registerCondition(uplinkEntry.Name, uplinkPort)
 		registerCondition(pod.Namespace+"/"+pod.Name+"/"+serviceEntry.Service.InterfaceName, servicePort)
@@ -243,7 +243,7 @@ var _ = Describe("service chain controller custom flows", func() {
 					return mockConditional
 				},
 			)
-			ovsMock.EXPECT().IsIfaceInBr(gomock.Any(), SFCBridge, entryName).Return(true, nil)
+			ovsMock.EXPECT().IsPortInBr(gomock.Any(), SFCBridge, entryName).Return(true, nil)
 		}
 		registerPhysicalPort(p0Entry.Name, "1")
 		registerPhysicalPort(pf0hpfEntry.Name, "2")
@@ -314,7 +314,7 @@ var _ = Describe("service chain controller custom flows", func() {
 					return mockConditional
 				},
 			)
-			ovsMock.EXPECT().IsIfaceInBr(gomock.Any(), SFCBridge, entryName).Return(true, nil)
+			ovsMock.EXPECT().IsPortInBr(gomock.Any(), SFCBridge, entryName).Return(true, nil)
 		}
 		registerPhysicalPort(p0Entry.Name, 1)
 		registerPhysicalPort(p1Entry.Name, 2)

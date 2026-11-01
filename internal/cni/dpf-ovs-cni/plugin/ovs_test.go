@@ -637,8 +637,8 @@ var _ = Describe("OVS helpers", func() {
 			}
 			gomock.InOrder(
 				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{Rows: rows}}, nil),
-				mockAPI.EXPECT().DelPort(gomock.Any(), hbnBridge, "pen3f0pf0sf1brhbn", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
-				mockAPI.EXPECT().DelPort(gomock.Any(), hbnBridge, "pen3f0pf0sf2brhbn", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
+				mockAPI.EXPECT().DelPortByName(gomock.Any(), hbnBridge, "pen3f0pf0sf1brhbn", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
+				mockAPI.EXPECT().DelPortByName(gomock.Any(), hbnBridge, "pen3f0pf0sf2brhbn", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
 			)
 
 			Expect(cleanupStaleHbn(ctx, mockAPI, "eth0")).To(Succeed())
@@ -651,11 +651,11 @@ var _ = Describe("OVS helpers", func() {
 			Expect(err).To(MatchError(ContainSubstring("read denied")))
 		})
 
-		It("propagates DelPort errors", func() {
+		It("propagates DelPortByName errors", func() {
 			gomock.InOrder(
 				transactExpect(mockAPI, 1).
 					Return([]ovsdb.OperationResult{{Rows: []ovsdb.Row{{"name": "pen3f0pf0sf1brhbn"}}}}, nil),
-				mockAPI.EXPECT().DelPort(gomock.Any(), hbnBridge, "pen3f0pf0sf1brhbn", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).
+				mockAPI.EXPECT().DelPortByName(gomock.Any(), hbnBridge, "pen3f0pf0sf1brhbn", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).
 					Return(errors.New("port busy")),
 			)
 
@@ -670,7 +670,7 @@ var _ = Describe("OVS helpers", func() {
 			gomock.InOrder(
 				transactExpect(mockAPI, 1).
 					Return([]ovsdb.OperationResult{{Rows: []ovsdb.Row{{"name": "p0"}}}}, nil),
-				mockAPI.EXPECT().DelPort(gomock.Any(), sfcBridge, "p0", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
+				mockAPI.EXPECT().DelPortByName(gomock.Any(), sfcBridge, "p0", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
 			)
 
 			Expect(cleanupStaleSfc(ctx, mockAPI, "eth0")).To(Succeed())
@@ -684,9 +684,7 @@ var _ = Describe("OVS helpers", func() {
 			uuidTwo   = "1b0e0e2a-0002-4000-8000-000000000002"
 			uuidOther = "1b0e0e2a-0003-4000-8000-000000000003"
 			contIface = "net1"
-			// The pod that owns the rows below, distinct from the pod being attached.
 			podUid    = "95b22530-a6c8-46dc-97fa-f8c5c01b4dd6"
-			curPodUid = "0a5b7d14-61a2-4a0e-9d2a-2a0b6c3f8e77"
 		)
 
 		var liveNetns, goneNetns string
@@ -717,9 +715,13 @@ var _ = Describe("OVS helpers", func() {
 			}
 		}
 
-		// Sweep on behalf of a pod that owns none of the rows above.
+		delExpect := func(portUUID string) *gomock.Call {
+			return mockAPI.EXPECT().DelPortByUUID(gomock.Any(), targetBr, portUUID,
+				&ovsutils.DelPortOpt{Owner: ovsPortOwner})
+		}
+
 		sweep := func() error {
-			return cleanupStaleBridgePorts(ctx, mockAPI, targetBr, curPodUid, contIface)
+			return cleanupStaleBridgePorts(ctx, mockAPI, targetBr)
 		}
 
 		It("returns nil when the bridge has no plugin-owned ports", func() {
@@ -737,7 +739,7 @@ var _ = Describe("OVS helpers", func() {
 				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{
 					{Rows: []ovsdb.Row{portRow(uuidOne, "B21pf0sf10", goneNetns)}},
 				}, nil),
-				mockAPI.EXPECT().DelPort(gomock.Any(), targetBr, "B21pf0sf10", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
+				delExpect(uuidOne).Return(nil),
 			)
 
 			Expect(sweep()).To(Succeed())
@@ -752,8 +754,8 @@ var _ = Describe("OVS helpers", func() {
 						portRow(uuidTwo, "B21pf0sf10", goneNetns),
 					}},
 				}, nil),
-				mockAPI.EXPECT().DelPort(gomock.Any(), targetBr, "B21pf0sf2", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
-				mockAPI.EXPECT().DelPort(gomock.Any(), targetBr, "B21pf0sf10", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
+				delExpect(uuidOne).Return(nil),
+				delExpect(uuidTwo).Return(nil),
 			)
 
 			Expect(sweep()).To(Succeed())
@@ -765,13 +767,13 @@ var _ = Describe("OVS helpers", func() {
 			gomock.InOrder(
 				bridgeExpect(uuidOne),
 				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{Rows: []ovsdb.Row{row}}}, nil),
-				mockAPI.EXPECT().DelPort(gomock.Any(), targetBr, "B21pf0sf10", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
+				delExpect(uuidOne).Return(nil),
 			)
 
 			Expect(sweep()).To(Succeed())
 		})
 
-		// The keeps below rely on mockCtrl.Finish() to catch an unexpected DelPort.
+		// The keeps below rely on mockCtrl.Finish() to catch an unexpected DelPortByName.
 		It("keeps a stale port that is on another bridge", func() {
 			gomock.InOrder(
 				bridgeExpect(uuidOne),
@@ -833,7 +835,7 @@ var _ = Describe("OVS helpers", func() {
 			Expect(sweep()).To(MatchError(errReadDenied))
 		})
 
-		It("keeps sweeping after a DelPort failure", func() {
+		It("keeps sweeping after a DelPortByName failure", func() {
 			gomock.InOrder(
 				bridgeExpect(uuidOne, uuidTwo),
 				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{
@@ -842,55 +844,20 @@ var _ = Describe("OVS helpers", func() {
 						portRow(uuidTwo, "B21pf0sf10", goneNetns),
 					}},
 				}, nil),
-				mockAPI.EXPECT().DelPort(gomock.Any(), targetBr, "B21pf0sf2", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).
-					Return(errors.New("port busy")),
-				mockAPI.EXPECT().DelPort(gomock.Any(), targetBr, "B21pf0sf10", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
+				delExpect(uuidOne).Return(errors.New("port busy")),
+				delExpect(uuidTwo).Return(nil),
 			)
 
 			Expect(sweep()).To(Succeed())
 		})
-
-		// Left by an earlier sandbox of the pod being attached, under a host interface name
-		// the exact-name branch in CmdAdd no longer matches.
-		It("returns error when this pod's own leftover cannot be removed", func() {
-			errPortBusy := errors.New("port busy")
-			gomock.InOrder(
-				bridgeExpect(uuidOne),
-				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{
-					{Rows: []ovsdb.Row{portRow(uuidOne, "B21pf0sf2", goneNetns)}},
-				}, nil),
-				mockAPI.EXPECT().DelPort(gomock.Any(), targetBr, "B21pf0sf2", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).
-					Return(errPortBusy),
-			)
-
-			err := cleanupStaleBridgePorts(ctx, mockAPI, targetBr, podUid, contIface)
-			Expect(err).To(MatchError(errPortBusy))
-		})
-
-		It("stays best-effort when neither the row nor the pod has a uid", func() {
-			row := portRow(uuidOne, "B21pf0sf2", goneNetns)
-			row["external_ids"] = mustOvsMap(map[string]string{
-				"contIface": contIface,
-				"contNetns": goneNetns,
-				"owner":     ovsPortOwner,
-			})
-			gomock.InOrder(
-				bridgeExpect(uuidOne),
-				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{Rows: []ovsdb.Row{row}}}, nil),
-				mockAPI.EXPECT().DelPort(gomock.Any(), targetBr, "B21pf0sf2", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).
-					Return(errors.New("port busy")),
-			)
-
-			Expect(cleanupStaleBridgePorts(ctx, mockAPI, targetBr, "", contIface)).To(Succeed())
-		})
 	})
 
 	Describe("addPatchPort", func() {
-		// Each call: DelPort (refresh stale external_ids) + Transact (getUsedOFPorts) + AddPort.
+		// Each call: DelPortByName (refresh stale external_ids) + Transact (getUsedOFPorts) + AddPort.
 
 		It("writes SFC-side external_ids for a non-brhbn patch port", func() {
 			gomock.InOrder(
-				mockAPI.EXPECT().DelPort(gomock.Any(), "br-sfc", "peth0brsfc", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
+				mockAPI.EXPECT().DelPortByName(gomock.Any(), "br-sfc", "peth0brsfc", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
 				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{}}, nil),
 				mockAPI.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, cfg ovsutils.PortConfig) error {
@@ -912,7 +879,7 @@ var _ = Describe("OVS helpers", func() {
 
 		It("writes HBN-side external_ids (hbn_rep_ofport/hbn_netdev) for a *brhbn patch port", func() {
 			gomock.InOrder(
-				mockAPI.EXPECT().DelPort(gomock.Any(), "br-hbn", "peth0brhbn", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
+				mockAPI.EXPECT().DelPortByName(gomock.Any(), "br-hbn", "peth0brhbn", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
 				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{}}, nil),
 				mockAPI.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, cfg ovsutils.PortConfig) error {
@@ -932,8 +899,8 @@ var _ = Describe("OVS helpers", func() {
 			Expect(err).NotTo(HaveOccurred())
 		})
 
-		It("propagates DelPort errors before querying ofports", func() {
-			mockAPI.EXPECT().DelPort(gomock.Any(), "br-sfc", "peth0brsfc", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).
+		It("propagates DelPortByName errors before querying ofports", func() {
+			mockAPI.EXPECT().DelPortByName(gomock.Any(), "br-sfc", "peth0brsfc", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).
 				Return(errors.New("port busy"))
 
 			err := addPatchPort(ctx, mockAPI, "br-sfc", "peth0brsfc", "peth0brhbn", "eth0", "container-iface")
@@ -943,7 +910,7 @@ var _ = Describe("OVS helpers", func() {
 
 		It("propagates getUsedOFPorts errors before reaching AddPort", func() {
 			gomock.InOrder(
-				mockAPI.EXPECT().DelPort(gomock.Any(), "br-sfc", "peth0brsfc", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
+				mockAPI.EXPECT().DelPortByName(gomock.Any(), "br-sfc", "peth0brsfc", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
 				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{Error: "read denied", Details: ""}}, nil),
 			)
 
@@ -953,7 +920,7 @@ var _ = Describe("OVS helpers", func() {
 
 		It("propagates AddPort errors", func() {
 			gomock.InOrder(
-				mockAPI.EXPECT().DelPort(gomock.Any(), "br-sfc", "peth0brsfc", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
+				mockAPI.EXPECT().DelPortByName(gomock.Any(), "br-sfc", "peth0brsfc", &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
 				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{}}, nil),
 				mockAPI.EXPECT().AddPort(gomock.Any(), gomock.Any()).Return(errors.New("duplicate")),
 			)
@@ -968,7 +935,7 @@ var _ = Describe("OVS helpers", func() {
 		// addPatchPort is exercised in depth above. These tests just pin the
 		// orchestration: peer A gets {brA, portA, peer=portB}, peer B gets
 		// {brB, portB, peer=portA}, with each invocation issuing the
-		// DelPort + Transact + AddPort triple.
+		// DelPortByName + Transact + AddPort triple.
 		intfName, contIfaceName, brA, brB := "eth0", "container-iface", "br-sfc", "br-hbn"
 		portOnBrA := patchPortName(intfName, brA)
 		portOnBrB := patchPortName(intfName, brB)
@@ -976,7 +943,7 @@ var _ = Describe("OVS helpers", func() {
 		It("invokes addPatchPort once per bridge with the right peer wiring", func() {
 			gomock.InOrder(
 				// Peer A on brA, peer = portOnBrB.
-				mockAPI.EXPECT().DelPort(gomock.Any(), brA, portOnBrA, &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
+				mockAPI.EXPECT().DelPortByName(gomock.Any(), brA, portOnBrA, &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
 				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{}}, nil),
 				mockAPI.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, cfg ovsutils.PortConfig) error {
@@ -986,7 +953,7 @@ var _ = Describe("OVS helpers", func() {
 						return nil
 					}),
 				// Peer B on brB, peer = portOnBrA.
-				mockAPI.EXPECT().DelPort(gomock.Any(), brB, portOnBrB, &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
+				mockAPI.EXPECT().DelPortByName(gomock.Any(), brB, portOnBrB, &ovsutils.DelPortOpt{Owner: ovsPortOwner}).Return(nil),
 				transactExpect(mockAPI, 1).Return([]ovsdb.OperationResult{{}}, nil),
 				mockAPI.EXPECT().AddPort(gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, cfg ovsutils.PortConfig) error {
@@ -1001,7 +968,7 @@ var _ = Describe("OVS helpers", func() {
 		})
 
 		It("short-circuits when the first peer fails", func() {
-			mockAPI.EXPECT().DelPort(gomock.Any(), brA, portOnBrA, &ovsutils.DelPortOpt{Owner: ovsPortOwner}).
+			mockAPI.EXPECT().DelPortByName(gomock.Any(), brA, portOnBrA, &ovsutils.DelPortOpt{Owner: ovsPortOwner}).
 				Return(errors.New("port busy"))
 			// No further calls on the second peer.
 
