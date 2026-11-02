@@ -58,6 +58,9 @@ var _ = Describe("DPF System tests - SDN", SpecPriority(SDNTestPriority), Labels
 		It("create HBN only DPU chain and verify performance after killing HBN", Labels{Domain.L2Connectivity}, func() {
 			VerifyHBNOnlyBadFlowRecovery(ctx, input)
 		})
+		It("propagates physical uplink state to HBN", func() {
+			VerifyHBNUplinkStatePropagation(ctx, input)
+		})
 		It("create simple chain and validate serviceMTU changes", func() {
 			VerifyServiceMTUOnDPUPods(ctx, input)
 		})

@@ -31,6 +31,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -116,6 +117,136 @@ func VerifyHBNOnlyBadFlowRecovery(ctx context.Context, input *systemTestInput) {
 
 	By("Running traffic test after recovery")
 	netshoot.RunTrafficTest(&hostClusterRESTClient, &input.restConfig, hostNamespace, pod1Config.Name, pod2Config.Name, pod2Config.IP)
+}
+
+func VerifyHBNUplinkStatePropagation(ctx context.Context, input *systemTestInput) {
+	if input.numberOfDPUNodes != 2 {
+		// Test assumes that there are exactly 2 host nodes to match the DPU cluster.
+		Skip("Skip test as there are not exactly 2 nodes")
+	}
+
+	const (
+		uplink       = "p0"
+		hbnInterface = uplink + "_if"
+	)
+
+	setupHBNOnlyTest(ctx, input, 3)
+
+	By("Finding a ready HBN pod")
+	hbnPod := getReadyHBNPod(ctx, input.namespace)
+
+	By(fmt.Sprintf("Waiting for %s HBN representor dependency", uplink))
+	hbnRepresentor := waitForHBNRepresentorDependency(ctx, input.namespace, hbnPod.Spec.NodeName, uplink)
+
+	dpuHostPod := createSFCNetutilsHostPod(ctx, input,
+		fmt.Sprintf("hbn-uplink-state-%s", utilrand.String(5)), hbnPod.Spec.NodeName)
+
+	waitForLinkState := func(expectedState string) {
+		Eventually(func(g Gomega) {
+			assertInterfaceOperState(g, dpuHostPod, uplink, expectedState)
+			assertInterfaceOperState(g, dpuHostPod, hbnRepresentor, expectedState)
+			assertInterfaceOperState(g, hbnPod, hbnInterface, expectedState)
+		}).WithTimeout(3 * time.Minute).WithPolling(time.Second).Should(Succeed())
+	}
+
+	// Restoring the physical uplink is mandatory even when the assertion that follows fails.
+	uplinkRestored := false
+	DeferCleanup(func() {
+		if !uplinkRestored {
+			By(fmt.Sprintf("Restoring uplink %s on DPU node %s", uplink, hbnPod.Spec.NodeName))
+			setDPUUplinkState(dpuHostPod, uplink, "up")
+			waitForLinkState("up")
+		}
+	})
+
+	By("Verifying the HBN dependency chain is initially up")
+	waitForLinkState("up")
+
+	By(fmt.Sprintf("Bringing physical uplink %s down", uplink))
+	setDPUUplinkState(dpuHostPod, uplink, "down")
+
+	By("Verifying the dependency representor and HBN interface transition down")
+	waitForLinkState("down")
+
+	By(fmt.Sprintf("Bringing physical uplink %s back up", uplink))
+	setDPUUplinkState(dpuHostPod, uplink, "up")
+
+	By("Verifying the dependency representor and HBN interface recover")
+	waitForLinkState("up")
+	uplinkRestored = true
+}
+
+// getReadyHBNPod gets a ready HBN pod from the DPU cluster.
+func getReadyHBNPod(ctx context.Context, namespace string) *corev1.Pod {
+	hbnPods := netshoot.GetReadyPodsMatchingLabels(
+		ctx, dpuClusterClient[0], namespace,
+		map[string]string{"svc.dpu.nvidia.com/service": "doca-hbn"}, 2,
+	)
+	return hbnPods[0]
+}
+
+// waitForHBNRepresentorDependency gets the uplink dependency from the ready SFC controller pod on nodeName.
+func waitForHBNRepresentorDependency(ctx context.Context, namespace, nodeName, uplink string) string {
+	readySFCControllerPods := netshoot.GetReadyPodsMatchingLabels(
+		ctx, dpuClusterClient[0], namespace,
+		map[string]string{"name": "sfc-controller-node"}, 2,
+	)
+	sfcControllerPod := netshoot.GetPodOnNode(readySFCControllerPods, nodeName)
+	Expect(sfcControllerPod).ToNot(BeNil(), "no ready SFC controller pod found on DPU node %s", nodeName)
+
+	var hbnRepresentor string
+	Eventually(func(g Gomega) {
+		output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0],
+			sfcControllerPod.Namespace, sfcControllerPod.Name,
+			[]string{"ovs-vsctl", "--data=bare", "--no-heading", "--if-exists", "get", "Interface", uplink, "external_ids:dependencies"})
+		g.Expect(err).NotTo(HaveOccurred(), "failed to read dependency for uplink %s on DPU node %s: %s", uplink, nodeName, output)
+		dependency := strings.TrimSpace(output)
+		g.Expect(dependency).ToNot(Or(BeEmpty(), Equal("[]")),
+			"uplink %s on DPU node %s has no external_ids:dependencies value", uplink, nodeName)
+		if err != nil || dependency == "" || dependency == "[]" {
+			return
+		}
+
+		hbnRepresentor = dependency
+	}).WithTimeout(2 * time.Minute).WithPolling(time.Second).Should(Succeed())
+	return hbnRepresentor
+}
+
+// createSFCNetutilsHostPod creates a privileged hostNetwork netutils pod on nodeName,
+// waits for it to be Ready and registers its deletion.
+func createSFCNetutilsHostPod(ctx context.Context, input *systemTestInput, podName, nodeName string) *corev1.Pod {
+	By(fmt.Sprintf("Creating netutils pod %s/%s on DPU node %s", input.namespace, podName, nodeName))
+	pod := netshoot.NewNetutilsHostPod(podName, input.namespace, nodeName, fmt.Sprintf("%s:%s", netutilsImage, tag)).
+		WithLabels(CleanupScope.It).
+		WithImagePullSecret(dpfPullSecretName).
+		WithSysMount().
+		WithTerminationGracePeriod(0).
+		Build()
+	pod = netshoot.CreateNetutilsHostPod(ctx, dpuClusterClient[0], pod)
+
+	DeferCleanup(func(ctx context.Context) {
+		netshoot.DeletePodBestEffort(ctx, dpuClusterClient[0], pod)
+	})
+
+	netshoot.WaitForNetutilsPodReady(ctx, dpuClusterClient[0], pod, 2*time.Minute)
+	return pod
+}
+
+// setDPUUplinkState sets the state of the DPU uplink interface from a hostNetwork pod
+func setDPUUplinkState(dpuHostPod *corev1.Pod, uplink, state string) {
+	Eventually(func(g Gomega) {
+		output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], dpuHostPod.Namespace, dpuHostPod.Name,
+			[]string{"ip", "link", "set", "dev", uplink, state})
+		g.Expect(err).ToNot(HaveOccurred(), "failed to set uplink %s %s from DPU host pod %s/%s: %s", uplink, state, dpuHostPod.Namespace, dpuHostPod.Name, output)
+	}).WithTimeout(3 * time.Minute).WithPolling(time.Second).Should(Succeed())
+}
+
+// assertInterfaceOperState asserts the operstate of the given interface in the given pod
+func assertInterfaceOperState(g Gomega, pod *corev1.Pod, interfaceName, expectedState string) {
+	output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name,
+		[]string{"cat", fmt.Sprintf("/sys/class/net/%s/operstate", interfaceName)})
+	g.Expect(err).NotTo(HaveOccurred(), "failed to read operstate for interface %s from pod %s/%s: %s", interfaceName, pod.Namespace, pod.Name, output)
+	g.Expect(strings.TrimSpace(output)).To(Equal(expectedState), "interface %s in pod %s/%s did not transition to operstate %s", interfaceName, pod.Namespace, pod.Name, expectedState)
 }
 
 func VerifyServiceMTUOnDPUPods(ctx context.Context, input *systemTestInput) {
