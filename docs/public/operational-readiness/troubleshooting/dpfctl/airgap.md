@@ -34,6 +34,12 @@ credentials, so a chart in a repository that requires them fails to download. Pu
 with such a chart out of `-f`, and list the images of that chart with `helm template` and your
 credentials. The commands do not connect to a cluster.
 
+Run `dpfctl airgap` with a `dpfctl` [installed on your machine](README.md#install), not in the
+operator pod. The operator image has no helm, so in the pod `dpfctl airgap` fails with
+`helm binary ... not found`, even when the helm path you pass exists on your machine. If you use
+the [shell alias](README.md#creating-a-shell-alias) that runs `dpfctl` in the pod, remove it first
+with `unalias dpfctl`.
+
 ## Where a copy goes
 
 `--layout` sets where below the mirror registry a copy goes.
