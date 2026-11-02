@@ -254,7 +254,7 @@ func (r *StaleObjectRemover) desiredNSIEntryPorts(ctx context.Context, nsi *dpus
 func (r *StaleObjectRemover) deleteOvsPorts(ctx context.Context, ports sets.Set[string]) error {
 	log := ctrllog.FromContext(ctx)
 	for ovsPortName := range ports {
-		if err := r.OVS.DelPort(ctx, SFCBridge, ovsPortName, nil); err != nil {
+		if err := r.OVS.DelPortByName(ctx, SFCBridge, ovsPortName, nil); err != nil {
 			return fmt.Errorf("failed to delete port: %s, with error: %w", ovsPortName, err)
 		}
 		log.Info(fmt.Sprintf("deleted OVS port with name: %s", ovsPortName))

@@ -328,7 +328,7 @@ func findInterface(ctx context.Context, ovs ovsutils.API, condition string) (str
 
 	// patch port should have two interfaces with the same dpf-id, other ports should have one interface
 	for i := range ifaces {
-		found, err := ovs.IsIfaceInBr(ctx, SFCBridge, ifaces[i].Name)
+		found, err := ovs.IsPortInBr(ctx, SFCBridge, ifaces[i].Name)
 		if err != nil {
 			return "", err
 		}
@@ -349,7 +349,7 @@ func findInterface(ctx context.Context, ovs ovsutils.API, condition string) (str
 	// naming is generated in the format: `p<interface_name>brsfc`
 	iface = &ifaces[0]
 	portName := "p" + iface.Name + "brsfc"
-	found, err := ovs.IsIfaceInBr(ctx, SFCBridge, portName)
+	found, err := ovs.IsPortInBr(ctx, SFCBridge, portName)
 	if err != nil {
 		return "", err
 	}

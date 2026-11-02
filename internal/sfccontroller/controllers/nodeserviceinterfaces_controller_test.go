@@ -234,7 +234,7 @@ var _ = Describe("node service interfaces controller", func() {
 			cleanupObjects = append(cleanupObjects, nsi)
 
 			ecpfManagerMock.EXPECT().GetRepresentorForPFServiceInterface(gomock.Any()).Return("pf0hpf", nil)
-			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), "pf0hpf", gomock.Any()).Return(nil)
+			ovsMock.EXPECT().DelPortByName(gomock.Any(), gomock.Any(), "pf0hpf", gomock.Any()).Return(nil)
 
 			_, err := nsir.Reconcile(ctx, reconcileReq(nsi))
 			Expect(err).To(Succeed())
@@ -272,7 +272,7 @@ var _ = Describe("node service interfaces controller", func() {
 			cleanupObjects = append(cleanupObjects, nsi)
 
 			ecpfManagerMock.EXPECT().GetRepresentorForPFServiceInterface(gomock.Any()).Return("pf0hpf", nil)
-			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), "pf0hpf", gomock.Any()).Return(errors.New("failed to delete port"))
+			ovsMock.EXPECT().DelPortByName(gomock.Any(), gomock.Any(), "pf0hpf", gomock.Any()).Return(errors.New("failed to delete port"))
 
 			result, err := nsir.Reconcile(ctx, reconcileReq(nsi))
 			Expect(err).To(Succeed())
@@ -340,7 +340,7 @@ var _ = Describe("node service interfaces controller", func() {
 
 		It("cleans up every entry and removes the finalizer", func() {
 			ecpfManagerMock.EXPECT().GetRepresentorForPFServiceInterface(gomock.Any()).Return("pf0hpf", nil)
-			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), "pf0hpf", gomock.Any()).Return(nil)
+			ovsMock.EXPECT().DelPortByName(gomock.Any(), gomock.Any(), "pf0hpf", gomock.Any()).Return(nil)
 
 			result, err := nsir.Reconcile(ctx, reconcileReq(deletedNSI))
 			Expect(err).To(Succeed())
@@ -349,7 +349,7 @@ var _ = Describe("node service interfaces controller", func() {
 
 		It("requeues with error if OVS cleanup fails", func() {
 			ecpfManagerMock.EXPECT().GetRepresentorForPFServiceInterface(gomock.Any()).Return("pf0hpf", nil)
-			ovsMock.EXPECT().DelPort(gomock.Any(), gomock.Any(), "pf0hpf", gomock.Any()).Return(errors.New("failed to delete port"))
+			ovsMock.EXPECT().DelPortByName(gomock.Any(), gomock.Any(), "pf0hpf", gomock.Any()).Return(errors.New("failed to delete port"))
 
 			result, err := nsir.Reconcile(ctx, reconcileReq(deletedNSI))
 			Expect(err).To(Succeed())
