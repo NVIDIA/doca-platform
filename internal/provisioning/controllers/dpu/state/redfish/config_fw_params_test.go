@@ -219,6 +219,46 @@ var _ = Describe("ConfigFWParameters", func() {
 			Expect(status.Phase).To(Equal(provisioningv1.DPUPrepareBFB))
 		})
 
+		It("allows a slow Arm boot beyond one minute without another reset", func() {
+			mockServer, dpu := prepareBF3Fixture()
+			defer mockServer.Stop()
+			mockServer.SetSystemPowerState("Paused")
+			restartedAt := metav1.NewTime(time.Now().Add(-190 * time.Second))
+			dpu.Status.Conditions = append(dpu.Status.Conditions, metav1.Condition{
+				Type:               provisioningv1.DPUCondFWArmRestarted.String(),
+				Status:             metav1.ConditionTrue,
+				Reason:             provisioningv1.DPUCondFWArmRestarted.String(),
+				LastTransitionTime: restartedAt,
+			})
+
+			status, err := ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfigFWParameters))
+			Expect(mockServer.GetLastResetType()).To(BeEmpty())
+			_, armCond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondFWArmRestarted.String())
+			Expect(armCond).NotTo(BeNil())
+			Expect(armCond.LastTransitionTime).To(Equal(restartedAt))
+			_, cond := cutil.GetDPUCondition(&status, provisioningv1.DPUCondFWConfigured.String())
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal("WaitingForDPUArmPowerOn"))
+
+			mockServer.SetSystemPowerState("On")
+			dpu.Status = status
+			status, err = ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUConfigFWParameters))
+			_, cond = cutil.GetDPUCondition(&status, provisioningv1.DPUCondFWConfigured.String())
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal(waitingForBMCRShimReason))
+
+			mockServer.SetBMCRShimEnabled(true)
+			dpu.Status = status
+			status, err = ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUPrepareBFB))
+			Expect(mockServer.GetLastResetType()).To(BeEmpty())
+		})
+
 		It("goes to DPUError when the Arm does not power on within the timeout", func() {
 			mockServer, dpu := prepareBF3Fixture()
 			defer mockServer.Stop()
