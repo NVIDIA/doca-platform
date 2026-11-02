@@ -86,8 +86,6 @@ const (
 	dpuEnabledLabelKey = "feature.node.kubernetes.io/dpu-enabled"
 	// dpuEnabledLabelValue is the label value indicating that a node has DPU enabled.
 	dpuEnabledLabelValue = "true"
-	// criticalDPUServiceLabel is the label used to identify critical DPU services.
-	criticalDPUServiceLabel = "svc.dpu.nvidia.com/critical"
 	// dpureadyControllerName is the name of the controller for the DPUReadyReconciler.
 	dpureadyControllerName = "dpureadycontroller"
 )
@@ -126,12 +124,23 @@ func (r *DPUReadyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		))).
 		Watches(&dpuservicev1.DPUServiceChain{}, handler.EnqueueRequestsFromMapFunc(r.sfcObjToDPUNodeReq), builder.WithPredicates(predicateutils.ReadyConditionChanged())).
 		Watches(&dpuservicev1.DPUServiceInterface{}, handler.EnqueueRequestsFromMapFunc(r.sfcObjToDPUNodeReq), builder.WithPredicates(predicateutils.ReadyConditionChanged())).
+		Watches(&dpuservicev1.DPUService{}, handler.EnqueueRequestsFromMapFunc(r.dpuServiceToDPUNodeReq), builder.WithPredicates(dpuServiceCriticalLabelChanged())).
 		Build(r)
 	if err != nil {
 		return err
 	}
 	r.controller = c
 	return nil
+}
+
+// dpuServiceToDPUNodeReq maps DPUService changes to reconcile requests for all DPUNodes. Critical labels change rarely,
+// so there is no need to narrow it down by the DPUService selectors.
+func (r *DPUReadyReconciler) dpuServiceToDPUNodeReq(ctx context.Context, obj client.Object) []reconcile.Request {
+	ctx = ctrllog.IntoContext(ctx, ctrl.LoggerFrom(ctx).WithValues(
+		"objectType", fmt.Sprintf("%T", obj),
+		"object", client.ObjectKeyFromObject(obj)),
+	)
+	return r.listAllDPUNodes(ctx)
 }
 
 // dpuToDPUNodeReq maps DPU changes to DPUNode reconcile requests
@@ -553,7 +562,7 @@ func (r *DPUReadyReconciler) patchDPUNodeMaintenanceObjects(
 func (r *DPUReadyReconciler) getCriticalDPUServiceList(dpuServiceList *dpuservicev1.DPUServiceList) *dpuservicev1.DPUServiceList {
 	criticalDPUServices := &dpuservicev1.DPUServiceList{}
 	for _, dpuService := range dpuServiceList.Items {
-		if _, ok := dpuService.Labels[criticalDPUServiceLabel]; ok {
+		if _, ok := dpuService.Labels[dpuservicev1.DPUServiceCriticalLabelKey]; ok {
 			criticalDPUServices.Items = append(criticalDPUServices.Items, dpuService)
 		}
 	}

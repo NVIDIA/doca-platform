@@ -104,6 +104,12 @@ type DPUServiceTemplateSpec struct {
 	// that need privileged containers (e.g. for direct hardware access).
 	// +optional
 	Security *DPUServiceSecurity `json:"security,omitempty"`
+	// Metadata contains labels and annotations which are added to the
+	// generated DPUService. These are merged with the metadata specified in
+	// the DPUServiceConfiguration. In case of conflict, the
+	// DPUServiceConfiguration values take precedence.
+	// +optional
+	Metadata *ServiceMetadata `json:"metadata,omitempty"`
 }
 
 // DPUServiceTemplateStatus defines the observed state of DPUServiceTemplate

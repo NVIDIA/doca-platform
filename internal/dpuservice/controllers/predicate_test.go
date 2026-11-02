@@ -1249,3 +1249,45 @@ var _ = Describe("newNodeConditionPredicate", func() {
 		})
 	})
 })
+
+var _ = Describe("dpuServiceCriticalLabelChanged", func() {
+	newDPUService := func(labels map[string]string) *dpuservicev1.DPUService {
+		return &dpuservicev1.DPUService{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "svc",
+				Namespace: "default",
+				Labels:    labels,
+			},
+		}
+	}
+	critical := map[string]string{dpuservicev1.DPUServiceCriticalLabelKey: ""}
+	other := map[string]string{"team": "networking"}
+
+	DescribeTable("Create", func(labels map[string]string, want bool) {
+		Expect(dpuServiceCriticalLabelChanged().Create(event.CreateEvent{Object: newDPUService(labels)})).To(Equal(want))
+	},
+		Entry("critical", critical, true),
+		Entry("not critical", other, false),
+		Entry("no labels", nil, false),
+	)
+	DescribeTable("Delete", func(labels map[string]string, want bool) {
+		Expect(dpuServiceCriticalLabelChanged().Delete(event.DeleteEvent{Object: newDPUService(labels)})).To(Equal(want))
+	},
+		Entry("critical", critical, true),
+		Entry("not critical", other, false),
+	)
+	DescribeTable("Update", func(oldLabels, newLabels map[string]string, want bool) {
+		e := event.UpdateEvent{ObjectOld: newDPUService(oldLabels), ObjectNew: newDPUService(newLabels)}
+		Expect(dpuServiceCriticalLabelChanged().Update(e)).To(Equal(want))
+	},
+		Entry("label added", other, map[string]string{"team": "networking", dpuservicev1.DPUServiceCriticalLabelKey: ""}, true),
+		Entry("label removed", critical, other, true),
+		Entry("label added to unlabelled", nil, critical, true),
+		Entry("label value changed", critical, map[string]string{dpuservicev1.DPUServiceCriticalLabelKey: "x"}, false),
+		Entry("critical unchanged, other label changed", critical, map[string]string{dpuservicev1.DPUServiceCriticalLabelKey: "", "team": "x"}, false),
+		Entry("not critical before and after", other, nil, false),
+	)
+	It("ignores generic events", func() {
+		Expect(dpuServiceCriticalLabelChanged().Generic(event.GenericEvent{Object: newDPUService(critical)})).To(BeFalse())
+	})
+})

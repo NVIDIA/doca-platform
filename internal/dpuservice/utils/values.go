@@ -19,6 +19,7 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 
@@ -50,4 +51,20 @@ func MergeServiceTemplateAndConfigurationValues(serviceTemplate *dpuservicev1.DP
 		return nil, fmt.Errorf("error while marshaling merged ServiceTemplate and ServiceConfig values: %w", err)
 	}
 	return &runtime.RawExtension{Raw: mergedValuesRaw}, nil
+}
+
+// MergeServiceTemplateAndConfigurationMetadata returns the labels and annotations of the DPUService a
+// DPUDeployment generates from a DPUServiceTemplate and a DPUServiceConfiguration: the configuration
+// metadata merged over the template metadata. The returned maps are never nil.
+func MergeServiceTemplateAndConfigurationMetadata(serviceTemplate *dpuservicev1.DPUServiceTemplate, serviceConfig *dpuservicev1.DPUServiceConfiguration) (labels, annotations map[string]string) {
+	labels = map[string]string{}
+	annotations = map[string]string{}
+	for _, metadata := range []*dpuservicev1.ServiceMetadata{serviceTemplate.Spec.Metadata, serviceConfig.Spec.ServiceConfiguration.Metadata} {
+		if metadata == nil {
+			continue
+		}
+		maps.Copy(labels, metadata.Labels)
+		maps.Copy(annotations, metadata.Annotations)
+	}
+	return labels, annotations
 }

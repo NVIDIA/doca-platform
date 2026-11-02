@@ -429,6 +429,68 @@ var _ = Describe("API Validations for DPUDeployment related objects", func() {
 			Entry("valid config - with deployInCluster=true and without ConfigPorts", ptr.To(true), false, false),
 			Entry("invalid config - with deployInCluster=true and with ConfigPorts", ptr.To(true), true, true),
 		)
+		DescribeTable("Validates the restricted label/annotation in metadata", func(labels map[string]string, annotations map[string]string, expectedError string) {
+			dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)
+			dpuServiceConfiguration.Spec.ServiceConfiguration.Metadata = &dpuservicev1.ServiceMetadata{
+				Labels:      labels,
+				Annotations: annotations,
+			}
+			err := testClient.Create(ctx, dpuServiceConfiguration)
+			if expectedError != "" {
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(expectedError))
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		},
+			Entry("no labels no annotations", nil, nil, ""),
+			Entry("good labels good annotations", map[string]string{"l1": "v1"}, map[string]string{"example.com/a1": "v1"}, ""),
+			Entry("critical label", map[string]string{dpuservicev1.DPUServiceCriticalLabelKey: ""}, nil, ""),
+			Entry("bad labels - contains dpu.nvidia.com/", map[string]string{"svc.dpu.nvidia.com/owned-by-dpudeployment": "x"}, nil, "labels should not contain dpu.nvidia.com/"),
+			Entry("bad labels - ends with dpu.nvidia.com", map[string]string{"dpu.nvidia.com": "x"}, nil, "labels should not contain dpu.nvidia.com/"),
+			Entry("bad annotations - critical is only an exception for labels", nil, map[string]string{dpuservicev1.DPUServiceCriticalLabelKey: ""}, "annotations should not contain dpu.nvidia.com/"),
+			Entry("bad annotations - contains dpu.nvidia.com/", nil, map[string]string{"svc.dpu.nvidia.com/dpuservice-version": "x"}, "annotations should not contain dpu.nvidia.com/"),
+			Entry("bad annotations - ends with dpu.nvidia.com", nil, map[string]string{"dpu.nvidia.com": "x"}, "annotations should not contain dpu.nvidia.com/"),
+		)
+		DescribeTable("Validates the critical label and deployInCluster correctly", func(deployInCluster *bool, labels map[string]string, expectError bool) {
+			dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)
+			dpuServiceConfiguration.Spec.Interfaces = nil
+			dpuServiceConfiguration.Spec.ServiceConfiguration.DeployInCluster = deployInCluster
+			dpuServiceConfiguration.Spec.ServiceConfiguration.Metadata = &dpuservicev1.ServiceMetadata{Labels: labels}
+
+			err := testClient.Create(ctx, dpuServiceConfiguration)
+			if expectError {
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("the svc.dpu.nvidia.com/critical label cannot be set when deployInCluster is true"))
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		},
+			Entry("valid config - without deployInCluster and with critical label", nil, map[string]string{dpuservicev1.DPUServiceCriticalLabelKey: ""}, false),
+			Entry("valid config - with deployInCluster=false and with critical label", ptr.To(false), map[string]string{dpuservicev1.DPUServiceCriticalLabelKey: ""}, false),
+			Entry("valid config - with deployInCluster=true and without labels", ptr.To(true), nil, false),
+			Entry("valid config - with deployInCluster=true and other labels", ptr.To(true), map[string]string{"team": "networking"}, false),
+			Entry("invalid config - with deployInCluster=true and with critical label", ptr.To(true), map[string]string{dpuservicev1.DPUServiceCriticalLabelKey: ""}, true),
+		)
+		DescribeTable("Validates the restricted label/annotation in the DPUServiceTemplate metadata", func(labels map[string]string, annotations map[string]string, expectedError string) {
+			dpuServiceTemplate := getMinimalDPUServiceTemplate(testNS.Name)
+			dpuServiceTemplate.Spec.Metadata = &dpuservicev1.ServiceMetadata{
+				Labels:      labels,
+				Annotations: annotations,
+			}
+			err := testClient.Create(ctx, dpuServiceTemplate)
+			if expectedError != "" {
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(expectedError))
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		},
+			Entry("good labels good annotations", map[string]string{"l1": "v1"}, map[string]string{"example.com/a1": "v1"}, ""),
+			Entry("critical label", map[string]string{dpuservicev1.DPUServiceCriticalLabelKey: ""}, nil, ""),
+			Entry("bad labels - contains dpu.nvidia.com/", map[string]string{"svc.dpu.nvidia.com/owned-by-dpudeployment": "x"}, nil, "labels should not contain dpu.nvidia.com/"),
+			Entry("bad annotations - contains dpu.nvidia.com/", nil, map[string]string{"svc.dpu.nvidia.com/dpuservice-version": "x"}, "annotations should not contain dpu.nvidia.com/"),
+		)
 		DescribeTable("Validates the restricted label/annotation in serviceDaemonSet", func(labels map[string]string, annotations map[string]string, expectError bool) {
 			dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)
 			dpuServiceConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet = &dpuservicev1.DPUServiceConfigurationServiceDaemonSetValues{
@@ -835,6 +897,25 @@ func getMinimalDPUService(namespace string) *dpuservicev1.DPUService {
 				},
 			},
 			Security: &dpuservicev1.DPUServiceSecurity{Privileged: ptr.To(false)},
+		},
+	}
+}
+
+func getMinimalDPUServiceTemplate(namespace string) *dpuservicev1.DPUServiceTemplate {
+	return &dpuservicev1.DPUServiceTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sometemplate",
+			Namespace: namespace,
+		},
+		Spec: dpuservicev1.DPUServiceTemplateSpec{
+			DeploymentServiceName: "someservice",
+			HelmChart: dpuservicev1.HelmChart{
+				Source: dpuservicev1.ApplicationSource{
+					RepoURL: "oci://example.com",
+					Path:    "chart",
+					Version: "v1.0.0",
+				},
+			},
 		},
 	}
 }

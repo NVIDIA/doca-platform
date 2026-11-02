@@ -314,16 +314,42 @@ In DPF architecture, host worker nodes and DPUs run in separate Kubernetes clust
 To enforce this, DPF introduces a mechanism that taints the host node when a critical DPUService is not running.
 
 ### How to Mark a DPUService as Critical
-To mark a DPUService as critical, add the following label:
-`svc.dpu.nvidia.com/critical: ""`
+A DPUService is critical when it carries the label `svc.dpu.nvidia.com/critical`. Only the presence of the label key is evaluated, the value is ignored.
 
-Example:
+Only DPUServices deployed on the DPU are taken into account. The label has no effect on a DPUService with `spec.deployInCluster: true`.
+
+#### DPUServices created by a DPUDeployment
+Add the label to `serviceConfiguration.metadata.labels` of the DPUServiceConfiguration (or `metadata.labels` of the DPUServiceTemplate) used by the DPUDeployment. The DPUDeployment controller adds these labels to the DPUService it generates:
+
+```yaml
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: sriov-device-plugin
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: sriov-device-plugin
+  serviceConfiguration:
+    metadata:
+      labels:
+        svc.dpu.nvidia.com/critical: ""
+```
+
+* Removing the label from `serviceConfiguration.metadata.labels` removes it from the DPUService.
+* The label is rejected when `deployInCluster` is `true`.
+* Changing `serviceConfiguration.metadata` updates the labels and annotations of the existing DPUService in place. It does not create a new DPUService revision and does not restart pods.
+* Do not use `kubectl label` on a DPUService created by a DPUDeployment. The DPUDeployment controller does not remove a label it did not set, and a new DPUService revision is created without it.
+* Do not set the label with `serviceDaemonSet.labels`. Labels containing `dpu.nvidia.com/` are rejected there and they would apply to the pods, not to the DPUService.
+
+#### Standalone DPUServices
+Add the label to the DPUService:
+
 `kubectl label dpuservice sriov-device-plugin svc.dpu.nvidia.com/critical="" -n dpf-operator-system`
 
 To remove the critical label, use:
 `kubectl label dpuservice sriov-device-plugin svc.dpu.nvidia.com/critical- -n dpf-operator-system`
 
-### Example Manifest Snippet
+Example manifest snippet:
 
 ```yaml
 apiVersion: svc.dpu.nvidia.com/v1alpha1
@@ -378,6 +404,7 @@ I0619 09:46:01.170252 dpuready_controller.go:216] Removing taint from node Node=
 | Item | Description |
 |------|-------------|
 | Label key | `svc.dpu.nvidia.com/critical` |
+| DPUServiceConfiguration field | `DPUServiceConfiguration.spec.serviceConfiguration.metadata.labels` |
 | Taint key | `dpu.nvidia.com/dpu-ready` |
 | Taint effect | `NoSchedule` |
 | Taint behavior | Applied if a critical DPUService pod is not running on the DPU |
@@ -465,7 +492,7 @@ effects and are controlled independently:
 
 | Feature | Taint effect | Trigger | Enablement |
 |---------|--------------|---------|------------|
-| Critical DPUService readiness | `NoSchedule` | Critical DPUService pod not running on the DPU | Label DPUService with `svc.dpu.nvidia.com/critical` |
+| Critical DPUService readiness | `NoSchedule` | Critical DPUService pod not running on the DPU | Label DPUService with `svc.dpu.nvidia.com/critical`, or add it to `serviceConfiguration.metadata.labels` in the DPUServiceConfiguration |
 | Host network readiness | `NoExecute` | DPU in Phase `Ready` with `HostNetworkReady != True` | Set `disableHostNetworkReadyNoExecuteTaints: false` in `DPFOperatorConfig` |
 
 Because the taint key is shared, a host node can carry both effects at the same time.

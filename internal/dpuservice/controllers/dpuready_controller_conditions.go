@@ -391,7 +391,7 @@ func (r *DPUReadyReconciler) aggregateDPUServicePodsConditions(ctx context.Conte
 	for i := range dpuServiceList.Items {
 		dpuService := &dpuServiceList.Items[i]
 		if dpuService.Spec.ServiceID != nil {
-			_, isCritical := dpuService.Labels[criticalDPUServiceLabel]
+			_, isCritical := dpuService.Labels[dpuservicev1.DPUServiceCriticalLabelKey]
 			serviceIDCriticalityMap[*dpuService.Spec.ServiceID] = isCritical
 		}
 	}
@@ -442,7 +442,7 @@ func (r *DPUReadyReconciler) aggregateDPUServicePodsConditions(ctx context.Conte
 	var criticalServicesWithoutPod []string
 	for i := range dpuServiceList.Items {
 		dpuService := &dpuServiceList.Items[i]
-		if _, isCritical := dpuService.Labels[criticalDPUServiceLabel]; !isCritical {
+		if _, isCritical := dpuService.Labels[dpuservicev1.DPUServiceCriticalLabelKey]; !isCritical {
 			continue
 		}
 		// Same match as getServicesStatusPerDPU. An empty Status.ServiceID matches no pod, so a service

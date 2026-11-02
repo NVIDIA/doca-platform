@@ -721,6 +721,187 @@ var _ = Describe("DPUDeployment Controller", func() {
 				Expect(got.Spec.Security).To(BeNil())
 			})
 		})
+		Context("generateDPUService metadata", func() {
+			var (
+				dpuDeployment = types.NamespacedName{Name: "deployment", Namespace: "ns"}
+				owner         = &metav1.OwnerReference{Name: "deployment"}
+				systemLabels  = map[string]string{
+					dpuservicev1.ParentDPUDeploymentNameLabel:            "ns_deployment",
+					dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: "svc",
+				}
+				systemAnnotations = map[string]string{
+					dpuServiceVersionAnnotationKey: "digest",
+				}
+			)
+			DescribeTable("merges the template and configuration metadata", func(templateMetadata, configMetadata *dpuservicev1.ServiceMetadata, wantLabels, wantAnnotations map[string]string) {
+				cfg := &dpuservicev1.DPUServiceConfiguration{
+					Spec: dpuservicev1.DPUServiceConfigurationSpec{
+						ServiceConfiguration: dpuservicev1.ServiceConfiguration{
+							Metadata: configMetadata,
+						},
+					},
+				}
+				tpl := &dpuservicev1.DPUServiceTemplate{
+					Spec: dpuservicev1.DPUServiceTemplateSpec{
+						Metadata: templateMetadata,
+					},
+				}
+				originalCfg := cfg.DeepCopy()
+				originalTpl := tpl.DeepCopy()
+
+				got, err := generateDPUService(dpuDeployment, owner, "svc", cfg, tpl, nil, "digest", nil)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(got.Labels).To(Equal(wantLabels))
+				Expect(got.Annotations).To(Equal(wantAnnotations))
+				Expect(got.OwnerReferences).To(ConsistOf(*owner))
+				Expect(cfg).To(Equal(originalCfg), "the DPUServiceConfiguration must not be modified")
+				Expect(tpl).To(Equal(originalTpl), "the DPUServiceTemplate must not be modified")
+			},
+				Entry("no metadata", nil, nil, systemLabels, systemAnnotations),
+				Entry("configuration metadata is added",
+					nil,
+					&dpuservicev1.ServiceMetadata{
+						Labels:      map[string]string{"team": "networking", dpuservicev1.DPUServiceCriticalLabelKey: ""},
+						Annotations: map[string]string{"example.com/owner": "net-oncall"},
+					},
+					map[string]string{
+						dpuservicev1.ParentDPUDeploymentNameLabel:            "ns_deployment",
+						dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: "svc",
+						"team":                                  "networking",
+						dpuservicev1.DPUServiceCriticalLabelKey: "",
+					},
+					map[string]string{
+						dpuServiceVersionAnnotationKey: "digest",
+						"example.com/owner":            "net-oncall",
+					},
+				),
+				Entry("template metadata is added",
+					&dpuservicev1.ServiceMetadata{
+						Labels:      map[string]string{"team": "networking"},
+						Annotations: map[string]string{"example.com/owner": "net-oncall"},
+					},
+					nil,
+					map[string]string{
+						dpuservicev1.ParentDPUDeploymentNameLabel:            "ns_deployment",
+						dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: "svc",
+						"team": "networking",
+					},
+					map[string]string{
+						dpuServiceVersionAnnotationKey: "digest",
+						"example.com/owner":            "net-oncall",
+					},
+				),
+				Entry("configuration metadata takes precedence over template metadata",
+					&dpuservicev1.ServiceMetadata{
+						Labels:      map[string]string{"team": "template", "only-template": "a"},
+						Annotations: map[string]string{"example.com/owner": "template"},
+					},
+					&dpuservicev1.ServiceMetadata{
+						Labels:      map[string]string{"team": "configuration", "only-configuration": "b"},
+						Annotations: map[string]string{"example.com/owner": "configuration"},
+					},
+					map[string]string{
+						dpuservicev1.ParentDPUDeploymentNameLabel:            "ns_deployment",
+						dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: "svc",
+						"team":               "configuration",
+						"only-template":      "a",
+						"only-configuration": "b",
+					},
+					map[string]string{
+						dpuServiceVersionAnnotationKey: "digest",
+						"example.com/owner":            "configuration",
+					},
+				),
+				// The API rejects these keys, the controller must still win if they get through.
+				Entry("controller labels and annotations take precedence",
+					nil,
+					&dpuservicev1.ServiceMetadata{
+						Labels: map[string]string{
+							dpuservicev1.ParentDPUDeploymentNameLabel:            "other",
+							dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: "other",
+						},
+						Annotations: map[string]string{
+							dpuServiceVersionAnnotationKey: "other",
+						},
+					},
+					systemLabels,
+					systemAnnotations,
+				),
+			)
+		})
+		Context("calculateDPUServiceVersionDigest", func() {
+			var (
+				template *dpuservicev1.DPUServiceTemplate
+				metadata *dpuservicev1.ServiceMetadata
+			)
+			newConfig := func(metadata *dpuservicev1.ServiceMetadata) *dpuservicev1.DPUServiceConfiguration {
+				return &dpuservicev1.DPUServiceConfiguration{
+					Spec: dpuservicev1.DPUServiceConfigurationSpec{
+						DeploymentServiceName: "svc",
+						ServiceConfiguration: dpuservicev1.ServiceConfiguration{
+							HelmChart: dpuservicev1.ServiceConfigurationHelmChart{
+								Values: &runtime.RawExtension{Raw: []byte(`{"config":true}`)},
+							},
+							DeployInCluster: ptr.To(false),
+							Metadata:        metadata,
+						},
+						Interfaces:    []dpuservicev1.ServiceInterfaceTemplate{{Name: "net1", Network: "nad"}},
+						UpgradePolicy: dpuservicev1.UpgradePolicy{ApplyNodeEffect: ptr.To(true)},
+					},
+				}
+			}
+			BeforeEach(func() {
+				template = &dpuservicev1.DPUServiceTemplate{
+					Spec: dpuservicev1.DPUServiceTemplateSpec{
+						DeploymentServiceName: "svc",
+						HelmChart: dpuservicev1.HelmChart{
+							Source: dpuservicev1.ApplicationSource{
+								RepoURL: "https://example.com/charts",
+								Path:    "svc",
+								Version: "v0.0.1",
+							},
+							Values: &runtime.RawExtension{Raw: []byte(`{"template":true}`)},
+						},
+					},
+				}
+				metadata = &dpuservicev1.ServiceMetadata{
+					Labels:      map[string]string{dpuservicev1.DPUServiceCriticalLabelKey: ""},
+					Annotations: map[string]string{"example.com/owner": "net-oncall"},
+				}
+			})
+
+			It("keeps the digest of existing objects unchanged", func() {
+				// Computed with the implementation before metadata was added. A different value means every existing
+				// DPUService created by a DPUDeployment gets a new revision on upgrade, which recreates its pods.
+				Expect(calculateDPUServiceVersionDigest(newConfig(nil), template)).To(Equal("be7bc72956"))
+			})
+			It("does not change the digest when the configuration metadata changes", func() {
+				Expect(calculateDPUServiceVersionDigest(newConfig(metadata), template)).
+					To(Equal(calculateDPUServiceVersionDigest(newConfig(nil), template)))
+				Expect(calculateDPUServiceVersionDigest(newConfig(&dpuservicev1.ServiceMetadata{}), template)).
+					To(Equal(calculateDPUServiceVersionDigest(newConfig(nil), template)))
+			})
+			It("does not change the digest when the template metadata changes", func() {
+				want := calculateDPUServiceVersionDigest(newConfig(nil), template)
+				template.Spec.Metadata = metadata
+				Expect(calculateDPUServiceVersionDigest(newConfig(nil), template)).To(Equal(want))
+			})
+			It("does not modify the inputs", func() {
+				config := newConfig(metadata)
+				template.Spec.Metadata = metadata
+				originalConfig := config.DeepCopy()
+				originalTemplate := template.DeepCopy()
+				calculateDPUServiceVersionDigest(config, template)
+				Expect(config).To(Equal(originalConfig))
+				Expect(template).To(Equal(originalTemplate))
+			})
+			It("still changes the digest when other fields change", func() {
+				other := newConfig(nil)
+				other.Spec.ServiceConfiguration.DeployInCluster = ptr.To(true)
+				Expect(calculateDPUServiceVersionDigest(other, template)).
+					NotTo(Equal(calculateDPUServiceVersionDigest(newConfig(nil), template)))
+			})
+		})
 		Context("DPUService name matching", func() {
 			DescribeTable("Validate dpuService name matching", func(dpuServiceName, TargetName string, expected bool) {
 				Expect(matchDPUServiceName(dpuServiceName, TargetName)).To(Equal(expected))

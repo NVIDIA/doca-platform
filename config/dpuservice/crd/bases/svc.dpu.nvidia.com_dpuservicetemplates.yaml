@@ -103,6 +103,38 @@ spec:
                 required:
                 - source
                 type: object
+              metadata:
+                description: |-
+                  Metadata contains labels and annotations which are added to the
+                  generated DPUService. These are merged with the metadata specified in
+                  the DPUServiceConfiguration. In case of conflict, the
+                  DPUServiceConfiguration values take precedence.
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Annotations specifies annotations which are added to the generated
+                      DPUService.
+                    maxProperties: 50
+                    type: object
+                  labels:
+                    additionalProperties:
+                      type: string
+                    description: Labels specifies labels which are added to the generated
+                      DPUService.
+                    maxProperties: 50
+                    type: object
+                type: object
+                x-kubernetes-validations:
+                - message: labels should not contain dpu.nvidia.com/ and should not
+                    end with dpu.nvidia.com, except for svc.dpu.nvidia.com/critical
+                  rule: '!(has(self.labels) && self.labels.exists(key, (key.contains(''dpu.nvidia.com/'')
+                    || key.endsWith(''dpu.nvidia.com'')) && key != ''svc.dpu.nvidia.com/critical''))'
+                - message: annotations should not contain dpu.nvidia.com/ and should
+                    not end with dpu.nvidia.com
+                  rule: '!(has(self.annotations) && self.annotations.exists(key, key.contains(''dpu.nvidia.com/'')
+                    || key.endsWith(''dpu.nvidia.com'')))'
               resourceRequirements:
                 additionalProperties:
                   anyOf:

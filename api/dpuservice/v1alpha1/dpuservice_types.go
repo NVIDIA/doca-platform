@@ -50,6 +50,10 @@ const (
 	// DPFServiceIDLabelKey is a label of DPU Service pods with a value of
 	// service identifier.
 	DPFServiceIDLabelKey = "svc.dpu.nvidia.com/service"
+	// DPUServiceCriticalLabelKey is the label key that marks a DPUService as
+	// critical. Only the presence of the key is evaluated, the value is
+	// ignored.
+	DPUServiceCriticalLabelKey = "svc.dpu.nvidia.com/critical"
 	// DPUServiceExposedPortForDPUClusterLabelKey is the label key that is used
 	// to store the exposed port of the DPUService.
 	DPUServiceExposedPortForDPUClusterLabelKey = "dpu.nvidia.com/exposed-port-for-dpucluster"
