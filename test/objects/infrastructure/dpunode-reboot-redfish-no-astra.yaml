@@ -1,0 +1,120 @@
+# Summary:
+# This ConfigMap enables in-cluster DPU node reboots for Zero-Trust E2E tests using Redfish BMC commands.
+# - Applies to DPUNodes labeled with their host's BMC IP. BMC credentials are
+#   sourced at pod runtime from the `dpunode-reboot-bmc-credentials` Secret
+#   (created by the e2e suite from $E2E_ZT_BMC_USERNAME / $E2E_ZT_BMC_PASSWORD);
+#   credentials never live in this ConfigMap.
+# - Container runs on control-plane nodes; only network reachability to BMC needed.
+# - For hosts without Astra, where a host warm reboot after the Arm shutdown is a supported
+#   BlueField system-level reset. Executes the host operation named by $DPUNODE_REBOOT_METHOD
+#   (see docs/public/developer-guides/api/dpunode.md "Aggregated reboot method"):
+#   - PowerCycle: hard power cycle (ForceOff → On, retried until PowerState=On);
+#   - SystemLevelReset: host warm reboot (GracefulRestart);
+#   - any other value (including unset): exit 1 to surface the controller bug.
+# - Discovers the Redfish System path at runtime, vendor-agnostic.
+# - After reset, script sleeps 300 seconds before exit to allow host reboot and log/troubleshooting visibility.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dpunode-reboot-redfish
+  namespace: dpf-operator-system
+data:
+  pod-template: |-
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: reboot
+          image: curlimages/curl:8.10.1
+          env:
+            - name: BMC_USER
+              valueFrom:
+                secretKeyRef:
+                  name: dpunode-reboot-bmc-credentials
+                  key: BMC_USERNAME
+            - name: BMC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dpunode-reboot-bmc-credentials
+                  key: BMC_PASSWORD
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -euo pipefail
+
+              METHOD="${DPUNODE_REBOOT_METHOD:-}"
+              case "$METHOD" in
+                PowerCycle)
+                  STYLE=hard
+                  ;;
+                SystemLevelReset)
+                  STYLE=soft
+                  ;;
+                *)
+                  echo "FATAL: unexpected DPUNODE_REBOOT_METHOD='$METHOD' (expected PowerCycle or SystemLevelReset)" >&2
+                  exit 1
+                  ;;
+              esac
+
+              BMC_IP=$(grep -E '^host-bmc-ip=' /etc/dpf-pod-info/labels \
+                       | head -n1 | cut -d= -f2- | tr -d '"')
+              : "${BMC_IP:?label host-bmc-ip missing on DPUNode}"
+              : "${BMC_USER:?BMC_USER not set; CI must export E2E_ZT_BMC_USERNAME}"
+              : "${BMC_PASSWORD:?BMC_PASSWORD not set; CI must export E2E_ZT_BMC_PASSWORD}"
+
+              BASE="https://${BMC_IP}/redfish/v1"
+              CURL='curl -fsS -k --connect-timeout 10 --max-time 30 -u '"$BMC_USER:$BMC_PASSWORD"
+
+              echo "DPUNode=${DPUNODE_NAME:-?}  method=$METHOD  style=$STYLE  bmc=$BMC_IP"
+
+              # Vendor-agnostic discovery: pick the first member of the
+              # Systems collection. Avoids hardcoding vendor-specific IDs
+              # like `1`, `Self`, `System.Embedded.1`, `system`, ...
+              # The pattern requires a path segment under /Systems/ to
+              # skip the collection's own @odata.id (which is just
+              # /redfish/v1/Systems and would 405 on Reset).
+              SYS_PATH=$($CURL "$BASE/Systems" \
+                         | grep -oE '"@odata.id"[ ]*:[ ]*"/redfish/v1/Systems/[^"]+"' \
+                         | head -n1 | cut -d'"' -f4)
+              : "${SYS_PATH:?could not resolve Members[0].@odata.id from $BASE/Systems}"
+              SYS_URL="https://${BMC_IP}${SYS_PATH}"
+              RESET_URL="${SYS_URL}/Actions/ComputerSystem.Reset"
+              echo "Resolved Redfish System: $SYS_PATH"
+
+              redfish_reset() {
+                reset_type="$1"
+                echo "POST $RESET_URL ResetType=$reset_type"
+                # No curl -f (it hides the body): send the response body straight to stderr and capture the status code.
+                code=$(curl -sS -k --connect-timeout 10 --max-time 30 \
+                            -u "$BMC_USER:$BMC_PASSWORD" \
+                            -X POST -H 'Content-Type: application/json' \
+                            -d "{\"ResetType\": \"$reset_type\"}" \
+                            -o /dev/stderr -w '%{http_code}' "$RESET_URL") || code=000
+                echo "ResetType=$reset_type -> HTTP $code"
+                case "$code" in 2*) return 0 ;; *) return 1 ;; esac
+              }
+
+              if [ "$STYLE" = "soft" ]; then
+                redfish_reset GracefulRestart
+              else
+                redfish_reset ForceOff
+                # BMCs may ack On (2xx) yet ignore it while settling from ForceOff,
+                # so keep sending On until the BMC reports PowerState=On.
+                for attempt in $(seq 1 10); do
+                  sleep 30
+                  redfish_reset On || true
+                  sleep 30
+                  $CURL "$SYS_URL" | grep -E '"PowerState"[ ]*:[ ]*"On"' >/dev/null && break
+                  [ "$attempt" = 10 ] && { echo "Host still not On; manual BMC intervention needed." >&2; exit 1; }
+                done
+              fi
+
+              echo "Reset issued; sleeping 300s before exiting for graceful bringup."
+              sleep 300
+              echo "Done."
