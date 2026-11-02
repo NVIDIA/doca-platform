@@ -22,11 +22,13 @@ import (
 	"maps"
 	"slices"
 
+	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/utils"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -35,6 +37,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+// nodeAgentFinalizers are the finalizers that the per-node sfc-controller sets on the objects of its node.
+var nodeAgentFinalizers = []string{
+	dpuservicev1.SvcDpuGroupName + "/ServiceChain-finalizer",
+	dpuservicev1.SvcDpuGroupName + "/ServiceInterface-finalizer",
+}
 
 type serviceSetReconciler interface {
 	// getObjectsInDPUCluster is the method called by the reconcileReadinessOfObjectsInDPUCluster function which deletes
@@ -89,8 +97,8 @@ func reconcileSet(
 
 	// delete Child if node does not exist
 	for nodeName, child := range childMap {
-		if err := k8sClient.Delete(ctx, child); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to delete child : %w", err)
+		if err := deleteChild(ctx, k8sClient, child, nodeName); err != nil {
+			return ctrl.Result{}, err
 		}
 		log.Info("Child is deleted", "nodename", nodeName, "child", child)
 	}
@@ -110,12 +118,62 @@ func deleteSet(ctx context.Context, set client.Object, k8sClient client.Client,
 
 	// delete Child if node does not exist
 	for nodeName, child := range childMap {
-		if err := k8sClient.Delete(ctx, child); err != nil {
-			return fmt.Errorf("failed to delete child : %w", err)
+		if err := deleteChild(ctx, k8sClient, child, nodeName); err != nil {
+			return err
 		}
 		log.Info("Child is deleted", "nodename", nodeName, "child", child)
 	}
 
+	return nil
+}
+
+// deleteChild deletes a child of a set. If its node is gone, the sfc-controller that would remove the child's
+// finalizers is gone too, so they are released after triggering the deletion, to avoid being stuck in AwaitingDeletion.
+func deleteChild(ctx context.Context, k8sClient client.Client, child client.Object, nodeName string) error {
+	if child.GetDeletionTimestamp().IsZero() {
+		if err := client.IgnoreNotFound(k8sClient.Delete(ctx, child)); err != nil {
+			return fmt.Errorf("failed to delete child : %w", err)
+		}
+	}
+	gone, err := isNodeGone(ctx, k8sClient, nodeName)
+	if err != nil || !gone {
+		return err
+	}
+	// Re-read the child: the deletion changed it, which would fail the optimistic lock on a stale copy.
+	latest := child.DeepCopyObject().(client.Object)
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(child), latest); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	return releaseFinalizers(ctx, k8sClient, latest, nodeAgentFinalizers...)
+}
+
+// isNodeGone returns true if the Node doesn't exist in the DPU cluster.
+func isNodeGone(ctx context.Context, k8sClient client.Client, nodeName string) (bool, error) {
+	err := k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &corev1.Node{})
+	switch {
+	case err == nil:
+		return false, nil
+	case apierrors.IsNotFound(err):
+		return true, nil
+	default:
+		return false, fmt.Errorf("failed to get Node %s: %w", nodeName, err)
+	}
+}
+
+// releaseFinalizers removes the given finalizers from the object. The patch fails with a conflict if the object
+// changed since it was read, so a finalizer added in the meantime is not dropped.
+func releaseFinalizers(ctx context.Context, k8sClient client.Client, obj client.Object, finalizers ...string) error {
+	original := obj.DeepCopyObject().(client.Object)
+	changed := false
+	for _, finalizer := range finalizers {
+		changed = controllerutil.RemoveFinalizer(obj, finalizer) || changed
+	}
+	if !changed {
+		return nil
+	}
+	if err := k8sClient.Patch(ctx, obj, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("failed to release finalizers of %T %s: %w", obj, client.ObjectKeyFromObject(obj), err)
+	}
 	return nil
 }
 

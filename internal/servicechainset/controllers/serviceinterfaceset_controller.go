@@ -353,7 +353,7 @@ func (r *ServiceInterfaceSetReconciler) deleteLegacyChildrenWithReadyEntries(ctx
 				unready = append(unready, fmt.Sprintf("%s/%s/%s", nsiName(nodeName, nsiType), nodeName, entryName))
 				continue
 			}
-			if err := r.Client.Delete(ctx, child); err != nil && !apierrors.IsNotFound(err) {
+			if err := deleteChild(ctx, r.Client, child, nodeName); err != nil {
 				errs = append(errs, fmt.Errorf("delete orphaned legacy ServiceInterface for node %s: %w", nodeName, err))
 			}
 			continue
@@ -363,7 +363,7 @@ func (r *ServiceInterfaceSetReconciler) deleteLegacyChildrenWithReadyEntries(ctx
 			unready = append(unready, fmt.Sprintf("%s/%s/%s", owned.NSI.Name, nodeName, owned.Entry.Name))
 			continue
 		}
-		if err := r.Client.Delete(ctx, child); err != nil && !apierrors.IsNotFound(err) {
+		if err := deleteChild(ctx, r.Client, child, nodeName); err != nil {
 			errs = append(errs, fmt.Errorf("delete legacy ServiceInterface for node %s: %w", nodeName, err))
 		}
 	}
@@ -596,30 +596,20 @@ func (r *ServiceInterfaceSetReconciler) reconcileNSI(ctx context.Context, set *d
 	}
 
 	for _, owned := range staleByNode {
-		if !owned.Entry.Terminating {
-			if err := r.markEntryTerminating(ctx, set, owned.NSI); err != nil {
-				return fmt.Errorf("mark NSI entry terminating on node %s: %w", owned.NSI.Spec.Node, err)
-			}
-			continue
-		}
-		if !owned.NSI.IsEntryResourceReleased(&owned.Entry) {
-			continue
-		}
-		updatedNSI, err := r.removeEntryFromNSI(ctx, set, owned.NSI)
-		if err != nil {
-			return fmt.Errorf("remove NSI entry on node %s: %w", owned.NSI.Spec.Node, err)
-		}
-		if err := r.deleteNSIIfEmpty(ctx, updatedNSI); err != nil {
+		if _, err := r.drainNSIEntry(ctx, set, owned); err != nil {
 			return err
 		}
 	}
 
-	return nil
+	return r.deleteEmptyNSIs(ctx)
 }
 
 // reconcileDeleteNSI handles the NSI path when the ServiceInterfaceSet is being deleted.
 // Returns the count of entries still waiting for resource release.
 func (r *ServiceInterfaceSetReconciler) reconcileDeleteNSI(ctx context.Context, set *dpuservicev1.ServiceInterfaceSet) (int, error) {
+	if err := deleteSet(ctx, set, r.Client, r); err != nil {
+		return 0, fmt.Errorf("delete legacy ServiceInterface children: %w", err)
+	}
 	ownedEntries, err := r.listNSIEntriesForServiceInterfaceSet(ctx, set)
 	if err != nil {
 		return 0, fmt.Errorf("list owned NSI entries: %w", err)
@@ -627,30 +617,49 @@ func (r *ServiceInterfaceSetReconciler) reconcileDeleteNSI(ctx context.Context, 
 
 	waiting := 0
 	for _, owned := range ownedEntries {
-		if !owned.Entry.Terminating {
-			if err := r.markEntryTerminating(ctx, set, owned.NSI); err != nil {
-				return 0, fmt.Errorf("mark entry terminating: %w", err)
-			}
-			waiting++
-			continue
-		}
-		if !owned.NSI.IsEntryResourceReleased(&owned.Entry) {
-			waiting++
-			continue
-		}
-		updatedNSI, err := r.removeEntryFromNSI(ctx, set, owned.NSI)
+		stillWaiting, err := r.drainNSIEntry(ctx, set, owned)
 		if err != nil {
-			return 0, fmt.Errorf("remove NSI entry: %w", err)
-		}
-		if err := r.deleteNSIIfEmpty(ctx, updatedNSI); err != nil {
 			return 0, err
 		}
+		if stillWaiting {
+			waiting++
+		}
+	}
+
+	if err := r.deleteEmptyNSIs(ctx); err != nil {
+		return 0, err
 	}
 
 	if waiting == 0 {
 		controllerutil.RemoveFinalizer(set, dpuservicev1.ServiceInterfaceSetFinalizer)
 	}
 	return waiting, nil
+}
+
+// drainNSIEntry marks the entry terminating and removes it once the node's sfc-controller released it. Returns true
+// while still waiting for that. If the node is gone nothing will release it, so the entry is removed right away.
+func (r *ServiceInterfaceSetReconciler) drainNSIEntry(ctx context.Context, set *dpuservicev1.ServiceInterfaceSet, owned ownedNSIEntry) (bool, error) {
+	nodeGone, err := isNodeGone(ctx, r.Client, owned.NSI.Spec.Node)
+	if err != nil {
+		return false, err
+	}
+	if !nodeGone {
+		if !owned.Entry.Terminating {
+			if err := r.markEntryTerminating(ctx, set, owned.NSI); err != nil {
+				return false, fmt.Errorf("mark NSI entry terminating on node %s: %w", owned.NSI.Spec.Node, err)
+			}
+			return true, nil
+		}
+		if !owned.NSI.IsEntryResourceReleased(&owned.Entry) {
+			return true, nil
+		}
+	}
+
+	updatedNSI, err := r.removeEntryFromNSI(ctx, set, owned.NSI)
+	if err != nil {
+		return false, fmt.Errorf("remove NSI entry on node %s: %w", owned.NSI.Spec.Node, err)
+	}
+	return false, r.deleteNSIIfEmpty(ctx, updatedNSI)
 }
 
 // createOrUpdateEntryInNSI creates or updates the NSI entry for this set on the given node.
@@ -714,10 +723,40 @@ func (r *ServiceInterfaceSetReconciler) applyNSIEntry(
 	return nsi, r.Client.Patch(ctx, nsi, client.Apply, client.ForceOwnership, client.FieldOwner(nsiFieldManager(set)))
 }
 
-// deleteNSIIfEmpty deletes the NSI object if the server-updated state shows no remaining entries.
+// deleteNSIIfEmpty deletes the NSI if it has no entries left, unless it is already being deleted. If its node is gone,
+// its finalizer is released first, as the sfc-controller that would remove it is gone. Fails on a conflict if it changed.
 func (r *ServiceInterfaceSetReconciler) deleteNSIIfEmpty(ctx context.Context, nsi *dpuservicev1.NodeServiceInterfaces) error {
-	if len(nsi.Spec.Interfaces) == 0 {
-		return client.IgnoreNotFound(r.Delete(ctx, nsi))
+	if len(nsi.Spec.Interfaces) != 0 {
+		return nil
+	}
+	if nsi.DeletionTimestamp.IsZero() {
+		preconditions := client.Preconditions{UID: &nsi.UID, ResourceVersion: &nsi.ResourceVersion}
+		if err := client.IgnoreNotFound(r.Delete(ctx, nsi, preconditions)); err != nil {
+			return err
+		}
+	}
+	nodeGone, err := isNodeGone(ctx, r.Client, nsi.Spec.Node)
+	if err != nil || !nodeGone {
+		return err
+	}
+	// Re-read the NSI: the deletion changed it, which would fail the optimistic lock on a stale copy.
+	latest := &dpuservicev1.NodeServiceInterfaces{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(nsi), latest); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	return releaseFinalizers(ctx, r.Client, latest, dpuservicev1.NodeServiceInterfacesFinalizer)
+}
+
+// deleteEmptyNSIs cleans up NSIs left empty by a failed cleanup, which no set can find through its entries anymore.
+func (r *ServiceInterfaceSetReconciler) deleteEmptyNSIs(ctx context.Context) error {
+	nsiList := &dpuservicev1.NodeServiceInterfacesList{}
+	if err := r.List(ctx, nsiList, client.InNamespace(utils.NSIObjectsNamespace)); err != nil {
+		return fmt.Errorf("list NSIs: %w", err)
+	}
+	for i := range nsiList.Items {
+		if err := r.deleteNSIIfEmpty(ctx, &nsiList.Items[i]); err != nil {
+			return err
+		}
 	}
 	return nil
 }
