@@ -2006,6 +2006,19 @@ spec:
                       respond, 0 is unlimited
                     minimum: 1
                     type: integer
+                  dpuDeviceMaxConcurrentReconciles:
+                    description: |-
+                      DPUDeviceMaxConcurrentReconciles specifies the maximum number of
+                      DPUDevice objects that the provisioning DPUDevice controller may
+                      reconcile concurrently. Reconciles for the same DPUDevice remain
+                      serialized by the controller workqueue, and other controllers in the
+                      provisioning manager are not affected.
+                      When unset, the provisioning controller defaults to 1, matching the
+                      previous single-worker behavior. It is independent of
+                      DPUMaxConcurrentReconciles, which applies to the DPU controller only.
+                    format: int32
+                    minimum: 1
+                    type: integer
                   dpuMaxConcurrentReconciles:
                     default: 1
                     description: |-

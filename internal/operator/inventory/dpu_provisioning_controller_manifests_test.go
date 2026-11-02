@@ -1068,10 +1068,11 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		expectedPVC := TestPVC
 		vars := newDefaultVariables(defaults)
 		vars.DPFProvisioningController = DPFProvisioningVariables{
-			BFBPersistentVolumeClaimName: &expectedPVC,
-			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
-			MaxDPUParallelInstallations:  ptr.To(int32(10)),
-			DPUMaxConcurrentReconciles:   25,
+			BFBPersistentVolumeClaimName:     &expectedPVC,
+			DeploymentMode:                   operatorv1.DeploymentModeHostTrusted,
+			MaxDPUParallelInstallations:      ptr.To(int32(10)),
+			DPUMaxConcurrentReconciles:       25,
+			DPUDeviceMaxConcurrentReconciles: 7,
 		}
 
 		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
@@ -1095,6 +1096,42 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		g.Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(2))
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--max-dpu-parallel-installations=10"))
 		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--dpu-max-concurrent-reconciles=25"))
+		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--dpudevice-max-concurrent-reconciles=7"))
+	})
+
+	t.Run("test DPU max concurrent reconciles without a DPUDevice value", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+
+		expectedPVC := TestPVC
+		vars := newDefaultVariables(defaults)
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: &expectedPVC,
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
+			DPUMaxConcurrentReconciles:   25,
+		}
+
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		var deployment *appsv1.Deployment
+		for _, obj := range generatedObjs {
+			if obj.GetObjectKind().GroupVersionKind().Kind == string(DeploymentKind) {
+				deploy := &appsv1.Deployment{}
+				unstructuredObj, ok := obj.(*unstructured.Unstructured)
+				g.Expect(ok).To(BeTrue())
+				err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredObj.UnstructuredContent(), deploy)
+				g.Expect(err).NotTo(HaveOccurred())
+				deployment = deploy
+				break
+			}
+		}
+
+		// The DPUDevice flag is independent of the DPU one and stays out when unset.
+		g.Expect(deployment).NotTo(BeNil())
+		g.Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--dpu-max-concurrent-reconciles=25"))
+		for _, arg := range deployment.Spec.Template.Spec.Containers[0].Args {
+			g.Expect(arg).NotTo(ContainSubstring("--dpudevice-max-concurrent-reconciles"))
+		}
 	})
 
 	t.Run("test default (unset) max DPU parallel installations", func(t *testing.T) {
@@ -1128,6 +1165,7 @@ func TestDPFProvisioningControllerObjects_setMaxDPUParallelInstallations(t *test
 		for _, arg := range deployment.Spec.Template.Spec.Containers[0].Args {
 			g.Expect(arg).NotTo(ContainSubstring("--max-dpu-parallel-installations"))
 			g.Expect(arg).NotTo(ContainSubstring("--dpu-max-concurrent-reconciles"))
+			g.Expect(arg).NotTo(ContainSubstring("--dpudevice-max-concurrent-reconciles"))
 		}
 	})
 

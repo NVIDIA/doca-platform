@@ -17,6 +17,7 @@ limitations under the License.
 package dpudevice
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/x509"
@@ -24,6 +25,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"slices"
@@ -58,6 +60,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -116,6 +119,9 @@ var (
 	errServerCertRequestMissing = errors.New("CertificateRequest not found during rotation")
 )
 
+// DefaultMaxConcurrentReconciles is the default number of concurrent DPUDevice reconcile workers.
+const DefaultMaxConcurrentReconciles int32 = 1
+
 // DPUDeviceReconciler reconciles a DPUDevice object
 type DPUDeviceReconciler struct {
 	client.Client
@@ -130,6 +136,9 @@ type DPUDeviceReconciler struct {
 	// CATrustBundleConfigMapName is the ConfigMap the BMC truststore is synced from, set from the
 	// controller's --ca-trust-bundle-configmap-name flag. Empty falls back to the default name.
 	CATrustBundleConfigMapName string
+	// MaxConcurrentReconciles is the number of DPUDevices reconciled at once, set from the
+	// controller's --dpudevice-max-concurrent-reconciles flag.
+	MaxConcurrentReconciles int32
 }
 
 // caTrustBundleName returns the ConfigMap the BMC truststore is synced from. An external issuer
@@ -1842,10 +1851,46 @@ func (r *DPUDeviceReconciler) recoverRedfishClientCert(ctx context.Context, dpuD
 // forceReissueRedfishClientCerts deletes the Redfish client-cert Secrets so cert-manager Certificate
 // controllers recreate them under the current Issuer/CA. Both BF3 and BF4 secrets are renewed: after
 // a CA replacement either (or both) can be stale, and renewal is rare and idempotent.
+//
+// A Secret is deleted only while its tls.crt is the certificate mounted in this pod. A Secret whose
+// content already differs has been reissued, or renewed in place, and only the kubelet's volume
+// refresh is outstanding; it is left alone, otherwise every reconcile that still reads the old
+// mounted leaf during that refresh window would delete the fresh Secret again.
 func (r *DPUDeviceReconciler) forceReissueRedfishClientCerts(ctx context.Context, namespace string) error {
+	log := log.FromContext(ctx)
 	for _, name := range []string{rfclient.ClientCertSecret, rfclient.ClientCertSecretBF4} {
-		secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}
-		if err := r.Client.Delete(ctx, secret); err != nil && !apierrors.IsNotFound(err) {
+		secret := &corev1.Secret{}
+		if err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, secret); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return fmt.Errorf("failed to get Secret %s/%s: %w", namespace, name, err)
+		}
+		mountedPEM, err := rfclient.MountedClientCertPEM(name)
+		if errors.Is(err, fs.ErrNotExist) {
+			// Nothing mounted for this Secret yet, so the stale leaf cannot have come from it.
+			log.Info("Redfish client certificate not mounted yet; keeping its Secret", "secret", name)
+			continue
+		}
+		if err != nil {
+			// Any other failure to read the mount is a real problem; surface it instead of leaving
+			// the device waiting on a reissue that can never be observed.
+			return fmt.Errorf("failed to read mounted Redfish client certificate for Secret %s/%s: %w", namespace, name, err)
+		}
+		if !bytes.Equal(secret.Data[corev1.TLSCertKey], mountedPEM) {
+			log.Info("Redfish client certificate Secret already differs from the mounted certificate; waiting for the mounted volume to update", "secret", name)
+			continue
+		}
+		// Delete exactly the object that was compared. A concurrent reconcile may already have
+		// deleted it and cert-manager recreated it (new UID), or cert-manager may have renewed it in
+		// place (new resourceVersion); either way the replacement is not the stale leaf, and the
+		// resulting Conflict is a skip, not a failure.
+		preconditions := client.Preconditions{UID: &secret.UID, ResourceVersion: &secret.ResourceVersion}
+		if err := r.Client.Delete(ctx, secret, preconditions); err != nil && !apierrors.IsNotFound(err) {
+			if apierrors.IsConflict(err) {
+				log.Info("Redfish client certificate Secret changed since it was compared; waiting for the mounted volume to update", "secret", name)
+				continue
+			}
 			return fmt.Errorf("failed to delete Secret %s/%s: %w", namespace, name, err)
 		}
 	}
@@ -2454,7 +2499,13 @@ func (r *DPUDeviceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return fmt.Errorf("checking ClusterStaticEntry CRD availability: %w", err)
 	}
 
-	return builder.Complete(r)
+	maxConcurrentReconciles := r.MaxConcurrentReconciles
+	if maxConcurrentReconciles < 1 {
+		maxConcurrentReconciles = DefaultMaxConcurrentReconciles
+	}
+	return builder.
+		WithOptions(controller.Options{MaxConcurrentReconciles: int(maxConcurrentReconciles)}).
+		Complete(r)
 }
 
 // indexDPUByDPUDeviceName extracts the spec.dpuDeviceName index value for a DPU.

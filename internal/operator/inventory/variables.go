@@ -224,6 +224,7 @@ type DPFProvisioningVariables struct {
 	InstallInterface                   *operatorv1.ProvisioningInstallInterface
 	MaxDPUParallelInstallations        *int32
 	DPUMaxConcurrentReconciles         int32
+	DPUDeviceMaxConcurrentReconciles   int32
 	MultiDPUOperationsSyncWaitTime     time.Duration
 	MaxUnavailableDPUNodes             *int32
 	Registry                           *operatorv1.RegistryConfiguration
@@ -424,6 +425,7 @@ func setBasicConfig(variables Variables, config *operatorv1.DPFOperatorConfig) V
 		InstallInterface:                   config.Spec.ProvisioningController.InstallInterface,
 		MaxDPUParallelInstallations:        config.Spec.ProvisioningController.MaxDPUParallelInstallations,
 		DPUMaxConcurrentReconciles:         config.Spec.ProvisioningController.DPUMaxConcurrentReconciles,
+		DPUDeviceMaxConcurrentReconciles:   config.Spec.ProvisioningController.DPUDeviceMaxConcurrentReconciles,
 		MaxUnavailableDPUNodes:             config.Spec.ProvisioningController.MaxUnavailableDPUNodes,
 		Registry:                           config.Spec.ProvisioningController.Registry,
 		Replicas:                           config.Spec.ProvisioningController.Replicas,

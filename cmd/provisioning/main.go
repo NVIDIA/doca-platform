@@ -136,6 +136,7 @@ type cliFlags struct {
 	dmsPodEnvs                         []string
 	maxDPUParallelInstallations        int32
 	dpuMaxConcurrentReconciles         int32
+	dpuDeviceMaxConcurrentReconciles   int32
 	enableDpuDiscovery                 bool
 	multiDPUOperationsSyncWaitTime     time.Duration
 	maxUnavailableDPUNodes             int32
@@ -193,6 +194,7 @@ func parseFlags() *cliFlags {
 	fs.StringSliceVar(&flags.dmsPodEnvs, "dms-pod-envs", []string{}, "environment variables to set in the DMS pod")
 	fs.Int32Var(&flags.maxDPUParallelInstallations, "max-dpu-parallel-installations", 50, "The maximum number of DPUs that can be in provisioning at once")
 	fs.Int32Var(&flags.dpuMaxConcurrentReconciles, "dpu-max-concurrent-reconciles", dutil.DefaultDPUMaxConcurrentReconciles, "The maximum number of DPU objects that can be reconciled concurrently")
+	fs.Int32Var(&flags.dpuDeviceMaxConcurrentReconciles, "dpudevice-max-concurrent-reconciles", dpudevice.DefaultMaxConcurrentReconciles, "The maximum number of DPUDevice objects that can be reconciled concurrently")
 	fs.BoolVar(&flags.enableDpuDiscovery, "enable-dpu-discovery", true, "Enable autmated DPU discovery")
 	fs.DurationVar(&flags.multiDPUOperationsSyncWaitTime, "multi-dpu-operations-sync-wait-time", 30*time.Second, "The wait time between DPUs sync operations on the same node")
 	fs.Int32Var(&flags.maxUnavailableDPUNodes, "max-unavailable-dpu-nodes", 50, "The maximum number of unavailable DPUNodes during node effects and unavailable DPUs during DPUSet rolling updates")
@@ -391,6 +393,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, flags *cliFlags, bf
 		RedfishClients:             redfishClients,
 		CAIssuerRef:                flags.caIssuerRef(),
 		CATrustBundleConfigMapName: flags.caTrustBundleConfigMapName,
+		MaxConcurrentReconciles:    flags.dpuDeviceMaxConcurrentReconciles,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DPUDevice")
 		os.Exit(1)

@@ -27,6 +27,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math/big"
 	"net"
 	"net/http"
@@ -57,6 +58,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -69,6 +71,9 @@ const testNamespace = "test-namespace"
 // this CA in addition to the mock BMC server certificate. Use caTrustBundleWithClientCA to build
 // such a bundle.
 var redfishClientCACertPEM []byte
+
+// suiteClientCertDir is the mounted client-cert directory the suite configured in BeforeSuite.
+var suiteClientCertDir string
 
 // caTrustBundleWithClientCA returns a PEM trust bundle containing both the mock BMC server
 // certificate (so the BMC server cert verifies) and the Redfish client CA (so the mounted client
@@ -98,6 +103,7 @@ var _ = BeforeSuite(func() {
 		Expect(os.WriteFile(filepath.Join(d, corev1.TLSPrivateKeyKey), clientKey, 0o600)).To(Succeed())
 	}
 	rfclient.SetClientCertDir(certDir)
+	suiteClientCertDir = certDir
 	DeferCleanup(func() {
 		_ = os.RemoveAll(certDir)
 		_ = os.RemoveAll(certDir + "-bf4")
@@ -281,6 +287,164 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			// Try to create again - should fail
 			err = reconciler.createServerCertCR(ctx, dpuDevice, testCSR)
 			Expect(err).To(HaveOccurred())
+		})
+	})
+
+	Context("forceReissueRedfishClientCerts", func() {
+		var (
+			ctx        context.Context
+			fakeClient client.Client
+			reconciler *DPUDeviceReconciler
+		)
+
+		clientCertSecret := func(name string, certPEM []byte) *corev1.Secret {
+			return &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace},
+				Data:       map[string][]byte{corev1.TLSCertKey: certPEM},
+			}
+		}
+		secretExists := func(name string) bool {
+			err := fakeClient.Get(ctx, types.NamespacedName{Name: name, Namespace: testNamespace}, &corev1.Secret{})
+			if apierrors.IsNotFound(err) {
+				return false
+			}
+			Expect(err).NotTo(HaveOccurred())
+			return true
+		}
+		// mountedPEM is the certificate the suite mounted for the given Secret's family.
+		mountedPEM := func(name string) []byte {
+			certPEM, err := rfclient.MountedClientCertPEM(name)
+			Expect(err).NotTo(HaveOccurred())
+			return certPEM
+		}
+		reissuedPEM := []byte("-----BEGIN CERTIFICATE-----\nreissued\n-----END CERTIFICATE-----\n")
+		// withClientCertDir points the process at another mounted directory for one spec and
+		// restores the suite's directory afterwards.
+		withClientCertDir := func(dir string) {
+			rfclient.SetClientCertDir(dir)
+			DeferCleanup(func() { rfclient.SetClientCertDir(suiteClientCertDir) })
+		}
+
+		BeforeEach(func() {
+			ctx = context.Background()
+		})
+
+		setupWith := func(funcs interceptor.Funcs, objs ...client.Object) {
+			scheme := runtime.NewScheme()
+			Expect(corev1.AddToScheme(scheme)).To(Succeed())
+			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).WithInterceptorFuncs(funcs).Build()
+			reconciler = &DPUDeviceReconciler{Client: fakeClient}
+		}
+		setup := func(objs ...client.Object) { setupWith(interceptor.Funcs{}, objs...) }
+
+		It("deletes Secrets whose certificate is the mounted one", func() {
+			setup(
+				clientCertSecret(rfclient.ClientCertSecret, mountedPEM(rfclient.ClientCertSecret)),
+				clientCertSecret(rfclient.ClientCertSecretBF4, mountedPEM(rfclient.ClientCertSecretBF4)),
+			)
+
+			Expect(reconciler.forceReissueRedfishClientCerts(ctx, testNamespace)).To(Succeed())
+
+			Expect(secretExists(rfclient.ClientCertSecret)).To(BeFalse())
+			Expect(secretExists(rfclient.ClientCertSecretBF4)).To(BeFalse())
+		})
+
+		It("keeps Secrets whose certificate already differs from the mounted one", func() {
+			setup(
+				clientCertSecret(rfclient.ClientCertSecret, reissuedPEM),
+				clientCertSecret(rfclient.ClientCertSecretBF4, reissuedPEM),
+			)
+
+			Expect(reconciler.forceReissueRedfishClientCerts(ctx, testNamespace)).To(Succeed())
+
+			Expect(secretExists(rfclient.ClientCertSecret)).To(BeTrue())
+			Expect(secretExists(rfclient.ClientCertSecretBF4)).To(BeTrue())
+		})
+
+		It("keeps a Secret that has no certificate yet", func() {
+			setup(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: rfclient.ClientCertSecret, Namespace: testNamespace}})
+
+			Expect(reconciler.forceReissueRedfishClientCerts(ctx, testNamespace)).To(Succeed())
+
+			Expect(secretExists(rfclient.ClientCertSecret)).To(BeTrue())
+		})
+
+		It("decides per Secret", func() {
+			setup(
+				clientCertSecret(rfclient.ClientCertSecret, reissuedPEM),
+				clientCertSecret(rfclient.ClientCertSecretBF4, mountedPEM(rfclient.ClientCertSecretBF4)),
+			)
+
+			Expect(reconciler.forceReissueRedfishClientCerts(ctx, testNamespace)).To(Succeed())
+
+			Expect(secretExists(rfclient.ClientCertSecret)).To(BeTrue())
+			Expect(secretExists(rfclient.ClientCertSecretBF4)).To(BeFalse())
+		})
+
+		It("succeeds when the Secrets are absent", func() {
+			setup()
+
+			Expect(reconciler.forceReissueRedfishClientCerts(ctx, testNamespace)).To(Succeed())
+		})
+
+		It("keeps the Secrets when nothing is mounted yet", func() {
+			emptyDir, err := os.MkdirTemp("", "dpudevice-no-client-cert")
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = os.RemoveAll(emptyDir) })
+			bf3PEM, bf4PEM := mountedPEM(rfclient.ClientCertSecret), mountedPEM(rfclient.ClientCertSecretBF4)
+			setup(
+				clientCertSecret(rfclient.ClientCertSecret, bf3PEM),
+				clientCertSecret(rfclient.ClientCertSecretBF4, bf4PEM),
+			)
+			withClientCertDir(emptyDir)
+
+			Expect(reconciler.forceReissueRedfishClientCerts(ctx, testNamespace)).To(Succeed())
+
+			Expect(secretExists(rfclient.ClientCertSecret)).To(BeTrue())
+			Expect(secretExists(rfclient.ClientCertSecretBF4)).To(BeTrue())
+		})
+
+		It("returns any other error reading the mounted certificate and keeps the Secret", func() {
+			// A directory where tls.crt should be fails the read with something other than
+			// ErrNotExist, as a wrong --redfish-client-cert-dir or a permission problem would.
+			brokenDir, err := os.MkdirTemp("", "dpudevice-broken-client-cert")
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = os.RemoveAll(brokenDir) })
+			Expect(os.MkdirAll(filepath.Join(brokenDir, corev1.TLSCertKey), 0o755)).To(Succeed())
+			bf3PEM := mountedPEM(rfclient.ClientCertSecret)
+			setup(clientCertSecret(rfclient.ClientCertSecret, bf3PEM))
+			withClientCertDir(brokenDir)
+
+			err = reconciler.forceReissueRedfishClientCerts(ctx, testNamespace)
+
+			Expect(err).To(HaveOccurred())
+			Expect(err).NotTo(MatchError(fs.ErrNotExist))
+			Expect(secretExists(rfclient.ClientCertSecret)).To(BeTrue())
+		})
+
+		It("keeps a Secret that changed between the read and the delete", func() {
+			// Every Get hands back a copy whose resourceVersion no longer matches the stored
+			// object, as if another worker had deleted it and cert-manager recreated it, or
+			// cert-manager renewed it in place, after this reconcile read it. The delete
+			// precondition must then fail closed.
+			staleReads := interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if err := c.Get(ctx, key, obj, opts...); err != nil {
+						return err
+					}
+					obj.SetResourceVersion("stale")
+					return nil
+				},
+			}
+			setupWith(staleReads,
+				clientCertSecret(rfclient.ClientCertSecret, mountedPEM(rfclient.ClientCertSecret)),
+				clientCertSecret(rfclient.ClientCertSecretBF4, mountedPEM(rfclient.ClientCertSecretBF4)),
+			)
+
+			Expect(reconciler.forceReissueRedfishClientCerts(ctx, testNamespace)).To(Succeed())
+
+			Expect(secretExists(rfclient.ClientCertSecret)).To(BeTrue())
+			Expect(secretExists(rfclient.ClientCertSecretBF4)).To(BeTrue())
 		})
 	})
 
