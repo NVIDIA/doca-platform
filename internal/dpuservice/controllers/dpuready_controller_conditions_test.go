@@ -622,7 +622,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 				Name:      "critical-service",
 				Namespace: testNS.Name,
 				Labels: map[string]string{
-					criticalDPUServiceLabel: "",
+					dpuservicev1.DPUServiceCriticalLabelKey: "",
 				},
 			},
 			Spec: dpuservicev1.DPUServiceSpec{
@@ -1259,7 +1259,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 		It("does not wait for DPUServices that do not target this DPU or node", func() {
 			By("Creating DPUServices for another DPUCluster and for other nodes")
 			otherClusterService := &dpuservicev1.DPUService{
-				ObjectMeta: metav1.ObjectMeta{Name: "other-cluster-service", Namespace: testNS.Name, Labels: map[string]string{criticalDPUServiceLabel: ""}},
+				ObjectMeta: metav1.ObjectMeta{Name: "other-cluster-service", Namespace: testNS.Name, Labels: map[string]string{dpuservicev1.DPUServiceCriticalLabelKey: ""}},
 				Spec: dpuservicev1.DPUServiceSpec{
 					ServiceID:          ptr.To("other-cluster-svc-id"),
 					DPUClusterSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"does-not": "match"}},
@@ -1273,7 +1273,7 @@ var _ = Describe("DPUReadyReconciler Conditions", func() {
 			DeferCleanup(testutils.CleanupAndWait, ctx, testClient, otherClusterService)
 
 			otherNodeService := &dpuservicev1.DPUService{
-				ObjectMeta: metav1.ObjectMeta{Name: "other-node-service", Namespace: testNS.Name, Labels: map[string]string{criticalDPUServiceLabel: ""}},
+				ObjectMeta: metav1.ObjectMeta{Name: "other-node-service", Namespace: testNS.Name, Labels: map[string]string{dpuservicev1.DPUServiceCriticalLabelKey: ""}},
 				Spec: dpuservicev1.DPUServiceSpec{
 					ServiceID: ptr.To("other-node-svc-id"),
 					ServiceDaemonSet: &dpuservicev1.ServiceDaemonSetValues{

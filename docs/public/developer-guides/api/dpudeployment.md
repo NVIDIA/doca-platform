@@ -197,6 +197,14 @@ metadata:
 spec:
   deploymentServiceName: "producer" # Must match the key in the `dpudeployment.spec.services`
   serviceConfiguration:
+    # metadata is added to the generated DPUService object itself
+    metadata:
+      labels:
+        svc.dpu.nvidia.com/critical: "" # Marks the DPUService as critical for DPU readiness
+        sre.nvidia.com/team: "networking"
+      annotations:
+        sre.nvidia.com/owner: "net-oncall"
+    # serviceDaemonSet labels and annotations are added to the DaemonSet and its pods
     serviceDaemonSet:
       labels:
         sre.nvidia.com/service-tier: "t1"
@@ -257,6 +265,14 @@ can be referenced in the `spec.serviceChains` of the `DPUDeployment`.
 `spec.serviceConfiguration.deployInCluster` is a boolean that indicates whether the
 service should be deployed in the Host cluster (where the DPF operator is running)
 rather than on the DPUs. When set to `true`, the service is deployed in the Host cluster.
+
+`spec.serviceConfiguration.metadata` contains labels and annotations that are added to the generated `DPUService` object.
+
+* `spec.metadata` of the `DPUServiceTemplate` has the same fields and is merged with it. On conflict the `DPUServiceConfiguration` values take precedence.
+* Keys containing `dpu.nvidia.com/` or ending with `dpu.nvidia.com` are reserved for DPF and rejected.
+* The only exception is the `svc.dpu.nvidia.com/critical` label, which marks the `DPUService` as critical, see [Configuring Critical DPUService for DPU Readiness](dpuservice.md#configuring-critical-dpuservice-for-dpu-readiness).
+* The `DPUServiceConfiguration` rejects the critical label when `deployInCluster` is `true`. The `DPUServiceTemplate` is not checked against `deployInCluster`, so the label can still reach an in-cluster `DPUService` through the template. It has no effect there, because only `DPUServices` deployed on the DPU are taken into account.
+* Changes to `metadata` are applied to the existing `DPUService` in place and do not create a new version of the service.
 
 `spec.upgradePolicy.applyNodeEffect` is a boolean that indicates whether the service
 update should be disruptive or not. The default is `true`, which means that a new

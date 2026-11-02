@@ -46,7 +46,7 @@ func markServiceCritical(dpuService *dpuservicev1.DPUService) {
 	if dpuService.ObjectMeta.Labels == nil {
 		dpuService.ObjectMeta.Labels = make(map[string]string)
 	}
-	dpuService.ObjectMeta.Labels[criticalDPUServiceLabel] = ""
+	dpuService.ObjectMeta.Labels[dpuservicev1.DPUServiceCriticalLabelKey] = ""
 	dpuService.Spec.Interfaces = nil
 }
 
@@ -468,7 +468,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 			dpuServices := getMinimalDPUServices(testNS.Name)
 			dpuServices[1].Name = service1Name
 			dpuServices[1].Labels = map[string]string{
-				criticalDPUServiceLabel:                   "",
+				dpuservicev1.DPUServiceCriticalLabelKey:   "",
 				dpuservicev1.ParentDPUDeploymentNameLabel: testNS.Name + "_dpudeployment1",
 			}
 			Expect(testClient.Create(ctx, dpuServices[1])).To(Succeed())
@@ -775,7 +775,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 			notReadyService := getMinimalDPUServices(testNS.Name)[1]
 			notReadyService.Name = service2Name
 			notReadyService.Labels = map[string]string{
-				criticalDPUServiceLabel:                   "",
+				dpuservicev1.DPUServiceCriticalLabelKey:   "",
 				dpuservicev1.ParentDPUDeploymentNameLabel: testNS.Name + "_dpudeployment3",
 			}
 			Expect(testClient.Create(ctx, notReadyService)).To(Succeed())
@@ -870,7 +870,7 @@ var _ = Describe("DPUReadyReconciler", func() {
 			dpuService3.Name = service3Name
 			dpuService3.Namespace = testNS.Name
 			dpuService3.Labels = map[string]string{
-				criticalDPUServiceLabel:                   "",
+				dpuservicev1.DPUServiceCriticalLabelKey:   "",
 				dpuservicev1.ParentDPUDeploymentNameLabel: testNS.Name + "_dpudeployment3",
 			}
 			Expect(testClient.Create(ctx, &dpuService3)).To(Succeed())

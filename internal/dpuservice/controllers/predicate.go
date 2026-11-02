@@ -342,6 +342,24 @@ func dpuPhaseChanged() predicate.Funcs {
 	}
 }
 
+// dpuServiceCriticalLabelChanged triggers when a DPUService with the critical label is created or deleted, or when
+// the label is added to or removed from a DPUService. Only the presence of the label key matters, as that decides
+// whether a DPUService is taken into account for the DPU readiness taint.
+func dpuServiceCriticalLabelChanged() predicate.Funcs {
+	isCritical := func(o client.Object) bool {
+		_, ok := o.GetLabels()[dpuservicev1.DPUServiceCriticalLabelKey]
+		return ok
+	}
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool { return isCritical(e.Object) },
+		UpdateFunc: func(e event.UpdateEvent) bool { return isCritical(e.ObjectOld) != isCritical(e.ObjectNew) },
+		DeleteFunc: func(e event.DeleteEvent) bool { return isCritical(e.Object) },
+		GenericFunc: func(event.GenericEvent) bool {
+			return false
+		},
+	}
+}
+
 // nodeAddressPredicate filters node events to only trigger on node address changes.
 func nodeAddressPredicate() predicate.Funcs {
 	return predicate.Funcs{

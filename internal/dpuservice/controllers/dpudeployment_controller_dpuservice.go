@@ -464,8 +464,15 @@ func calculateDPUServiceVersionDigest(configuration *dpuservicev1.DPUServiceConf
 		dpuservicev1.DPUServiceConfigurationSpec
 		UpgradePolicy struct{} `json:"upgradePolicy"`
 	}
-	s := specForDigest{DPUServiceConfigurationSpec: configuration.Spec}
-	return digest.Short(digest.FromObjects(s, template.Spec), 10)
+	// The metadata only results in labels and annotations on the DPUService, so it is excluded too.
+	// Changing it must not trigger a new revision, which would recreate the pods. The field is a nil pointer with
+	// omitempty when unset, so the digest of existing objects is unchanged.
+	spec := configuration.Spec.DeepCopy()
+	spec.ServiceConfiguration.Metadata = nil
+	templateSpec := template.Spec.DeepCopy()
+	templateSpec.Metadata = nil
+	s := specForDigest{DPUServiceConfigurationSpec: *spec}
+	return digest.Short(digest.FromObjects(s, *templateSpec), 10)
 }
 
 // getDPUServiceVersionLabelKey returns the label key for a standard DPUService version
@@ -496,19 +503,20 @@ func generateDPUService(dpuDeploymentNamespacedName types.NamespacedName,
 		return nil, err
 	}
 
+	// User provided labels and annotations are added first, so that the ones set by the controller always win.
+	labels, annotations := utils.MergeServiceTemplateAndConfigurationMetadata(serviceTemplate, serviceConfig)
+	labels[dpuservicev1.ParentDPUDeploymentNameLabel] = getParentDPUDeploymentLabelValue(dpuDeploymentNamespacedName)
+	labels[dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey] = name
+	// we save the version in the annotations, as this will permit us to retrieve
+	// a dpuService by its version
+	annotations[dpuServiceVersionAnnotationKey] = versionDigest
+
 	dpuService := &dpuservicev1.DPUService{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%s", name, utilrand.String(resourceNameGeneratedSuffixLength)),
-			Namespace: dpuDeploymentNamespacedName.Namespace,
-			// we save the version in the annotations, as this will permit us to retrieve
-			// a dpuService by its version
-			Annotations: map[string]string{
-				dpuServiceVersionAnnotationKey: versionDigest,
-			},
-			Labels: map[string]string{
-				dpuservicev1.ParentDPUDeploymentNameLabel:            getParentDPUDeploymentLabelValue(dpuDeploymentNamespacedName),
-				dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: name,
-			},
+			Name:        fmt.Sprintf("%s-%s", name, utilrand.String(resourceNameGeneratedSuffixLength)),
+			Namespace:   dpuDeploymentNamespacedName.Namespace,
+			Annotations: annotations,
+			Labels:      labels,
 		},
 		Spec: dpuservicev1.DPUServiceSpec{
 			HelmChart: dpuservicev1.HelmChart{

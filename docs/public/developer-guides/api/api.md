@@ -6279,6 +6279,7 @@ _Appears in:_
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart reflects the Helm related configuration. The user is supposed<br />to configure the values that are static across any<br />DPUServiceConfiguration used with this DPUServiceTemplate in a<br />DPUDeployment. These values act as a baseline and are merged with values<br />specified in the DPUServiceConfiguration. In case of conflict, the<br />DPUServiceConfiguration values take precedence. |  | Required: \{\} <br /> |
 | `resourceRequirements` _[ResourceList](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#resourcelist-v1-core)_ | ResourceRequirements contains the overall resources required by this<br />particular service to run on a single node |  | Optional: \{\} <br /> |
 | `security` _[DPUServiceSecurity](#dpuservicesecurity)_ | Security contains security-related settings for the generated DPUService.<br />These settings are inherent to the service and apply to all deployments<br />using this template. Specifically, Privileged should be set on charts<br />that need privileged containers (e.g. for direct hardware access). |  | Optional: \{\} <br /> |
+| `metadata` _[ServiceMetadata](#servicemetadata)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
 
 
 #### DPUServiceTemplateStatus
@@ -6964,6 +6965,7 @@ _Appears in:_
 | `serviceDaemonSet` _[DPUServiceConfigurationServiceDaemonSetValues](#dpuserviceconfigurationservicedaemonsetvalues)_ | ServiceDaemonSet contains settings related to the underlying DaemonSet<br />that is part of the Helm chart |  | Optional: \{\} <br /> |
 | `deployInCluster` _boolean_ | DeployInCluster indicates if the DPUService Helm Chart will be deployed<br />on the Host cluster. Default to false. |  | Optional: \{\} <br /> |
 | `configPorts` _[ConfigPorts](#configports)_ | ConfigPorts defines the desired state of port configurations for a<br />DPUService. This struct determines how ports are exposed from the DPU to<br />the host cluster. A DPUService can only have a single ServiceType across<br />all ports. |  | Optional: \{\} <br /> |
+| `metadata` _[ServiceMetadata](#servicemetadata)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
 
 
 #### ServiceConfigurationHelmChart
@@ -7248,6 +7250,25 @@ _Appears in:_
 | `name` _string_ | Name is the name of the interface |  | MaxLength: 15 <br />MinLength: 1 <br />Required: \{\} <br /> |
 | `network` _string_ | Network is the Network Attachment Definition in the form of<br />"namespace/name" or just "name" if the namespace is the same as the<br />namespace the pod is running. |  | Required: \{\} <br /> |
 | `virtualNetwork` _string_ | VirtualNetwork is the VirtualNetwork name in the same namespace |  | Optional: \{\} <br /> |
+
+
+#### ServiceMetadata
+
+
+
+ServiceMetadata contains labels and annotations which are added to the
+generated DPUService.
+
+
+
+_Appears in:_
+- [DPUServiceTemplateSpec](#dpuservicetemplatespec)
+- [ServiceConfiguration](#serviceconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `labels` _object (keys:string, values:string)_ | Labels specifies labels which are added to the generated DPUService. |  | MaxProperties: 50 <br />Optional: \{\} <br /> |
+| `annotations` _object (keys:string, values:string)_ | Annotations specifies annotations which are added to the generated<br />DPUService. |  | MaxProperties: 50 <br />Optional: \{\} <br /> |
 
 
 #### Subnet

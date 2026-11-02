@@ -105,6 +105,7 @@ type ServiceInterfaceTemplate struct {
 // ServiceConfiguration contains fields that are configured on the generated
 // DPUService.
 // +kubebuilder:validation:XValidation:rule="!(has(self.deployInCluster) && self.deployInCluster && has(self.configPorts))", message="configPorts cannot be set when deployInCluster is true"
+// +kubebuilder:validation:XValidation:rule="!(has(self.deployInCluster) && self.deployInCluster && has(self.metadata) && has(self.metadata.labels) && 'svc.dpu.nvidia.com/critical' in self.metadata.labels)", message="the svc.dpu.nvidia.com/critical label cannot be set when deployInCluster is true"
 type ServiceConfiguration struct {
 	// HelmChart reflects the Helm related configuration. The user is supposed
 	// to configure values specific to that DPUServiceConfiguration used in a
@@ -128,6 +129,12 @@ type ServiceConfiguration struct {
 	// all ports.
 	// +optional
 	ConfigPorts *ConfigPorts `json:"configPorts,omitempty"`
+	// Metadata contains labels and annotations which are added to the
+	// generated DPUService. These are merged with the metadata specified in
+	// the DPUServiceTemplate. In case of conflict, the DPUServiceConfiguration
+	// values take precedence.
+	// +optional
+	Metadata *ServiceMetadata `json:"metadata,omitempty"`
 }
 
 func (s *ServiceConfiguration) ShouldDeployInCluster() bool {
@@ -135,6 +142,23 @@ func (s *ServiceConfiguration) ShouldDeployInCluster() bool {
 		return false
 	}
 	return *s.DeployInCluster
+}
+
+// ServiceMetadata contains labels and annotations which are added to the
+// generated DPUService.
+// +kubebuilder:validation:XValidation:rule="!(has(self.labels) && self.labels.exists(key, (key.contains('dpu.nvidia.com/') || key.endsWith('dpu.nvidia.com')) && key != 'svc.dpu.nvidia.com/critical'))", message="labels should not contain dpu.nvidia.com/ and should not end with dpu.nvidia.com, except for svc.dpu.nvidia.com/critical"
+// +kubebuilder:validation:XValidation:rule="!(has(self.annotations) && self.annotations.exists(key, key.contains('dpu.nvidia.com/') || key.endsWith('dpu.nvidia.com')))", message="annotations should not contain dpu.nvidia.com/ and should not end with dpu.nvidia.com"
+type ServiceMetadata struct {
+	// Labels specifies labels which are added to the generated DPUService.
+	// +kubebuilder:validation:MaxProperties=50
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+
+	// Annotations specifies annotations which are added to the generated
+	// DPUService.
+	// +kubebuilder:validation:MaxProperties=50
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 func (s *DPUServiceConfiguration) HasConfigPorts() bool {
