@@ -17,9 +17,14 @@ limitations under the License.
 package client
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 // DefaultClientCertDir is the default directory holding the mounted Redfish client key pair.
@@ -77,4 +82,25 @@ func getClientCertDir() string {
 	clientCertDirMu.RLock()
 	defer clientCertDirMu.RUnlock()
 	return clientCertDir
+}
+
+// MountedClientCertPEM returns the client certificate file currently mounted for the given
+// client-cert Secret, byte for byte: ClientCertSecret is read from "<dir>/tls.crt" and
+// ClientCertSecretBF4 from "<dir>-bf4/tls.crt". It reads the file on every call and is meant for
+// the rare reissue path, not for per-request use.
+func MountedClientCertPEM(secretName string) ([]byte, error) {
+	dir := getClientCertDir()
+	switch secretName {
+	case ClientCertSecret:
+	case ClientCertSecretBF4:
+		dir += "-bf4"
+	default:
+		return nil, fmt.Errorf("unknown Redfish client certificate Secret %q", secretName)
+	}
+	certFile := filepath.Join(dir, corev1.TLSCertKey)
+	certPEM, err := os.ReadFile(certFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read client cert %s: %w", certFile, err)
+	}
+	return certPEM, nil
 }

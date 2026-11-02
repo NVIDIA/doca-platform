@@ -117,6 +117,18 @@ type ProvisioningControllerConfiguration struct {
 	// +optional
 	DPUMaxConcurrentReconciles int32 `json:"dpuMaxConcurrentReconciles,omitempty"`
 
+	// DPUDeviceMaxConcurrentReconciles specifies the maximum number of
+	// DPUDevice objects that the provisioning DPUDevice controller may
+	// reconcile concurrently. Reconciles for the same DPUDevice remain
+	// serialized by the controller workqueue, and other controllers in the
+	// provisioning manager are not affected.
+	// When unset, the provisioning controller defaults to 1, matching the
+	// previous single-worker behavior. It is independent of
+	// DPUMaxConcurrentReconciles, which applies to the DPU controller only.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	DPUDeviceMaxConcurrentReconciles int32 `json:"dpuDeviceMaxConcurrentReconciles,omitempty"`
+
 	// MultiDPUOperationsSyncWaitTime is the wait time between DPUs sync
 	// operations on the same node. It would take effect only on DPUNode objects
 	// which contain more than one DPU.

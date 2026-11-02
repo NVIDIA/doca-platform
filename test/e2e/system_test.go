@@ -219,6 +219,7 @@ func generateDPFOperatorConfig() *operatorv1.DPFOperatorConfig {
 		}
 		// Set provisioning controller reconcile workers to 2 to test concurrency
 		dpfOperatorConfig.Spec.ProvisioningController.DPUMaxConcurrentReconciles = 2
+		dpfOperatorConfig.Spec.ProvisioningController.DPUDeviceMaxConcurrentReconciles = 2
 		dpfOperatorConfig.Spec.DPUDetector = &operatorv1.DPUDetectorConfiguration{
 			BaseComponentConfig: operatorv1.BaseComponentConfig{
 				Disable: ptr.To(true),

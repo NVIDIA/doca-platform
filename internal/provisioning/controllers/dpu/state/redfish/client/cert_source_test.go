@@ -17,7 +17,10 @@ limitations under the License.
 package client
 
 import (
+	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -95,5 +98,46 @@ func TestSetCATrustBundleConfigMapNameIgnoresEmpty(t *testing.T) {
 
 	if got := CATrustBundleConfigMapName(); got != "enterprise-trust" {
 		t.Fatalf("bundle name = %q, want %q", got, "enterprise-trust")
+	}
+}
+
+// Each client-cert Secret name maps to its own mounted directory, and the bytes come back exactly
+// as mounted so a caller can compare them with the Secret's tls.crt.
+func TestMountedClientCertPEM(t *testing.T) {
+	ca := newCA(t, "mounted-pem-ca")
+	dir := certDir(t, ca)
+
+	bf3PEM, keyPEM := ca.clientPair(t)
+	writePair(t, dir, bf3PEM, keyPEM)
+	bf4PEM, keyPEM := ca.clientPair(t)
+	writePair(t, dir+"-bf4", bf4PEM, keyPEM)
+	if bytes.Equal(bf3PEM, bf4PEM) {
+		t.Fatal("fixture issued identical leaves for the two families")
+	}
+
+	got, err := MountedClientCertPEM(ClientCertSecret)
+	if err != nil {
+		t.Fatalf("BF3: %v", err)
+	}
+	if !bytes.Equal(got, bf3PEM) {
+		t.Fatal("BF3: mounted bytes differ from what was written")
+	}
+	got, err = MountedClientCertPEM(ClientCertSecretBF4)
+	if err != nil {
+		t.Fatalf("BF4: %v", err)
+	}
+	if !bytes.Equal(got, bf4PEM) {
+		t.Fatal("BF4: mounted bytes differ from what was written")
+	}
+
+	if _, err := MountedClientCertPEM("some-other-secret"); err == nil {
+		t.Fatal("unknown Secret name: expected an error")
+	}
+
+	if err := os.Remove(filepath.Join(dir, corev1.TLSCertKey)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MountedClientCertPEM(ClientCertSecret); err == nil {
+		t.Fatal("missing mounted cert: expected an error")
 	}
 }

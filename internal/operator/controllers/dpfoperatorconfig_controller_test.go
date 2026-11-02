@@ -356,6 +356,23 @@ func TestDPFOperatorConfig_Validation(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "fail for DPUDeviceMaxConcurrentReconciles below minimum",
+			config: &operatorv1.DPFOperatorConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "config-dpudevice-max-concurrent-reconciles-below-minimum",
+					Namespace: testNS.Name,
+				},
+				Spec: operatorv1.DPFOperatorConfigSpec{
+					DeploymentMode: operatorv1.DeploymentModeHostTrusted,
+					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
+						BFBPersistentVolumeClaimName:     ptr.To("name"),
+						DPUDeviceMaxConcurrentReconciles: -1,
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
 			name: "succeed for nil MaxDPUParallelInstallations (uses default)",
 			config: &operatorv1.DPFOperatorConfig{
 				ObjectMeta: metav1.ObjectMeta{
