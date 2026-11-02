@@ -86,6 +86,9 @@ type DPUServiceReconciler struct {
 	// set only in tests to mock validatePrivilegedPodEnforcement. It is nil in
 	// production, where the real probe runs.
 	privilegedPodEnforcementValidator func(context.Context, client.Client) error
+	// directDPUClusterClient overrides the uncached DPU cluster client and is set only in tests.
+	// It is nil in production, where a client is built from the DPUCluster kubeconfig.
+	directDPUClusterClient func(context.Context, *provisioningv1.DPUCluster) (client.Client, error)
 }
 
 // pauseDPUServiceReconciler pauses the DPUService Reconciler by doing noop reconciliation loops. This is helpful to
@@ -356,6 +359,8 @@ func (r *DPUServiceReconciler) deleteInterfaceAnnotation(ctx context.Context, in
 	return nil
 }
 
+// reconcileDeleteApplications deletes Applications managed by the DPUService and waits for
+// their foreground deletion to complete.
 func (r *DPUServiceReconciler) reconcileDeleteApplications(ctx context.Context, dpuService *dpuservicev1.DPUService) (ctrl.Result, error) {
 	log := ctrllog.FromContext(ctx)
 	applications := &argov1.ApplicationList{}
@@ -405,6 +410,11 @@ func (r *DPUServiceReconciler) reconcileDeleteApplications(ctx context.Context, 
 			conditions.ReasonAwaitingDeletion,
 			conditions.ConditionMessage(message),
 		)
+		if err := r.forceDeleteTerminatingPodsOnUnknownNodes(ctx, applications.Items); err != nil {
+			// The DPU cluster is often unreachable while a node is Ready=Unknown.
+			// Keep the fixed requeue below instead of exponential backoff.
+			log.Error(err, "Failed to force delete terminating pods on nodes with unknown readiness")
+		}
 	}
 
 	if len(applications.Items) > 0 {
@@ -413,6 +423,206 @@ func (r *DPUServiceReconciler) reconcileDeleteApplications(ctx context.Context, 
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// forceDeleteTerminatingPodsOnUnknownNodes removes pod objects that cannot finish graceful
+// deletion because their node reports Ready=Unknown. Argo CD foreground-deletes Applications,
+// and a DaemonSet foreground-deletes until those pods are gone, so the objects otherwise hold
+// DPFOperatorConfig in deletion. This runs only while DPFOperatorConfig is being deleted, and
+// only for pods that are already terminating and owned by a terminating DaemonSet.
+func (r *DPUServiceReconciler) forceDeleteTerminatingPodsOnUnknownNodes(ctx context.Context, applications []argov1.Application) error {
+	config, err := utils.GetDPFOperatorConfig(ctx, r.Client)
+	if errors.Is(err, utils.ErrDPFOperatorConfigNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if config.DeletionTimestamp.IsZero() {
+		return nil
+	}
+
+	// One direct client and one Node list per DPUCluster. Several Applications share a cluster,
+	// and this runs again on every requeue while deletion is in progress.
+	clusters := map[types.NamespacedName][]*argov1.Application{}
+	var clusterOrder []types.NamespacedName
+	for i := range applications {
+		app := &applications[i]
+		if app.DeletionTimestamp.IsZero() {
+			continue
+		}
+		clusterKey, ok := dpuClusterKeyForApplication(app)
+		if !ok {
+			continue
+		}
+		if _, seen := clusters[clusterKey]; !seen {
+			clusterOrder = append(clusterOrder, clusterKey)
+		}
+		clusters[clusterKey] = append(clusters[clusterKey], app)
+	}
+
+	var errs []error
+	for _, clusterKey := range clusterOrder {
+		if err := r.forceDeleteTerminatingPodsForCluster(ctx, clusterKey, clusters[clusterKey]); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return kerrors.NewAggregate(errs)
+}
+
+// dpuClusterKeyForApplication returns the DPUCluster targeted by application.
+// Applications without a cluster name and namespace target the management cluster.
+func dpuClusterKeyForApplication(application *argov1.Application) (types.NamespacedName, bool) {
+	clusterName, hasClusterName := application.Labels[provisioningv1.DPUClusterNameLabelKey]
+	clusterNamespace, hasClusterNamespace := application.Labels[provisioningv1.DPUClusterNamespaceLabelKey]
+	if !hasClusterName || !hasClusterNamespace || application.Spec.Destination.Namespace == "" {
+		return types.NamespacedName{}, false
+	}
+	return types.NamespacedName{Namespace: clusterNamespace, Name: clusterName}, true
+}
+
+// forceDeleteTerminatingPodsForCluster lists Unknown nodes once, then cleans every deleting
+// Application on that DPUCluster. A missing DPUCluster means there is nothing to clean and is
+// not an error.
+func (r *DPUServiceReconciler) forceDeleteTerminatingPodsForCluster(ctx context.Context, clusterKey types.NamespacedName, applications []*argov1.Application) error {
+	dpuCluster := &provisioningv1.DPUCluster{}
+	if err := r.Client.Get(ctx, clusterKey, dpuCluster); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("get DPUCluster %s for deleting Application: %w", clusterKey, err)
+	}
+
+	// The remote cache only holds pods that carry the DPUService label, and upstream charts
+	// such as flannel do not set it, so read the DPU cluster directly.
+	dpuClusterClient, err := r.getDirectDPUClusterClient(ctx, dpuCluster)
+	if err != nil {
+		return fmt.Errorf("get client for DPUCluster %s: %w", clusterKey, err)
+	}
+
+	nodes := &corev1.NodeList{}
+	if err := dpuClusterClient.List(ctx, nodes); err != nil {
+		return fmt.Errorf("list nodes in DPUCluster %s: %w", clusterKey, err)
+	}
+	unknownNodes := map[string]struct{}{}
+	for i := range nodes.Items {
+		if nodeReadyUnknown(&nodes.Items[i]) {
+			unknownNodes[nodes.Items[i].Name] = struct{}{}
+		}
+	}
+	if len(unknownNodes) == 0 {
+		return nil
+	}
+
+	var errs []error
+	for _, application := range applications {
+		if err := r.forceDeleteTerminatingPodsForApplication(ctx, application, dpuClusterClient, unknownNodes, clusterKey); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return kerrors.NewAggregate(errs)
+}
+
+// forceDeleteTerminatingPodsForApplication force-deletes pods for one deleting Application.
+// A pod is deleted only when it is already terminating, its controller owner is a terminating
+// DaemonSet that belongs to the Application, and it is scheduled on a node whose Ready
+// condition is Unknown. Failures to read the cluster or delete a pod are returned.
+func (r *DPUServiceReconciler) forceDeleteTerminatingPodsForApplication(ctx context.Context, application *argov1.Application, dpuClusterClient client.Client, unknownNodes map[string]struct{}, clusterKey types.NamespacedName) error {
+	log := ctrllog.FromContext(ctx)
+
+	daemonSets := &appsv1.DaemonSetList{}
+	if err := dpuClusterClient.List(ctx, daemonSets, client.InNamespace(application.Spec.Destination.Namespace)); err != nil {
+		return fmt.Errorf("list DaemonSets for deleting Application %s/%s: %w", application.Namespace, application.Name, err)
+	}
+	terminatingDaemonSets := terminatingDaemonSetsForApplication(application, daemonSets.Items)
+	if len(terminatingDaemonSets) == 0 {
+		return nil
+	}
+
+	pods := &corev1.PodList{}
+	if err := dpuClusterClient.List(ctx, pods, client.InNamespace(application.Spec.Destination.Namespace)); err != nil {
+		return fmt.Errorf("list pods for deleting Application %s/%s: %w", application.Namespace, application.Name, err)
+	}
+
+	var errs []error
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		if pod.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if _, ok := unknownNodes[pod.Spec.NodeName]; !ok {
+			continue
+		}
+		daemonSetName, owned := podOwnedByDaemonSet(pod, terminatingDaemonSets)
+		if !owned {
+			continue
+		}
+		log.Info("Force deleting terminating pod on node with unknown readiness",
+			"pod", client.ObjectKeyFromObject(pod),
+			"node", pod.Spec.NodeName,
+			"daemonSet", daemonSetName,
+			"dpuCluster", clusterKey,
+		)
+		if err := dpuClusterClient.Delete(ctx, pod, client.GracePeriodSeconds(0)); client.IgnoreNotFound(err) != nil {
+			errs = append(errs, fmt.Errorf("force delete pod %s: %w", client.ObjectKeyFromObject(pod), err))
+		}
+	}
+	return kerrors.NewAggregate(errs)
+}
+
+// terminatingDaemonSetsForApplication returns the UIDs of DaemonSets listed in the
+// Application status that already have a deletionTimestamp. The map value is the DaemonSet
+// name. Callers match pods by UID so a reused DaemonSet name cannot select a pod owned by an
+// earlier object.
+func terminatingDaemonSetsForApplication(application *argov1.Application, daemonSets []appsv1.DaemonSet) map[types.UID]string {
+	owned := map[string]struct{}{}
+	for _, res := range application.Status.Resources {
+		if res.Kind != "DaemonSet" {
+			continue
+		}
+		if res.Namespace != "" && res.Namespace != application.Spec.Destination.Namespace {
+			continue
+		}
+		owned[res.Name] = struct{}{}
+	}
+
+	terminating := map[types.UID]string{}
+	for i := range daemonSets {
+		if daemonSets[i].DeletionTimestamp.IsZero() {
+			continue
+		}
+		if _, ok := owned[daemonSets[i].Name]; !ok {
+			continue
+		}
+		terminating[daemonSets[i].UID] = daemonSets[i].Name
+	}
+	return terminating
+}
+
+// podOwnedByDaemonSet reports whether pod has a controller owner reference whose UID is one
+// of the selected DaemonSets. The returned name is the DaemonSet name recorded for that UID.
+func podOwnedByDaemonSet(pod *corev1.Pod, daemonSets map[types.UID]string) (string, bool) {
+	for _, ref := range pod.OwnerReferences {
+		if ref.Kind != "DaemonSet" || ref.Controller == nil || !*ref.Controller {
+			continue
+		}
+		name, ok := daemonSets[ref.UID]
+		if !ok {
+			continue
+		}
+		return name, true
+	}
+	return "", false
+}
+
+// nodeReadyUnknown reports whether the node's Ready condition has status Unknown.
+func nodeReadyUnknown(node *corev1.Node) bool {
+	for _, condition := range node.Status.Conditions {
+		if condition.Type == corev1.NodeReady && condition.Status == corev1.ConditionUnknown {
+			return true
+		}
+	}
+	return false
 }
 
 // reconcileDeleteImagePullSecrets ensures imagePullSecrets are removed from DPUClusters where no more DPUServices with that namespace are deployed.
@@ -2140,6 +2350,15 @@ func (r *DPUServiceReconciler) getDPUClusterClient(ctx context.Context, dpuClust
 	}
 
 	return dpuClusterClient, nil
+}
+
+// getDirectDPUClusterClient returns a client that reads the DPU cluster API server without the
+// remote cache.
+func (r *DPUServiceReconciler) getDirectDPUClusterClient(ctx context.Context, dpuCluster *provisioningv1.DPUCluster) (client.Client, error) {
+	if r.directDPUClusterClient != nil {
+		return r.directDPUClusterClient(ctx, dpuCluster)
+	}
+	return dpucluster.NewConfig(r.Client, dpuCluster).Client(ctx, dpucluster.ClientOptionTimeout{Timeout: 10 * time.Second})
 }
 
 // nodeEventHandler is a handler for node events

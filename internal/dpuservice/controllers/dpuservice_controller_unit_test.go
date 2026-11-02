@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"strconv"
 	"testing"
+	"time"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -935,4 +936,324 @@ func TestRequestsForHostNode(t *testing.T) {
 
 		g.Expect(r.requestsForHostNode(ctx, hostNode)).To(BeEmpty())
 	})
+}
+
+// recordedDelete is one Delete call observed by deleteRecordingClient.
+type recordedDelete struct {
+	key   client.ObjectKey
+	grace *int64
+}
+
+// deleteRecordingClient records Delete calls without removing the object. The fake client
+// cannot model a second delete of an already-terminating pod. clientBuilds counts how many
+// times the direct DPU cluster client was constructed.
+type deleteRecordingClient struct {
+	client.Client
+	deleted      []recordedDelete
+	clientBuilds int
+}
+
+// Delete records the object key and grace period, then reports success.
+func (c *deleteRecordingClient) Delete(_ context.Context, obj client.Object, opts ...client.DeleteOption) error {
+	options := &client.DeleteOptions{}
+	for _, opt := range opts {
+		opt.ApplyToDelete(options)
+	}
+	c.deleted = append(c.deleted, recordedDelete{
+		key:   client.ObjectKeyFromObject(obj),
+		grace: options.GracePeriodSeconds,
+	})
+	return nil
+}
+
+// TestForceDeleteTerminatingPodsOnUnknownNodes verifies every safety gate for force deletion.
+func TestForceDeleteTerminatingPodsOnUnknownNodes(t *testing.T) {
+	ctx := context.Background()
+	now := metav1.Now()
+	const (
+		clusterName      = "dpu-cluster"
+		clusterNamespace = "dpu-cluster-ns"
+		destNamespace    = "svc-ns"
+		appName          = "dpu-cluster-flannel"
+	)
+
+	schemeForTest := func(t *testing.T) *runtime.Scheme {
+		t.Helper()
+		g := NewWithT(t)
+		scheme := applicationPrereqsTestScheme(t)
+		g.Expect(operatorv1.AddToScheme(scheme)).To(Succeed())
+		g.Expect(appsv1.AddToScheme(scheme)).To(Succeed())
+		return scheme
+	}
+
+	cluster := &provisioningv1.DPUCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: clusterName, Namespace: clusterNamespace},
+	}
+	deletingConfig := &operatorv1.DPFOperatorConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "dpfoperatorconfig",
+			Namespace:         "dpf-operator-system",
+			DeletionTimestamp: &now,
+			Finalizers:        []string{"test"},
+		},
+	}
+	liveConfig := deletingConfig.DeepCopy()
+	liveConfig.DeletionTimestamp = nil
+	liveConfig.Finalizers = nil
+
+	application := &argov1.Application{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              appName,
+			Namespace:         "dpf-operator-system",
+			DeletionTimestamp: &now,
+			Finalizers:        []string{"test"},
+			Labels: map[string]string{
+				provisioningv1.DPUClusterNameLabelKey:      clusterName,
+				provisioningv1.DPUClusterNamespaceLabelKey: clusterNamespace,
+			},
+		},
+		Spec: argov1.ApplicationSpec{
+			Destination: argov1.ApplicationDestination{Namespace: destNamespace},
+		},
+		Status: argov1.ApplicationStatus{
+			Resources: []argov1.ResourceStatus{{
+				Group:     "apps",
+				Version:   "v1",
+				Kind:      "DaemonSet",
+				Namespace: destNamespace,
+				Name:      "kube-flannel-ds",
+			}},
+		},
+	}
+
+	unknownNode := nodeWithReady("unknown-node", corev1.ConditionUnknown)
+	readyNode := nodeWithReady("ready-node", corev1.ConditionTrue)
+	notReadyNode := nodeWithReady("not-ready-node", corev1.ConditionFalse)
+
+	flannelDS := terminatingDaemonSet("kube-flannel-ds", now)
+	liveDS := terminatingDaemonSet("still-running-ds", now)
+	liveDS.DeletionTimestamp = nil
+	liveDS.Finalizers = nil
+	otherAppDS := terminatingDaemonSet("other-app-ds", now)
+
+	stuckPod := ownedTerminatingPod("stuck", unknownNode.Name, "kube-flannel-ds", now)
+	staleOwnerPod := ownedTerminatingPod("stale-owner", unknownNode.Name, "kube-flannel-ds", now)
+	staleOwnerPod.OwnerReferences[0].UID = "previous-daemonset"
+	runningPod := ownedTerminatingPod("running", unknownNode.Name, "kube-flannel-ds", now)
+	runningPod.DeletionTimestamp = nil
+	runningPod.Finalizers = nil
+	readyNodePod := ownedTerminatingPod("on-ready", readyNode.Name, "kube-flannel-ds", now)
+	notReadyPod := ownedTerminatingPod("on-not-ready", notReadyNode.Name, "kube-flannel-ds", now)
+	liveOwnerPod := ownedTerminatingPod("live-owner", unknownNode.Name, "still-running-ds", now)
+	otherAppPod := ownedTerminatingPod("other-app", unknownNode.Name, "other-app-ds", now)
+
+	newReconciler := func(t *testing.T, hostObjects []client.Object, clusterObjects ...client.Object) (*DPUServiceReconciler, *deleteRecordingClient) {
+		t.Helper()
+		scheme := schemeForTest(t)
+		recorder := &deleteRecordingClient{
+			Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(clusterObjects...).Build(),
+		}
+		// The remote cache filters pods by the DPUService label, so it is modeled as empty to
+		// prove the cleanup reads the DPU cluster directly.
+		emptyCache := fake.NewClientBuilder().WithScheme(scheme).Build()
+		return &DPUServiceReconciler{
+			Client: fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&argov1.Application{}).WithObjects(hostObjects...).Build(),
+			Scheme: scheme,
+			RemoteCache: dpucluster.NewStaticClusterClientProvider(map[client.ObjectKey]client.Client{
+				client.ObjectKeyFromObject(cluster): emptyCache,
+			}),
+			directDPUClusterClient: func(_ context.Context, dpuCluster *provisioningv1.DPUCluster) (client.Client, error) {
+				g := NewWithT(t)
+				g.Expect(client.ObjectKeyFromObject(dpuCluster)).To(Equal(client.ObjectKeyFromObject(cluster)))
+				recorder.clientBuilds++
+				return recorder, nil
+			},
+		}, recorder
+	}
+
+	clusterObjects := []client.Object{
+		unknownNode, readyNode, notReadyNode,
+		flannelDS, liveDS, otherAppDS,
+		stuckPod, staleOwnerPod, runningPod, readyNodePod, notReadyPod, liveOwnerPod, otherAppPod,
+	}
+
+	t.Run("force deletes only terminating pods of terminating DaemonSets on Ready unknown nodes", func(t *testing.T) {
+		g := NewWithT(t)
+		r, recorder := newReconciler(t, []client.Object{cluster, deletingConfig}, clusterObjects...)
+
+		g.Expect(r.forceDeleteTerminatingPodsOnUnknownNodes(ctx, []argov1.Application{*application})).To(Succeed())
+		g.Expect(deletedPodNames(recorder)).To(ConsistOf("stuck"))
+		g.Expect(recorder.clientBuilds).To(Equal(1))
+		for _, call := range recorder.deleted {
+			g.Expect(call.grace).ToNot(BeNil())
+			g.Expect(*call.grace).To(Equal(int64(0)))
+		}
+	})
+
+	t.Run("builds one client for every deleting Application on the same DPUCluster", func(t *testing.T) {
+		g := NewWithT(t)
+		second := application.DeepCopy()
+		second.Name = "dpu-cluster-other"
+		second.Status.Resources = []argov1.ResourceStatus{{
+			Group:     "apps",
+			Version:   "v1",
+			Kind:      "DaemonSet",
+			Namespace: destNamespace,
+			Name:      "other-app-ds",
+		}}
+		r, recorder := newReconciler(t, []client.Object{cluster, deletingConfig}, clusterObjects...)
+
+		g.Expect(r.forceDeleteTerminatingPodsOnUnknownNodes(ctx, []argov1.Application{*application, *second})).To(Succeed())
+		g.Expect(deletedPodNames(recorder)).To(ConsistOf("stuck", "other-app"))
+		g.Expect(recorder.clientBuilds).To(Equal(1))
+	})
+
+	t.Run("does nothing while the Application is not being deleted", func(t *testing.T) {
+		g := NewWithT(t)
+		liveApplication := application.DeepCopy()
+		liveApplication.DeletionTimestamp = nil
+		liveApplication.Finalizers = nil
+		r, recorder := newReconciler(t, []client.Object{cluster, deletingConfig}, clusterObjects...)
+
+		g.Expect(r.forceDeleteTerminatingPodsOnUnknownNodes(ctx, []argov1.Application{*liveApplication})).To(Succeed())
+		g.Expect(recorder.deleted).To(BeEmpty())
+		g.Expect(recorder.clientBuilds).To(Equal(0))
+	})
+
+	t.Run("does nothing for an Application that targets the management cluster", func(t *testing.T) {
+		g := NewWithT(t)
+		managementApplication := application.DeepCopy()
+		delete(managementApplication.Labels, provisioningv1.DPUClusterNameLabelKey)
+		delete(managementApplication.Labels, provisioningv1.DPUClusterNamespaceLabelKey)
+		r, recorder := newReconciler(t, []client.Object{cluster, deletingConfig}, clusterObjects...)
+
+		g.Expect(r.forceDeleteTerminatingPodsOnUnknownNodes(ctx, []argov1.Application{*managementApplication})).To(Succeed())
+		g.Expect(recorder.deleted).To(BeEmpty())
+		g.Expect(recorder.clientBuilds).To(Equal(0))
+	})
+
+	t.Run("reconcile deletion force deletes the stuck pod and requeues", func(t *testing.T) {
+		g := NewWithT(t)
+		dpuService := &dpuservicev1.DPUService{
+			ObjectMeta: metav1.ObjectMeta{Name: "flannel", Namespace: "dpf-operator-system"},
+		}
+		wired := application.DeepCopy()
+		wired.Labels[dpuservicev1.DPUServiceNameLabelKey] = dpuService.Name
+		wired.Labels[dpuservicev1.DPUServiceNamespaceLabelKey] = dpuService.Namespace
+		r, recorder := newReconciler(t, []client.Object{cluster, deletingConfig, wired}, clusterObjects...)
+
+		result, err := r.reconcileDeleteApplications(ctx, dpuService)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(result.RequeueAfter).To(Equal(30 * time.Second))
+		g.Expect(deletedPodNames(recorder)).To(ConsistOf("stuck"))
+	})
+
+	t.Run("reconcile deletion requeues when the DPU cluster client cannot be built", func(t *testing.T) {
+		g := NewWithT(t)
+		dpuService := &dpuservicev1.DPUService{
+			ObjectMeta: metav1.ObjectMeta{Name: "flannel", Namespace: "dpf-operator-system"},
+		}
+		wired := application.DeepCopy()
+		wired.Labels[dpuservicev1.DPUServiceNameLabelKey] = dpuService.Name
+		wired.Labels[dpuservicev1.DPUServiceNamespaceLabelKey] = dpuService.Namespace
+		r, recorder := newReconciler(t, []client.Object{cluster, deletingConfig, wired}, clusterObjects...)
+		r.directDPUClusterClient = func(context.Context, *provisioningv1.DPUCluster) (client.Client, error) {
+			return nil, fmt.Errorf("dpu cluster unreachable")
+		}
+
+		result, err := r.reconcileDeleteApplications(ctx, dpuService)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(result.RequeueAfter).To(Equal(30 * time.Second))
+		g.Expect(recorder.deleted).To(BeEmpty())
+	})
+
+	t.Run("does nothing while DaemonSet is not being deleted", func(t *testing.T) {
+		g := NewWithT(t)
+		liveFlannelDS := flannelDS.DeepCopy()
+		liveFlannelDS.DeletionTimestamp = nil
+		liveFlannelDS.Finalizers = nil
+		r, recorder := newReconciler(t, []client.Object{cluster, deletingConfig}, unknownNode, liveFlannelDS, stuckPod)
+
+		g.Expect(r.forceDeleteTerminatingPodsOnUnknownNodes(ctx, []argov1.Application{*application})).To(Succeed())
+		g.Expect(recorder.deleted).To(BeEmpty())
+	})
+
+	t.Run("does nothing while DPFOperatorConfig is not being deleted", func(t *testing.T) {
+		g := NewWithT(t)
+		r, recorder := newReconciler(t, []client.Object{cluster, liveConfig}, clusterObjects...)
+
+		g.Expect(r.forceDeleteTerminatingPodsOnUnknownNodes(ctx, []argov1.Application{*application})).To(Succeed())
+		g.Expect(recorder.deleted).To(BeEmpty())
+	})
+
+	t.Run("does nothing when DPFOperatorConfig is already gone", func(t *testing.T) {
+		g := NewWithT(t)
+		r, recorder := newReconciler(t, []client.Object{cluster}, clusterObjects...)
+
+		g.Expect(r.forceDeleteTerminatingPodsOnUnknownNodes(ctx, []argov1.Application{*application})).To(Succeed())
+		g.Expect(recorder.deleted).To(BeEmpty())
+	})
+
+	t.Run("does nothing when the DPUCluster is already gone", func(t *testing.T) {
+		g := NewWithT(t)
+		r, recorder := newReconciler(t, []client.Object{deletingConfig}, clusterObjects...)
+
+		g.Expect(r.forceDeleteTerminatingPodsOnUnknownNodes(ctx, []argov1.Application{*application})).To(Succeed())
+		g.Expect(recorder.deleted).To(BeEmpty())
+	})
+}
+
+// nodeWithReady returns a node whose Ready condition has the given status.
+func nodeWithReady(name string, ready corev1.ConditionStatus) *corev1.Node {
+	return &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{
+			Type:   corev1.NodeReady,
+			Status: ready,
+		}}},
+	}
+}
+
+// terminatingDaemonSet returns a terminating DaemonSet. Its UID equals its name so tests can
+// point an owner reference at this exact object.
+func terminatingDaemonSet(name string, now metav1.Time) *appsv1.DaemonSet {
+	return &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              name,
+			Namespace:         "svc-ns",
+			UID:               types.UID(name),
+			DeletionTimestamp: &now,
+			Finalizers:        []string{"test"},
+		},
+	}
+}
+
+// ownedTerminatingPod returns a terminating pod controlled by the named DaemonSet. The owner
+// UID matches terminatingDaemonSet.
+func ownedTerminatingPod(name, nodeName, daemonSetName string, now metav1.Time) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              name,
+			Namespace:         "svc-ns",
+			DeletionTimestamp: &now,
+			Finalizers:        []string{"test"},
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "apps/v1",
+				Kind:       "DaemonSet",
+				Name:       daemonSetName,
+				UID:        types.UID(daemonSetName),
+				Controller: ptr.To(true),
+			}},
+		},
+		Spec: corev1.PodSpec{NodeName: nodeName},
+	}
+}
+
+// deletedPodNames returns the names of objects passed to Delete, in call order.
+func deletedPodNames(recorder *deleteRecordingClient) []string {
+	names := make([]string, 0, len(recorder.deleted))
+	for _, call := range recorder.deleted {
+		names = append(names, call.key.Name)
+	}
+	return names
 }
