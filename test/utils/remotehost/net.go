@@ -59,6 +59,59 @@ func (h Host) FlushIface(iface, subnet string, family IPFamily) {
 	}
 }
 
+// ReplaceVRFRoute installs a route for subnet via gateway in the link's VRF table.
+func (h Host) ReplaceVRFRoute(link VRFLink, subnet, gateway string) {
+	script := strings.Join([]string{hostSudoPreamble, fmt.Sprintf("$SUDO ip -%s route replace %s via %s dev %s table %d",
+		link.Family.IPVersion(), shellQuote(subnet), shellQuote(gateway), shellQuote(link.Iface), link.Table)}, "\n")
+	Eventually(func(g Gomega) {
+		output, err := h.SSH(script)
+		g.Expect(err).ToNot(HaveOccurred(), "failed to add route %s via %s in table %d on %s: %s",
+			subnet, gateway, link.Table, h.Addr, output)
+	}, DefaultTimeout).Should(Succeed())
+	By(fmt.Sprintf("Route %s via %s in VRF table %d on %s", subnet, gateway, link.Table, h.Addr))
+}
+
+// DeleteVRFRoute best-effort removes the route for subnet from the link's VRF table.
+func (h Host) DeleteVRFRoute(link VRFLink, subnet string) {
+	script := strings.Join([]string{hostSudoPreamble, fmt.Sprintf("$SUDO ip -%s route del %s dev %s table %d || true",
+		link.Family.IPVersion(), shellQuote(subnet), shellQuote(link.Iface), link.Table)}, "\n")
+	if output, err := h.SSH(script); err != nil {
+		GinkgoWriter.Printf("best-effort route delete %s in table %d on %s failed: %v, output: %s\n",
+			subnet, link.Table, h.Addr, err, output)
+	}
+}
+
+// VRFRouteNextHop returns the gateway of the first route with a via in the link's VRF table.
+// IPv6 overlay routes come from RA, so their next hop is the router's link-local address and
+// cannot be derived from the host address the way an IPv4 /31 peer can.
+func (h Host) VRFRouteNextHop(link VRFLink) string {
+	var gateway string
+	cmd := fmt.Sprintf("ip -%s route show table %d dev %s",
+		link.Family.IPVersion(), link.Table, shellQuote(link.Iface))
+	Eventually(func(g Gomega) {
+		out, err := h.SSH(cmd)
+		g.Expect(err).ToNot(HaveOccurred(), "ip route show failed on %s: %s", h.Addr, out)
+		gateway = firstRouteNextHop(out)
+		g.Expect(gateway).ToNot(BeEmpty(),
+			"no route with a via gateway in VRF table %d on %s: %s", link.Table, h.Addr, out)
+	}, DefaultTimeout).Should(Succeed())
+	By(fmt.Sprintf("Got next hop %s from VRF table %d on %s", gateway, link.Table, h.Addr))
+	return gateway
+}
+
+// firstRouteNextHop returns the address after the first via token in ip route show output.
+func firstRouteNextHop(routes string) string {
+	for _, line := range strings.Split(routes, "\n") {
+		fields := strings.Fields(line)
+		for i, field := range fields {
+			if field == "via" && i+1 < len(fields) {
+				return fields[i+1]
+			}
+		}
+	}
+	return ""
+}
+
 // withVRF prepends ip vrf exec when vrf is set.
 func withVRF(vrf string, cmd ...string) []string {
 	if vrf == "" {

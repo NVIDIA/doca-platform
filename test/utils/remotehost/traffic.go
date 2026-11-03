@@ -18,6 +18,7 @@ package remotehost
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,6 +31,9 @@ import (
 const (
 	ibWriteBWPort           = 18515
 	ibWriteBWClientJSONPath = "/tmp/ib_write_bw_client.json"
+	ibWriteBWServerLogPath  = "/tmp/ib_write_bw_server.log"
+	// pingNoRouteError is what ping reports when the kernel has no route, for either family.
+	pingNoRouteError = "Network is unreachable"
 )
 
 // Ping pings Destination, optionally inside VRF.
@@ -42,18 +46,38 @@ func (h Host) Ping(cfg Net) {
 	}, DefaultTimeout).Should(Succeed())
 }
 
-// AssertPingFailure asserts ping to Destination consistently fails.
+// AssertPingFailure asserts ping to Destination consistently fails, and that the failure is a
+// drop rather than a missing local route, which would pass without the traffic reaching the DPU.
 func (h Host) AssertPingFailure(cfg Net) {
 	Consistently(func(g Gomega) {
 		output, err := h.execInNet(cfg, cfg.Family.pingArgs("2", "2", cfg.Destination)...)
 		g.Expect(err).To(HaveOccurred(),
 			"ping %s from container %s on %s should fail:\n%s",
 			cfg.Destination, h.ContainerName, h.Addr, output)
+		// iputils writes the error on stderr and Host.SSH returns stderr only inside err.
+		g.Expect(err.Error()).ToNot(ContainSubstring(pingNoRouteError),
+			"ping %s from container %s on %s never left the host, add a route for the peer subnet:\n%v",
+			cfg.Destination, h.ContainerName, h.Addr, err)
 	}, 30*time.Second, 5*time.Second).Should(Succeed())
 }
 
+// PingBurst sends count pings to Destination, failures are logged as the traffic may be expected to drop.
+func (h Host) PingBurst(cfg Net, count int) {
+	args := cfg.Family.pingBurstArgs(strconv.Itoa(count), "0.2", "1", cfg.Destination)
+	if output, err := h.execInNet(cfg, args...); err != nil {
+		GinkgoWriter.Printf("ping burst of %d to %s from %s returned %v, output: %s\n",
+			count, cfg.Destination, h.Addr, err, output)
+	}
+}
+
 // RunTrafficTest runs bidirectional iperf3 using cfg Destination and optional ClientBindIP.
+// Use RunTrafficTestWithResult if you also need the parsed iperf results.
 func RunTrafficTest(client, server Host, cfg Net) {
+	RunTrafficTestWithResult(client, server, cfg)
+}
+
+// RunTrafficTestWithResult runs bidirectional iperf3 and returns the parsed results for both directions.
+func RunTrafficTestWithResult(client, server Host, cfg Net) netshoot.TrafficTestResult {
 	server.startIperf3Server(cfg)
 	defer server.stopIperf3Server()
 
@@ -62,6 +86,8 @@ func RunTrafficTest(client, server Host, cfg Net) {
 
 	reverseResult := netshoot.ParseIperfResult(client.runIperf3Client(cfg, true))
 	netshoot.AnalyzeIperfResults(reverseResult, true)
+
+	return netshoot.TrafficTestResult{Forward: forwardResult, Reverse: reverseResult}
 }
 
 // RunIBWriteBW runs ib_write_bw and asserts average BW above minAvgBWGbit.
@@ -73,15 +99,15 @@ func RunIBWriteBW(
 	mtu int,
 	extraArgs ...string,
 ) {
-	extra := strings.Join(extraArgs, " ")
+	extra := strings.Join(append(cfg.Family.ibWriteBWArgs(), extraArgs...), " ")
 	durationSec := int(duration / time.Second)
 
-	By(fmt.Sprintf("Starting ib_write_bw server on %s (dev=%s, -D=%s, extra=%v)",
-		server.Addr, cfg.RDMADev, duration, extraArgs))
+	By(fmt.Sprintf("Starting ib_write_bw server on %s (dev=%s, -D=%s, extra=%q)",
+		server.Addr, cfg.RDMADev, duration, extra))
 	serverInner := fmt.Sprintf(
 		"pkill -9 ib_write_bw 2>/dev/null; "+
-			"nohup ib_write_bw -d %s -D %d -q 1 -m %d --report_gbit %s >/dev/null 2>&1 < /dev/null &",
-		cfg.RDMADev, durationSec, mtu, extra)
+			"nohup ib_write_bw -d %s -D %d -q 1 -m %d --report_gbit %s >%s 2>&1 < /dev/null &",
+		cfg.RDMADev, durationSec, mtu, extra, ibWriteBWServerLogPath)
 	out, err := server.execShellInNet(cfg, serverInner)
 	Expect(err).ToNot(HaveOccurred(),
 		"starting ib_write_bw server on %s failed: %s", server.Addr, out)
@@ -97,12 +123,17 @@ func RunIBWriteBW(
 	listenInner := cfg.Family.ssListenCmd(ibWriteBWPort)
 	Eventually(func(g Gomega) {
 		listenOut, listenErr := server.execShellInNet(cfg, listenInner)
+		if listenErr != nil {
+			// The server runs detached, so its own log is the only clue when it never listens.
+			serverLog, _ := server.execShell(fmt.Sprintf("cat %s 2>/dev/null", ibWriteBWServerLogPath))
+			listenOut += serverLog
+		}
 		g.Expect(listenErr).ToNot(HaveOccurred(),
 			"ib_write_bw not listening on :%d on %s: %s", ibWriteBWPort, server.Addr, listenOut)
 	}, 30*time.Second).Should(Succeed())
 
-	By(fmt.Sprintf("Running ib_write_bw client on %s -> %s (dev=%s, -D=%s, extra=%v)",
-		client.Addr, cfg.Destination, cfg.RDMADev, duration, extraArgs))
+	By(fmt.Sprintf("Running ib_write_bw client on %s -> %s (dev=%s, -D=%s, extra=%q)",
+		client.Addr, cfg.Destination, cfg.RDMADev, duration, extra))
 	clientInner := fmt.Sprintf(
 		"rm -f %s; ib_write_bw -d %s -D %d -q 1 -m %d --report_gbit --out_json --out_json_file=%s %s %s",
 		ibWriteBWClientJSONPath, cfg.RDMADev, durationSec, mtu,

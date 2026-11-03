@@ -272,6 +272,7 @@ spec:
                 brcx-r0swp0:
                   addresses:
                     - {{ .rail0_swp0_ip }}
+                    - {{ .rail0_swp0_ipv6 }}
                   routes:
                     - to: {{ .rail_network_swp0 }}
                       via: {{ .rail0_swp0_gw }}
@@ -279,6 +280,7 @@ spec:
                 brcx-r0swp1:
                   addresses:
                     - {{ .rail0_swp1_ip }}
+                    - {{ .rail0_swp1_ipv6 }}
                   routes:
                     - to: {{ .rail_network_swp1 }}
                       via: {{ .rail0_swp1_gw }}

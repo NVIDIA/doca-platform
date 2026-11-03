@@ -47,6 +47,9 @@ type ciSetupInfo struct {
 	bySerial map[string]setupInfoEntry
 }
 
+// setupInfoAnchorPrefix marks top-level keys that hold reusable YAML anchors, not DPU entries.
+const setupInfoAnchorPrefix = "x-"
+
 // normalizeSetupInfoSerial lower-cases and trims a DPU serial so setup-info keys.
 func normalizeSetupInfoSerial(serial string) string {
 	return strings.ToLower(strings.TrimSpace(serial))
@@ -68,6 +71,9 @@ func loadCISetupInfo(path string) *ciSetupInfo {
 	for serial, entry := range parsed {
 		key := normalizeSetupInfoSerial(serial)
 		Expect(key).NotTo(BeEmpty(), "setup-info serial key must not be empty in %s", path)
+		if strings.HasPrefix(key, setupInfoAnchorPrefix) {
+			continue
+		}
 		Expect(bySerial).NotTo(HaveKey(key),
 			"duplicate setup-info serial %q after case normalization in %s", serial, path)
 		entry.HostBMCIP = strings.TrimSpace(entry.HostBMCIP)

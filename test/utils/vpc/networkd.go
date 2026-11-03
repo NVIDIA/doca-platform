@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+	"strings"
 
 	"github.com/nvidia/doca-platform/test/utils/remotehost"
 
@@ -62,6 +63,32 @@ func VerifyAttachmentsDHCPAddresses(links []remotehost.VRFLink, overlays []Worke
 			}, LongTimeout).Should(Succeed())
 		}
 	}
+}
+
+// WaitGlobalOverlayIP waits for a global IPv6 on iface in subnet and returns addr and CIDR from ip.
+func WaitGlobalOverlayIP(h remotehost.Host, iface, subnet string) (addr, cidr string) {
+	_, ipnet, err := net.ParseCIDR(subnet)
+	Expect(err).NotTo(HaveOccurred(), "parsing overlay subnet %s", subnet)
+	Eventually(func(g Gomega) {
+		out, err := h.SSH(fmt.Sprintf("ip -6 -o addr show dev %s scope global", iface))
+		g.Expect(err).NotTo(HaveOccurred(), "ip addr show failed on %s: %s", h.Addr, out)
+		addr, cidr = "", ""
+		for _, field := range strings.Fields(out) {
+			ip, ipn, parseErr := net.ParseCIDR(field)
+			if parseErr != nil || ip.To4() != nil {
+				continue
+			}
+			if !ipnet.Contains(ip) {
+				continue
+			}
+			ones, _ := ipn.Mask.Size()
+			addr = ip.String()
+			cidr = fmt.Sprintf("%s/%d", addr, ones)
+			return
+		}
+		g.Expect(addr).NotTo(BeEmpty(), "no global IPv6 in %s on %s %s: %s", subnet, h.Addr, iface, out)
+	}, LongTimeout).Should(Succeed())
+	return addr, cidr
 }
 
 // CleanupHosts flushes PF overlays using each host's Subnet and removes containers.

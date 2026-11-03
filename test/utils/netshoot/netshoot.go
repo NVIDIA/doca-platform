@@ -689,6 +689,12 @@ func ExecInPodOnce(restClient *rest.RESTClient, config *rest.Config, namespace, 
 	return executeCommandOnce(restClient, config, namespace, podName, command)
 }
 
+// ExecInPodOnceWithTimeout runs a command in a pod once, bounding the attempt to execTimeout.
+// Prefer it over ExecInPodOnce when the caller retries.
+func ExecInPodOnceWithTimeout(restClient *rest.RESTClient, config *rest.Config, namespace, podName string, command []string, execTimeout time.Duration) (string, error) {
+	return executeCommandOnce(restClient, config, namespace, podName, command, WithExecTimeout(execTimeout))
+}
+
 // ExecInPodOnceWithErrorParser runs a command in a pod once and returns stdout and any error.
 // It uses the provided error parser for error output.
 func ExecInPodOnceWithErrorParser(restClient *rest.RESTClient, config *rest.Config, namespace, podName string, command []string, errorParser ErrorParserFunc) (string, error) {

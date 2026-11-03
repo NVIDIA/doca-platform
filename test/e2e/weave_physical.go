@@ -51,11 +51,17 @@ var (
 	weavePhysicalPrerequisiteScope *cleanup.Scope
 	// weavePhysicalContextScope manages cleanup for test-specific WeavePhysical resources within each test Context.
 	weavePhysicalContextScope *cleanup.Scope
-	// weaveUnderlayBits is underlayConfigMapData prefix encoding for overlay routes.
-	weaveUnderlayBits = vpc.UnderlayPrefixBits{
-		Overlay:       weaveOverlayNetworkPrefixLength,
-		SoftwarePlane: weaveSoftwarePlaneIDBitLength,
-		Rail:          weaveRailIDBitLength,
+	// weaveUnderlayBitsIPv4 is underlayConfigMapData prefix encoding for IPv4 overlay routes.
+	weaveUnderlayBitsIPv4 = vpc.UnderlayPrefixBits{
+		Overlay:       12,
+		SoftwarePlane: 1,
+		Rail:          3,
+	}
+	// weaveUnderlayBitsIPv6 is underlayConfigMapData prefix encoding for IPv6 overlay routes.
+	weaveUnderlayBitsIPv6 = vpc.UnderlayPrefixBits{
+		Overlay:       24,
+		SoftwarePlane: 8,
+		Rail:          8,
 	}
 )
 
@@ -84,10 +90,9 @@ const (
 
 	weavePhysicalDPUDeploymentName = "weave-physical"
 
-	// Weave underlayConfigMapData prefix encoding (overlay route masks).
-	weaveOverlayNetworkPrefixLength = 12
-	weaveSoftwarePlaneIDBitLength   = 1
-	weaveRailIDBitLength            = 3
+	weaveUnderlayIPFamilyEnv  = "UNDERLAY_IP_FAMILY"
+	weaveUnderlayIPFamilyIPv4 = "ipv4"
+	weaveUnderlayIPFamilyIPv6 = "ipv6"
 
 	// Weave create timeout.
 	weaveCreateTimeout = 60 * time.Second
@@ -330,11 +335,18 @@ func (t *weavePhysicalTestInput) newWeaveFlowControllerConfiguration() *dpuservi
 				"imagePullSecrets": []map[string]string{{"name": dpfPullSecretName}},
 				"weaveFlowController": map[string]any{
 					"enabled": true,
+					"containers": map[string]any{
+						"weaveFlowController": map[string]any{
+							"env": []map[string]string{
+								{"name": weaveUnderlayIPFamilyEnv, "value": weaveUnderlayIPFamilyIPv4},
+							},
+						},
+					},
 					"underlayConfigMapData": map[string]any{
 						"nicIDType":                  "mac",
-						"overlayNetworkPrefixLength": weaveOverlayNetworkPrefixLength,
-						"softwarePlaneIDBitLength":   weaveSoftwarePlaneIDBitLength,
-						"railIDBitLength":            weaveRailIDBitLength,
+						"overlayNetworkPrefixLength": weaveUnderlayBitsIPv4.Overlay,
+						"softwarePlaneIDBitLength":   weaveUnderlayBitsIPv4.SoftwarePlane,
+						"railIDBitLength":            weaveUnderlayBitsIPv4.Rail,
 						"interfaces": []map[string]string{
 							{
 								"pciAddress":           bf4.Topology.P0.PCIAddress,
@@ -570,14 +582,14 @@ func weavePhysicalHostRegistryAuth() *remotehost.RegistryAuth {
 }
 
 // weavePhysicalCreateVNet creates vnetID on pod and registers vpcctl delete.
-func weavePhysicalCreateVNet(pod *corev1.Pod, vnetID string, vni uint32, subnet string, cleanup *[]func()) {
-	createVNetOnPod(pod, vnetID, vni, subnet)
+func weavePhysicalCreateVNet(pod *corev1.Pod, vnetID string, vni uint32, subnet string, family remotehost.IPFamily, cleanup *[]func()) {
+	createVNetOnPod(pod, vnetID, vni, subnet, family)
 	*cleanup = append(*cleanup, func() { deleteVNetOnPod(pod, vnetID) })
 }
 
 // weavePhysicalCreatePFAttachment attaches the representor to vnetID and registers vpcctl delete.
-func weavePhysicalCreatePFAttachment(pod *corev1.Pod, vnetID, rep string, cleanup *[]func()) string {
-	attID, hostIP := createPFAttachmentByRepresentorAndWaitForHostIP(pod, vnetID, rep)
+func weavePhysicalCreatePFAttachment(pod *corev1.Pod, vnetID, rep string, family remotehost.IPFamily, cleanup *[]func()) string {
+	attID, hostIP := createPFAttachmentByRepresentorAndWaitForHostIP(pod, vnetID, rep, family)
 	*cleanup = append(*cleanup, func() { deleteAttachmentOnPod(pod, attID) })
 	return hostIP
 }

@@ -64,5 +64,6 @@ var Topology = topology.Topology{
 	},
 	HostPFRDMADevice: "rdma_r0sw0pf0",
 	VNetSubnet:       "172.16.0.0/12",
+	VNetSubnetIPv6:   "f001::/24",
 	RDMAMinAvgBWGbit: 300.0,
 }

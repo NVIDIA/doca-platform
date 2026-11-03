@@ -410,8 +410,16 @@ var _ = Describe("Weave BF3 testcases", Labels{Domain.WeaveBF3}, Ordered, func()
 				dpuNode1Name: fcPod1.UID,
 				dpuNode2Name: fcPod2.UID,
 			}
-			patchFlowControllerForMetrics(ctx, input.client)
-			fcPod1, fcPod2 = waitForFlowControllerPodsRolled(ctx, dpuNode1Name, dpuNode2Name, previousUIDs)
+			patchFlowController(ctx, input.client, flowControllerPatch{
+				SingleUnderlay: true,
+				Env: map[string]string{
+					weaveEnableOVSMetricsEnv: weaveEnableOVSMetricsEnvValue,
+				},
+			})
+			fcPod1, fcPod2 = waitForFlowControllerPodsRolled(ctx, dpuNode1Name, dpuNode2Name, previousUIDs,
+				weaveFlowControllerName, map[string]string{
+					weaveEnableOVSMetricsEnv: weaveEnableOVSMetricsEnvValue,
+				})
 		})
 
 		AfterAll(func() {
@@ -452,8 +460,10 @@ var _ = Describe("Weave BF3 testcases", Labels{Domain.WeaveBF3}, Ordered, func()
 		})
 
 		It("should verify metrics across nodes under iperf load on p0", func() {
-			verifyCrossNodeIperfMetric(fcPod1, fcPod2, metricsTrafficVNI,
-				metricsTestNS, metricsPod1, metricsPod2, overlayIPP0Node2, input.restConfig)
+			verifyCrossNodeIperfMetric(fcPod1, fcPod2, metricsTrafficVNI, func() netshoot.IperfResult {
+				return netshoot.RunTrafficTestWithResult(&hostClusterRESTClient, &input.restConfig,
+					metricsTestNS, metricsPod1, metricsPod2, overlayIPP0Node2).Forward
+			})
 		})
 	})
 
@@ -516,7 +526,10 @@ var _ = Describe("Weave BF3 testcases", Labels{Domain.WeaveBF3}, Ordered, func()
 
 		// Source ACL must start unlearned; keep this before any deny-ping style traffic.
 		It("should verify metrics for VNI-mismatch detection", func() {
-			verifyVNIMismatchMetric(fcPod1, fcPod2, metricsIsolVNI1, metricsTestNS, metricsPod1, overlayIP2, input.restConfig)
+			verifyVNIMismatchMetric(fcPod1, fcPod2, metricsIsolVNI1, func() {
+				_, _ = netshoot.PingBurst(hostClusterRESTClient, input.restConfig, metricsTestNS, metricsPod1,
+					overlayIP2, weaveMetricBurstCount)
+			})
 		})
 	})
 
@@ -573,7 +586,10 @@ var _ = Describe("Weave BF3 testcases", Labels{Domain.WeaveBF3}, Ordered, func()
 		})
 
 		It("should verify metrics for an out-of-subnet destination", func() {
-			verifyOutOfSubnetMetric(fcPod1, metricsVNI, metricsTestNS, metricsPod1, metricsOutOfSubnetIP, input.restConfig)
+			verifyOutOfSubnetMetric(fcPod1, metricsVNI, func() {
+				_, _ = netshoot.PingBurst(hostClusterRESTClient, input.restConfig, metricsTestNS, metricsPod1,
+					metricsOutOfSubnetIP, weaveMetricBurstCount)
+			})
 		})
 	})
 })

@@ -41,7 +41,8 @@ type VRFLink struct {
 	Family IPFamily
 }
 
-// ConfigureVRFDHCP writes transient networkd drop-ins and runs DHCP for each link Family.
+// ConfigureVRFDHCP writes transient networkd drop-ins for IPv4 DHCP and/or IPv6 RA plus DHCPv6.
+// IPv6 always enables DHCPv6 even for SLAAC that doesn't use it.
 func ConfigureVRFDHCP(mtu int, links []VRFLink, hosts []Host) {
 	if len(links) == 0 {
 		return
@@ -98,8 +99,8 @@ func vrfUnitWrites(link VRFLink, mtu int) []string {
 	netdev := fmt.Sprintf("[NetDev]\nName=%s\nKind=vrf\n\n[VRF]\nTable=%d\n", link.VRF, link.Table)
 	vrfNetwork := fmt.Sprintf("[Match]\nName=%s\n\n[Network]\nConfigureWithoutCarrier=yes\n", link.VRF)
 	ifaceNetwork := fmt.Sprintf(
-		"[Match]\nName=%s\n\n[Link]\nMTUBytes=%d\n\n[Network]\nVRF=%s\nDHCP=%s\nIPv6AcceptRA=no\n%s",
-		link.Iface, mtu, link.VRF, link.Family.String(), link.Family.dhcpSections())
+		"[Match]\nName=%s\n\n[Link]\nMTUBytes=%d\n\n[Network]\nVRF=%s\nDHCP=%s\nIPv6AcceptRA=%s\n%s",
+		link.Iface, mtu, link.VRF, link.Family.String(), link.Family.ipv6AcceptRA(), link.Family.dhcpSections())
 	return []string{
 		writeHostFileScript(netdevPath, netdev),
 		writeHostFileScript(vrfNetworkPath, vrfNetwork),

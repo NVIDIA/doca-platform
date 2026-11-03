@@ -74,6 +74,15 @@ func (f IPFamily) pingArgs(count, wait, dest string) []string {
 	return append(args, "-c", count, "-W", wait, dest)
 }
 
+// pingBurstArgs is pingArgs with an explicit send interval.
+func (f IPFamily) pingBurstArgs(count, interval, wait, dest string) []string {
+	args := []string{"ping"}
+	if f == IPFamilyV6 {
+		args = append(args, "-6")
+	}
+	return append(args, "-c", count, "-i", interval, "-W", wait, dest)
+}
+
 // iperfIPFlag is iperf3 -6 for IPv6, -4 for IPv4.
 func (f IPFamily) iperfIPFlag() string {
 	if f == IPFamilyV6 {
@@ -82,12 +91,30 @@ func (f IPFamily) iperfIPFlag() string {
 	return "-4"
 }
 
+// ibWriteBWArgs are the perftest flags for this family, passed to both server and client.
+func (f IPFamily) ibWriteBWArgs() []string {
+	if !f.wantsV6() {
+		return nil
+	}
+	// perftest defaults to AF_INET, these force IPv6 on the negotiation socket and GID selection.
+	// -x pins GID 3, the RoCE v2 SLAAC entry, as auto-selection takes the link-local GID at 0.
+	return []string{"--ipv6-addr", "--ipv6", "-x", "3"}
+}
+
 // ssListenCmd checks that TCP port is LISTEN for this family.
 func (f IPFamily) ssListenCmd(port int) string {
 	if f == IPFamilyV6 {
 		return fmt.Sprintf("ss -lnt6 'sport = :%d' | grep -q LISTEN", port)
 	}
 	return fmt.Sprintf("ss -lnt4 'sport = :%d' | grep -q LISTEN", port)
+}
+
+// ipv6AcceptRA is systemd-networkd IPv6AcceptRA= for SLAAC and RA routes.
+func (f IPFamily) ipv6AcceptRA() string {
+	if f.wantsV6() {
+		return "yes"
+	}
+	return "no"
 }
 
 // dhcpSections returns [DHCPv4] and/or [DHCPv6] unit text.

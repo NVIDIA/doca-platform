@@ -60,6 +60,8 @@ type Topology struct {
 	HostPFRDMADevice string
 	// VNetSubnet is the overlay IPv4 CIDR for Weave virtual networks.
 	VNetSubnet string
+	// VNetSubnetIPv6 is the overlay IPv6 CIDR for Weave virtual networks.
+	VNetSubnetIPv6 string
 	// RDMAMinAvgBWGbit is the min ib_write_bw average Gbit/sec with HW offload.
 	RDMAMinAvgBWGbit float32
 }

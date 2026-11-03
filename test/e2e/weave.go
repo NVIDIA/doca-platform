@@ -28,6 +28,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/test/e2e/cleanup"
 	"github.com/nvidia/doca-platform/test/utils/netshoot"
+	"github.com/nvidia/doca-platform/test/utils/remotehost"
 	"github.com/nvidia/doca-platform/test/utils/vpc"
 	"github.com/nvidia/doca-platform/test/utils/vpc/topology"
 	"github.com/nvidia/doca-platform/test/utils/vpc/topology/bf3"
@@ -79,14 +80,13 @@ const (
 	// so chaining with `&&` would skip the addr flush and lease wipe. Trailing `true` keeps exec exit 0.
 	weaveRDMAFlushCmdFmt = "dhcpcd -k %[1]s 2>/dev/null; ip -4 addr flush dev %[1]s 2>/dev/null; rm -f /var/lib/dhcpcd/%[1]s.lease*; true"
 
-	// weaveDPUTunnelCleanupTimeout is for vpcctl deletes over the tunneled DPU REST client. When the tunnel
-	// drops, getDPUClusterClient's inner Eventually can take up to 3m (system_setup.go); a shorter timeout
-	// causes flaky failures (e.g. "connection reset by peer" on pod exec) attributed to the last It block.
-	weaveDPUTunnelCleanupTimeout = 4 * time.Minute
+	// weaveOperationTimeout is the ceiling for vpcctl and DPU pod exec Eventually loops. It must outlast a
+	// tunnel rebuild, which takes up to 3m.
+	weaveOperationTimeout = 4 * time.Minute
 
-	// weaveOperationTimeout is the default ceiling for vpcctl and DPU pod exec Eventually loops (create,
-	// wait, verify). Tunnel and API variance affect these the same way; one value avoids brittle 30s/60s/2m splits.
-	weaveOperationTimeout = 2 * time.Minute
+	// weaveDPUExecAttemptTimeout bounds a single exec over the tunneled DPU REST client. It must stay well
+	// below weaveOperationTimeout to leave room for retries.
+	weaveDPUExecAttemptTimeout = 15 * time.Second
 
 	weaveEventuallyPollInterval = 1 * time.Second
 
@@ -224,16 +224,22 @@ func getProvisionDPUClustersInputForWeave(ctx context.Context, provisionInput Pr
 	return provisionInput
 }
 
+// execInDPUPod runs one command in a DPU cluster pod. Reads the tunneled client per call, a rebuild
+// replaces it.
+func execInDPUPod(pod *corev1.Pod, command []string) (string, error) {
+	return netshoot.ExecInPodOnceWithTimeout(dpuClusterRestClient[0], dpuClusterRestConfig[0],
+		pod.Namespace, pod.Name, command, weaveDPUExecAttemptTimeout)
+}
+
 // verifyOVSResponsive runs `ovs-vsctl show` on the given flow-controller pod and asserts
 // it returns non-empty output. Acts as an early sanity check that OVS is up.
 func verifyOVSResponsive(pod *corev1.Pod) {
 	By(fmt.Sprintf("Verifying OVS is responsive on pod %s (node %s)", pod.Name, pod.Spec.NodeName))
 	Eventually(func(g Gomega) {
-		out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name,
-			[]string{"ovs-vsctl", "show"})
+		out, err := execInDPUPod(pod, []string{"ovs-vsctl", "show"})
 		g.Expect(err).ToNot(HaveOccurred(), "ovs-vsctl show failed on pod %s: %s", pod.Name, out)
 		g.Expect(strings.TrimSpace(out)).ToNot(BeEmpty(), "ovs-vsctl show returned empty output on pod %s", pod.Name)
-	}).WithTimeout(30 * time.Second).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
+	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
 }
 
 // getPFMACFromFlowControllerByPort reads the PF MAC from smart_nic sysfs (e.g. p0, A1p0).
@@ -241,7 +247,7 @@ func getPFMACFromFlowControllerByPort(pod *corev1.Pod, port string) string {
 	cmd := []string{"sh", "-c", fmt.Sprintf(`grep -i '^MAC' /sys/class/net/%s/smart_nic/pf/config | head -1 | sed 's/^[^:]*:[[:space:]]*//'`, port)}
 	var mac string
 	Eventually(func(g Gomega) {
-		output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, cmd)
+		output, err := execInDPUPod(pod, cmd)
 		g.Expect(err).ToNot(HaveOccurred(), "failed to read PF MAC (%s) from pod %s: %s", port, pod.Name, output)
 		mac = strings.TrimSpace(output)
 		g.Expect(mac).ToNot(BeEmpty(), "empty PF MAC (%s) from pod %s", port, pod.Name)
@@ -252,8 +258,7 @@ func getPFMACFromFlowControllerByPort(pod *corev1.Pod, port string) string {
 }
 
 func assertVPCtlVNetPhaseReady(g Gomega, pod *corev1.Pod, vnetID string) {
-	out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name,
-		[]string{"/vpcctl", "get-vnet", "--id", vnetID})
+	out, err := execInDPUPod(pod, []string{"/vpcctl", "get-vnet", "--id", vnetID})
 	g.Expect(err).ToNot(HaveOccurred(), "vpcctl get-vnet %q on pod %s: %s", vnetID, pod.Name, out)
 	var resp vpcctlVNetResponse
 	g.Expect(json.Unmarshal([]byte(out), &resp)).To(Succeed(), "failed to parse get-vnet %q on pod %s: %s", vnetID, pod.Name, out)
@@ -262,8 +267,7 @@ func assertVPCtlVNetPhaseReady(g Gomega, pod *corev1.Pod, vnetID string) {
 }
 
 func assertVPCtlAttachmentPhaseReady(g Gomega, pod *corev1.Pod, attachmentID string) {
-	out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name,
-		[]string{"/vpcctl", "get-attachment", "--id", attachmentID})
+	out, err := execInDPUPod(pod, []string{"/vpcctl", "get-attachment", "--id", attachmentID})
 	g.Expect(err).ToNot(HaveOccurred(), "vpcctl get-attachment %q on pod %s: %s", attachmentID, pod.Name, out)
 	var resp vpcctlAttachmentResponse
 	g.Expect(json.Unmarshal([]byte(out), &resp)).To(Succeed(), "failed to parse get-attachment %q on pod %s: %s", attachmentID, pod.Name, out)
@@ -273,16 +277,20 @@ func assertVPCtlAttachmentPhaseReady(g Gomega, pod *corev1.Pod, attachmentID str
 
 // createVNetOnPod creates a virtual network on a flow-controller pod via vpcctl and asserts it reaches PHASE_READY.
 // The same vnetID and vni must be used on both flow-controller pods so that cross-node VXLAN traffic uses matching VNIs.
-func createVNetOnPod(pod *corev1.Pod, vnetID string, vni uint32, subnet string) {
-	By(fmt.Sprintf("Creating virtual network %q (vni=%d, subnet=%s) on pod %s", vnetID, vni, subnet, pod.Name))
+func createVNetOnPod(pod *corev1.Pod, vnetID string, vni uint32, subnet string, family remotehost.IPFamily) {
+	By(fmt.Sprintf("Creating virtual network %q (vni=%d, subnet=%s, family=%s) on pod %s", vnetID, vni, subnet, family, pod.Name))
+	subnetFlag := "--subnet-v4"
+	if family == remotehost.IPFamilyV6 {
+		subnetFlag = "--subnet-v6"
+	}
 	cmd := []string{
 		"/vpcctl", "create-vnet",
 		"--id", vnetID,
 		"--vni", fmt.Sprintf("%d", vni),
-		"--subnet-v4", subnet,
+		subnetFlag, subnet,
 	}
 	Eventually(func(g Gomega) {
-		output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, cmd)
+		output, err := execInDPUPod(pod, cmd)
 		if err != nil && strings.Contains(output, "AlreadyExists") {
 			assertVPCtlVNetPhaseReady(g, pod, vnetID)
 			return
@@ -301,7 +309,7 @@ func createVNetOnPod(pod *corev1.Pod, vnetID string, vni uint32, subnet string) 
 // block create/delete operations without relying on parsing gRPC error strings.
 func listAttachments(g Gomega, pod *corev1.Pod, filterFlags ...string) []vpcctlAttachment {
 	args := append([]string{"/vpcctl", "list-attachment"}, filterFlags...)
-	out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, args)
+	out, err := execInDPUPod(pod, args)
 	g.Expect(err).ToNot(HaveOccurred(), "vpcctl list-attachment %v failed on pod %s: %s", filterFlags, pod.Name, out)
 	var resp vpcctlListAttachmentResponse
 	g.Expect(json.Unmarshal([]byte(out), &resp)).To(Succeed(),
@@ -320,8 +328,7 @@ func isE2EAttachmentFor(id, suffix string) bool {
 
 // deleteStaleAttachment deletes attachmentID, tolerating NotFound from a concurrent delete.
 func deleteStaleAttachment(g Gomega, pod *corev1.Pod, attachmentID string) {
-	out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name,
-		[]string{"/vpcctl", "delete-attachment", "--id", attachmentID})
+	out, err := execInDPUPod(pod, []string{"/vpcctl", "delete-attachment", "--id", attachmentID})
 	if err != nil && !strings.Contains(out, "NotFound") {
 		g.Expect(err).ToNot(HaveOccurred(), "failed to delete stale attachment %s on pod %s: %s", attachmentID, pod.Name, out)
 	}
@@ -350,7 +357,7 @@ func createPFAttachmentAndWaitForHostIP(pod *corev1.Pod, vnetID, pfMAC string) (
 		"--pf", pfMAC,
 	}
 	Eventually(func(g Gomega) {
-		output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, cmd)
+		output, err := execInDPUPod(pod, cmd)
 		if err != nil && strings.Contains(output, "AlreadyExists") {
 			assertVPCtlAttachmentPhaseReady(g, pod, attID)
 			return
@@ -371,7 +378,7 @@ func createPFAttachmentAndWaitForHostIP(pod *corev1.Pod, vnetID, pfMAC string) (
 
 	By(fmt.Sprintf("Waiting for attachment %s on pod %s to reach PHASE_READY", attID, pod.Name))
 	Eventually(func(g Gomega) {
-		out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, []string{"/vpcctl", "get-attachment", "--id", attID})
+		out, err := execInDPUPod(pod, []string{"/vpcctl", "get-attachment", "--id", attID})
 		g.Expect(err).ToNot(HaveOccurred())
 		var resp vpcctlAttachmentResponse
 		g.Expect(json.Unmarshal([]byte(out), &resp)).To(Succeed())
@@ -385,8 +392,8 @@ func createPFAttachmentAndWaitForHostIP(pod *corev1.Pod, vnetID, pfMAC string) (
 	return attID, hostIP
 }
 
-// createPFAttachmentByRepresentorAndWaitForHostIP creates a PF attachment via --rep.
-func createPFAttachmentByRepresentorAndWaitForHostIP(pod *corev1.Pod, vnetID, representor string) (attID, hostIP string) {
+// createPFAttachmentByRepresentorAndWaitForHostIP creates a PF attachment via --rep, IPv6 returns no host IP as it comes from SLAAC.
+func createPFAttachmentByRepresentorAndWaitForHostIP(pod *corev1.Pod, vnetID, representor string, family remotehost.IPFamily) (attID, hostIP string) {
 	attID = fmt.Sprintf("%s-%s-%s", weaveE2EAttachmentIDPrefix, vnetID, representor)
 
 	By(fmt.Sprintf("Creating PF attachment for representor %s on pod %s", representor, pod.Name))
@@ -398,7 +405,7 @@ func createPFAttachmentByRepresentorAndWaitForHostIP(pod *corev1.Pod, vnetID, re
 		"--type", "pf",
 	}
 	Eventually(func(g Gomega) {
-		output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, cmd)
+		output, err := execInDPUPod(pod, cmd)
 		if err != nil && strings.Contains(output, "AlreadyExists") {
 			assertVPCtlAttachmentPhaseReady(g, pod, attID)
 			return
@@ -431,16 +438,23 @@ func createPFAttachmentByRepresentorAndWaitForHostIP(pod *corev1.Pod, vnetID, re
 
 	By(fmt.Sprintf("Waiting for attachment %s on pod %s to reach PHASE_READY", attID, pod.Name))
 	Eventually(func(g Gomega) {
-		out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, []string{"/vpcctl", "get-attachment", "--id", attID})
+		out, err := execInDPUPod(pod, []string{"/vpcctl", "get-attachment", "--id", attID})
 		g.Expect(err).ToNot(HaveOccurred())
 		var resp vpcctlAttachmentResponse
 		g.Expect(json.Unmarshal([]byte(out), &resp)).To(Succeed())
 		g.Expect(resp.VirtualNetworkAttachment.Status.State.Phase).To(Equal("PHASE_READY"))
+		if family == remotehost.IPFamilyV6 {
+			return
+		}
 		hostIP = resp.VirtualNetworkAttachment.Status.HostIPv4
 		g.Expect(hostIP).ToNot(BeEmpty())
 	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed(),
 		"attachment %s on pod %s did not reach PHASE_READY", attID, pod.Name)
 
+	if family == remotehost.IPFamilyV6 {
+		By(fmt.Sprintf("Attachment %s ready on pod %s, overlay IP from SLAAC", attID, pod.Name))
+		return attID, ""
+	}
 	By(fmt.Sprintf("Attachment %s ready on pod %s — host overlay IP: %s", attID, pod.Name, hostIP))
 	return attID, hostIP
 }
@@ -463,7 +477,7 @@ type weaveMetrics map[string]map[string]weaveMetric
 func scrapeWeaveMetrics(g Gomega, pod *corev1.Pod) weaveMetrics {
 	cmd := []string{"sh", "-c", `exec ovs-appctl -t /var/run/openvswitch/ovs-vswitchd.$(cat /var/run/openvswitch/ovs-vswitchd.pid).ctl metrics/show`}
 
-	out, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, cmd)
+	out, err := execInDPUPod(pod, cmd)
 	g.Expect(err).ToNot(HaveOccurred(), "ovs-appctl metrics/show failed on pod %s: %s", pod.Name, out)
 
 	parser := expfmt.NewTextParser(model.UTF8Validation)
@@ -531,11 +545,19 @@ func assertMetricDeviceNameLabel(g Gomega, metrics weaveMetrics, expectedBridge 
 	}
 }
 
-// patchFlowControllerForMetrics patches the weave-flow-controller DPUService to a single underlay
-// interface and sets ENABLE_OVS_METRICS=true. The device_name label is the uplink of PCI function 0, so dual-port
-// underlays on the same NIC collide on the same label. Metrics e2e must run with one underlay.
-func patchFlowControllerForMetrics(ctx context.Context, cl client.Client) {
-	By("Patching weave-flow-controller DPUService: single underlay + ENABLE_OVS_METRICS=true")
+// flowControllerPatch is a helm values update for weave-flow-controller.
+type flowControllerPatch struct {
+	// Env upserts container env (other entries are kept).
+	Env map[string]string
+	// SingleUnderlay keeps only the first underlayConfigMapData interface.
+	SingleUnderlay bool
+	// PrefixBits overwrites overlay, software-plane, and rail bit lengths, nil leaves them.
+	PrefixBits *vpc.UnderlayPrefixBits
+}
+
+// patchFlowController patches weave-flow-controller helm values on the DPUService.
+func patchFlowController(ctx context.Context, cl client.Client, patch flowControllerPatch) {
+	By(fmt.Sprintf("Patching weave-flow-controller DPUService (singleUnderlay=%t, env=%v)", patch.SingleUnderlay, patch.Env))
 	svc := &dpuservicev1.DPUService{}
 	Expect(cl.Get(ctx, client.ObjectKey{
 		Namespace: dpfOperatorSystemNamespace,
@@ -549,14 +571,60 @@ func patchFlowControllerForMetrics(ctx context.Context, cl client.Client) {
 
 	wfc, ok := values["weaveFlowController"].(map[string]any)
 	Expect(ok).To(BeTrue(), "missing weaveFlowController in helm values")
+	applyFlowControllerHelmPatch(wfc, patch)
 
-	underlay, ok := wfc["underlayConfigMapData"].(map[string]any)
-	Expect(ok).To(BeTrue(), "missing underlayConfigMapData in helm values")
-	ifaces, ok := underlay["interfaces"].([]any)
-	Expect(ok).To(BeTrue(), "missing underlayConfigMapData.interfaces in helm values")
-	Expect(ifaces).ToNot(BeEmpty(), "underlayConfigMapData.interfaces is empty")
-	underlay["interfaces"] = ifaces[:1]
+	raw, err := json.Marshal(values)
+	Expect(err).NotTo(HaveOccurred())
+	svc.Spec.HelmChart.Values.Raw = raw
+	Expect(cl.Patch(ctx, svc, client.MergeFrom(original))).To(Succeed())
+}
 
+// patchFlowControllerConfiguration patches weave-flow-controller helm values on a DPUServiceConfiguration.
+func patchFlowControllerConfiguration(ctx context.Context, cl client.Client, name string, patch flowControllerPatch) {
+	By(fmt.Sprintf("Patching DPUServiceConfiguration %s helm values (env=%v)", name, patch.Env))
+	cfg := &dpuservicev1.DPUServiceConfiguration{}
+	Expect(cl.Get(ctx, client.ObjectKey{
+		Namespace: dpfOperatorSystemNamespace,
+		Name:      name,
+	}, cfg)).To(Succeed())
+	original := cfg.DeepCopy()
+
+	helm := cfg.Spec.ServiceConfiguration.HelmChart.Values
+	Expect(helm).ToNot(BeNil(), "DPUServiceConfiguration %s has no helm values", name)
+	values := map[string]any{}
+	Expect(json.Unmarshal(helm.Raw, &values)).To(Succeed())
+
+	wfc, ok := values["weaveFlowController"].(map[string]any)
+	Expect(ok).To(BeTrue(), "missing weaveFlowController in helm values")
+	applyFlowControllerHelmPatch(wfc, patch)
+
+	raw, err := json.Marshal(values)
+	Expect(err).NotTo(HaveOccurred())
+	cfg.Spec.ServiceConfiguration.HelmChart.Values.Raw = raw
+	Expect(cl.Patch(ctx, cfg, client.MergeFrom(original))).To(Succeed())
+}
+
+// applyFlowControllerHelmPatch applies patch to weaveFlowController helm values.
+func applyFlowControllerHelmPatch(wfc map[string]any, patch flowControllerPatch) {
+	if patch.SingleUnderlay || patch.PrefixBits != nil {
+		underlay, ok := wfc["underlayConfigMapData"].(map[string]any)
+		Expect(ok).To(BeTrue(), "missing underlayConfigMapData in helm values")
+		if patch.SingleUnderlay {
+			ifaces, ok := underlay["interfaces"].([]any)
+			Expect(ok).To(BeTrue(), "missing underlayConfigMapData.interfaces in helm values")
+			Expect(ifaces).ToNot(BeEmpty(), "underlayConfigMapData.interfaces is empty")
+			underlay["interfaces"] = ifaces[:1]
+		}
+		if patch.PrefixBits != nil {
+			underlay["overlayNetworkPrefixLength"] = patch.PrefixBits.Overlay
+			underlay["softwarePlaneIDBitLength"] = patch.PrefixBits.SoftwarePlane
+			underlay["railIDBitLength"] = patch.PrefixBits.Rail
+		}
+	}
+
+	if len(patch.Env) == 0 {
+		return
+	}
 	containers, _ := wfc["containers"].(map[string]any)
 	if containers == nil {
 		containers = map[string]any{}
@@ -567,12 +635,9 @@ func patchFlowControllerForMetrics(ctx context.Context, cl client.Client) {
 		container = map[string]any{}
 		containers["weaveFlowController"] = container
 	}
-	upsertHelmEnv(container, weaveEnableOVSMetricsEnv, weaveEnableOVSMetricsEnvValue)
-
-	raw, err := json.Marshal(values)
-	Expect(err).NotTo(HaveOccurred())
-	svc.Spec.HelmChart.Values.Raw = raw
-	Expect(cl.Patch(ctx, svc, client.MergeFrom(original))).To(Succeed())
+	for name, value := range patch.Env {
+		upsertHelmEnv(container, name, value)
+	}
 }
 
 // upsertHelmEnv sets name=value on a helm container values map, preserving any other env entries.
@@ -593,42 +658,34 @@ func upsertHelmEnv(container map[string]any, name, value string) {
 	container["env"] = append(rawEnv, envEntry)
 }
 
-// waitForFlowControllerPodsRolled waits until both flow-controller pods have new UIDs (DaemonSet
-// roll after the metrics patch) and are Ready, then returns them ordered by DPU node.
-func waitForFlowControllerPodsRolled(ctx context.Context, dpuNode1, dpuNode2 string, previousUIDs map[string]types.UID) (pod1, pod2 *corev1.Pod) {
-	By("Waiting for weave-flow-controller pods to roll after metrics patch")
+// waitForFlowControllerPodsRolled waits until both flow-controller pods have new UIDs and are Ready.
+func waitForFlowControllerPodsRolled(ctx context.Context, dpuNode1, dpuNode2 string, previousUIDs map[string]types.UID, serviceLabel string, expectedEnv map[string]string) (pod1, pod2 *corev1.Pod) {
+	By("Waiting for weave-flow-controller pods to roll")
 	Eventually(func(g Gomega) {
 		podList := &corev1.PodList{}
 		g.Expect(dpuClusterClient[0].List(ctx, podList, client.InNamespace(dpfOperatorSystemNamespace),
-			client.MatchingLabels{weaveDPUServiceLabelKey: weaveFlowControllerName})).To(Succeed())
+			client.MatchingLabels{weaveDPUServiceLabelKey: serviceLabel})).To(Succeed())
 		var pods []*corev1.Pod
 		for i := range podList.Items {
 			if p := &podList.Items[i]; netshoot.IsPodRunningAndReady(p) {
 				pods = append(pods, p)
 			}
 		}
-		g.Expect(pods).To(HaveLen(2), "expected 2 ready %s pods after metrics patch", weaveFlowControllerName)
+		g.Expect(pods).To(HaveLen(2), "expected 2 ready %s pods after the helm patch", serviceLabel)
 
 		p1 := netshoot.GetPodOnNode(pods, dpuNode1)
 		p2 := netshoot.GetPodOnNode(pods, dpuNode2)
-		g.Expect(p1).ToNot(BeNil(), "no flow-controller pod on DPU node %s after metrics patch", dpuNode1)
-		g.Expect(p2).ToNot(BeNil(), "no flow-controller pod on DPU node %s after metrics patch", dpuNode2)
+		g.Expect(p1).ToNot(BeNil(), "no flow-controller pod on DPU node %s after helm patch", dpuNode1)
+		g.Expect(p2).ToNot(BeNil(), "no flow-controller pod on DPU node %s after helm patch", dpuNode2)
 		g.Expect(p1.UID).NotTo(Equal(previousUIDs[dpuNode1]),
 			"flow-controller pod on %s did not roll (UID still %s)", dpuNode1, p1.UID)
 		g.Expect(p2.UID).NotTo(Equal(previousUIDs[dpuNode2]),
 			"flow-controller pod on %s did not roll (UID still %s)", dpuNode2, p2.UID)
 
 		for _, pod := range []*corev1.Pod{p1, p2} {
-			hasMetricsEnv := false
-			for _, c := range pod.Spec.Containers {
-				for _, e := range c.Env {
-					if e.Name == weaveEnableOVSMetricsEnv && e.Value == weaveEnableOVSMetricsEnvValue {
-						hasMetricsEnv = true
-						break
-					}
-				}
+			for name, value := range expectedEnv {
+				g.Expect(podHasEnv(pod, name, value)).To(BeTrue(), "pod %s missing %s=%s", pod.Name, name, value)
 			}
-			g.Expect(hasMetricsEnv).To(BeTrue(), "pod %s missing %s=true", pod.Name, weaveEnableOVSMetricsEnv)
 		}
 
 		pod1, pod2 = p1, p2
@@ -639,9 +696,21 @@ func waitForFlowControllerPodsRolled(ctx context.Context, dpuNode1, dpuNode2 str
 	return pod1, pod2
 }
 
+// podHasEnv is true if any container has name=value.
+func podHasEnv(pod *corev1.Pod, name, value string) bool {
+	for _, c := range pod.Spec.Containers {
+		for _, e := range c.Env {
+			if e.Name == name && e.Value == value {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // createWeaveVNetWithCleanup creates a VirtualNetwork on pod and appends its deletion to cleanup.
 func createWeaveVNetWithCleanup(cleanup *[]func(), pod *corev1.Pod, vnetID string, vni uint32, subnet string) {
-	createVNetOnPod(pod, vnetID, vni, subnet)
+	createVNetOnPod(pod, vnetID, vni, subnet, remotehost.IPFamilyV4)
 	*cleanup = append(*cleanup, func() { deleteVNetOnPod(pod, vnetID) })
 }
 
@@ -751,10 +820,9 @@ func eventuallyAssertWeaveMetrics(pods []*corev1.Pod, assert func(g Gomega, curr
 	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed())
 }
 
-// verifyMetricsAfterPingBurst takes a baseline scrape, sends a ping burst, then waits until assert
+// verifyMetricsAfterPingBurst takes a baseline scrape, calls pingBurst, then waits until assert
 // holds against the post-burst scrapes.
-func verifyMetricsAfterPingBurst(byTraffic, byVerify string, pods []*corev1.Pod, namespace, srcPod, destIP string,
-	restCfg *rest.Config,
+func verifyMetricsAfterPingBurst(byTraffic, byVerify string, pods []*corev1.Pod, pingBurst func(),
 	assert func(g Gomega, before, after []weaveMetrics)) {
 	By("Reading baseline weave metrics")
 	before := make([]weaveMetrics, len(pods))
@@ -763,7 +831,7 @@ func verifyMetricsAfterPingBurst(byTraffic, byVerify string, pods []*corev1.Pod,
 	}
 
 	By(byTraffic)
-	_, _ = netshoot.PingBurst(hostClusterRESTClient, restCfg, namespace, srcPod, destIP, weaveMetricBurstCount)
+	pingBurst()
 
 	By(byVerify)
 	eventuallyAssertWeaveMetrics(pods, func(g Gomega, after []weaveMetrics) {
@@ -794,10 +862,10 @@ func verifyMetricDeviceNameLabels(fcPod1, fcPod2 *corev1.Pod, vni uint32) {
 	})
 }
 
-// verifyCrossNodeIperfMetric runs bidirectional iperf between srcPod and dstPod, then checks that
-// weave counters on fcPod1/fcPod2 rose with the traffic, did not drop, and match across the tunnel
-// within 1 packet per million.
-func verifyCrossNodeIperfMetric(fcPod1, fcPod2 *corev1.Pod, vni uint32, namespace, srcPod, dstPod, dstOverlayIP string, restCfg *rest.Config) {
+// verifyCrossNodeIperfMetric runs runIperf, which must drive traffic from the fcPod1 node to the
+// fcPod2 node and return the forward result, then checks that weave counters on fcPod1/fcPod2 rose
+// with the traffic, did not drop, and match across the tunnel within 1 packet per million.
+func verifyCrossNodeIperfMetric(fcPod1, fcPod2 *corev1.Pod, vni uint32, runIperf func() netshoot.IperfResult) {
 	bridge := weaveHW.P0.IsolationBridgeName(vni)
 
 	By("Reading baseline weave metrics")
@@ -805,10 +873,10 @@ func verifyCrossNodeIperfMetric(fcPod1, fcPod2 *corev1.Pod, vni uint32, namespac
 	baseline2 := readWeaveMetrics(fcPod2)
 
 	By("Running iperf cross-node")
-	iperfResult := netshoot.RunTrafficTestWithResult(&hostClusterRESTClient, &restCfg, namespace, srcPod, dstPod, dstOverlayIP)
-	forwardBytes := iperfResult.Forward.End.SumSent.Bytes
+	forward := runIperf()
+	forwardBytes := forward.End.SumSent.Bytes
 	Expect(forwardBytes).To(BeNumerically(">", 0), "iperf reported zero forward bytes")
-	mss := iperfResult.Forward.Start.TCPMSSDefault
+	mss := forward.Start.TCPMSSDefault
 	Expect(mss).To(BeNumerically(">", 0), "iperf did not report a TCP MSS")
 	minIperfPackets := uint64(forwardBytes) / uint64(mss)
 
@@ -834,16 +902,17 @@ func verifyCrossNodeIperfMetric(fcPod1, fcPod2 *corev1.Pod, vni uint32, namespac
 	})
 }
 
-// verifyVNIMismatchMetric sends a ping burst across mismatched VNets and checks the source isolation
-// bridge encapsulates at least one packet while the destination drop bridge counts a VNI mismatch.
-func verifyVNIMismatchMetric(fcPod1, fcPod2 *corev1.Pod, srcVNI uint32, namespace, srcPod, dstOverlayIP string, restCfg *rest.Config) {
+// verifyVNIMismatchMetric calls pingBurst, which must send traffic across mismatched VNets, and checks
+// the source isolation bridge encapsulates at least one packet while the destination drop bridge
+// counts a VNI mismatch.
+func verifyVNIMismatchMetric(fcPod1, fcPod2 *corev1.Pod, srcVNI uint32, pingBurst func()) {
 	srcBridge := weaveHW.P0.IsolationBridgeName(srcVNI)
 	dstBridge := weaveHW.P0.DropBridgeName
 
 	verifyMetricsAfterPingBurst(
 		"Sending a ping burst across mismatched VNets",
 		"Verifying weave metrics across mismatching VNets",
-		[]*corev1.Pod{fcPod1, fcPod2}, namespace, srcPod, dstOverlayIP, restCfg,
+		[]*corev1.Pod{fcPod1, fcPod2}, pingBurst,
 		func(g Gomega, before, after []weaveMetrics) {
 			assertMetricDeltas(g, before[0], after[0], srcBridge, metricDeltaExpect{
 				mustRiseBy: map[string]uint64{weaveMetricHostTx: 1, weaveMetricTxSent: 1},
@@ -854,15 +923,16 @@ func verifyVNIMismatchMetric(fcPod1, fcPod2 *corev1.Pod, srcVNI uint32, namespac
 		})
 }
 
-// verifyOutOfSubnetMetric sends a ping burst to destIP and checks the isolation bridge drops those
-// packets instead of encapsulating them, with host_tx accounted for as sent or dropped.
-func verifyOutOfSubnetMetric(fcPod *corev1.Pod, vni uint32, namespace, podName, destIP string, restCfg *rest.Config) {
+// verifyOutOfSubnetMetric calls pingBurst, which must send traffic to an out-of-subnet destination,
+// and checks the isolation bridge drops those packets instead of encapsulating them, with host_tx
+// accounted for as sent or dropped.
+func verifyOutOfSubnetMetric(fcPod *corev1.Pod, vni uint32, pingBurst func()) {
 	bridge := weaveHW.P0.IsolationBridgeName(vni)
 
 	verifyMetricsAfterPingBurst(
 		"Sending a ping burst to an out-of-subnet destination",
 		"Verifying weave metrics across out-of-subnet destination",
-		[]*corev1.Pod{fcPod}, namespace, podName, destIP, restCfg,
+		[]*corev1.Pod{fcPod}, pingBurst,
 		func(g Gomega, before, after []weaveMetrics) {
 			assertMetricDeltas(g, before[0], after[0], bridge, metricDeltaExpect{
 				mustRiseBy:   map[string]uint64{weaveMetricHostTx: 1, weaveMetricTxDropped: 1},
@@ -870,6 +940,13 @@ func verifyOutOfSubnetMetric(fcPod *corev1.Pod, vni uint32, namespace, podName, 
 			})
 			assertTxPacketsAccountedFor(g, before[0], after[0], bridge)
 		})
+}
+
+// overlayGatewayIPv4 returns the /31 peer of overlayIP, which is the DPU side of the attachment.
+func overlayGatewayIPv4(overlayIP string) string {
+	ip := net.ParseIP(overlayIP).To4()
+	Expect(ip).ToNot(BeNil(), "invalid overlay IP %s", overlayIP)
+	return net.IPv4(ip[0], ip[1], ip[2], ip[3]^1).String()
 }
 
 // ensureOverlayRoute ensures the route for subnet on a netshoot pod uses the DHCP
@@ -880,9 +957,7 @@ func verifyOutOfSubnetMetric(fcPod *corev1.Pod, vni uint32, namespace, podName, 
 // restClient and restCfg must be for the host (management) cluster where netshoot pods run.
 func ensureOverlayRoute(restClient *rest.RESTClient, restCfg *rest.Config, namespace, podName, overlayIP, subnet string) {
 	const overlayIface = "net1"
-	ip := net.ParseIP(overlayIP).To4()
-	Expect(ip).ToNot(BeNil(), "invalid overlay IP %s for pod %s", overlayIP, podName)
-	gateway := net.IPv4(ip[0], ip[1], ip[2], ip[3]^1).String()
+	gateway := overlayGatewayIPv4(overlayIP)
 
 	Eventually(func(g Gomega) {
 		linkOut, linkErr := netshoot.ExecInPodOnce(restClient, restCfg, namespace, podName,
@@ -901,9 +976,7 @@ func ensureOverlayRoute(restClient *rest.RESTClient, restCfg *rest.Config, names
 // overlay interface so the isolation enforcement on the DPU is exercised.
 func addRouteOnPodBetweenOverlayAndSubnet(restClient *rest.RESTClient, restCfg *rest.Config, namespace, podName, overlayIP, subnet string) {
 	const overlayIface = "net1"
-	ip := net.ParseIP(overlayIP).To4()
-	Expect(ip).ToNot(BeNil(), "invalid overlay IP %s for pod %s", overlayIP, podName)
-	gatewayIP := net.IPv4(ip[0], ip[1], ip[2], ip[3]^1).String()
+	gatewayIP := overlayGatewayIPv4(overlayIP)
 	Eventually(func(g Gomega) {
 		output, err := netshoot.ExecInPodOnce(restClient, restCfg, namespace, podName,
 			[]string{"ip", "route", "replace", subnet, "via", gatewayIP, "dev", overlayIface})
@@ -917,12 +990,12 @@ func addRouteOnPodBetweenOverlayAndSubnet(restClient *rest.RESTClient, restCfg *
 func deleteAttachmentOnPod(pod *corev1.Pod, attID string) {
 	By(fmt.Sprintf("Deleting attachment %s on pod %s", attID, pod.Name))
 	Eventually(func(g Gomega) {
-		output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, []string{"/vpcctl", "delete-attachment", "--id", attID})
+		output, err := execInDPUPod(pod, []string{"/vpcctl", "delete-attachment", "--id", attID})
 		if err != nil && strings.Contains(output, "NotFound") {
 			return
 		}
 		g.Expect(err).ToNot(HaveOccurred(), "vpcctl delete-attachment %s failed on pod %s: %s", attID, pod.Name, output)
-	}).WithTimeout(weaveDPUTunnelCleanupTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed(),
+	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed(),
 		"failed to delete attachment %s on pod %s", attID, pod.Name)
 }
 
@@ -931,7 +1004,7 @@ func deleteAttachmentOnPod(pod *corev1.Pod, attID string) {
 func deleteVNetOnPod(pod *corev1.Pod, vnetID string) {
 	By(fmt.Sprintf("Deleting virtual network %s on pod %s", vnetID, pod.Name))
 	Eventually(func(g Gomega) {
-		output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, []string{"/vpcctl", "delete-vnet", "--id", vnetID})
+		output, err := execInDPUPod(pod, []string{"/vpcctl", "delete-vnet", "--id", vnetID})
 		if err != nil && strings.Contains(output, "NotFound") {
 			return
 		}
@@ -944,7 +1017,7 @@ func deleteVNetOnPod(pod *corev1.Pod, vnetID string) {
 			g.Expect(fmt.Errorf("deleted %d blocking attachment(s) for vnet %s, retrying vnet delete", len(stale), vnetID)).ToNot(HaveOccurred())
 		}
 		g.Expect(err).ToNot(HaveOccurred(), "vpcctl delete-vnet %s failed on pod %s: %s", vnetID, pod.Name, output)
-	}).WithTimeout(weaveDPUTunnelCleanupTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed(),
+	}).WithTimeout(weaveOperationTimeout).WithPolling(weaveEventuallyPollInterval).Should(Succeed(),
 		"failed to delete virtual network %s on pod %s", vnetID, pod.Name)
 }
 
