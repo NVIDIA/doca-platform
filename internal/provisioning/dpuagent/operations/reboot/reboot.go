@@ -65,6 +65,12 @@ const (
 	// maps to RebootMethodPowerCycle when present in the field (trim + case-insensitive substring match).
 	powerCycleCommandRequiredText = "power cycle"
 
+	// astraSystemLevelResetUnsupportedText leads the RebootMethodDiscovery condition Message when the agent
+	// requests PowerCycle in place of SystemLevelReset: on BlueField-4 with Astra enabled a system-level
+	// reset (Arm shutdown, then host warm reboot) is not supported and leaves the Arm powered off
+	// (Redmine #5384891).
+	astraSystemLevelResetUnsupportedText = "SystemLevelReset is not supported on BlueField-4 with Astra enabled; requesting PowerCycle instead"
+
 	// WORKAROUND(mlxfwreset-no-reset-level): hostless-only. mlxfwreset may fail with this text when
 	// no firmware reset level is available (CMX). On hostless DPUs, discovery maps that to
 	// PowerCycle; after maxRebootSequenceCount failed PowerCycles from this same cause, Execute
@@ -340,6 +346,10 @@ func getRebootMethodBootID(optCtx *operations.Context) (*provisioningv1.RebootMe
 		}
 		klog.Infof("Host has already been booted, no reboot action")
 		return ptr.To(provisioningv1.RebootMethodNoAction), nil
+	}
+	if dpuutil.IsBlueField4(optCtx.LatestDPU) && optCtx.Options.AstraEnabled {
+		klog.Info(astraSystemLevelResetUnsupportedText)
+		return ptr.To(provisioningv1.RebootMethodPowerCycle), nil
 	}
 	return ptr.To(provisioningv1.RebootMethodSystemLevelReset), nil
 }
@@ -758,8 +768,15 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 	}
 
 	if finalRebootMethod != provisioningv1.RebootMethodNoAction {
+		msg := strings.Join(rawParts, "\n---\n")
+		if finalRebootMethod == provisioningv1.RebootMethodSystemLevelReset &&
+			dpuutil.IsBlueField4(optCtx.LatestDPU) && optCtx.Options.AstraEnabled {
+			klog.Info(astraSystemLevelResetUnsupportedText)
+			finalRebootMethod = provisioningv1.RebootMethodPowerCycle
+			msg = astraSystemLevelResetUnsupportedText + "\n---\n" + msg
+		}
 		klog.Infof("PCI device-query final reboot method: %s across %d device(s)", finalRebootMethod, len(rawParts))
-		setRebootMethodDiscoveryCondition(optCtx, finalRebootMethod, strings.Join(rawParts, "\n---\n"))
+		setRebootMethodDiscoveryCondition(optCtx, finalRebootMethod, msg)
 		return ptr.To(finalRebootMethod), nil
 	}
 

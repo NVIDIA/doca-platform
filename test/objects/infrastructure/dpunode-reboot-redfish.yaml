@@ -5,11 +5,13 @@
 #   (created by the e2e suite from $E2E_ZT_BMC_USERNAME / $E2E_ZT_BMC_PASSWORD);
 #   credentials never live in this ConfigMap.
 # - Container runs on control-plane nodes; only network reachability to BMC needed.
-# - Supports multiple reboot methods based on $DPUNODE_REBOOT_METHOD:
-#   - NoAction: exit 0;
-#   - PowerCycle/SystemLevelReset/SystemReboot: hard power cycle (ForceOff → On, retried until PowerState=On);
-#   - FirmwareReset/DPUWarmReboot: graceful restart;
-#   - any other value (including unset): exit 1 to surface the misconfiguration.
+# - Executes the host operation named by $DPUNODE_REBOOT_METHOD, as documented in
+#   docs/public/developer-guides/api/dpunode.md "Aggregated reboot method":
+#   - PowerCycle: hard power cycle (ForceOff → On, retried until PowerState=On);
+#   - SystemLevelReset: host warm reboot (GracefulRestart) after DPF has shut the Arm down;
+#   - any other value (including unset): exit 1 to surface the controller bug.
+#   DPF requests PowerCycle on BlueField-4 DPUs with Astra enabled, where a system-level reset is not
+#   supported, so the warm reboot only runs on DPUs that support it (BlueField-3, BlueField-4 without Astra).
 # - Discovers the Redfish System path at runtime, vendor-agnostic.
 # - After reset, script sleeps 300 seconds before exit to allow host reboot and log/troubleshooting visibility.
 ---
@@ -49,18 +51,14 @@ data:
 
               METHOD="${DPUNODE_REBOOT_METHOD:-}"
               case "$METHOD" in
-                NoAction)
-                  echo "DPUNODE_REBOOT_METHOD=NoAction; nothing to do."
-                  exit 0
-                  ;;
-                PowerCycle|SystemLevelReset|SystemReboot)
+                PowerCycle)
                   STYLE=hard
                   ;;
-                FirmwareReset|DPUWarmReboot)
+                SystemLevelReset)
                   STYLE=soft
                   ;;
                 *)
-                  echo "Unknown DPUNODE_REBOOT_METHOD=$METHOD. exiting." >&2
+                  echo "FATAL: unexpected DPUNODE_REBOOT_METHOD='$METHOD' (expected PowerCycle or SystemLevelReset)" >&2
                   exit 1
                   ;;
               esac
