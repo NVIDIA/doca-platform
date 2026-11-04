@@ -88,6 +88,22 @@ On a multi-DPU host the field carries the most disruptive operation requested by
 any child DPU in `DPURebooting`, so `PowerCycle` wins. The value is kept after
 the reboot completes and is cleared only once the DPUNode has no DPUs left.
 
+#### When DPF requests a host reboot
+
+DPF can request a host reboot whenever a DPU is provisioned or re-provisioned,
+after the DPU agent has applied the `nvconfig` of the DPUFlavor. Whether a
+reboot is needed is determined on the DPU each time, so a request can also come
+when the DPUFlavor did not change.
+
+What to expect:
+
+* Perform the requested operation each time it is requested. The DPU stays in
+  the `Rebooting` phase and does not continue provisioning until the host has
+  been rebooted.
+* Firmware versions that are known to make DPF request an additional host reboot
+  are listed in the [release notes](../../release-notes/README.md) under Known
+  Issues and Limitations.
+
 ## Conditions
 
 The DPUNode resource uses several condition types to track its state:
