@@ -472,16 +472,30 @@ var _ = Describe("VerifyNSUplinksRegistered", func() {
 		})).To(Succeed())
 	})
 
-	It("should fail when devlink has registered only one of the BF4 functions", func() {
+	It("should not check BF4 functions without a physical port", func() {
 		writeFunction("0002:01:00.0", "0x15b3", "0xa2df")
 		writeFunction("0006:01:00.0", "0x15b3", "0xa2df")
-		err := VerifyNSUplinksRegistered([]NICPort{{
+		Expect(VerifyNSUplinksRegistered([]NICPort{{
 			Netdev:     "p0",
 			PCIAddress: "0002:01:00.0",
-		}})
-		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("0006:01:00.0"))
-		Expect(err.Error()).NotTo(ContainSubstring("0002:01:00.0"))
+		}})).To(Succeed())
+	})
+
+	It("should succeed on a socket-direct BF4 whose secondary ECPFs have no uplink", func() {
+		writeFunction("0002:01:00.0", "0x15b3", "0xa2df")
+		writeFunction("0002:01:00.1", "0x15b3", "0xa2df")
+		writeFunction("0006:01:00.0", "0x15b3", "0xa2df")
+		writeFunction("0006:01:00.1", "0x15b3", "0xa2df")
+		Expect(VerifyNSUplinksRegistered([]NICPort{
+			{
+				Netdev:     "p0",
+				PCIAddress: "0002:01:00.0",
+			},
+			{
+				Netdev:     "p1",
+				PCIAddress: "0006:01:00.0",
+			},
+		})).To(Succeed())
 	})
 
 	It("should ignore E/W, VF and non-NVIDIA functions", func() {
