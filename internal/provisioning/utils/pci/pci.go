@@ -59,7 +59,10 @@ var (
 
 var (
 	nsNICDeviceIDs = sets.New(bluefield2DeviceID, bluefield3DeviceID, BlueField4DeviceID)
-	ewNICDeviceIDs = sets.New(connectX9DeviceID)
+	// uplinkCheckedDeviceIDs are the N/S device IDs on which every PCI function owns
+	// an uplink. BlueField-4 is excluded: its socket-direct secondary ECPFs have none.
+	uplinkCheckedDeviceIDs = sets.New(bluefield2DeviceID, bluefield3DeviceID)
+	ewNICDeviceIDs         = sets.New(connectX9DeviceID)
 	// fwctlDeviceIDs are the device IDs whose MFT tool target must be the fwctl
 	// character device instead of the PCI address.
 	fwctlDeviceIDs = sets.New(BlueField4DeviceID, connectX9DeviceID)
@@ -153,10 +156,11 @@ func readPCIHexAttr(pciAddress, attr string) (string, error) {
 	return id, nil
 }
 
-// VerifyNSUplinksRegistered returns an error when a BlueField N/S PCI function
-// present in sysfs has no physical port in ports. After a reboot sysfs can expose
-// every function while devlink is still registering their uplinks; a snapshot taken
-// in that window must not be reported as complete.
+// VerifyNSUplinksRegistered returns an error when a BlueField-2 or BlueField-3 N/S
+// PCI function present in sysfs has no physical port in ports. After a reboot sysfs
+// can expose every function while devlink is still registering their uplinks; a
+// snapshot taken in that window must not be reported as complete. BlueField-4
+// functions are not checked.
 func VerifyNSUplinksRegistered(ports []NICPort) error {
 	entries, err := os.ReadDir(sysfsPCIDevicesPath)
 	if err != nil {
@@ -186,7 +190,7 @@ func VerifyNSUplinksRegistered(ports []NICPort) error {
 			}
 			return err
 		}
-		if nsNICDeviceIDs.Has(deviceID) && !discovered.Has(pci) {
+		if uplinkCheckedDeviceIDs.Has(deviceID) && !discovered.Has(pci) {
 			missing = append(missing, pci)
 		}
 	}
