@@ -305,7 +305,7 @@ func specFromLive(old *scheduleSpec, s gitlab.PipelineSchedule) scheduleSpec {
 // env_var type as the files do.
 func toVarSpec(v gitlab.PipelineScheduleVariable) variableSpec {
 	vs := variableSpec{Key: v.Key, Value: v.Value}
-	if v.VariableType != "" && v.VariableType != "env_var" {
+	if v.VariableType != "" && v.VariableType != variableTypeEnv {
 		vs.VariableType = v.VariableType
 	}
 	return vs
@@ -343,7 +343,7 @@ func diffSpec(old, new *scheduleSpec) []string {
 				redactValue(variable.Key, current.Value), redactValue(variable.Key, variable.Value)))
 		}
 	}
-	var removed []string
+	removed := make([]string, 0, len(oldVars))
 	for key := range oldVars {
 		removed = append(removed, key)
 	}

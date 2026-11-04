@@ -99,7 +99,7 @@ var runnerDeleteCmd = &cobra.Command{
 
 			response = strings.TrimSpace(strings.ToLower(response))
 			if response != "yes" {
-				fmt.Println("Deletion cancelled.")
+				fmt.Println("Deletion canceled.")
 				return nil
 			}
 		}

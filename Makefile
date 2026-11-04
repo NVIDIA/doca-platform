@@ -576,13 +576,28 @@ COVERPKGS ?= $$(go list ./... | grep -v /e2e | grep -v /third_party | tr '\n' ',
 # Normalized to a leading ./ so `go test` treats them as directories, not import paths.
 BENCHMARK_PKGS ?= $$(grep -rl 'go:build benchmark' --include='*_test.go' . | grep -v '/third_party/' | xargs -n1 dirname | sort -u | sed 's|^\./||;s|^|./|')
 
+# The tools under hack/tools are nested Go modules, which `go list ./...` above does not see.
+TOOL_MODULE_DIRS ?= $(shell find hack/tools -name go.mod -exec dirname {} \;)
+
 .PHONY: test
-test: envtest helm test-benchmark ## Run tests (incl. benchmarks).
+test: envtest helm test-benchmark test-tools ## Run tests (incl. benchmarks and the tool modules).
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(TOOLSDIR) -p path)" go test -timeout 0 $(TESTPKGS) $(GO_TEST_ARGS)
+
+.PHONY: test-tools
+test-tools: ## Run the tests of the nested Go modules under hack/tools.
+	@for dir in $(TOOL_MODULE_DIRS); do \
+		echo "==> Testing $$dir: go test -timeout 0 ./..."; \
+		(cd $$dir && go test -timeout 0 ./...); \
+	done
 
 .PHONY: test-report
 test-report: envtest helm gotestsum test-benchmark ## Run tests and generate a junit style report
 	set +o errexit; GOTOOLCHAIN=$(GOTOOLCHAIN) KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(TOOLSDIR) -p path)" go test -timeout 0 -count 1 -race -json $(TESTPKGS) -coverprofile cover.out -coverpkg=$(COVERPKGS) > junit.stdout; echo $$? > junit.exitcode;
+	# The tool modules add their results to the same report, a failure keeps the exit code.
+	@for dir in $(TOOL_MODULE_DIRS); do \
+		echo "==> Testing $$dir: go test -timeout 0 -count 1 -race -json ./..."; \
+		(cd $$dir && go test -timeout 0 -count 1 -race -json ./... >> $(CURDIR)/junit.stdout) || echo 1 > junit.exitcode; \
+	done
 	$(GOTESTSUM) --junitfile junit.xml --raw-command cat junit.stdout
 	exit $$(cat junit.exitcode)
 
@@ -795,10 +810,17 @@ commit-check: conform ## Run conform to validate commit message
 ##@ lint and verify
 GOLANGCI_LINT_GOGC ?= "100"
 .PHONY: lint
-lint: golangci-lint kube-api-linter golangci-lint-custom ## Run golangci-lint, kube-api-linter and golangci-lint-custom
+lint: golangci-lint kube-api-linter golangci-lint-custom lint-tools ## Run golangci-lint, kube-api-linter and golangci-lint-custom
 	GOOS=linux GOTOOLCHAIN=$(GOTOOLCHAIN) GOGC=$(GOLANGCI_LINT_GOGC) $(GOLANGCI_LINT) run --timeout 5m $(GOLANGCI_LINT_EXTRA_ARGS)
 	GOOS=linux GOTOOLCHAIN=$(GOTOOLCHAIN) GOGC=$(GOLANGCI_LINT_GOGC) $(KUBE_API_LINTER) run --config $(PROJECT_DIR)/.golangci-kal.yml --timeout 5m $(GOLANGCI_LINT_EXTRA_ARGS)
 	GOOS=linux GOTOOLCHAIN=$(GOTOOLCHAIN) GOGC=$(GOLANGCI_LINT_GOGC) $(GOLANGCI_LINT_CUSTOM) run --config $(PROJECT_DIR)/.golangci-custom.yml --timeout 5m $(GOLANGCI_LINT_EXTRA_ARGS)
+
+.PHONY: lint-tools
+lint-tools: golangci-lint ## Run golangci-lint in the nested Go modules under hack/tools
+	@for dir in $(TOOL_MODULE_DIRS); do \
+		echo "==> Linting $$dir: $(GOLANGCI_LINT) run --config $(PROJECT_DIR)/.golangci.yml --timeout 5m"; \
+		(cd $$dir && GOOS=linux GOTOOLCHAIN=$(GOTOOLCHAIN) GOGC=$(GOLANGCI_LINT_GOGC) $(GOLANGCI_LINT) run --config $(PROJECT_DIR)/.golangci.yml --timeout 5m); \
+	done
 
 .PHONY: lint-fix
 lint-fix: ## Run golangci-lint and kube-api-linter and perform fixes

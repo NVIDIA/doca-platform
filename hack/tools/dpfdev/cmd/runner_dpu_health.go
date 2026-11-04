@@ -395,7 +395,7 @@ func runDPUHealth(ctx context.Context, w io.Writer, options dpuHealthOptions) er
 	var results []dpuHealthResult
 	var warnings []string
 	if options.verbose {
-		fmt.Fprintf(w, "DPU runner health status (%s)\n", time.Now().Format(time.RFC3339))
+		_, _ = fmt.Fprintf(w, "DPU runner health status (%s)\n", time.Now().Format(time.RFC3339))
 	}
 
 	if options.pools[dpuHealthPoolPhysical] {
@@ -460,18 +460,18 @@ func checkDPUHealthPhysical(ctx context.Context, w io.Writer, options dpuHealthO
 	physicalPassword := options.physicalPassword
 
 	if options.verbose {
-		fmt.Fprintf(w, "\nPhysical runners (%d hosts)\n", len(options.physicalHosts))
+		_, _ = fmt.Fprintf(w, "\nPhysical runners (%d hosts)\n", len(options.physicalHosts))
 	}
 	for _, host := range options.physicalHosts {
 		fqdn := dpuHealthPhysicalFQDN(host)
 		if options.verbose {
-			fmt.Fprintf(w, "  probing %s (%s)\n", host, fqdn)
+			_, _ = fmt.Fprintf(w, "  probing %s (%s)\n", host, fqdn)
 		}
 		script := physicalDPUHealthScript(physicalUser, options.masterHost, options.workers, options.connectTimeout, options.requireUp)
 		out, err := options.ssh.Run(ctx, fqdn, physicalUser, physicalPassword, script, options.connectTimeout, options.commandTimeout)
 		if err != nil {
 			if options.verbose {
-				fmt.Fprintf(w, "    ssh failed: %v\n", err)
+				_, _ = fmt.Fprintf(w, "    ssh failed: %v\n", err)
 			}
 			results = append(results, dpuHealthResult{
 				Kind:   dpuHealthPoolPhysical,
@@ -501,7 +501,7 @@ func checkDPUHealthNICCloud(ctx context.Context, w io.Writer, options dpuHealthO
 	results := []dpuHealthResult{}
 	if len(targets) == 0 {
 		if options.verbose {
-			fmt.Fprintln(w, "\nNIC Cloud runners: no targets to probe")
+			_, _ = fmt.Fprintln(w, "\nNIC Cloud runners: no targets to probe")
 		}
 		return results
 	}
@@ -510,17 +510,17 @@ func checkDPUHealthNICCloud(ctx context.Context, w io.Writer, options dpuHealthO
 	runnerPassword := options.cloudPassword
 
 	if options.verbose {
-		fmt.Fprintf(w, "\nNIC Cloud runners (%d hosts)\n", len(targets))
+		_, _ = fmt.Fprintf(w, "\nNIC Cloud runners (%d hosts)\n", len(targets))
 	}
 	for _, target := range targets {
 		if options.verbose {
-			fmt.Fprintf(w, "  probing %s\n", target.Host)
+			_, _ = fmt.Fprintf(w, "  probing %s\n", target.Host)
 		}
 		script := nicCloudDPUHealthScript(runnerUser, options.nicSetupInfo, options.masterHost, options.connectTimeout)
 		out, err := options.ssh.Run(ctx, target.Host, runnerUser, runnerPassword, script, options.connectTimeout, options.commandTimeout)
 		if err != nil {
 			if options.verbose {
-				fmt.Fprintf(w, "    ssh failed: %v\n", err)
+				_, _ = fmt.Fprintf(w, "    ssh failed: %v\n", err)
 			}
 			results = append(results, dpuHealthResult{
 				Kind:   dpuHealthPoolNICCloud,
@@ -971,7 +971,7 @@ func noDPUHealthResults(kind, setup, detail string) []dpuHealthResult {
 
 func printDPUHealthProbeResults(w io.Writer, results []dpuHealthResult, color bool) {
 	for _, result := range results {
-		fmt.Fprintf(w, "    %s %s %s %s %s %s\n",
+		_, _ = fmt.Fprintf(w, "    %s %s %s %s %s %s\n",
 			dpuHealthColoredStatus(result, color, 5),
 			padRight(result.Worker, 24),
 			padRight(result.IP, 14),
@@ -984,14 +984,14 @@ func printDPUHealthProbeResults(w io.Writer, results []dpuHealthResult, color bo
 
 func printDPUHealthSummary(w io.Writer, results []dpuHealthResult, warnings []string, color bool) {
 	if len(warnings) > 0 {
-		fmt.Fprintf(w, "\n%s\n", colorize(color, ansiBoldYellow, "Warnings"))
+		_, _ = fmt.Fprintf(w, "\n%s\n", colorize(color, ansiBoldYellow, "Warnings"))
 		for _, warning := range warnings {
-			fmt.Fprintf(w, "  - %s\n", colorize(color, ansiYellow, warning))
+			_, _ = fmt.Fprintf(w, "  - %s\n", colorize(color, ansiYellow, warning))
 		}
 	}
 
-	fmt.Fprintf(w, "\n%s\n", colorize(color, ansiBold, "Summary"))
-	fmt.Fprintf(w, "%s %s %s %s %s %s %s %s %s\n",
+	_, _ = fmt.Fprintf(w, "\n%s\n", colorize(color, ansiBold, "Summary"))
+	_, _ = fmt.Fprintf(w, "%s %s %s %s %s %s %s %s %s\n",
 		padRight("STATUS", 7),
 		padRight("KIND", 9),
 		padRight("SETUP", 16),
@@ -1002,7 +1002,7 @@ func printDPUHealthSummary(w io.Writer, results []dpuHealthResult, warnings []st
 		padRight("DPU_PHASE", 28),
 		"DETAIL",
 	)
-	fmt.Fprintf(w, "%s %s %s %s %s %s %s %s %s\n",
+	_, _ = fmt.Fprintf(w, "%s %s %s %s %s %s %s %s %s\n",
 		padRight("------", 7),
 		padRight("----", 9),
 		padRight("-----", 16),
@@ -1014,7 +1014,7 @@ func printDPUHealthSummary(w io.Writer, results []dpuHealthResult, warnings []st
 		"------",
 	)
 	for _, result := range results {
-		fmt.Fprintf(w, "%s %s %s %s %s %s %s %s %s\n",
+		_, _ = fmt.Fprintf(w, "%s %s %s %s %s %s %s %s %s\n",
 			dpuHealthColoredStatus(result, color, 7),
 			padRight(result.Kind, 9),
 			padRight(result.Setup, 16),
@@ -1034,7 +1034,7 @@ func printDPUHealthSummary(w io.Writer, results []dpuHealthResult, warnings []st
 		issuesColor = ansiBoldRed
 	}
 	issuesText := colorize(color, issuesColor, fmt.Sprintf("%d", issues))
-	fmt.Fprintf(w, "\nTotal checks: %d, passing: %s, issues: %s\n", total, passingText, issuesText)
+	_, _ = fmt.Fprintf(w, "\nTotal checks: %d, passing: %s, issues: %s\n", total, passingText, issuesText)
 }
 
 func (r dpuHealthResult) OK() bool {

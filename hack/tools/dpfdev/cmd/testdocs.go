@@ -349,7 +349,7 @@ func buildCommandScript(cmd string, envVars map[string]string, envFileName strin
 
 	// Change to the working directory from previous command if it exists
 	if pwd, ok := envVars["PWD"]; ok {
-		scriptContent.WriteString(fmt.Sprintf("cd '%s' || exit 1\n", strings.ReplaceAll(pwd, "'", "'\\''")))
+		fmt.Fprintf(&scriptContent, "cd '%s' || exit 1\n", strings.ReplaceAll(pwd, "'", "'\\''"))
 	}
 
 	// Set environment variables from previous command
@@ -360,7 +360,7 @@ func buildCommandScript(cmd string, envVars map[string]string, envFileName strin
 		}
 		// Escape single quotes in the value
 		escapedValue := strings.ReplaceAll(v, "'", "'\\''")
-		scriptContent.WriteString(fmt.Sprintf("export %s='%s'\n", k, escapedValue))
+		fmt.Fprintf(&scriptContent, "export %s='%s'\n", k, escapedValue)
 	}
 
 	// Add the command with proper error checking
@@ -371,8 +371,8 @@ func buildCommandScript(cmd string, envVars map[string]string, envFileName strin
 	scriptContent.WriteString("set +e\n\n")
 
 	// Add command to save the environment to a file using null-terminated output
-	scriptContent.WriteString(fmt.Sprintf("env -0 > %s\n", envFileName))
-	scriptContent.WriteString(fmt.Sprintf("echo $CMD_EXIT_CODE > %s.exit\n", envFileName))
+	fmt.Fprintf(&scriptContent, "env -0 > %s\n", envFileName)
+	fmt.Fprintf(&scriptContent, "echo $CMD_EXIT_CODE > %s.exit\n", envFileName)
 
 	// Write the script to the file
 	if _, err := tmpFile.WriteString(scriptContent.String()); err != nil {

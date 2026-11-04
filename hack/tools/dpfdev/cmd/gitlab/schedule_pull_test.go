@@ -133,7 +133,7 @@ func TestSpecFromLivePreservesOrder(t *testing.T) {
 			{Key: "NIGHTLY_RELEASE", Value: "false"},
 		},
 	})
-	var keys []string
+	keys := make([]string, 0, len(spec.Variables))
 	for _, v := range spec.Variables {
 		keys = append(keys, v.Key)
 	}

@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 
 	"github.com/nvidia/doca-platform/hack/tools/dpfdev/pkg/htmlreport"
+
 	"github.com/spf13/cobra"
 )
 

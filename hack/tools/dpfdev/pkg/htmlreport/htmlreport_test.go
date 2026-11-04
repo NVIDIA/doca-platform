@@ -268,7 +268,7 @@ func TestBuildLogs_MultiplePhases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildLogs: %v", err)
 	}
-	var got []string
+	got := make([]string, 0, len(clusters))
 	for _, c := range clusters {
 		got = append(got, c.Name)
 	}

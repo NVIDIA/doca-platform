@@ -67,21 +67,21 @@ func TestScheduleSyncDryRunIsReadOnly(t *testing.T) {
 			violations = append(violations, r.Method+" "+r.URL.Path)
 			mu.Unlock()
 			// Still answer so the client does not error out; the test asserts
-			// on the recorded violation, not on client behaviour.
+			// on the recorded violation, not on client behavior.
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{}`))
 			return
 		}
 
-		switch {
-		case r.URL.Path == "/projects/1/pipeline_schedules":
+		switch r.URL.Path {
+		case "/projects/1/pipeline_schedules":
 			// List: one schedule present in the file (with drift) and one
 			// orphan that only exists in GitLab.
 			_, _ = w.Write([]byte(`[
 				{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","cron_timezone":"Asia/Jerusalem","active":true,"owner":{"username":"alice"}},
 				{"id":20,"description":"orphan","ref":"refs/heads/main","cron":"0 2 * * *","cron_timezone":"Asia/Jerusalem","active":true,"owner":{"username":"bob"}}
 			]`))
-		case r.URL.Path == "/projects/1/pipeline_schedules/10":
+		case "/projects/1/pipeline_schedules/10":
 			// Detail with variables that differ from the file: KEEP_VAR
 			// changes value, DROP_VAR is removed, ADD_VAR is added by the file.
 			_, _ = w.Write([]byte(`{"id":10,"description":"keep","ref":"refs/heads/main","cron":"0 1 * * *","cron_timezone":"Asia/Jerusalem","active":true,"owner":{"username":"alice"},
@@ -136,7 +136,7 @@ func TestScheduleSyncDryRunIsReadOnly(t *testing.T) {
 
 // TestScheduleSyncApplyIssuesWrites is the counterpart: with dryRun false the
 // same drift must produce mutating requests, proving the dry-run result above
-// is meaningful and not an artefact of the plan being empty.
+// is meaningful and not an artifact of the plan being empty.
 func TestScheduleSyncApplyIssuesWrites(t *testing.T) {
 	var mu sync.Mutex
 	writes := 0

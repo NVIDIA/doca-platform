@@ -462,12 +462,12 @@ func TestWorkingDirectoryPersistence(t *testing.T) {
 			// Create a temporary directory for the test
 			tmpDir, err := os.MkdirTemp("", "testdocs-cd-test-*")
 			g.Expect(err).ToNot(HaveOccurred())
-			defer os.RemoveAll(tmpDir)
+			defer func() { _ = os.RemoveAll(tmpDir) }()
 
 			// Change to the temp directory for the test
 			originalDir, err := os.Getwd()
 			g.Expect(err).ToNot(HaveOccurred())
-			defer os.Chdir(originalDir)
+			defer func() { _ = os.Chdir(originalDir) }()
 
 			err = os.Chdir(tmpDir)
 			g.Expect(err).ToNot(HaveOccurred())
@@ -479,13 +479,13 @@ func TestWorkingDirectoryPersistence(t *testing.T) {
 				// Create temporary file for environment capture
 				envFile, err := os.CreateTemp("", "test-env-*.txt")
 				g.Expect(err).ToNot(HaveOccurred())
-				defer os.Remove(envFile.Name())
+				defer func() { _ = os.Remove(envFile.Name()) }()
 				g.Expect(envFile.Close()).ToNot(HaveOccurred())
 
 				// Build and execute command script
 				scriptFile, err := buildCommandScript(cmd, envVars, envFile.Name())
 				g.Expect(err).ToNot(HaveOccurred())
-				defer os.Remove(scriptFile)
+				defer func() { _ = os.Remove(scriptFile) }()
 
 				execCmd := exec.Command(scriptFile)
 				output, err := execCmd.CombinedOutput()

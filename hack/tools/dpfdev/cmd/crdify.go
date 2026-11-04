@@ -20,6 +20,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -156,7 +157,7 @@ func verifyConfigDescription(cfg *config.Config) error {
 	if verified {
 		return nil
 	}
-	return fmt.Errorf(allowRemovalDeprecationWarning)
+	return errors.New(allowRemovalDeprecationWarning)
 }
 
 type allowList struct {
@@ -261,9 +262,9 @@ func deleteResultsWithoutErrors(sameVersionResults map[string][]validations.Comp
 // removeDeprecations processes validation results to identify and handle potential field deprecations.
 // It loops over all Warnings and looks for the deprecation marker. If found, it removes related
 // errors from the results, effectively treating them as safe removals.
-func removeDeprecations(r *runner.Results) *runner.Results {
+func removeDeprecations(r *runner.Results) {
 	if r == nil {
-		return r
+		return
 	}
 
 	// Find the existing field removal validation result
@@ -276,7 +277,7 @@ func removeDeprecations(r *runner.Results) *runner.Results {
 	}
 
 	if efrResult == nil || len(efrResult.Errors) == 0 {
-		return r
+		return
 	}
 
 	// Extract potential deprecations from removed field errors
@@ -338,8 +339,6 @@ func removeDeprecations(r *runner.Results) *runner.Results {
 
 		removeDeprecationFromResults(efrResult, apiVersion, results, fieldsToRemove)
 	}
-
-	return r
 }
 
 // removeDeprecationFromResults removes deprecation-related validation errors for specified fields.

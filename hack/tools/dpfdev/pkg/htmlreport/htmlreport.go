@@ -83,7 +83,7 @@ type CILog struct {
 	Name string `json:"n"` // file name
 }
 
-// Index is the top-level data structure serialised into the HTML page. It holds
+// Index is the top-level data structure serialized into the HTML page. It holds
 // one entry per resource dump discovered under the traversed root directory,
 // optionally the container logs found under logs/, and any top-level CI logs.
 type Index struct {
@@ -191,7 +191,7 @@ func Generate(root string, dumps []string, outputPath string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	return renderTemplate(f, template.JS(indexJSON)) //nolint:gosec // controlled JSON data
 }
@@ -644,7 +644,7 @@ func detectAPIVersion(kindDir string) string {
 		if err != nil {
 			return filepath.SkipAll
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		buf := make([]byte, 256)
 		n, _ := io.ReadAtLeast(f, buf, 1)
 		content := string(buf[:n])

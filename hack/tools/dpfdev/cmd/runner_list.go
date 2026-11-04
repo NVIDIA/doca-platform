@@ -38,6 +38,14 @@ var (
 	filterByType string
 )
 
+// The job states runnerJobInfo reports.
+const (
+	runnerStateRunning = "running"
+	runnerStateBusy    = "busy"
+	runnerStateIdle    = "idle"
+	runnerStateUnknown = "unknown"
+)
+
 func init() {
 	runnerCmd.AddCommand(runnerListCmd)
 
@@ -170,34 +178,34 @@ type runnerJobClient interface {
 // project jobs, falling back to the runner-scoped endpoint for runners we own.
 func runnerJobInfo(client runnerJobClient, runner gitlab.Runner, projectJobs map[int]gitlab.Job) (string, gitlab.Job) {
 	if job, ok := projectJobs[runner.ID]; ok {
-		return "running", job
+		return runnerStateRunning, job
 	}
 
 	status, err := client.GetRunnerJobExecutionStatus(runner.ID)
 	statusKnown := err == nil && status != ""
 	if statusKnown && status != "active" {
-		return "idle", gitlab.Job{}
+		return runnerStateIdle, gitlab.Job{}
 	}
 
 	// Active or status unavailable: the runner-scoped endpoint may still have
 	// the job (it works for runners we own).
 	if jobs, err := client.GetRunnerJobs(runner.ID, "running", 1); err == nil && len(jobs) > 0 {
-		return "running", jobs[0]
+		return runnerStateRunning, jobs[0]
 	}
 
 	switch {
 	case statusKnown: // active, but the job is not visible to this token
-		return "busy", gitlab.Job{}
+		return runnerStateBusy, gitlab.Job{}
 	case isSharedRunner(runner):
-		return "unknown", gitlab.Job{}
+		return runnerStateUnknown, gitlab.Job{}
 	}
-	return "idle", gitlab.Job{}
+	return runnerStateIdle, gitlab.Job{}
 }
 
 // runnerJobState renders runnerJobInfo's result as the JOB column value.
 func runnerJobState(client runnerJobClient, runner gitlab.Runner, projectJobs map[int]gitlab.Job) string {
 	state, job := runnerJobInfo(client, runner, projectJobs)
-	if state == "running" {
+	if state == runnerStateRunning {
 		return "running: " + job.Name
 	}
 	return state
@@ -258,13 +266,13 @@ func printRunners(runners []runnerWithJob) {
 // whether ANSI status badges are included, which is useful for CI logs and tests.
 func printRunnersTo(out io.Writer, runners []runnerWithJob, color bool) {
 	if len(runners) == 0 {
-		fmt.Fprintln(out, "No runners found matching the criteria.")
+		_, _ = fmt.Fprintln(out, "No runners found matching the criteria.")
 		return
 	}
 
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tDESCRIPTION\tSTATUS\tJOB\tTAGS")
-	fmt.Fprintln(w, "--\t-----------\t------\t---\t----")
+	_, _ = fmt.Fprintln(w, "ID\tDESCRIPTION\tSTATUS\tJOB\tTAGS")
+	_, _ = fmt.Fprintln(w, "--\t-----------\t------\t---\t----")
 
 	for _, entry := range runners {
 		runner := entry.Details
@@ -278,7 +286,7 @@ func printRunnersTo(out io.Writer, runners []runnerWithJob, color bool) {
 			tags = "-"
 		}
 
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\n",
 			runner.ID,
 			description,
 			runnerStatusBadge(runner, color),
@@ -287,8 +295,8 @@ func printRunnersTo(out io.Writer, runners []runnerWithJob, color bool) {
 		)
 	}
 
-	w.Flush()
-	fmt.Fprintf(out, "\nTotal runners: %d\n", len(runners))
+	_ = w.Flush()
+	_, _ = fmt.Fprintf(out, "\nTotal runners: %d\n", len(runners))
 }
 
 const (
@@ -336,11 +344,11 @@ func jobStatusBadge(job string, color bool) string {
 	ansiColor := ansiYellow
 
 	switch job {
-	case "idle":
+	case runnerStateIdle:
 		text, ansiColor = "• IDLE", ansiCyan
-	case "unknown":
+	case runnerStateUnknown:
 		text, ansiColor = "• N/A", ansiGray
-	case "busy":
+	case runnerStateBusy:
 		// Running a job whose name is not visible to the caller.
 		text = "▶ RUNNING"
 	}

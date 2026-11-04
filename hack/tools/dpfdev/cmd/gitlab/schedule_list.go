@@ -84,13 +84,13 @@ var scheduleListCmd = &cobra.Command{
 // printSchedules prints the schedule list in a formatted table.
 func printSchedules(out io.Writer, schedules []gitlab.PipelineSchedule) {
 	if len(schedules) == 0 {
-		fmt.Fprintln(out, "No pipeline schedules found.")
+		_, _ = fmt.Fprintln(out, "No pipeline schedules found.")
 		return
 	}
 
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tDESCRIPTION\tREF\tCRON\tSTATUS\tOWNER\tNEXT RUN")
-	fmt.Fprintln(w, "--\t-----------\t---\t----\t------\t-----\t--------")
+	_, _ = fmt.Fprintln(w, "ID\tDESCRIPTION\tREF\tCRON\tSTATUS\tOWNER\tNEXT RUN")
+	_, _ = fmt.Fprintln(w, "--\t-----------\t---\t----\t------\t-----\t--------")
 
 	for _, schedule := range schedules {
 		status := "active"
@@ -103,7 +103,7 @@ func printSchedules(out io.Writer, schedules []gitlab.PipelineSchedule) {
 			nextRun = schedule.NextRunAt.UTC().Format("2006-01-02 15:04 MST")
 		}
 
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			schedule.ID,
 			schedule.Description,
 			strings.TrimPrefix(schedule.Ref, "refs/heads/"),
@@ -114,6 +114,6 @@ func printSchedules(out io.Writer, schedules []gitlab.PipelineSchedule) {
 		)
 	}
 
-	w.Flush()
-	fmt.Fprintf(out, "\nTotal schedules: %d\n", len(schedules))
+	_ = w.Flush()
+	_, _ = fmt.Fprintf(out, "\nTotal schedules: %d\n", len(schedules))
 }

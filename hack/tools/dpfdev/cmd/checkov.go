@@ -95,9 +95,9 @@ Example use cases:
 		},
 	}
 	checkovCmd.PersistentFlags().StringVar(&checkovConfigurationFile, "config", "", "the filepath to load the check configurations from")
-	cobra.MarkFlagRequired(checkovCmd.PersistentFlags(), "config")
+	_ = cobra.MarkFlagRequired(checkovCmd.PersistentFlags(), "config")
 	checkovCmd.PersistentFlags().StringVar(&chartName, "chart-name", "", "the name of the chart to load exclusions from the configuration file")
-	cobra.MarkFlagRequired(checkovCmd.PersistentFlags(), "chart-name")
+	_ = cobra.MarkFlagRequired(checkovCmd.PersistentFlags(), "chart-name")
 	checkovCmd.PersistentFlags().StringVar(&report, "report", "-", "the path to the checkov report, using \"-\" leads to read from stdin")
 
 	rootCmd.AddCommand(checkovCmd)

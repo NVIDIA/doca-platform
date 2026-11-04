@@ -113,8 +113,8 @@ func showCurrentJobForAllRunners(client *gitlab.Client) error {
 	projectJobs := runningJobsByRunner(client)
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "RUNNER ID\tDESCRIPTION\tSTATUS\tJOB NAME\tBRANCH\tJOB REF")
-	fmt.Fprintln(w, "---------\t-----------\t------\t--------\t------\t-------")
+	_, _ = fmt.Fprintln(w, "RUNNER ID\tDESCRIPTION\tSTATUS\tJOB NAME\tBRANCH\tJOB REF")
+	_, _ = fmt.Fprintln(w, "---------\t-----------\t------\t--------\t------\t-------")
 
 	for _, runner := range runners {
 		description := runner.Description
@@ -124,18 +124,18 @@ func showCurrentJobForAllRunners(client *gitlab.Client) error {
 
 		state, name, branch, ref := "IDLE", "-", "-", "-"
 		switch st, job := runnerJobInfo(client, runner, projectJobs); st {
-		case "running":
+		case runnerStateRunning:
 			state, name, branch, ref = "RUNNING", job.Name, job.Branch, job.URL
-		case "busy":
+		case runnerStateBusy:
 			// Busy, but the job runs in a project not accessible with this token.
 			state, name = "RUNNING", "(no access)"
-		case "unknown":
+		case runnerStateUnknown:
 			state = "N/A"
 		}
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\n", runner.ID, description, state, name, branch, ref)
+		_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\n", runner.ID, description, state, name, branch, ref)
 	}
 
-	w.Flush()
+	_ = w.Flush()
 	return nil
 }
 
@@ -207,8 +207,8 @@ func showRunnerJobsFromProject(client *gitlab.Client, runnerID int, description 
 // printJobsTable renders a table of jobs.
 func printJobsTable(jobs []gitlab.Job) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "JOB ID\tJOB NAME\tSTATUS\tBRANCH\tCREATED\tDURATION\tJOB REF")
-	fmt.Fprintln(w, "------\t--------\t------\t------\t------\t-------\t--------")
+	_, _ = fmt.Fprintln(w, "JOB ID\tJOB NAME\tSTATUS\tBRANCH\tCREATED\tDURATION\tJOB REF")
+	_, _ = fmt.Fprintln(w, "------\t--------\t------\t------\t------\t-------\t--------")
 
 	for _, job := range jobs {
 		duration := "-"
@@ -224,7 +224,7 @@ func printJobsTable(jobs []gitlab.Job) {
 
 		createdAt := job.CreatedAt.UTC().Format("2006-01-02 15:04 MST")
 
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			job.ID,
 			job.Name,
 			job.Status,
@@ -235,6 +235,6 @@ func printJobsTable(jobs []gitlab.Job) {
 		)
 	}
 
-	w.Flush()
+	_ = w.Flush()
 	fmt.Printf("\nTotal jobs: %d\n", len(jobs))
 }

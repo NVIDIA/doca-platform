@@ -82,7 +82,7 @@ missing, update drifted fields and variables, and delete variables that were
 removed from the file. Schedules are matched by description.
 
 The file may split its schedules across several files with an "include" list
-(paths relative to the including file), so the schedules can be organised e.g.
+(paths relative to the including file), so the schedules can be organized e.g.
 per branch. --file points at the single root; everything it includes is
 merged before syncing, and descriptions must be unique across all of them.
 

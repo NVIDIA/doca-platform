@@ -212,7 +212,7 @@ type vapValidation struct {
 }
 
 func writeVAPFile(filename string, crd crdDeprecations) error {
-	var validations []vapValidation
+	validations := make([]vapValidation, 0, len(crd.Fields))
 	for _, f := range crd.Fields {
 		validations = append(validations, vapValidation{
 			Expression: celExpression(f),
@@ -230,7 +230,7 @@ func writeVAPFile(filename string, crd crdDeprecations) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	return vapTemplate.Execute(f, data)
 }

@@ -36,7 +36,7 @@ func writeFile(t *testing.T, dir, name, content string) string {
 
 // descriptions returns the sorted schedule descriptions of a file.
 func descriptions(file *scheduleFile) []string {
-	var out []string
+	out := make([]string, 0, len(file.Schedules))
 	for _, s := range file.Schedules {
 		out = append(out, s.Description)
 	}

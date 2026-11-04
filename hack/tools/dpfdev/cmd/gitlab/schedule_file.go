@@ -28,6 +28,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// variableTypeEnv is the GitLab variable type that is assumed when none is set.
+const variableTypeEnv = "env_var"
+
 // secretKeyPattern matches variable keys whose values are sensitive and must
 // never be stored in the file as plaintext. Such variables are kept as
 // references to a GitLab CI/CD variable instead (e.g. value: $BLACK_DUCK_API_TOKEN).
@@ -111,7 +114,7 @@ func (s *scheduleSpec) cronTimezone() string {
 
 func (v *variableSpec) variableType() string {
 	if v.VariableType == "" {
-		return "env_var"
+		return variableTypeEnv
 	}
 	return v.VariableType
 }
@@ -223,7 +226,7 @@ func validateSchedules(path string, schedules []scheduleSpec) error {
 				return fmt.Errorf("%s: schedule %q: duplicate variable %q", path, schedule.Description, variable.Key)
 			}
 			keys[variable.Key] = true
-			if t := variable.variableType(); t != "env_var" && t != "file" {
+			if t := variable.variableType(); t != variableTypeEnv && t != "file" {
 				return fmt.Errorf("%s: schedule %q: variable %q: variable_type must be env_var or file", path, schedule.Description, variable.Key)
 			}
 			if looksSecret(variable.Key) && variable.Value != "" && !isVariableReference(variable.Value) {

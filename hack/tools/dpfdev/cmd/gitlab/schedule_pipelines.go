@@ -30,6 +30,9 @@ import (
 	"golang.org/x/term"
 )
 
+// pipelineStatusFailed is the GitLab status of a failed pipeline or bridge.
+const pipelineStatusFailed = "failed"
+
 var schedulePipelinesDays int
 
 func init() {
@@ -115,9 +118,9 @@ func pipelineNotes(client *gitlab.Client, pipelines []gitlab.SchedulePipeline) m
 			continue
 		}
 		for _, bridge := range bridges {
-			if bridge.DownstreamPipeline != nil && bridge.DownstreamPipeline.Status == "failed" {
+			if bridge.DownstreamPipeline != nil && bridge.DownstreamPipeline.Status == pipelineStatusFailed {
 				note += fmt.Sprintf(", %s: downstream pipeline %d failed", bridge.Name, bridge.DownstreamPipeline.ID)
-			} else if bridge.Status == "failed" {
+			} else if bridge.Status == pipelineStatusFailed {
 				note += fmt.Sprintf(", %s failed", bridge.Name)
 			}
 		}
@@ -181,7 +184,7 @@ func pipelineStatusColor(status string) string {
 	switch status {
 	case "success":
 		return ansiGreen
-	case "failed":
+	case pipelineStatusFailed:
 		return ansiRed
 	case "running":
 		return ansiCyan
@@ -195,15 +198,15 @@ func pipelineStatusColor(status string) string {
 // printSchedulePipelines prints the pipelines of one schedule in a table.
 // color controls whether the status and notes carry ANSI colors.
 func printSchedulePipelines(out io.Writer, schedule gitlab.PipelineSchedule, pipelines []gitlab.SchedulePipeline, notes map[int]string, color bool) {
-	fmt.Fprintf(out, "\nSchedule %d: %s (ref %s)\n", schedule.ID, schedule.Description, strings.TrimPrefix(schedule.Ref, "refs/heads/"))
+	_, _ = fmt.Fprintf(out, "\nSchedule %d: %s (ref %s)\n", schedule.ID, schedule.Description, strings.TrimPrefix(schedule.Ref, "refs/heads/"))
 	if len(pipelines) == 0 {
-		fmt.Fprintln(out, "No pipelines found.")
+		_, _ = fmt.Fprintln(out, "No pipelines found.")
 		return
 	}
 
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "PIPELINE\tSTATUS\tCREATED\tSHA\tURL\tNOTES")
-	fmt.Fprintln(w, "--------\t------\t-------\t---\t---\t-----")
+	_, _ = fmt.Fprintln(w, "PIPELINE\tSTATUS\tCREATED\tSHA\tURL\tNOTES")
+	_, _ = fmt.Fprintln(w, "--------\t------\t-------\t---\t---\t-----")
 	for _, pipeline := range pipelines {
 		sha := pipeline.SHA
 		if len(sha) > 8 {
@@ -214,7 +217,7 @@ func printSchedulePipelines(out io.Writer, schedule gitlab.PipelineSchedule, pip
 			status, statusColor = status+" ⚠", ansiYellow
 		}
 
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\n",
 			pipeline.ID,
 			paint(status, statusColor, color),
 			pipeline.CreatedAt.UTC().Format("2006-01-02 15:04 MST"),
@@ -223,6 +226,6 @@ func printSchedulePipelines(out io.Writer, schedule gitlab.PipelineSchedule, pip
 			paint(notes[pipeline.ID], ansiYellow, color),
 		)
 	}
-	w.Flush()
-	fmt.Fprintf(out, "\nTotal pipelines: %d\n", len(pipelines))
+	_ = w.Flush()
+	_, _ = fmt.Fprintf(out, "\nTotal pipelines: %d\n", len(pipelines))
 }

@@ -17,9 +17,9 @@ limitations under the License.
 package cmd
 
 import (
-	"github.com/spf13/cobra"
-
 	"github.com/nvidia/doca-platform/hack/tools/dpfdev/cmd/gitlab"
+
+	"github.com/spf13/cobra"
 )
 
 // Global flags

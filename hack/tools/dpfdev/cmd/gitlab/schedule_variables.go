@@ -70,16 +70,16 @@ variables for tokens below Maintainer that do not own the schedule.`,
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "KEY\tTYPE\tVALUE")
-		fmt.Fprintln(w, "---\t----\t-----")
+		_, _ = fmt.Fprintln(w, "KEY\tTYPE\tVALUE")
+		_, _ = fmt.Fprintln(w, "---\t----\t-----")
 		for _, variable := range schedule.Variables {
 			value := variable.Value
 			if !scheduleVariablesShowValues {
 				value = redactValue(variable.Key, variable.Value)
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\n", variable.Key, variable.VariableType, value)
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", variable.Key, variable.VariableType, value)
 		}
-		w.Flush()
+		_ = w.Flush()
 
 		return nil
 	},
