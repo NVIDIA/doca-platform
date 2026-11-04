@@ -124,16 +124,19 @@ func newCollector(ctx context.Context, target logTarget, outputDir string, opts 
 // discover(), once the root service has told us which username this BMC
 // generation uses.
 //
-// The BMC server certificate is verified against the DPF CA and its identity is pinned to host,
-// using the provisioning controller's TLS settings (BlueField certificates carry no subjectAltName).
+// Unless the caller supplied opts.TLSConfig, which is cloned and used as is, the BMC server
+// certificate is verified against the DPF CA and its identity is pinned to host, using the
+// provisioning controller's TLS settings (BlueField certificates carry no subjectAltName).
 //
 // Every request closes its connection. BF4 BMCs close their end after
 // streaming a dump attachment, and a POST reused on that pooled connection
 // fails with EOF, which Go never retries. A dump is a few dozen requests, so
 // the extra handshakes are noise next to the dump task itself.
 func newRedfishClient(baseURL, host string, opts CollectOptions) (*resty.Client, error) {
-	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true} //nolint:gosec // test-only, see CollectOptions.InsecureSkipTLSVerify
-	if !opts.InsecureSkipTLSVerify {
+	var tlsConfig *tls.Config
+	if opts.TLSConfig != nil {
+		tlsConfig = opts.TLSConfig.Clone() // one config serves every target; keep each client's own
+	} else {
 		var err error
 		if tlsConfig, err = redfishclient.NewVerifiedServerTLSConfig(opts.caPool, host); err != nil {
 			return nil, err

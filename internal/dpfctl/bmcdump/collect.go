@@ -19,6 +19,7 @@ package bmcdump
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -52,10 +53,10 @@ type CollectOptions struct {
 	CACertFile string
 	// Quiet suppresses CLI progress output.
 	Quiet bool
-	// InsecureSkipTLSVerify disables BMC server certificate verification. It exists so the E2E suite
-	// can still collect logs from a BMC that has not been issued its DPF certificate yet (factory
-	// reset, early provisioning). It is deliberately not exposed as a dpfctl flag.
-	InsecureSkipTLSVerify bool
+	// TLSConfig, when set, is used as is for every BMC connection: Collect then resolves no CA and
+	// verifies nothing itself. It exists so the E2E suite can still collect logs from a BMC that has
+	// not been issued its DPF certificate yet (factory reset, early provisioning). dpfctl never sets it.
+	TLSConfig *tls.Config
 
 	// caPool is resolved by Collect from CACertFile or the published trust bundle; unexported so
 	// callers cannot substitute their own.
@@ -73,29 +74,13 @@ func Collect(ctx context.Context, c client.Client, opts CollectOptions) error {
 	// Resolve targets before touching the filesystem so we do not create an
 	// output directory or write artifacts when there is nothing to collect.
 	targets, discoveryErr := getLogTargets(ctx, c, opts)
-	if len(targets) == 0 {
-		if discoveryErr != nil {
-			if !opts.Quiet {
-				util.ResultFail("No DPUDevice BMC target found: %v", discoveryErr)
-			}
-			return discoveryErr
-		}
-		err := fmt.Errorf("bmc dump collection skipped: no DPUDevice BMC target found")
-		if !opts.Quiet {
-			util.ResultFail("No DPUDevice BMC target found")
-		}
+	if err := requireTargets(targets, discoveryErr, opts.Quiet); err != nil {
 		return err
 	}
 
 	// Resolved once, before any artifact is written, so a run that cannot verify leaves nothing behind.
-	if !opts.InsecureSkipTLSVerify {
-		var err error
-		if opts.caPool, err = resolveCAPool(ctx, c, opts); err != nil {
-			if !opts.Quiet {
-				util.ResultFail("Cannot verify BMC server certificates: %v", err)
-			}
-			return err
-		}
+	if err := prepareTLSVerification(ctx, c, &opts); err != nil {
+		return err
 	}
 
 	if err := os.MkdirAll(opts.OutputDir, 0700); err != nil {
@@ -120,6 +105,41 @@ func Collect(ctx context.Context, c client.Client, opts CollectOptions) error {
 	if !opts.Quiet {
 		util.Result("BMC dumps written to %s", opts.OutputDir)
 	}
+	return nil
+}
+
+// requireTargets fails when discovery found nothing to collect, reporting the discovery error when
+// there was one.
+func requireTargets(targets []logTarget, discoveryErr error, quiet bool) error {
+	if len(targets) > 0 {
+		return nil
+	}
+	if discoveryErr != nil {
+		if !quiet {
+			util.ResultFail("No DPUDevice BMC target found: %v", discoveryErr)
+		}
+		return discoveryErr
+	}
+	if !quiet {
+		util.ResultFail("No DPUDevice BMC target found")
+	}
+	return fmt.Errorf("bmc dump collection skipped: no DPUDevice BMC target found")
+}
+
+// prepareTLSVerification loads the CA that BMC server certificates are verified against into opts,
+// unless the caller supplied its own TLSConfig.
+func prepareTLSVerification(ctx context.Context, c client.Client, opts *CollectOptions) error {
+	if opts.TLSConfig != nil {
+		return nil
+	}
+	caPool, err := resolveCAPool(ctx, c, *opts)
+	if err != nil {
+		if !opts.Quiet {
+			util.ResultFail("Cannot verify BMC server certificates: %v", err)
+		}
+		return err
+	}
+	opts.caPool = caPool
 	return nil
 }
 

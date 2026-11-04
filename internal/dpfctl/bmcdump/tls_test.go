@@ -364,7 +364,10 @@ func TestRedfishClientVerifiesCNOnlyBMCCertificate(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"Product":"BlueField-4"}`))
 	}))
-	server.TLS = &tls.Config{Certificates: []tls.Certificate{serverCert}, MinVersion: tls.VersionTLS12}
+	server.TLS = &tls.Config{
+		Certificates: []tls.Certificate{serverCert},
+		MinVersion:   tls.VersionTLS12,
+	}
 	server.StartTLS()
 	t.Cleanup(server.Close)
 
@@ -383,7 +386,7 @@ func TestRedfishClientVerifiesCNOnlyBMCCertificate(t *testing.T) {
 		name     string
 		caPool   *x509.CertPool
 		host     string
-		insecure bool
+		override *tls.Config
 		wantErr  string
 	}{
 		{
@@ -404,9 +407,12 @@ func TestRedfishClientVerifiesCNOnlyBMCCertificate(t *testing.T) {
 			wantErr: "identity mismatch",
 		},
 		{
-			name:     "accepts an untrusted certificate when the test-only skip is set",
-			host:     "10.0.0.1",
-			insecure: true,
+			name: "accepts an untrusted certificate when a TLSConfig override skips verification",
+			host: "10.0.0.1",
+			override: &tls.Config{
+				MinVersion:         tls.VersionTLS12,
+				InsecureSkipVerify: true, //nolint:gosec // exercising the override
+			},
 		},
 	}
 
@@ -415,9 +421,9 @@ func TestRedfishClientVerifiesCNOnlyBMCCertificate(t *testing.T) {
 			g := NewWithT(t)
 
 			redfishClient, err := newRedfishClient(server.URL, tt.host, CollectOptions{
-				RequestTimeout:        10 * time.Second,
-				caPool:                tt.caPool,
-				InsecureSkipTLSVerify: tt.insecure,
+				RequestTimeout: 10 * time.Second,
+				caPool:         tt.caPool,
+				TLSConfig:      tt.override,
 			})
 			g.Expect(err).NotTo(HaveOccurred())
 
@@ -433,4 +439,22 @@ func TestRedfishClientVerifiesCNOnlyBMCCertificate(t *testing.T) {
 			g.Expect(string(resp.Body())).To(ContainSubstring("BlueField-4"))
 		})
 	}
+}
+
+// TestRedfishClientClonesTLSConfigOverride guards the sharing the override invites: one config
+// serves every target, so a client must hold its own copy.
+func TestRedfishClientClonesTLSConfigOverride(t *testing.T) {
+	g := NewWithT(t)
+
+	override := &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: true, //nolint:gosec // exercising the override
+	}
+	redfishClient, err := newRedfishClient("https://10.0.0.10", "10.0.0.10", CollectOptions{TLSConfig: override})
+	g.Expect(err).NotTo(HaveOccurred())
+
+	transport, err := redfishClient.Transport()
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(transport.TLSClientConfig).NotTo(BeIdenticalTo(override))
+	g.Expect(transport.TLSClientConfig.InsecureSkipVerify).To(BeTrue())
 }

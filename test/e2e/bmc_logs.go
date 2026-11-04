@@ -18,6 +18,7 @@ package e2e
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"path/filepath"
 
@@ -62,6 +63,9 @@ func collectDeviceBMCLogs(ctx context.Context, outputDir string, testClient clie
 		return err
 	}
 	GinkgoLogr.Error(err, "verified BMC log collection failed, retrying without TLS verification", "device", device)
-	opts.InsecureSkipTLSVerify = true
+	opts.TLSConfig = &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: true, //nolint:gosec // E2E only: the BMC has no DPF certificate to verify yet
+	}
 	return bmcdump.Collect(ctx, testClient, opts)
 }
