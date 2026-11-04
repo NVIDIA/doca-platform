@@ -37,7 +37,7 @@ Everything else — `nvconfig`, `grub` kernel parameters, `sysctl`, `systemdServ
 
 Some changes require a reset to take effect, and the round then includes a `Rebooting` leg on the same DPU object:
 
-* An `nvconfig` change that requires a reset goes through `DPU Config → Rebooting → DPU Config` (host power cycle or system-level reset, depending on the platform).
+* An `nvconfig` change that requires a reset goes through `DPU Config → Rebooting → DPU Config` (host power cycle or system-level reset, depending on the platform). See [DPUNode: When DPF requests a host reboot](../developer-guides/api/dpunode.md#when-dpf-requests-a-host-reboot) for the host operation each value requires.
 * A `grub` kernel command-line change triggers a DPU OS warm reboot.
 
 DPUs still running an old DPU agent (one that does not report `status.agentStatus.version`, for example one provisioned by an older DPF release) are skipped by in-place rounds and stay `Ready`. Reprovision them once to opt in.
