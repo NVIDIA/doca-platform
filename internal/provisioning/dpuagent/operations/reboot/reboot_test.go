@@ -146,6 +146,34 @@ var _ = Describe("Reboot", func() {
 				Expect(cond).To(BeNil(), "legacy boot-ID path omits RebootMethodDiscovery condition")
 			})
 
+			It("should request a power cycle instead of a system-level reset on BlueField-4 with Astra enabled", func() {
+				optCtx := &operations.Context{
+					Status:  newTestStatus(),
+					Options: opts.Options{AstraEnabled: true},
+					LatestDPU: &provisioningv1.DPU{
+						Status: provisioningv1.DPUStatus{
+							DPUType: provisioningv1.DPUTypeBlueField4,
+						},
+					},
+					RebootMethodDiscovery: false,
+					CurrentBootID:         "boot-id",
+				}
+				reboot := &HandleReboot{
+					skipBlock: true,
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						Fail("a power cycle runs no command on the DPU, got: " + cmd)
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					},
+				}
+				Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
+				Expect(optCtx.Status.GetLocal().RebootMethod).NotTo(BeNil())
+				Expect(*optCtx.Status.GetLocal().RebootMethod).To(Equal(provisioningv1.RebootMethodPowerCycle))
+				Expect(optCtx.Status.GetLocal().RebootSequenceCount).NotTo(BeNil())
+				Expect(*optCtx.Status.GetLocal().RebootSequenceCount).To(Equal(int32(1)))
+				cond := meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, cutil.AgentCondRebootMethodDiscovery)
+				Expect(cond).To(BeNil(), "legacy boot-ID path omits RebootMethodDiscovery condition")
+			})
+
 			It("should not reboot the host if DPU ARM has already been booted", func() {
 				bootID, err := os.ReadFile(bootIDFile)
 				Expect(err).NotTo(HaveOccurred())
@@ -1379,6 +1407,42 @@ var _ = Describe("Reboot", func() {
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Reason).To(Equal(string(provisioningv1.RebootMethodSystemLevelReset)))
 			Expect(cond.Message).To(Equal(mlxfwresetJSON))
+		})
+
+		It("getRebootMethod returns PowerCycle instead of SystemLevelReset on BlueField-4 with Astra enabled and records the reason", func() {
+			mlxfwresetJSON := `{"reset_needed":true,"command_required":"Reboot external host is required"}`
+
+			optCtx := &operations.Context{
+				Status:                newTestStatus(),
+				RebootMethodDiscovery: true,
+				CurrentBootID:         "boot-id",
+				Options:               opts.Options{AstraEnabled: true},
+				LatestDPU: &provisioningv1.DPU{
+					Status: provisioningv1.DPUStatus{DPUType: provisioningv1.DPUTypeBlueField4},
+				},
+				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0, DeviceID: pciutil.BlueField4DeviceID}}, nil
+				},
+			}
+			h := &HandleReboot{
+				resolveTarget: func(p pciutil.NICPort) (string, error) { return p.PCIAddress, nil },
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var b bytes.Buffer
+					if strings.HasSuffix(cmd, "status --json") {
+						_, _ = b.WriteString(mlxfwresetJSON)
+					}
+					return b, bytes.Buffer{}, nil
+				},
+			}
+			m, err := h.getRebootMethod(optCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(m).NotTo(BeNil())
+			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
+			cond := meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, cutil.AgentCondRebootMethodDiscovery)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal(string(provisioningv1.RebootMethodPowerCycle)))
+			Expect(cond.Message).To(HavePrefix(astraSystemLevelResetUnsupportedText))
+			Expect(cond.Message).To(ContainSubstring(mlxfwresetJSON))
 		})
 
 		It("stores full mlxfwreset JSON in condition Message (device, FW versions, nvconfig, reasons)", func() {

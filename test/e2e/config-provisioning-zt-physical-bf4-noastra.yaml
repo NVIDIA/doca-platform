@@ -23,7 +23,7 @@ numberOfDPUNodes: 2
 numberOfDPUsPerNode: 1
 numberOfCXsToConfigureViaBF4PerNode: 0
 nodeRebootConfigMap: dpunode-reboot-redfish
-nodeRebootConfigMapPath: "../objects/infrastructure/dpunode-reboot-redfish-no-astra.yaml"
+nodeRebootConfigMapPath: "../objects/infrastructure/dpunode-reboot-redfish.yaml"
 # hostOSInitToggle is left out on purpose: with no NVConfig parameter pending, the
 # DPU Config phase requests SystemLevelReset, which the fixture above executes as a
-# host warm reboot. The Astra jobs keep the toggle and reboot with PowerCycle.
+# host warm reboot.

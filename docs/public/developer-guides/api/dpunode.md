@@ -84,6 +84,10 @@ Performing a `PowerCycle` when `SystemLevelReset` was requested is safe, only
 more disruptive. The opposite is not.
 Any other value that may appear in this field should be mapped into the `SystemLevelReset` operation.
 
+On BlueField-4 DPUs with Astra enabled (`astraEnabled` on the DPUSet or
+DPUDeployment), DPF requests `PowerCycle` and never `SystemLevelReset`,
+because a system-level reset is not supported on them.
+
 On a multi-DPU host the field carries the most disruptive operation requested by
 any child DPU in `DPURebooting`, so `PowerCycle` wins. The value is kept after
 the reboot completes and is cleared only once the DPUNode has no DPUs left.
