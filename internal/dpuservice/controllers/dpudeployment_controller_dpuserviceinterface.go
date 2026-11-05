@@ -126,6 +126,9 @@ func reconcileDPUServiceInterfaces(
 				[]metav1.OwnerReference{*dpuDeploymentOwnerRef, *dpuServiceOwnerRef},
 				serviceName,
 				serviceInterface,
+				// The service ID comes from the DPUService so an interface added during an in-place
+				// update matches the pods that still carry the ID minted for the original revision.
+				serviceIDFromDPUService(currentDPUService, client.ObjectKeyFromObject(dpuDeployment), serviceName, versionDigest),
 				// We use the version digest of the DPUService in order to ensure that both the DPUService and
 				// DPUServiceInterface changes are synced.
 				versionDigest,
@@ -294,9 +297,6 @@ func reconcileCurrentDPUServiceInterfaceRevision(ctx context.Context,
 
 	// We update the name of the newRevision to the currentRevision so that we can patch the existing object
 	newRevision.Name = currentRevision.GetName()
-	// For Backward compatibility, preserve the existing ServiceID in template to avoid unnecessary changes on in-place patches
-	currentInterface := currentRevision.(*dpuservicev1.DPUServiceInterface)
-	preserveServiceInterfaceServiceID(dpuDeploymentNamespacedName, serviceName, currentInterface, newRevision)
 
 	// We update the newRevision nodeSelector to match the currentRevision nodeSelector since it relies on the revision name
 	if !serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster() {
@@ -359,6 +359,7 @@ func generateDPUServiceInterface(name string,
 	owners []metav1.OwnerReference,
 	serviceName string,
 	serviceInterface dpuservicev1.ServiceInterfaceTemplate,
+	serviceID string,
 	dpuServiceVersionDigest string,
 	dpuClusterSelector *metav1.LabelSelector,
 ) *dpuservicev1.DPUServiceInterface {
@@ -383,14 +384,14 @@ func generateDPUServiceInterface(name string,
 					Template: dpuservicev1.ServiceInterfaceSpecTemplate{
 						ObjectMeta: dpuservicev1.ObjectMeta{
 							Labels: map[string]string{
-								dpuservicev1.DPFServiceIDLabelKey:  getServiceID(dpuDeploymentNamespacedName, serviceName, dpuServiceVersionDigest),
+								dpuservicev1.DPFServiceIDLabelKey:  serviceID,
 								ServiceInterfaceInterfaceNameLabel: serviceInterface.Name,
 							},
 						},
 						Spec: dpuservicev1.ServiceInterfaceSpec{
 							InterfaceType: dpuservicev1.InterfaceTypeService,
 							Service: &dpuservicev1.ServiceDef{
-								ServiceID:      getServiceID(dpuDeploymentNamespacedName, serviceName, dpuServiceVersionDigest),
+								ServiceID:      serviceID,
 								Network:        serviceInterface.Network,
 								InterfaceName:  serviceInterface.Name,
 								VirtualNetwork: serviceInterface.VirtualNetwork,
@@ -533,16 +534,4 @@ func mergePatchedAndListedDPUServices(
 	}
 
 	return merged
-}
-
-// preserveServiceInterfaceServiceID copies the DPFServiceIDLabelKey and ServiceDef.ServiceID
-// from an existing DPUServiceInterface to a new revision being patched in-place.
-func preserveServiceInterfaceServiceID(dpuDeploymentNamespacedName types.NamespacedName, serviceName string, existing, newRevision *dpuservicev1.DPUServiceInterface) {
-	legacyServiceID := getLegacyServiceID(dpuDeploymentNamespacedName, serviceName)
-	if sid, ok := existing.Spec.Template.Spec.Template.ObjectMeta.Labels[dpuservicev1.DPFServiceIDLabelKey]; ok && sid == legacyServiceID {
-		newRevision.Spec.Template.Spec.Template.ObjectMeta.Labels[dpuservicev1.DPFServiceIDLabelKey] = sid
-	}
-	if existing.Spec.Template.Spec.Template.Spec.Service != nil && newRevision.Spec.Template.Spec.Template.Spec.Service != nil && existing.Spec.Template.Spec.Template.Spec.Service.ServiceID == legacyServiceID {
-		newRevision.Spec.Template.Spec.Template.Spec.Service.ServiceID = existing.Spec.Template.Spec.Template.Spec.Service.ServiceID
-	}
 }

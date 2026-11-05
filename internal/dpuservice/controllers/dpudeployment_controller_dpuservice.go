@@ -285,6 +285,9 @@ func reconcileDPUServiceWithOldRevisions(ctx context.Context, c client.Client, n
 		toRetain = getRevisionHistoryLimitList(oldRevisions, *dpuDeployment.Spec.RevisionHistoryLimit)
 		oldSvc := toRetain[0].(*dpuservicev1.DPUService)
 		newRevision.Name = oldSvc.Name
+		// The object stays, so its service ID stays. A new ID would roll the DaemonSet
+		// and retarget interfaces and chains for a revision that never coexisted with another.
+		keepServiceIDOnInPlaceUpdate(oldSvc, newRevision)
 
 		// we are not creating a new service, we are updating the existing one
 		// so we need to keep the same nodeSelector to avoid downtime
@@ -332,10 +335,9 @@ func reconcileCurrentDPUServiceRevision(ctx context.Context, c client.Client,
 
 	// We update the name of the newRevision to the currentRevision so that we can patch the existing object
 	newRevision.Name = currentRevision.GetName()
-	// For Backward compatibility, preserve the existing ServiceID to avoid unnecessary changes on in-place patches
-	if ptr.Deref(currentRev.Spec.ServiceID, "") == getLegacyServiceID(client.ObjectKeyFromObject(dpuDeployment), serviceName) {
-		newRevision.Spec.ServiceID = currentRev.Spec.ServiceID
-	}
+	// Keep the service ID already on the object. The next reconcile sees the updated version
+	// annotation and would otherwise mint an ID from that digest.
+	keepServiceIDOnInPlaceUpdate(currentRev, newRevision)
 
 	// We update the newRevision nodeSelector to match the currentRevision nodeSelector since it relies on the revision name
 	newRevision.SetServiceDaemonSetNodeSelector(&corev1.NodeSelector{
@@ -656,7 +658,25 @@ func getNodeSelectorTermsForDPUServiceVersion(nodeSelector *corev1.NodeSelector,
 	return result
 }
 
-// getServiceID generates the serviceID for the child resources of a DPUDeployment.
+// serviceIDFromDPUService returns the service ID already stored on the DPUService.
+// A new DPUService has none yet, so the ID is derived from the current version digest.
+func serviceIDFromDPUService(dpuService *dpuservicev1.DPUService, dpuDeploymentNamespacedName types.NamespacedName, serviceName, versionDigest string) string {
+	if id := ptr.Deref(dpuService.Spec.ServiceID, ""); id != "" {
+		return id
+	}
+
+	return getServiceID(dpuDeploymentNamespacedName, serviceName, versionDigest)
+}
+
+// keepServiceIDOnInPlaceUpdate copies the service ID from the DPUService being patched.
+// An empty ID is left alone so a new object keeps the ID generated for this revision.
+func keepServiceIDOnInPlaceUpdate(existing, updated *dpuservicev1.DPUService) {
+	if id := ptr.Deref(existing.Spec.ServiceID, ""); id != "" {
+		updated.Spec.ServiceID = ptr.To(id)
+	}
+}
+
+// getServiceID generates the serviceID for a new revision of a DPUDeployment service.
 // The versionDigest makes the ID revision-specific so that old and new revisions
 // produce different IDs, preventing stale pod/ServiceInterface matching.
 func getServiceID(dpuDeploymentNamespacedName types.NamespacedName, serviceName string, versionDigest string) string {
