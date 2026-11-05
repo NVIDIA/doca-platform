@@ -29,14 +29,14 @@ import (
 )
 
 type dumpBMCFlags struct {
-	namespace             string
-	outputDir             string
-	devices               []string
-	username              string
-	timeout               time.Duration
-	requestTimeout        time.Duration
-	clearExisting         bool
-	insecureSkipTLSVerify bool
+	namespace      string
+	outputDir      string
+	devices        []string
+	username       string
+	caCertFile     string
+	timeout        time.Duration
+	requestTimeout time.Duration
+	clearExisting  bool
 }
 
 var dumpBMCOpts dumpBMCFlags
@@ -57,8 +57,12 @@ BlueField-4.
 
 By default, this command preserves existing BMC dump entries. Use
 --clear-existing to delete existing entries before creating a fresh dump.
-TLS certificates are verified by default. Use --insecure-skip-tls-verify only
-for lab BMC endpoints with self-signed certificates.`,
+
+Each BMC server certificate is verified against the CA that signed it and the
+BMC identity is pinned to the address being dialed. The CA is read from the
+trust bundle the DPF Operator publishes, found through the DPFOperatorConfig
+(--namespace is used only if it cannot be listed), so no certificate input is
+needed. Point --ca-cert-file at a PEM file when the cluster is anchored to a certificate authority of your own.`,
 	Example: `  # Collect dumps for all discovered DPUDevices
   dpfctl dump bmc --output-dir /tmp/bmc-dumps
 
@@ -68,8 +72,8 @@ for lab BMC endpoints with self-signed certificates.`,
   # Clear existing BMC dump entries before creating a fresh dump
   dpfctl dump bmc --clear-existing
 
-  # Collect from a lab BMC with a self-signed certificate
-  dpfctl dump bmc --insecure-skip-tls-verify`,
+  # Verify against a certificate authority of your own
+  dpfctl dump bmc --ca-cert-file /etc/pki/my-bmc-ca.crt`,
 	Args: cobra.NoArgs,
 	// Don't print usage on runtime errors; it hides the actual error message.
 	SilenceUsage: true,
@@ -100,8 +104,14 @@ func addDumpBMCFlags(cmd *cobra.Command) {
 	must(cmd.RegisterFlagCompletionFunc("devices", completeDPUDevices))
 	f.BoolVar(&dumpBMCOpts.clearExisting, "clear-existing", false, "Clear existing BMC dump entries before creating a new dump")
 	must(cmd.RegisterFlagCompletionFunc("clear-existing", cobra.FixedCompletions([]string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp)))
-	f.BoolVar(&dumpBMCOpts.insecureSkipTLSVerify, "insecure-skip-tls-verify", false, "Skip BMC TLS certificate verification (insecure)")
-	must(cmd.RegisterFlagCompletionFunc("insecure-skip-tls-verify", cobra.FixedCompletions([]string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp)))
+	f.StringVar(&dumpBMCOpts.caCertFile, "ca-cert-file", "", "PEM file with the CA that signed the BMC server certificates (default: the DPF Operator's trust bundle, named by the DPFOperatorConfig and read from its namespace; --namespace is used only when no DPFOperatorConfig can be read)")
+	must(cmd.RegisterFlagCompletionFunc("ca-cert-file", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return []string{"crt", "pem"}, cobra.ShellCompDirectiveFilterFileExt
+	}))
+	// Registered but never read, so invocations written against earlier releases keep working
+	// instead of failing on an unknown flag.
+	f.Bool("insecure-skip-tls-verify", false, "Skip BMC TLS certificate verification (insecure)")
+	must(f.MarkDeprecated("insecure-skip-tls-verify", "it is ignored; BMC server certificates are always verified. Use --ca-cert-file to supply a CA of your own"))
 }
 
 func runDumpBMC(cmd *cobra.Command) error {
@@ -118,14 +128,14 @@ func runDumpBMC(cmd *cobra.Command) error {
 
 func dumpBMCCollectOptions() bmcdump.CollectOptions {
 	return bmcdump.CollectOptions{
-		Namespace:             dumpBMCOpts.namespace,
-		OutputDir:             dumpBMCOpts.outputDir,
-		Devices:               dumpBMCOpts.devices,
-		Username:              dumpBMCOpts.username,
-		RequestTimeout:        dumpBMCOpts.requestTimeout,
-		TaskTimeout:           dumpBMCOpts.timeout,
-		ClearExisting:         dumpBMCOpts.clearExisting,
-		InsecureSkipTLSVerify: dumpBMCOpts.insecureSkipTLSVerify,
+		Namespace:      dumpBMCOpts.namespace,
+		OutputDir:      dumpBMCOpts.outputDir,
+		Devices:        dumpBMCOpts.devices,
+		Username:       dumpBMCOpts.username,
+		CACertFile:     dumpBMCOpts.caCertFile,
+		RequestTimeout: dumpBMCOpts.requestTimeout,
+		TaskTimeout:    dumpBMCOpts.timeout,
+		ClearExisting:  dumpBMCOpts.clearExisting,
 	}
 }
 

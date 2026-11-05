@@ -95,6 +95,31 @@ func newRedfishTLSConfig(rootCAs *x509.CertPool, certs []tls.Certificate, insecu
 	return cfg, nil
 }
 
+// NewVerifiedServerTLSConfig returns TLS settings that verify the BMC without presenting a client
+// certificate: the chain is checked against rootCAs and the BMC identity is pinned to serverName.
+// Carrying no client key pair is what makes it usable outside the mTLS flow, by callers that
+// authenticate themselves some other way, such as dpfctl collecting BMC diagnostic dumps with
+// basic auth. Verification cannot be waived here; a nil rootCAs is an error rather than an
+// unverified connection.
+//
+// BlueField BMC firmware issues server certificates with no subjectAltName extension at all (the
+// AlternativeNames it is asked for land in the Subject DN instead), measured on both BF3 and BF4,
+// so identity has to be pinned by VerifyBMCIdentity rather than by Go's built-in hostname check.
+func NewVerifiedServerTLSConfig(rootCAs *x509.CertPool, serverName string) (*tls.Config, error) {
+	return newRedfishTLSConfig(rootCAs, nil, false, serverName)
+}
+
+// CAPoolFromBundle parses a DPF CA trust bundle into the pool BMC server certificates are verified
+// against. AppendCertsFromPEM reports only whether it added anything, so an empty bundle and an
+// unparseable one fail identically here; callers name the source they read the bundle from.
+func CAPoolFromBundle(bundle []byte) (*x509.CertPool, error) {
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(bundle) {
+		return nil, errors.New("no PEM certificate found in CA trust bundle")
+	}
+	return pool, nil
+}
+
 // verifyBMCServerCert returns a tls.Config.VerifyPeerCertificate callback that verifies the BMC
 // server certificate chain against the DPF CA pool and then pins the BMC identity. Identity is
 // satisfied when expectedHost matches an IP SAN, a DNS SAN, or the certificate Common Name; the CN

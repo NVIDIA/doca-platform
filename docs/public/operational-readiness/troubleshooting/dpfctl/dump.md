@@ -67,10 +67,11 @@ Clear existing BMC dump entries before creating a new dump. If the BMC rejects t
 dpfctl dump bmc --clear-existing --output-dir /tmp/bmc-dumps
 ```
 
-Collect from lab BMC endpoints that use self-signed certificates:
+Verify the BMC endpoints against a certificate authority of your own, for clusters that are not anchored to the
+self-signed root of DPF:
 
 ```shell
-dpfctl dump bmc --insecure-skip-tls-verify --output-dir /tmp/bmc-dumps
+dpfctl dump bmc --ca-cert-file /etc/pki/my-bmc-ca.crt --output-dir /tmp/bmc-dumps
 ```
 
 ## Requirements
@@ -80,7 +81,10 @@ Before running `dpfctl dump bmc`, verify the following:
 * `dpfctl` can access the host cluster where `DPUDevice` objects are stored.
 * Each target `DPUDevice` has a BMC IP address in `status.bmcIp` or `spec.bmcIp`.
 * The machine or pod running `dpfctl` can reach each BMC endpoint over HTTPS.
-* Each BMC endpoint presents a TLS certificate trusted by the machine or pod running `dpfctl`.
+* Each target `DPUDevice` has completed initialization, which is what replaces the factory BMC server certificate
+  with one issued by the certificate authority that anchors the DPF PKI.
+* The CA trust bundle the DPF Operator publishes is readable, in the namespace of the `DPFOperatorConfig`, or a CA is
+  supplied with `--ca-cert-file`.
 * The BMC credential Secret exists in the same namespace as the `DPUDevice`.
 * The credential Secret contains a `password` key.
 
@@ -180,15 +184,28 @@ kubectl -n dpf-operator-system cp \
 | `--request-timeout`          | `30s`                 | Timeout for each Redfish HTTP request                                 |
 | `--output-dir`               | `bmcdump-<timestamp>` | Local directory for downloaded dumps                                  |
 | `--clear-existing`           | `false`               | Clear existing BMC dump entries before creating a new dump            |
-| `--insecure-skip-tls-verify` | `false`               | Skip BMC TLS certificate verification                                 |
+| `--ca-cert-file`             |                       | PEM file with the CA that signed the BMC server certificates          |
+
+`--insecure-skip-tls-verify` is deprecated and ignored. BMC server certificates are always verified.
 
 ## Troubleshooting
 
 If collection fails with `401 Unauthorized`, verify that the credential Secret referenced by the `DPUDevice` contains
 the current BMC password in the `password` key.
 
-If collection fails with a TLS certificate error in a lab environment that uses self-signed BMC certificates, use
-`--insecure-skip-tls-verify`. Do not use this flag on untrusted networks.
+If collection fails while reading the CA trust bundle, verify that the ConfigMap the DPF Operator maintains with the
+CA certificate exists in the namespace of the `DPFOperatorConfig` (or in `--namespace` if you cannot list it), and that your credentials can read it. Pass
+`--ca-cert-file` to supply the CA directly instead.
+
+If collection fails because the BMC server certificate is not trusted, the BMC is presenting a certificate that does
+not chain to that CA. This is expected before a `DPUDevice` finishes initializing, while the BMC still serves its
+factory certificate, and after the CA is reissued but before the per-device certificate is rotated. Check the
+`BMCServerCertificateReady` condition on the `DPUDevice`, using the namespace passed to `--namespace`:
+
+```shell
+kubectl -n <namespace> get dpudevice <name> \
+  -o jsonpath='{range .status.conditions[?(@.type=="BMCServerCertificateReady")]}{.status}{" "}{.message}{"\n"}{end}'
+```
 
 If no BMC targets are found, verify that the `DPUDevice` objects have `status.bmcIp` or `spec.bmcIp` populated:
 
