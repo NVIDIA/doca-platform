@@ -35,6 +35,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/util/reboot"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	corev1 "k8s.io/api/core/v1"
@@ -47,6 +48,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -290,6 +292,7 @@ func (r *DPUReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&provisioningv1.DPU{}).
 		Watches(&provisioningv1.DPUCluster{}, handler.EnqueueRequestsFromMapFunc(r.nonInitializedDPU)).
+		Watches(&provisioningv1.DPUNodeMaintenance{}, handler.EnqueueRequestsFromMapFunc(r.dpuNodeMaintenanceToDPU), builder.WithPredicates(dpuNodeMaintenancePredicate())).
 		// Watch DPUNode annotation changes for external reboot method
 		Watches(&provisioningv1.DPUNode{}, handler.EnqueueRequestsFromMapFunc(r.dpuNodeToDPU), builder.WithPredicates(predicate.AnnotationChangedPredicate{})).
 		Watches(&corev1.Pod{},
@@ -299,6 +302,48 @@ func (r *DPUReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.bfbRegistryServiceToRequest),
 			builder.WithPredicates(predicate.NewPredicateFuncs(r.isBFBRegistryService))).
 		Complete(r)
+}
+
+func dpuNodeMaintenancePredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(event.CreateEvent) bool { return true },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldMaintenance, oldOK := e.ObjectOld.(*provisioningv1.DPUNodeMaintenance)
+			newMaintenance, newOK := e.ObjectNew.(*provisioningv1.DPUNodeMaintenance)
+			if !oldOK || !newOK {
+				return false
+			}
+
+			return oldMaintenance.Generation != newMaintenance.Generation ||
+				conditions.IsTrue(oldMaintenance, provisioningv1.ConditionNodeEffectApplied) !=
+					conditions.IsTrue(newMaintenance, provisioningv1.ConditionNodeEffectApplied)
+		},
+		DeleteFunc:  func(event.DeleteEvent) bool { return true },
+		GenericFunc: func(event.GenericEvent) bool { return false },
+	}
+}
+
+func (r *DPUReconciler) dpuNodeMaintenanceToDPU(ctx context.Context, obj client.Object) []reconcile.Request {
+	maintenance, ok := obj.(*provisioningv1.DPUNodeMaintenance)
+	if !ok {
+		log.FromContext(ctx).Error(fmt.Errorf("bad type %T", obj), "failed to convert object to DPUNodeMaintenance")
+		return nil
+	}
+
+	dpuList := &provisioningv1.DPUList{}
+	if err := r.ctrlCtx.Client.List(ctx, dpuList,
+		client.InNamespace(maintenance.Namespace),
+		client.MatchingLabels{provisioningv1.DPUNodeNameLabel: maintenance.Spec.DPUNodeName},
+	); err != nil {
+		log.FromContext(ctx).Error(err, "failed to list DPUs for DPUNodeMaintenance", "maintenance", client.ObjectKeyFromObject(maintenance))
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(dpuList.Items))
+	for i := range dpuList.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: cutil.GetNamespacedName(&dpuList.Items[i])})
+	}
+	return requests
 }
 
 func (r *DPUReconciler) nonInitializedDPU(ctx context.Context, obj client.Object) []reconcile.Request {

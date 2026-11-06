@@ -118,6 +118,7 @@ func (r *DPUReadyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	c, err := ctrl.NewControllerManagedBy(mgr).
 		For(&provisioningv1.DPUNode{}).
+		Watches(&provisioningv1.DPUNodeMaintenance{}, handler.EnqueueRequestsFromMapFunc(r.dpuNodeMaintenanceToDPUNodeReq), builder.WithPredicates(dpuNodeMaintenancePredicate())).
 		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(r.nodeToDPUNodeReq), builder.WithPredicates(nodePredicate)).
 		Watches(&provisioningv1.DPU{}, handler.EnqueueRequestsFromMapFunc(r.dpuToDPUNodeReq), builder.WithPredicates(predicate.Or(
 			predicateutils.ReadyConditionChanged(),
@@ -133,6 +134,25 @@ func (r *DPUReadyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return nil
 }
 
+func dpuNodeMaintenancePredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(event.CreateEvent) bool { return true },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldMaintenance, oldOK := e.ObjectOld.(*provisioningv1.DPUNodeMaintenance)
+			newMaintenance, newOK := e.ObjectNew.(*provisioningv1.DPUNodeMaintenance)
+			if !oldOK || !newOK {
+				return false
+			}
+
+			return oldMaintenance.Generation != newMaintenance.Generation ||
+				conditions.IsTrue(oldMaintenance, provisioningv1.ConditionNodeEffectApplied) !=
+					conditions.IsTrue(newMaintenance, provisioningv1.ConditionNodeEffectApplied)
+		},
+		DeleteFunc:  func(event.DeleteEvent) bool { return true },
+		GenericFunc: func(event.GenericEvent) bool { return false },
+	}
+}
+
 // dpuToDPUNodeReq maps DPU changes to DPUNode reconcile requests
 func (r *DPUReadyReconciler) dpuToDPUNodeReq(ctx context.Context, obj client.Object) []reconcile.Request {
 	dpu := obj.(*provisioningv1.DPU)
@@ -140,6 +160,29 @@ func (r *DPUReadyReconciler) dpuToDPUNodeReq(ctx context.Context, obj client.Obj
 		NamespacedName: types.NamespacedName{
 			Namespace: dpu.Namespace,
 			Name:      dpu.Spec.DPUNodeName,
+		},
+	}}
+}
+
+// dpuNodeMaintenanceToDPUNodeReq maps an applied DPUNodeMaintenance to the
+// DPUNode whose service readiness must be reconciled. This ensures ready DPU
+// services release their maintenance requestors after the node effect completes.
+func (r *DPUReadyReconciler) dpuNodeMaintenanceToDPUNodeReq(ctx context.Context, obj client.Object) []reconcile.Request {
+	log := ctrllog.FromContext(ctx)
+	dpuNodeMaintenance, ok := obj.(*provisioningv1.DPUNodeMaintenance)
+	if !ok {
+		log.Error(fmt.Errorf("bad type %T", obj), "failed to convert object to DPUNodeMaintenance")
+		return nil
+	}
+
+	if !conditions.IsTrue(dpuNodeMaintenance, provisioningv1.ConditionNodeEffectApplied) {
+		return nil
+	}
+
+	return []reconcile.Request{{
+		NamespacedName: types.NamespacedName{
+			Namespace: dpuNodeMaintenance.Namespace,
+			Name:      dpuNodeMaintenance.Spec.DPUNodeName,
 		},
 	}}
 }
