@@ -549,8 +549,8 @@ func (r *DPFOperatorConfigReconciler) validateDPUState(ctx context.Context, conf
 		if dpu.Status.Phase == provisioningv1.DPUError || dpu.Status.Phase == provisioningv1.DPUReady {
 			continue
 		}
-		// A DPU the DPU controller reports as held in Pending does not hold the upgrade, it can not
-		// start provisioning before the upgrade completed. Every other DPU which did not reach a
+		// A DPU the DPU controller reports as held in Pending or Node Effect does not hold the upgrade,
+		// it cannot make progress before the upgrade completed. Every other DPU which did not reach a
 		// terminal phase still has to be waited for, it may be provisioning by the time the
 		// components are rolled out.
 		if util.IsDPUHeldForUpgrade(&dpu.Status) {

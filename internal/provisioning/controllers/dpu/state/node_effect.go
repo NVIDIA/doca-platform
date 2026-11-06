@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -56,6 +57,25 @@ func NodeEffect(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 			Reason:  reconfigPendingReason,
 			Message: strconv.FormatInt(int64(reconfigRound(dpu)), 10),
 		})
+	}
+
+	// Hold a DPU with a hold node effect in Node Effect while a DPF upgrade is in progress, so it does not
+	// create or join a DPUNodeMaintenance and does not move on to provisioning against a half upgraded
+	// deployment. An external system may release the hold only once the upgrade completed, so waiting
+	// for such a DPU would deadlock the upgrade. Other node effects complete on their own and the
+	// upgrade waits for them instead.
+	if dpu.Spec.NodeEffect.IsHold() && ctrlCtx.DPFOperatorConfig != nil && ctrlCtx.DPFOperatorConfig.UpgradeInProgress() {
+		hold, err := holdForUpgrade(ctx, ctrlCtx, dpu)
+		if err != nil {
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectReady.String(), err, "FailedGetDPUNodeMaintenance", err.Error()))
+			return *state, err
+		}
+		if hold {
+			err := fmt.Errorf("DPF Operator upgrade from version %s is in progress", ptr.Deref(ctrlCtx.DPFOperatorConfig.Status.Version, ""))
+			logger.Info("Waiting for the DPF Operator upgrade to complete before progressing the node effect")
+			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondNodeEffectReady.String(), err, cutil.ReasonDPFOperatorUpgradeInProgress, err.Error()))
+			return *state, nil
+		}
 	}
 
 	nodeEffect := dpu.Spec.NodeEffect
@@ -138,6 +158,32 @@ func NodeEffect(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 	}
 
 	return handleNodeEffectCompletion(ctx, state, "NodeEffectCompleted")
+}
+
+// holdForUpgrade reports whether a DPU in Node Effect with a hold node effect is held while a DPF upgrade
+// is in progress. It is held until it is a requestor of a DPUNodeMaintenance whose node effect is applied,
+// i.e. whose hold was released. Such a DPU is not held: DPUs on the same DPUNode share the
+// DPUNodeMaintenance, which is only deleted once all of them left it, so holding it could leave another
+// DPU, and with it the upgrade, waiting in Node Effect Removal. A hold released after the component
+// rollout started thus lets the DPU provision during the rollout. Releasing a hold during an upgrade is
+// not supported and documented as such.
+// The DPUNodeMaintenance controller is not held, it still applies a node effect it already started.
+func holdForUpgrade(ctx context.Context, ctrlCtx *dutil.ControllerContext, dpu *provisioningv1.DPU) (bool, error) {
+	name, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
+	if err != nil {
+		// Not held, so the invalid node effect is reported below.
+		return false, nil
+	}
+	dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{}
+	if err := ctrlCtx.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: name}, dpunodemaintenance); err != nil {
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	return dpunodemaintenance.DeletionTimestamp != nil ||
+		!isDPUInRequestor(dpunodemaintenance, dpu.Name) ||
+		!cutil.IsNodeEffectApplied(dpunodemaintenance), nil
 }
 
 // handleNodeEffectCompletion handles the common logic for completing a node effect
