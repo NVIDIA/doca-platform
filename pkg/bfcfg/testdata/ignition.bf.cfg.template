@@ -1,0 +1,41 @@
+{
+  "ignition": {
+    "version": "3.4.0"
+  },
+  "storage": {
+    "files": [
+      {
+        "path": "/etc/temp_bfcfg_strings.env",
+        "mode": 420,
+        "overwrite": true,
+        "contents": {
+          "source": "data:,bfb_pre_install%20bfb_modify_os%20bfb_post_install"
+        }
+      },
+      {
+        "path": "/etc/hostname",
+        "mode": 420,
+        "overwrite": true,
+        "contents": {
+          "source": "data:,{{.DPUHostName}}"
+        }
+      },
+      {
+        "path": "/etc/dpf/environment",
+        "mode": 420,
+        "overwrite": true,
+        "contents": {
+          "source": "data:,DPUName={{.DPUName}}%0ADPUNamespace={{.DPUNamespace}}%0ADPUUID={{.DPUUID}}%0ADPUMode=zero-trust%0AControlPlaneMTU={{.ControlPlaneMTU}}%0A"
+        }
+      },
+      {
+        "path": "/var/lib/dpf/dpuagent/bootstrap-kubeconfig",
+        "mode": 384,
+        "overwrite": true,
+        "contents": {
+          "source": "data:;base64,{{ .BootstrapKubeconfig | b64enc }}"
+        }
+      }
+    ]
+  }
+}
