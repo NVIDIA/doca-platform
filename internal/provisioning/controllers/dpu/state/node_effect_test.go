@@ -17,14 +17,17 @@ limitations under the License.
 package state_test
 
 import (
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/internal/release"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -1066,6 +1069,203 @@ var _ = Describe("DPU: Node Effect", func() {
 			Expect(dpunodemaintenance.Annotations).To(HaveKey(annotationKey))
 			Expect(dpunodemaintenance.Annotations[annotationKey]).To(ContainSubstring("service-a"))
 			Expect(dpunodemaintenance.Annotations[annotationKey]).To(ContainSubstring("service-b"))
+		})
+	})
+
+	Context("DPF Operator upgrade", func() {
+		configWithVersions := func(deployedVersion, targetVersion string) *operatorv1.DPFOperatorConfig {
+			return &operatorv1.DPFOperatorConfig{
+				Status: operatorv1.DPFOperatorConfigStatus{
+					Version:       ptr.To(deployedVersion),
+					TargetVersion: ptr.To(targetVersion),
+				},
+			}
+		}
+
+		runNodeEffect := func(dpu *provisioningv1.DPU, config *operatorv1.DPFOperatorConfig) (provisioningv1.DPUStatus, error) {
+			return state.NodeEffect(ctx, dpu,
+				&dutil.ControllerContext{
+					Client: k8sClient,
+					Options: dutil.DPUOptions{
+						DPUInstallInterface: string(provisioningv1.InstallViaGNOI),
+					},
+					DPFOperatorConfig: config,
+				},
+			)
+		}
+
+		expectHeldForUpgrade := func(status provisioningv1.DPUStatus) {
+			Expect(status.Phase).To(Equal(provisioningv1.DPUNodeEffect))
+			Expect(status.Conditions).Should(ContainElements(
+				And(
+					HaveField("Type", provisioningv1.DPUCondNodeEffectReady.String()),
+					HaveField("Status", metav1.ConditionFalse),
+					HaveField("Reason", cutil.ReasonDPFOperatorUpgradeInProgress),
+				),
+			))
+		}
+
+		var dpu *provisioningv1.DPU
+
+		BeforeEach(func() {
+			node := nodeObj("node-node-effect-upgrade-test")
+			createObject(node)
+
+			dpuNode := dpuNodeObj(node.Name)
+			createObject(dpuNode)
+			patch := client.MergeFrom(dpuNode.DeepCopy())
+			dpuNode.Status.KubeNodeRef = ptr.To(node.Name)
+			Expect(k8sClient.Status().Patch(ctx, dpuNode, patch)).To(Succeed())
+
+			dpu = dpuObj(defaultDPUName)
+			dpu.Spec.DPUDeviceName = "not-used"
+			dpu.Spec.DPUNodeName = dpuNode.Name
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{
+					Hold:  ptr.To(true),
+					Force: ptr.To(false),
+				},
+			}
+			dpu.Status.Phase = provisioningv1.DPUNodeEffect
+
+			dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
+			Expect(err).To(Succeed())
+			DeferCleanup(func() {
+				dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{ObjectMeta: metav1.ObjectMeta{Namespace: dpu.Namespace, Name: dpunodemaintenanceName}}
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, dpunodemaintenance))).To(Succeed())
+			})
+		})
+
+		It("should hold the DPU without creating the DPUNodeMaintenance while the upgrade is in progress", func() {
+			status, err := runNodeEffect(dpu, configWithVersions("v25.10.0", release.DPFVersion()))
+			Expect(err).To(Succeed())
+			expectHeldForUpgrade(status)
+
+			dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
+			Expect(err).To(Succeed())
+			err = k8sClient.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpunodemaintenanceName}, &provisioningv1.DPUNodeMaintenance{})
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		getDPUNodeMaintenance := func() *provisioningv1.DPUNodeMaintenance {
+			dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
+			Expect(err).To(Succeed())
+			dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: dpu.Namespace, Name: dpunodemaintenanceName}, dpunodemaintenance)).To(Succeed())
+			return dpunodemaintenance
+		}
+
+		applyNodeEffect := func() {
+			dpunodemaintenance := getDPUNodeMaintenance()
+			patch := client.MergeFrom(dpunodemaintenance.DeepCopy())
+			dpunodemaintenance.Status.Conditions = []metav1.Condition{
+				{
+					Type:               string(provisioningv1.ConditionNodeEffectApplied),
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "NodeEffectApplied",
+					ObservedGeneration: dpunodemaintenance.Generation,
+				},
+			}
+			Expect(k8sClient.Status().Patch(ctx, dpunodemaintenance, patch)).To(Succeed())
+		}
+
+		upgradeInProgress := func() *operatorv1.DPFOperatorConfig {
+			return configWithVersions("v25.10.0", release.DPFVersion())
+		}
+		noUpgrade := func() *operatorv1.DPFOperatorConfig {
+			return configWithVersions(release.DPFVersion(), release.DPFVersion())
+		}
+
+		It("should hold the DPU until the node effect is applied", func() {
+			By("creating and joining the DPUNodeMaintenance before the upgrade")
+			for range 2 {
+				status, err := runNodeEffect(dpu, noUpgrade())
+				Expect(err).To(Succeed())
+				Expect(status.Phase).To(Equal(provisioningv1.DPUNodeEffect))
+			}
+			Expect(getDPUNodeMaintenance().Spec.Requestor).To(ContainElement(dpu.Name))
+
+			By("holding the DPU while the node effect is not applied")
+			status, err := runNodeEffect(dpu, upgradeInProgress())
+			Expect(err).To(Succeed())
+			expectHeldForUpgrade(status)
+
+			By("progressing once the node effect is applied, even while the upgrade is in progress")
+			applyNodeEffect()
+			status, err = runNodeEffect(dpu, upgradeInProgress())
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUInitializeInterface))
+		})
+
+		It("should not join a DPUNodeMaintenance of another DPU while the upgrade is in progress", func() {
+			By("creating the DPUNodeMaintenance for another DPU on the same DPUNode before the upgrade")
+			other := dpu.DeepCopy()
+			other.Name = "other-dpu-on-node"
+			for range 2 {
+				_, err := runNodeEffect(other, noUpgrade())
+				Expect(err).To(Succeed())
+			}
+			Expect(getDPUNodeMaintenance().Spec.Requestor).To(ConsistOf(other.Name))
+
+			By("holding the DPU without joining, also once the node effect is applied")
+			applyNodeEffect()
+			status, err := runNodeEffect(dpu, upgradeInProgress())
+			Expect(err).To(Succeed())
+			expectHeldForUpgrade(status)
+			Expect(getDPUNodeMaintenance().Spec.Requestor).To(ConsistOf(other.Name))
+
+			By("joining the applied node effect once the upgrade completed")
+			status, err = runNodeEffect(dpu, noUpgrade())
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUInitializeInterface))
+			Expect(getDPUNodeMaintenance().Spec.Requestor).To(ConsistOf(other.Name, dpu.Name))
+		})
+
+		It("should not hold a DPU with another node effect while the upgrade is in progress", func() {
+			dpu.Spec.NodeEffect = provisioningv1.NodeEffect{
+				Action: provisioningv1.Action{
+					Drain: ptr.To(true),
+					Force: ptr.To(false),
+				},
+			}
+			dpunodemaintenanceName, err := cutil.GenerateDPUNodeMaintenanceObjectName(dpu.Spec.DPUNodeName, dpu.Spec.NodeEffect)
+			Expect(err).To(Succeed())
+			DeferCleanup(func() {
+				dpunodemaintenance := &provisioningv1.DPUNodeMaintenance{ObjectMeta: metav1.ObjectMeta{Namespace: dpu.Namespace, Name: dpunodemaintenanceName}}
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, dpunodemaintenance))).To(Succeed())
+			})
+
+			status, err := runNodeEffect(dpu, upgradeInProgress())
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUNodeEffect))
+			Expect(status.Conditions).Should(ContainElement(
+				And(
+					HaveField("Type", provisioningv1.DPUCondNodeEffectReady.String()),
+					HaveField("Reason", "CreatedDPUNodeMaintenance"),
+				),
+			))
+		})
+
+		It("should move a deleted DPU to Deleting while the upgrade is in progress", func() {
+			dpu.DeletionTimestamp = ptr.To(metav1.Now())
+			status, err := runNodeEffect(dpu, upgradeInProgress())
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUDeleting))
+		})
+
+		It("should not hold the DPU when the deployed version is not known yet", func() {
+			config := upgradeInProgress()
+			config.Status.Version = nil
+			status, err := runNodeEffect(dpu, config)
+			Expect(err).To(Succeed())
+			Expect(status.Phase).To(Equal(provisioningv1.DPUNodeEffect))
+			Expect(status.Conditions).Should(ContainElement(
+				And(
+					HaveField("Type", provisioningv1.DPUCondNodeEffectReady.String()),
+					HaveField("Reason", "CreatedDPUNodeMaintenance"),
+				),
+			))
 		})
 	})
 })

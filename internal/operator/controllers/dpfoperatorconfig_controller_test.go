@@ -1369,7 +1369,7 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 		g.Expect(testClient.Delete(ctx, dpu2)).To(Succeed())
 	})
 
-	t.Run("only DPUs reported as held in Pending do not hold the upgrade", func(t *testing.T) {
+	t.Run("only DPUs reported as held in Pending or Node Effect do not hold the upgrade", func(t *testing.T) {
 		config := &operatorv1.DPFOperatorConfig{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "config-dpus-before-provisioning",
@@ -1432,15 +1432,64 @@ func TestDPFOperatorConfigReconciler_ReconcilePreUpgradeValidations(t *testing.T
 			},
 		})
 		initializing := newDPU("dpu-initializing", provisioningv1.DPUStatus{Phase: provisioningv1.DPUInitializing})
+		// Held in Node Effect by the DPU controller, e.g. while waiting for an external hold to be released.
+		heldInNodeEffect := newDPU("dpu-held-in-node-effect", provisioningv1.DPUStatus{
+			Phase: provisioningv1.DPUNodeEffect,
+			Conditions: []metav1.Condition{
+				{
+					Type:               provisioningv1.DPUCondNodeEffectReady.String(),
+					Status:             metav1.ConditionFalse,
+					Reason:             util.ReasonDPFOperatorUpgradeInProgress,
+					Message:            "DPF Operator upgrade is in progress",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				},
+			},
+		})
+		// In Node Effect without the hold, e.g. reported by a DPU controller that does not hold it there.
+		nodeEffect := newDPU("dpu-node-effect-not-held", provisioningv1.DPUStatus{
+			Phase: provisioningv1.DPUNodeEffect,
+			Conditions: []metav1.Condition{
+				{
+					Type:               provisioningv1.DPUCondNodeEffectReady.String(),
+					Status:             metav1.ConditionFalse,
+					Reason:             "NodeEffectInProgress",
+					Message:            "node effect is in progress",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				},
+			},
+		})
+
+		// The hold only counts on the condition of the phase the DPU is in.
+		heldCondition := func(condType provisioningv1.DPUConditionType) metav1.Condition {
+			return metav1.Condition{
+				Type:               condType.String(),
+				Status:             metav1.ConditionFalse,
+				Reason:             util.ReasonDPFOperatorUpgradeInProgress,
+				Message:            "DPF Operator upgrade is in progress",
+				LastTransitionTime: metav1.NewTime(time.Now()),
+			}
+		}
+		pendingWithNodeEffectHold := newDPU("dpu-pending-node-effect-hold", provisioningv1.DPUStatus{
+			Phase:      provisioningv1.DPUPending,
+			Conditions: []metav1.Condition{heldCondition(provisioningv1.DPUCondNodeEffectReady)},
+		})
+		nodeEffectWithPendingHold := newDPU("dpu-node-effect-pending-hold", provisioningv1.DPUStatus{
+			Phase:      provisioningv1.DPUNodeEffect,
+			Conditions: []metav1.Condition{heldCondition(provisioningv1.DPUCondPending)},
+		})
 
 		r := newReconciler()
 		err := r.validateDPUState(ctx, config, []*dpucluster.Config{})
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(err.Error()).NotTo(ContainSubstring(held.Name))
+		g.Expect(err.Error()).NotTo(ContainSubstring(heldInNodeEffect.Name))
 		g.Expect(err.Error()).To(ContainSubstring(pending.Name))
 		g.Expect(err.Error()).To(ContainSubstring(initializing.Name))
+		g.Expect(err.Error()).To(ContainSubstring(nodeEffect.Name))
+		g.Expect(err.Error()).To(ContainSubstring(pendingWithNodeEffectHold.Name))
+		g.Expect(err.Error()).To(ContainSubstring(nodeEffectWithPendingHold.Name))
 
-		for _, dpu := range []*provisioningv1.DPU{held, pending, initializing} {
+		for _, dpu := range []*provisioningv1.DPU{held, pending, initializing, heldInNodeEffect, nodeEffect, pendingWithNodeEffectHold, nodeEffectWithPendingHold} {
 			g.Expect(testClient.Delete(ctx, dpu)).To(Succeed())
 		}
 	})
