@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -85,6 +86,7 @@ func (s *fileSystemStore) PersistBootID(dpu *provisioningv1.DPU) error {
 		RebootID:            bootID,
 		PreviousPhase:       dpu.Status.PreviousPhase,
 		RebootSequenceCount: rebootSequenceCount(dpu.Status.AgentStatus),
+		ReconfigRound:       ptr.To(reconfigRound(dpu)),
 	}
 	requestBytes, err := json.Marshal(request)
 	if err != nil {
@@ -190,6 +192,9 @@ func rebootRequestMatchesDPU(request *RebootRequest, dpu *provisioningv1.DPU) bo
 	if request.PreviousPhase != dpu.Status.PreviousPhase {
 		return false
 	}
+	if request.ReconfigRound != nil && *request.ReconfigRound != reconfigRound(dpu) {
+		return false
+	}
 	currentSequenceCount := rebootSequenceCount(dpu.Status.AgentStatus)
 	if request.RebootSequenceCount == nil || currentSequenceCount == nil {
 		return request.RebootSequenceCount == currentSequenceCount
@@ -202,4 +207,13 @@ func rebootSequenceCount(agentStatus *provisioningv1.AgentStatus) *int32 {
 		return nil
 	}
 	return agentStatus.RebootSequenceCount
+}
+
+// reconfigRound returns the in-place reconfig round on the DPU, or 0 when no
+// round has been assigned.
+func reconfigRound(dpu *provisioningv1.DPU) int32 {
+	if dpu.Status.DPUReconfig == nil {
+		return 0
+	}
+	return dpu.Status.DPUReconfig.Round
 }

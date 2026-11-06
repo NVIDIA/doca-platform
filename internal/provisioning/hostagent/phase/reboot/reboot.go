@@ -49,6 +49,14 @@ type RebootRequest struct {
 	// reboot requests so hostagent does not mistake a request file from a previous
 	// DPUConfig reboot for evidence that the current reboot already happened.
 	RebootSequenceCount *int32 `json:"rebootSequenceCount,omitempty"`
+	// Each in-place reconfig round re-enters DPUConfig and restarts
+	// RebootSequenceCount, so a request file left by the previous round can carry
+	// the same PreviousPhase and RebootSequenceCount as the current one.
+	// ReconfigRound is DPU status.dpuReconfig.round, 0 when unset, and tells those
+	// requests apart. This relies on an in-place round being the only way the same
+	// DPU enters DPUConfig again. Nil means the file predates this field and the
+	// round is not compared.
+	ReconfigRound *int32 `json:"reconfigRound,omitempty"`
 }
 
 type Handler struct {

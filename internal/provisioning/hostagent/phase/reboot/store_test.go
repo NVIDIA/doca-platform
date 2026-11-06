@@ -62,6 +62,9 @@ var _ = Describe("FileSystemStore", func() {
 					AgentStatus: &provisioningv1.AgentStatus{
 						RebootSequenceCount: ptr.To(int32(2)),
 					},
+					DPUReconfig: &provisioningv1.DPUReconfigStatus{
+						Round: 3,
+					},
 				},
 			}
 			store := &fileSystemStore{bootIDDir: tmpDir}
@@ -73,6 +76,26 @@ var _ = Describe("FileSystemStore", func() {
 			Expect(request.PreviousPhase).To(Equal(provisioningv1.DPUConfig))
 			Expect(request.RebootSequenceCount).NotTo(BeNil())
 			Expect(*request.RebootSequenceCount).To(Equal(int32(2)))
+			Expect(request.ReconfigRound).To(Equal(ptr.To(int32(3))))
+		})
+
+		It("should persist reconfig round 0 when no round has been assigned", func() {
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "no-round-dpu",
+					Namespace: "no-round-namespace",
+					UID:       "no-round-uid",
+				},
+				Status: provisioningv1.DPUStatus{
+					PreviousPhase: provisioningv1.DPUConfig,
+				},
+			}
+			store := &fileSystemStore{bootIDDir: tmpDir}
+
+			Expect(store.PersistBootID(dpu)).To(Succeed())
+
+			request := readPersistedRequest(store.rebootRequestFileName(dpu))
+			Expect(request.ReconfigRound).To(Equal(ptr.To(int32(0))))
 		})
 	})
 
@@ -185,6 +208,137 @@ var _ = Describe("FileSystemStore", func() {
 				RebootID:            "previous-boot-id",
 				PreviousPhase:       provisioningv1.DPUConfig,
 				RebootSequenceCount: ptr.To(int32(5)),
+			})
+
+			finished, err := store.IsRebootFinished(dpu)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(finished).To(BeTrue())
+		})
+
+		It("should ignore reboot request files from a previous reconfig round", func() {
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "round-dpu",
+					Namespace: "round-namespace",
+					UID:       "round-uid",
+				},
+				Status: provisioningv1.DPUStatus{
+					PreviousPhase: provisioningv1.DPUConfig,
+					AgentStatus: &provisioningv1.AgentStatus{
+						RebootSequenceCount: ptr.To(int32(1)),
+					},
+					DPUReconfig: &provisioningv1.DPUReconfigStatus{
+						Round: 2,
+					},
+				},
+			}
+			store := &fileSystemStore{bootIDDir: tmpDir}
+			writeRequestFile(store.rebootRequestFileName(dpu), &RebootRequest{
+				DPUName:             dpu.Name,
+				DPUNamespace:        dpu.Namespace,
+				UID:                 string(dpu.UID),
+				RebootID:            "previous-boot-id",
+				PreviousPhase:       provisioningv1.DPUConfig,
+				RebootSequenceCount: ptr.To(int32(1)),
+				ReconfigRound:       ptr.To(int32(1)),
+			})
+
+			finished, err := store.IsRebootFinished(dpu)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(finished).To(BeFalse())
+		})
+
+		It("should ignore reboot request files from initial provisioning once a reconfig round is assigned", func() {
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "first-round-dpu",
+					Namespace: "first-round-namespace",
+					UID:       "first-round-uid",
+				},
+				Status: provisioningv1.DPUStatus{
+					PreviousPhase: provisioningv1.DPUConfig,
+					AgentStatus: &provisioningv1.AgentStatus{
+						RebootSequenceCount: ptr.To(int32(1)),
+					},
+					DPUReconfig: &provisioningv1.DPUReconfigStatus{
+						Round: 1,
+					},
+				},
+			}
+			store := &fileSystemStore{bootIDDir: tmpDir}
+			writeRequestFile(store.rebootRequestFileName(dpu), &RebootRequest{
+				DPUName:             dpu.Name,
+				DPUNamespace:        dpu.Namespace,
+				UID:                 string(dpu.UID),
+				RebootID:            "previous-boot-id",
+				PreviousPhase:       provisioningv1.DPUConfig,
+				RebootSequenceCount: ptr.To(int32(1)),
+				ReconfigRound:       ptr.To(int32(0)),
+			})
+
+			finished, err := store.IsRebootFinished(dpu)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(finished).To(BeFalse())
+		})
+
+		It("should report reboot finished when the reconfig round matches", func() {
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "same-round-dpu",
+					Namespace: "same-round-namespace",
+					UID:       "same-round-uid",
+				},
+				Status: provisioningv1.DPUStatus{
+					PreviousPhase: provisioningv1.DPUConfig,
+					AgentStatus: &provisioningv1.AgentStatus{
+						RebootSequenceCount: ptr.To(int32(1)),
+					},
+					DPUReconfig: &provisioningv1.DPUReconfigStatus{
+						Round: 2,
+					},
+				},
+			}
+			store := &fileSystemStore{bootIDDir: tmpDir}
+			writeRequestFile(store.rebootRequestFileName(dpu), &RebootRequest{
+				DPUName:             dpu.Name,
+				DPUNamespace:        dpu.Namespace,
+				UID:                 string(dpu.UID),
+				RebootID:            "previous-boot-id",
+				PreviousPhase:       provisioningv1.DPUConfig,
+				RebootSequenceCount: ptr.To(int32(1)),
+				ReconfigRound:       ptr.To(int32(2)),
+			})
+
+			finished, err := store.IsRebootFinished(dpu)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(finished).To(BeTrue())
+		})
+
+		It("should not compare the reconfig round for request files written before the field existed", func() {
+			dpu := &provisioningv1.DPU{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "legacy-dpu",
+					Namespace: "legacy-namespace",
+					UID:       "legacy-uid",
+				},
+				Status: provisioningv1.DPUStatus{
+					PreviousPhase: provisioningv1.DPUConfig,
+					AgentStatus: &provisioningv1.AgentStatus{
+						RebootSequenceCount: ptr.To(int32(1)),
+					},
+					DPUReconfig: &provisioningv1.DPUReconfigStatus{
+						Round: 2,
+					},
+				},
+			}
+			store := &fileSystemStore{bootIDDir: tmpDir}
+			writeRequestFile(store.rebootRequestFileName(dpu), &RebootRequest{
+				DPUName:             dpu.Name,
+				DPUNamespace:        dpu.Namespace,
+				UID:                 string(dpu.UID),
+				RebootID:            "previous-boot-id",
+				PreviousPhase:       provisioningv1.DPUConfig,
+				RebootSequenceCount: ptr.To(int32(1)),
 			})
 
 			finished, err := store.IsRebootFinished(dpu)
