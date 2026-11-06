@@ -206,6 +206,56 @@ func getDPUNodeMaintenanceObjects(namespace, requestor1, requestor2, requestor3 
 	}
 }
 
+var _ = Describe("DPUNodeMaintenance event mapping", func() {
+	It("reconciles when the DPUNode reference changes after the effect was applied", func() {
+		predicate := dpuNodeMaintenancePredicate()
+		oldMaintenance := &provisioningv1.DPUNodeMaintenance{
+			ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Generation: 1},
+			Spec:       provisioningv1.DPUNodeMaintenanceSpec{DPUNodeName: "old-node"},
+			Status: provisioningv1.DPUNodeMaintenanceStatus{
+				Conditions: []metav1.Condition{{
+					Type:               string(provisioningv1.ConditionNodeEffectApplied),
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: 1,
+				}},
+			},
+		}
+		newMaintenance := oldMaintenance.DeepCopy()
+		newMaintenance.Generation = 2
+		newMaintenance.Spec.DPUNodeName = nodeName
+
+		Expect(predicate.Update(event.UpdateEvent{ObjectOld: oldMaintenance, ObjectNew: newMaintenance})).To(BeTrue())
+		Expect((&DPUReadyReconciler{}).dpuNodeMaintenanceToDPUNodeReq(context.Background(), newMaintenance)).To(BeEmpty())
+
+		appliedMaintenance := newMaintenance.DeepCopy()
+		appliedMaintenance.Status.Conditions[0].ObservedGeneration = appliedMaintenance.Generation
+		Expect(predicate.Update(event.UpdateEvent{ObjectOld: newMaintenance, ObjectNew: appliedMaintenance})).To(BeTrue())
+		Expect((&DPUReadyReconciler{}).dpuNodeMaintenanceToDPUNodeReq(context.Background(), appliedMaintenance)).To(Equal([]reconcile.Request{{
+			NamespacedName: types.NamespacedName{Namespace: testNamespace, Name: nodeName},
+		}}))
+	})
+
+	It("enqueues the referenced DPUNode only after the node effect is applied", func() {
+		reconciler := &DPUReadyReconciler{}
+		maintenance := &provisioningv1.DPUNodeMaintenance{
+			ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace},
+			Spec:       provisioningv1.DPUNodeMaintenanceSpec{DPUNodeName: nodeName},
+			Status: provisioningv1.DPUNodeMaintenanceStatus{
+				Conditions: []metav1.Condition{{
+					Type:   string(provisioningv1.ConditionNodeEffectApplied),
+					Status: metav1.ConditionFalse,
+				}},
+			},
+		}
+		Expect(reconciler.dpuNodeMaintenanceToDPUNodeReq(context.Background(), maintenance)).To(BeEmpty())
+
+		maintenance.Status.Conditions[0].Status = metav1.ConditionTrue
+		Expect(reconciler.dpuNodeMaintenanceToDPUNodeReq(context.Background(), maintenance)).To(Equal([]reconcile.Request{{
+			NamespacedName: types.NamespacedName{Namespace: testNamespace, Name: nodeName},
+		}}))
+	})
+})
+
 var _ = Describe("DPUReadyReconciler", func() {
 	var (
 		workerNode       *corev1.Node
