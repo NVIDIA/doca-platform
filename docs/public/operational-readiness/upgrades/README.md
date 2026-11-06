@@ -255,22 +255,43 @@ helm get values dpf-operator -n dpf-operator-system > values.yaml
 
 ### DPUs and the Upgrade
 
-Provisioning and the component rollout never overlap, in either direction:
+Provisioning and the component rollout do not overlap, in either direction, as long as no `hold` node effect is
+released during the upgrade:
 
 * A DPU that already started provisioning holds the upgrade, through the
-  [DPU State Validation](#dpu-state-validation) prevalidation, until it reaches `Ready` or `Error`.
+  [DPU State Validation](#dpu-state-validation) prevalidation, until it reaches `Ready` or `Error`, unless it is held
+  in `NodeEffect` as described below.
 * A DPU that has not started provisioning is held instead: while `status.targetVersion` differs from `status.version`
   on the `DPFOperatorConfig`, it stays in `Pending` with the `DPFOperatorUpgradeInProgress` reason and continues
-  automatically once the upgrade completes. Such a DPU is exempt from the prevalidation above, it cannot make progress
+  automatically once the upgrade completes. Such a DPU is exempt from the DPU State Validation, it cannot make progress
   until the upgrade completes and would otherwise deadlock it.
+* A DPU in `NodeEffect` with a `hold` node effect is held as well, until its hold is released: while the upgrade is
+  in progress it does not create or join a `DPUNodeMaintenance`, and it does not continue while the `hold` node effect
+  of its `DPUNodeMaintenance` is not released. It reports the `DPFOperatorUpgradeInProgress` reason on its
+  `NodeEffectReady` condition and is exempt from the DPU State Validation. This lets the upgrade proceed while DPUs
+  wait for an external system to release a `hold` node effect only after the DPF upgrade.
+* A DPU whose `hold` node effect is released continues, also during the upgrade. Before the component rollout
+  started, the upgrade waits for it to reach `Ready`. Once the rollout started, nothing stops the DPU from
+  provisioning while the components are being upgraded, see below. DPUs with any other node effect are not held:
+  they complete their node effect and the upgrade waits for them.
 
-DPUs that are already provisioned are not affected. Without this, a DPU provisioned while the rollout is in flight
-would be handled by a mix of old and new controllers, agents, and DMS, and an interrupted BFB flash can leave the
-BlueField in a state that requires manual recovery.
+DPUs that are `Ready` keep running. A `Ready` DPU with a `hold` node effect that is sent back to `NodeEffect` during
+the upgrade, for example by a disruptive DPUService change, is held as described above. Without these holds, a DPU
+provisioned while the rollout is in flight would be handled by a mix of old and new controllers, agents, and DMS, and
+an interrupted BFB flash can leave the BlueField in a state that requires manual recovery.
+
+> [!IMPORTANT]
+> Do not release a `hold` node effect while a DPF upgrade is in progress, that is while `status.targetVersion`
+> differs from `status.version` on the `DPFOperatorConfig`. Release it before the upgrade starts or after it
+> completes. External systems that manage `hold` node effects should check these fields before releasing a hold.
 
 > [!NOTE]
-> This hold is enforced by the provisioning controller of the version you upgrade **from**. It was introduced in
-> v26.8.0, so it applies to every upgrade from v26.8.0 on. Upgrading to v26.8.0 does not hold provisioning yet.
+> The holds are enforced by the provisioning controller of the version you upgrade **from**. The hold in `Pending` was
+> introduced in v26.8.0, so it applies to every upgrade from v26.8.0 on. Upgrading to v26.8.0 does not hold
+> provisioning yet.
+> The hold in `NodeEffect` was introduced in v30.0.0 and applies to every upgrade from that version on. On an upgrade
+> from an earlier version, a DPU with a `hold` node effect in `NodeEffect` still holds the upgrade until it reaches
+> `Ready` or `Error`: release any `hold` node effects before such an upgrade.
 
 ## Validate the Upgrade
 
