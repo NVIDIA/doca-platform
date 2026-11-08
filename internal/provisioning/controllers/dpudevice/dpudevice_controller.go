@@ -98,6 +98,9 @@ const (
 	serverCertStatePersistRequeue = time.Second
 	// serverCertRotationBackoff is used when the mTLS client cannot be opened for rotation.
 	serverCertRotationBackoff = 5 * time.Minute
+	// discoveryRetryInterval is the poll interval while the BMC has not published the DPU
+	// chassis yet.
+	discoveryRetryInterval = 15 * time.Second
 	// basicAuthFallbackLogMsg is logged at error level whenever the controller authenticates to a
 	// BMC with its password over TLS without server certificate verification, so operators can
 	// alert on it.
@@ -111,6 +114,9 @@ const (
 // errCertRequestPending indicates the server-cert CertificateRequest is not yet issued and the
 // reconcile should requeue without treating the rotation as failed.
 var errCertRequestPending = errors.New("cert-manager CertificateRequest is not issued yet")
+
+// errChassisNotPublished reports a BMC that answers but has not published the DPU chassis yet.
+var errChassisNotPublished = errors.New("DPU chassis not published yet")
 
 var (
 	// errServerCertCSRFailed indicates the BMC did not generate a CSR for a fresh rotation.
@@ -377,10 +383,17 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 		return result, err
 	}
 
-	condition := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceDiscovered)
-	if condition == nil || condition.Status == metav1.ConditionFalse {
+	if !meta.IsStatusConditionTrue(dpuDevice.Status.Conditions, string(provisioningv1.ConditionDpuDeviceDiscovered)) {
 		err = r.discoverDPUDevice(ctx, dpuDevice)
 		if err != nil {
+			if errors.Is(err, errChassisNotPublished) {
+				// Poll at a fixed interval rather than returning the error, whose workqueue
+				// backoff would keep growing while the BMC finishes publishing the DPU.
+				conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceDiscovered,
+					conditions.ReasonPending,
+					conditions.ConditionMessage(err.Error()))
+				return ctrl.Result{RequeueAfter: discoveryRetryInterval}, nil
+			}
 			log.Error(err, "Failed to discover DPUDevice")
 			conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceDiscovered,
 				conditions.ReasonError,
@@ -1165,6 +1178,9 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 	_, chassisInfo, err := client.GetChassis(ctx)
 	if err != nil {
 		log.Error(err, "Failed to get chassis info", "address", bmcAddress)
+		if rfclient.HasHTTPStatus(err, http.StatusNotFound) {
+			return fmt.Errorf("%w: %w", errChassisNotPublished, err)
+		}
 		return err
 	}
 

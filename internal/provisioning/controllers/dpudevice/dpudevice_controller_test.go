@@ -43,6 +43,7 @@ import (
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/certmanager"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -718,6 +719,71 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Entry("NIC mode", "NicMode", provisioningv1.NicMode),
 			Entry("DPU mode", "DpuMode", provisioningv1.DpuMode),
 		)
+
+		It("should poll a BMC that has not published its chassis yet instead of returning an error", func() {
+			ctx := context.Background()
+			mockServer, reconciler := setupDiscoveryTest()
+			DeferCleanup(mockServer.Stop)
+			mockServer.SetChassisStatus(http.StatusNotFound)
+			device := createTestDPUDevice(mockServer, "test-chassis-not-published")
+			device.Status.BMCCredentialSecretName = ptr.To(rfclient.BMCPasswordSecret)
+			device.Status.BMCServerCertificate = &provisioningv1.CertificateStatus{
+				NotAfter: ptr.To(metav1.NewTime(time.Now().Add(365 * 24 * time.Hour))),
+			}
+			device.Status.CATrustBundle = &provisioningv1.TrustBundleStatus{
+				ObservedBundleHash: ptr.To("test-bundle"),
+			}
+			device.SetConditions([]metav1.Condition{
+				{
+					Type:               "NodeAttached",
+					Status:             metav1.ConditionTrue,
+					Reason:             "Attached",
+					LastTransitionTime: metav1.Now(),
+				},
+				{
+					Type:               "Initialized",
+					Status:             metav1.ConditionTrue,
+					Reason:             "Initialized",
+					LastTransitionTime: metav1.Now(),
+				},
+			})
+			config := &operatorv1.DPFOperatorConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dpfoperatorconfig",
+					Namespace: testNamespace,
+				},
+				Spec: operatorv1.DPFOperatorConfigSpec{
+					ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{
+						InstallInterface: &operatorv1.ProvisioningInstallInterface{
+							InstallViaRedfish: &operatorv1.InstallViaRedfish{},
+						},
+					},
+				},
+			}
+			scheme := reconciler.Client.Scheme()
+			Expect(operatorv1.AddToScheme(scheme)).To(Succeed())
+			bundle := &corev1.ConfigMap{}
+			Expect(reconciler.Get(ctx, types.NamespacedName{Name: operatorv1.DefaultCATrustBundleConfigMapName, Namespace: testNamespace}, bundle)).To(Succeed())
+			bundle.Data[BundleHashDataKey] = "test-bundle"
+			reconciler.Client = fake.NewClientBuilder().WithScheme(scheme).
+				WithObjects(device, config, bundle).WithStatusSubresource(device).Build()
+			request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(device)}
+
+			result, err := reconciler.Reconcile(ctx, request)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(discoveryRetryInterval))
+			persisted := &provisioningv1.DPUDevice{}
+			Expect(reconciler.Get(ctx, request.NamespacedName, persisted)).To(Succeed())
+			discovered := findCondition(persisted, string(provisioningv1.ConditionDpuDeviceDiscovered))
+			Expect(discovered.Status).To(Equal(metav1.ConditionFalse))
+			Expect(discovered.Reason).To(Equal(string(conditions.ReasonPending)))
+
+			mockServer.SetChassisStatus(0)
+			_, err = reconciler.Reconcile(ctx, request)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(reconciler.Get(ctx, request.NamespacedName, persisted)).To(Succeed())
+			Expect(findCondition(persisted, string(provisioningv1.ConditionDpuDeviceDiscovered)).Status).To(Equal(metav1.ConditionTrue))
+		})
 
 		It("should fail when TLS client creation fails (no secrets)", func() {
 			ctx := context.Background()

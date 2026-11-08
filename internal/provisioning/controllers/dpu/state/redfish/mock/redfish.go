@@ -70,6 +70,7 @@ type RedfishMockServer struct {
 	productDescriptionError         bool                     // Simulate GetProductDescription endpoint error for testing
 	taskProgressError               bool                     // Simulate CheckTaskProgress endpoint error for testing
 	chassisError                    bool                     // Simulate GetChassis endpoint error for testing
+	chassisStatus                   int                      // Optional GetChassis HTTP status override; zero uses 200.
 	erotChassisError                bool                     // Simulate GetErotChassis endpoint error for testing
 	erotChassisOemPresent           bool                     // Include Oem.Nvidia in ERoT chassis response
 	erotBackgroundCopyStatus        string                   // BackgroundCopyStatus value in ERoT chassis Oem.Nvidia
@@ -524,6 +525,10 @@ func (r *RedfishMockServer) handleGetChassis(w http.ResponseWriter, req *http.Re
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("BMC chassis endpoint unavailable"))
+		return
+	}
+	if r.chassisStatus != 0 && r.chassisStatus != http.StatusOK {
+		writeRedfishError(w, r.chassisStatus, "Base.1.18.1.ResourceMissingAtURI", "Chassis resource unavailable")
 		return
 	}
 
@@ -1475,6 +1480,11 @@ func (r *RedfishMockServer) SetTaskProgressError(simulateError bool) {
 // SetChassisError enables or disables GetChassis endpoint error simulation for testing
 func (r *RedfishMockServer) SetChassisError(simulateError bool) {
 	r.chassisError = simulateError
+}
+
+// SetChassisStatus overrides the GetChassis HTTP status; zero restores the default 200.
+func (r *RedfishMockServer) SetChassisStatus(status int) {
+	r.chassisStatus = status
 }
 
 // SetErotChassisError enables or disables GetErotChassis endpoint error simulation for testing.
