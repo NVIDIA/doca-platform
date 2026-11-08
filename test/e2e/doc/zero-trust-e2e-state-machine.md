@@ -93,16 +93,16 @@ edit the YAML file at the path the env var points to.
 One reboot pod-template fixture ships in
 `test/objects/infrastructure/`:
 
-- `dpunode-reboot-redfish.yaml` — used by the ZT physical e2e job.
+- `dpunode-reboot-redfish.yaml` — used by the ZT physical e2e jobs.
   Drives reboots through the host BMC over Redfish. Only one label per
   DPUNode (`host-bmc-ip`) and two CI variables (`$E2E_ZT_BMC_USERNAME`,
   `$E2E_ZT_BMC_PASSWORD`) are needed; vendor differences are
   side-stepped by discovering the System path at runtime from
   `/redfish/v1/Systems` (`Members[0]."@odata.id"`). Honors
   `DPUNODE_REBOOT_METHOD` by mapping `PowerCycle` to a hard cycle
-  (`ForceOff` → sleep 10s → `On`) and warm methods (`SystemLevelReset` /
-  `SystemReboot` / `FirmwareReset` / `DPUWarmReboot`) to
-  `GracefulRestart`. The suite's `waitForScriptRebootCompletion` +
+  (`ForceOff` → `On`, retried until `PowerState=On`) and
+  `SystemLevelReset` to a host warm reboot (`GracefulRestart`); any
+  other value fails the Job. The suite's `waitForScriptRebootCompletion` +
   DPUReady waiters are the source of truth on "the node is actually
   back up".
 
