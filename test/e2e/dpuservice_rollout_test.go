@@ -343,7 +343,10 @@ systemctl kill --kill-whom=main --signal=CONT kubelet.service`, pauseUnit, resum
 			output, err := netshoot.ExecInPodOnce(dpuClusterRestClient[0], dpuClusterRestConfig[0], pod.Namespace, pod.Name, []string{"chroot", "/host", "/bin/sh", "-ec", cleanupScript})
 			g.Expect(err).NotTo(HaveOccurred(), "failed to clean up the kubelet watchdog: %s", output)
 		}).WithTimeout(8 * time.Minute).WithPolling(time.Second).Should(Succeed())
-		Expect(client.IgnoreNotFound(dpuClusterClient[0].Delete(cleanupCtx, pod))).To(Succeed())
+		// The exec above can drop the port-forward tunnel, so retry the delete until the tunnel is recreated.
+		Eventually(func(g Gomega) {
+			g.Expect(client.IgnoreNotFound(dpuClusterClient[0].Delete(cleanupCtx, pod))).To(Succeed())
+		}).WithTimeout(time.Minute).WithPolling(time.Second).Should(Succeed())
 		VerifyClusterPods(cleanupCtx, dpuClusterClient[0], dpuClusterPodsToVerify())
 		Eventually(func(g Gomega) {
 			ds := rolloutDaemonSet(cleanupCtx, g, serviceName)
