@@ -995,6 +995,15 @@ func (c *Client) GetBMCRShimEnabled(ctx context.Context) (bool, *resty.Response,
 // ChassisAssetTagUnavailable is the BMC sentinel when chassis AssetTag (PSID) is not set.
 const ChassisAssetTagUnavailable = "N/A"
 
+// ErrAssetTagUnavailable is returned by GetPSID on BF4 when the BMC does not report a set
+// AssetTag (PSID) in either the System or the Chassis resource.
+var ErrAssetTagUnavailable = errors.New("AssetTag is not available")
+
+// isAssetTagSet reports whether a BMC AssetTag carries a usable PSID.
+func isAssetTagSet(assetTag string) bool {
+	return assetTag != "" && assetTag != ChassisAssetTagUnavailable
+}
+
 // ChassisInfo contains the part number information responded by RedFish API
 type ChassisInfo struct {
 	AssetTag     string                 `json:"AssetTag,omitempty"`
@@ -1022,7 +1031,9 @@ func (c *Client) GetPSID(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	if systemInfo.AssetTag != nil {
+	// The BMC may expose an empty AssetTag until it finishes populating it (e.g. right after a
+	// factory reset); an unset value must not be accepted as the PSID.
+	if systemInfo.AssetTag != nil && isAssetTagSet(*systemInfo.AssetTag) {
 		return *systemInfo.AssetTag, nil
 	}
 
@@ -1031,10 +1042,10 @@ func (c *Client) GetPSID(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if chassisInfo.AssetTag != ChassisAssetTagUnavailable {
+	if isAssetTagSet(chassisInfo.AssetTag) {
 		return chassisInfo.AssetTag, nil
 	}
-	return "", fmt.Errorf("AssetTag is not available")
+	return "", ErrAssetTagUnavailable
 }
 
 func (c *ChassisInfo) GetBlueFieldVersion() provisioningv1.DPUType {
