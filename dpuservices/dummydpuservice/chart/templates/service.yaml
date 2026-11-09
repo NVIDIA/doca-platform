@@ -10,7 +10,10 @@
 kind: Service
 apiVersion: v1
 metadata:
-  name: {{ include "dummydpuservice.fullname" . }}
+  # Named after the DPUService so clients can reach it without knowing the DPUCluster name which is part of the
+  # release name. The fallback to the release based name is for backwards compatibility with DPF versions prior to
+  # v30.0.0.
+  name: {{ default (include "dummydpuservice.fullname" .) ((.Values.dpf).dpuService).name }}
   labels:
     {{- include "dummydpuservice.labels" . | nindent 4 }}
     {{- with .Values.exposedPorts.labels }}

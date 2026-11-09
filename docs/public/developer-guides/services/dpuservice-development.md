@@ -44,8 +44,9 @@ A DPUService Helm chart must:
 
 * be available on a Helm registry which is accessible from the DPF control plane.
 * contain exactly one DaemonSet - the `serviceDaemonSet` - that is part of a service function chain.
-* Each Kubernetes object must have a `{{ .Release.Name }}` in their `.metadata.name`. This enables deployment of multiple
-    instances of the service.
+* Each Kubernetes object must have a `{{ .Release.Name }}` in their `.metadata.name`. For DPUServices deployed to
+    DPUClusters, `{{ .Values.dpf.dpuService.name }}` can be used instead - see [Naming resources](#naming-resources).
+    This enables deployment of multiple instances of the service.
 * Include [version constraints](#version-constraints) in the Helm chart annotations  - e.g. `dpu.nvidia.com/doca-version`
     for DOCA version.
 * [Implement certain parameters](#helm-chart-parameters)
@@ -65,6 +66,23 @@ A DPUService Helm chart must expose the following parameters which can be set us
 | `serviceDaemonSet.resources`       | map[string]string                                                                                                               | No       | serviceDaemonSet pod Resource requests/limits  (e.g. CPU, memory)                                                                                                                                |
 | `exposedPorts.ports.<portName>`    | boolean                                                                                                                         | Yes      | Enable/disable exposure of specific ports (default: false)                                                                                                                                       |
 | `exposedPorts.labels`              | map[string]string                                                                                                               | Yes*     | Custom labels for the Service resources to be discovered by the DPUService controller (*Required if exposing ports)                                                                              |
+| `dpf.dpuService.name`              | string                                                                                                                          | Yes      | Name of the DPUService the chart is deployed for. Set by the DPUService controller and overrides any user-provided value                                                                         |
+| `dpf.dpuService.namespace`         | string                                                                                                                          | Yes      | Namespace of the DPUService the chart is deployed for. Set by the DPUService controller and overrides any user-provided value                                                                    |
+
+### Naming resources
+
+When the Helm release name is unset, the default Helm release name includes the DPUCluster name, so resource names
+based on `{{ .Release.Name }}` differ per DPUCluster. `{{ .Values.dpf.dpuService.name }}` is the same in every
+DPUCluster:
+
+* DPUServices deployed to DPUClusters (`spec.deployInCluster: false`) can use `{{ .Values.dpf.dpuService.name }}` for
+  resource names, e.g. for a Service that other DPUServices connect to. Every DPUCluster is a separate Kubernetes
+  cluster, so the name is unique there.
+* DPUServices deployed to the host cluster (`spec.deployInCluster: true`) should base resource names on
+  `{{ .Release.Name }}`.
+
+`{{ .Values.dpf.dpuService.name }}` is the name of the DPUService. A disruptive update of a DPUDeployment creates a new
+DPUService, and with it a new `{{ .Values.dpf.dpuService.name }}`.
 
 ### Exposing ports
 

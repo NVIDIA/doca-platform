@@ -2009,6 +2009,15 @@ func argoCDValuesFromDPUService(serviceDaemonSetValues *dpuservicev1.ServiceDaem
 		return nil, err
 	}
 
+	// Expose the identity of the owning DPUService so charts can reference it, e.g. to look up
+	// DPF objects that belong to this DPUService.
+	dpfHelmValues := map[string]interface{}{
+		"dpuService": map[string]interface{}{
+			"name":      dpuService.GetName(),
+			"namespace": dpuService.GetNamespace(),
+		},
+	}
+
 	var serviceDaemonSetHelmValues map[string]interface{}
 
 	// System components are implemented as Helm subcharts and can only access
@@ -2035,11 +2044,13 @@ func argoCDValuesFromDPUService(serviceDaemonSetValues *dpuservicev1.ServiceDaem
 		// are not directly accessible.
 		serviceDaemonSetHelmValues = map[string]interface{}{
 			"global": map[string]interface{}{
+				"dpf":              dpfHelmValues,
 				"serviceDaemonSet": untypedServiceDaemonSetValues,
 			},
 		}
 	} else {
 		serviceDaemonSetHelmValues = map[string]interface{}{
+			"dpf":              dpfHelmValues,
 			"serviceDaemonSet": untypedServiceDaemonSetValues,
 		}
 	}
