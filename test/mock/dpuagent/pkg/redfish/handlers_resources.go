@@ -64,6 +64,10 @@ func (s *Server) handleManagers(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleManager(w http.ResponseWriter, r *http.Request) {
+	if s.state.BMCDown() {
+		writeError(w, http.StatusServiceUnavailable, "Base.1.18.1.ServiceTemporarilyUnavailable", "The BMC is rebooting")
+		return
+	}
 	bmcVersion, _ := s.state.FirmwareVersion(s.state.Personality().InvBMC)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"@odata.id":       "/redfish/v1/Managers/" + r.PathValue("manager"),
@@ -72,6 +76,7 @@ func (s *Server) handleManager(w http.ResponseWriter, r *http.Request) {
 		"Name":            "OpenBmc Manager",
 		"ManagerType":     "BMC",
 		"DateTime":        time.Now().UTC().Format(time.RFC3339),
+		"LastResetTime":   s.state.LastResetTime().Format(time.RFC3339),
 		"FirmwareVersion": bmcVersion,
 		"Status":          map[string]interface{}{"State": "Enabled", "Health": "OK"},
 	})

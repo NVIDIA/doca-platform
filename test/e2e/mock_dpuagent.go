@@ -694,6 +694,21 @@ func verifyMockDPUsProvisioned(ctx context.Context, env *mockDPUEnv, dpuType pro
 				Expect(armCond.Status).To(Equal(metav1.ConditionTrue), "DPU %s %s: %s %s", dpu.Name, armCond.Type, armCond.Reason, armCond.Message)
 			}
 		}
+		if dpuType == provisioningv1.DPUTypeBlueField4 {
+			// A PLDM update that ran ends with the BMC Force Restart phase: one Manager.Reset on the
+			// mock BMC and a changed LastResetTime. A reprovisioned DPU finds the firmware already at
+			// the bundle versions and skips both the update and the restart.
+			_, updatedCond := cutil.GetDPUCondition(&dpu.Status, provisioningv1.DPUCondFwBundleUpdated.String())
+			Expect(updatedCond).NotTo(BeNil(), "DPU %s has no %s condition", dpu.Name, provisioningv1.DPUCondFwBundleUpdated)
+			if armRestarted {
+				Expect(updatedCond.Reason).To(Equal("Updated"), "DPU %s %s: %s %s", dpu.Name, updatedCond.Type, updatedCond.Reason, updatedCond.Message)
+			}
+			if updatedCond.Reason == "Updated" {
+				_, bmcCond := cutil.GetDPUCondition(&dpu.Status, provisioningv1.DPUCondBMCForceRestarted.String())
+				Expect(bmcCond).NotTo(BeNil(), "DPU %s has no %s condition", dpu.Name, provisioningv1.DPUCondBMCForceRestarted)
+				Expect(bmcCond.Status).To(Equal(metav1.ConditionTrue), "DPU %s %s: %s %s", dpu.Name, bmcCond.Type, bmcCond.Reason, bmcCond.Message)
+			}
+		}
 		Expect(dpu.Status.AgentStatus).NotTo(BeNil())
 		agent := dpu.Status.AgentStatus
 		Expect(agent.LastStartupTime).NotTo(BeNil())

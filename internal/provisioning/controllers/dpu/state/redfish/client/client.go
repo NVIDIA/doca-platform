@@ -916,6 +916,23 @@ func (c *Client) ResetBMC(ctx context.Context) (*resty.Response, *ExtendedInfo, 
 	})
 }
 
+// ForceRestartBMC restarts the BMC alone with Manager.Reset ForceRestart. After a PLDM bundle
+// activation the BMC refuses GracefulRestart, so this is the only reset type that works there.
+// HTTP 200 means the request was accepted; the BMC drops a few seconds later and returns no task.
+func (c *Client) ForceRestartBMC(ctx context.Context) (*resty.Response, *ExtendedInfo, error) {
+	managerID, err := getBMCManagerID(ctx, c)
+	if err != nil {
+		return nil, nil, err
+	}
+	reqBody := `{"ResetType": "ForceRestart"}`
+	return do[ExtendedInfo](func() (*resty.Response, error) {
+		return c.Client.R().SetContext(ctx).
+			SetBody(reqBody).
+			SetPathParam("MANAGER_ID", *managerID).
+			Post(RedfishAPIs.Path("APIResetBMC"))
+	})
+}
+
 // CheckTaskProgress fetches progress of the given task
 func (c *Client) CheckTaskProgress(ctx context.Context, taskID string) (*resty.Response, *TaskProgress, error) {
 	return read[TaskProgress](ctx, c, RedfishAPIs.Path("APICheckProgress"), map[string]string{"TASK_ID": taskID})

@@ -138,6 +138,15 @@ func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 		}
 	}
 
+	// The status patch writes conditions and phase separately, so a reconcile can see the
+	// conditions of a finished update while the phase still reads UpdateFirmware. An activated
+	// bundle whose host reboot has not happened yet still owes the BMC restart; sending it to
+	// PrepareBFB here would overwrite the BMC Force Restart transition of the previous reconcile.
+	_, activated := cutil.GetDPUCondition(&dpu.Status, provisioningv1.DPUCondFwBundleActivated.String())
+	if activated != nil && activated.Status == metav1.ConditionTrue {
+		state.Phase = provisioningv1.DPUBMCForceRestart
+		return *state, nil
+	}
 	state.Phase = provisioningv1.DPUPrepareBFB
 	return *state, nil
 }
@@ -473,7 +482,7 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		_, existingCond := cutil.GetDPUCondition(&dpu.Status, activatedCondition.Type)
 		// Another reconcile already activated the pending bundle, so we can transition to the next phase.
 		if existingCond != nil && existingCond.Status == metav1.ConditionTrue {
-			return transitionToPrepareBfbPhase(state)
+			return transitionToBMCForceRestartPhase(state)
 		}
 
 		return *state, nil
@@ -544,19 +553,21 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 				return *state, activateErr
 			}
 
-			logger.Info("successfully activated pending bundle. Moving to Prepare BFB phase")
+			logger.Info("successfully activated pending bundle. Moving to BMC Force Restart phase")
 			cutil.SetDPUCondition(state, activatedCondition)
 		} else {
 			logger.Info("Pending bundle already activated")
 		}
 
-		return transitionToPrepareBfbPhase(state)
+		return transitionToBMCForceRestartPhase(state)
 	} else {
 		return *state, nil
 	}
 }
 
-func transitionToPrepareBfbPhase(state *provisioningv1.DPUStatus) (provisioningv1.DPUStatus, error) {
+// transitionToBMCForceRestartPhase ends the PLDM update. The BMC Force Restart phase restarts the
+// BMC into the activated image and then moves on to PrepareBFB.
+func transitionToBMCForceRestartPhase(state *provisioningv1.DPUStatus) (provisioningv1.DPUStatus, error) {
 	for _, cond := range []provisioningv1.DPUConditionType{
 		provisioningv1.DPUCondFwBundleSubmitted,
 		provisioningv1.DPUCondFwBundleArmShutdown,
@@ -565,7 +576,7 @@ func transitionToPrepareBfbPhase(state *provisioningv1.DPUStatus) (provisioningv
 	}
 	cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "Updated", "PLDM Firmware Updated"))
 	state.RedfishTaskID = nil
-	state.Phase = provisioningv1.DPUPrepareBFB
+	state.Phase = provisioningv1.DPUBMCForceRestart
 	return *state, nil
 }
 

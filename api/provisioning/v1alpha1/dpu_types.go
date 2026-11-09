@@ -45,7 +45,7 @@ var DPUGroupVersionKind = GroupVersion.WithKind(DPUKind)
 // DPUPhase describes current state of DPU.
 // Only one of the following state may be specified.
 // Default is Initializing.
-// +kubebuilder:validation:Enum="Initializing";"Node Effect";"Pending";"Update Firmware";"Config FW Parameters";"Prepare BFB";"OS Installing";"DPU Config";"DPU Cluster Config";"Host Network Configuration";"Service Readiness";"Ready";"Error";"Deleting";"Rebooting";"Perform ARM Force Restart";"Initialize Interface";"Node Effect Removal";"Checking Host Reboot Required"
+// +kubebuilder:validation:Enum="Initializing";"Node Effect";"Pending";"Update Firmware";"Config FW Parameters";"Prepare BFB";"OS Installing";"DPU Config";"DPU Cluster Config";"Host Network Configuration";"Service Readiness";"Ready";"Error";"Deleting";"Rebooting";"Perform ARM Force Restart";"BMC Force Restart";"Initialize Interface";"Node Effect Removal";"Checking Host Reboot Required"
 type DPUPhase string
 
 // These are the valid statuses of DPU.
@@ -107,6 +107,9 @@ const (
 	// DPUPerformArmForceRestart means ARM ForceRestart operations are in
 	// progress for Secure Boot configuration.
 	DPUPerformArmForceRestart DPUPhase = "Perform ARM Force Restart"
+	// DPUBMCForceRestart means the controller restarts the BMC after a
+	// BlueField4 PLDM bundle activation and waits for it to come back.
+	DPUBMCForceRestart DPUPhase = "BMC Force Restart"
 )
 
 type DPUConditionType string
@@ -147,6 +150,7 @@ const (
 	DPUCondReady                  DPUConditionType = "Ready"
 	DPUCondError                  DPUConditionType = "Error"
 	DPUCondArmForceRestarted      DPUConditionType = "ArmForceRestarted"
+	DPUCondBMCForceRestarted      DPUConditionType = "BMCForceRestarted"
 	DPUCondReconfiguring          DPUConditionType = "DPUReconfiguring"
 )
 
@@ -555,6 +559,15 @@ type DPUStatus struct {
 	// The task ID of the last task performed on the DPU BMC
 	// +optional
 	RedfishTaskID *string `json:"redfishTaskId,omitempty"`
+
+	// BMCLastResetTimeBeforeRestart is the Manager LastResetTime the BMC
+	// Force Restart phase read right before the BMC accepted the restart
+	// request. It is set only once the request is accepted, so a set value
+	// means the restart was requested. It is not kept up to date; the
+	// controller treats a different value reported by the BMC as the sign
+	// that the restart has completed.
+	// +optional
+	BMCLastResetTimeBeforeRestart *string `json:"bmcLastResetTimeBeforeRestart,omitempty"`
 }
 
 type Firmware struct {

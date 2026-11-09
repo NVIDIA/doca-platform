@@ -96,6 +96,7 @@ Redfish flow except `Error` and the trusted-host-only `Host Network Configuratio
 | Perform ARM Force Restart | Two Arm restarts at least 90 s apart (`ComputerSystem.Reset` on BF3, `NvidiaChassis.Reset` on BF4), then Secure Boot is read back as active. Adds about 100 s per case. |
 | Config FW Parameters | NIC firmware parameters through Redfish. |
 | Update Firmware (BF4 only) | The PLDM bundle is uploaded and activated; the versions switch on the next Arm reset. |
+| BMC Force Restart (BF4 only) | `Manager.Reset ForceRestart` on the mock BMC, whose Manager resource then answers 503 for 20 s and comes back with a new `LastResetTime`. |
 | Prepare BFB, OS Installing | BF3: BFB with `bf.cfg` appended. BF4: OS ISO plus the cloud-init `seed.iso`. Both by `SimpleUpdate` from `bfb-registry`. |
 | Rebooting | The agent reports `SLR` on its first run and `PowerCycle` on the second; the mock reboot controller performs both external reboots. |
 | DPU Config, DPU Cluster Config | The agent runs its 28 operations, joins the DPU kind cluster as a Node; the controller labels the Node and revokes the join Secret and both bootstrap tokens. |

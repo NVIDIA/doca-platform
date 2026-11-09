@@ -3236,7 +3236,7 @@ Only one of the following state may be specified.
 Default is Initializing.
 
 _Validation:_
-- Enum: [Initializing Node Effect Pending Update Firmware Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Service Readiness Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required]
+- Enum: [Initializing Node Effect Pending Update Firmware Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Service Readiness Ready Error Deleting Rebooting Perform ARM Force Restart BMC Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required]
 
 _Appears in:_
 - [DPUSetStatus](#dpusetstatus)
@@ -3262,6 +3262,7 @@ _Appears in:_
 | `Deleting` | DPUDeleting means the DPU CR will be deleted, controller will do<br />some cleanup works.<br /> |
 | `Rebooting` | DPURebooting means the host of DPU is rebooting.<br /> |
 | `Perform ARM Force Restart` | DPUPerformArmForceRestart means ARM ForceRestart operations are in<br />progress for Secure Boot configuration.<br /> |
+| `BMC Force Restart` | DPUBMCForceRestart means the controller restarts the BMC after a<br />BlueField4 PLDM bundle activation and waits for it to come back.<br /> |
 
 
 #### DPUReconfigStatus
@@ -3454,8 +3455,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `phase` _[DPUPhase](#dpuphase)_ | The current state of DPU. | Initializing | Enum: [Initializing Node Effect Pending Update Firmware Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Service Readiness Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required] <br />Optional: \{\} <br /> |
-| `previousPhase` _[DPUPhase](#dpuphase)_ | PreviousPhase is the last non-empty Phase before the current Phase, set<br />by the controller when Phase transitions. It may be unset during early<br />initialization (empty Phase) or until the first transition from a<br />non-empty Phase. Internal controller tracking only. |  | Enum: [Initializing Node Effect Pending Update Firmware Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Service Readiness Ready Error Deleting Rebooting Perform ARM Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required] <br />Optional: \{\} <br /> |
+| `phase` _[DPUPhase](#dpuphase)_ | The current state of DPU. | Initializing | Enum: [Initializing Node Effect Pending Update Firmware Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Service Readiness Ready Error Deleting Rebooting Perform ARM Force Restart BMC Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required] <br />Optional: \{\} <br /> |
+| `previousPhase` _[DPUPhase](#dpuphase)_ | PreviousPhase is the last non-empty Phase before the current Phase, set<br />by the controller when Phase transitions. It may be unset during early<br />initialization (empty Phase) or until the first transition from a<br />non-empty Phase. Internal controller tracking only. |  | Enum: [Initializing Node Effect Pending Update Firmware Config FW Parameters Prepare BFB OS Installing DPU Config DPU Cluster Config Host Network Configuration Service Readiness Ready Error Deleting Rebooting Perform ARM Force Restart BMC Force Restart Initialize Interface Node Effect Removal Checking Host Reboot Required] <br />Optional: \{\} <br /> |
 | `outdated` _[DPUOutdated](#dpuoutdated)_ | Outdated, when present, indicates the DPU has drifted from its owning<br />DPUSet's DPUTemplate and needs to be reprovisioned. Set by the DPUSet<br />controller; absent when the DPU matches the template. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | Conditions represents the provisioning lifecycle conditions. |  | Optional: \{\} <br /> |
 | `operationalConditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#condition-v1-meta) array_ | OperationalConditions represents aggregated operational readiness<br />conditions. These conditions reflect the runtime health and readiness of<br />DPU services and node health, separate from the provisioning lifecycle<br />represented by Conditions. |  | Optional: \{\} <br /> |
@@ -3482,6 +3483,7 @@ _Appears in:_
 | `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  | Optional: \{\} <br /> |
 | `identityMode` _[IdentityMode](#identitymode)_ | IdentityMode records which authentication mechanism the DPU Agent uses to<br />reach the management-cluster kube-apiserver. Stamped exactly once by<br />the DPU controller during phase Initializing (nil guard); immutable<br />thereafter. Pre-SPIFFE legacy DPUs have IdentityMode unset (nil) which<br />consumers MUST treat semantically as bootstrap-token. |  | Enum: [spiffe bootstrap-token] <br />Optional: \{\} <br /> |
 | `redfishTaskId` _string_ | The task ID of the last task performed on the DPU BMC |  | Optional: \{\} <br /> |
+| `bmcLastResetTimeBeforeRestart` _string_ | BMCLastResetTimeBeforeRestart is the Manager LastResetTime the BMC<br />Force Restart phase read right before the BMC accepted the restart<br />request. It is set only once the request is accepted, so a set value<br />means the restart was requested. It is not kept up to date; the<br />controller treats a different value reported by the BMC as the sign<br />that the restart has completed. |  | Optional: \{\} <br /> |
 
 
 #### DPUTemplate

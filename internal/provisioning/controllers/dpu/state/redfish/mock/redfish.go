@@ -118,6 +118,11 @@ type RedfishMockServer struct {
 	factoryResetBody       string        // Override the body when factoryResetStatus is set
 	factoryResetOffline    time.Duration // How long the BMC is unreachable after accepting a reset
 	offlineUntil           time.Time     // Deadline of the current simulated reboot
+	bmcLastResetTime       string        // LastResetTime reported by GET Managers/<id>
+	bmcManagerDown         bool          // GET Managers/<id> answers 503, like a BMC that is rebooting
+	bmcResetRequests       int           // Number of well-formed Manager.Reset requests the mock received
+	bmcResetStatus         int           // Override the status returned by Manager.Reset; 0 means 200
+	bmcResetTypes          []string      // ResetType of every accepted Manager.Reset, in order
 	accountPatches         []string      // Accounts whose password was PATCHed, in order
 	// passwordChangeRequired mirrors a post-ResetToDefaults BlueField BMC: the factory default
 	// password authenticates, but every Redfish resource except the root and account PATCH
@@ -163,6 +168,7 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 		serviceAccountPassword:          defaultBMCPassword,         // Out of the box, like a real BMC
 		truststore:                      map[int]string{},           // Empty, like a BMC before bootstrap
 		nextTruststoreID:                1,                          // Member indexes start at 1
+		bmcLastResetTime:                time.Now().UTC().Format(time.RFC3339),
 	}
 
 	mux := http.NewServeMux()
@@ -1238,13 +1244,95 @@ func (r *RedfishMockServer) SetPassword(password string) {
 	r.password = password
 }
 
+// handleResetBMC implements Manager.Reset. It only records the request: the BMC going away and
+// LastResetTime moving on are driven by the test through SetBMCManagerDown and
+// BumpBMCLastResetTime, so a test can hold the BMC in every intermediate state.
 func (r *RedfishMockServer) handleResetBMC(w http.ResponseWriter, req *http.Request) {
+	var body struct {
+		ResetType string `json:"ResetType"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		writeRedfishError(w, http.StatusBadRequest, "Base.1.18.1.MalformedJSON", err.Error())
+		return
+	}
+	switch body.ResetType {
+	case "ForceRestart", "GracefulRestart":
+	default:
+		writeRedfishError(w, http.StatusBadRequest, "Base.1.18.1.ActionParameterNotSupported", "Unsupported ResetType "+body.ResetType)
+		return
+	}
+
+	r.mu.Lock()
+	r.bmcResetRequests++
+	r.bmcResetTypes = append(r.bmcResetTypes, body.ResetType)
+	status := r.bmcResetStatus
+	r.mu.Unlock()
+	if status != 0 && status != http.StatusOK {
+		writeRedfishError(w, status, "Base.1.18.1.InternalError", "Manager.Reset failed")
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	response := map[string]interface{}{
-		"@odata.id": "/redfish/v1/Managers/BMC/Actions/Manager.Reset",
+		"@Message.ExtendedInfo": []map[string]interface{}{
+			{
+				"@odata.type":     "#Message.v1_1_1.Message",
+				"Message":         "The request completed successfully.",
+				"MessageId":       "Base.1.18.1.Success",
+				"MessageSeverity": "OK",
+				"Resolution":      "None.",
+			},
+		},
 	}
 	json.NewEncoder(w).Encode(response) //nolint: errcheck
+}
+
+// SetBMCResetStatus overrides the status Manager.Reset answers with. A status of 0 restores the
+// default of accepting the reset with 200. Failed requests still count in GetBMCResetRequests.
+func (r *RedfishMockServer) SetBMCResetStatus(status int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.bmcResetStatus = status
+}
+
+// GetBMCResetRequests returns how many well-formed Manager.Reset requests the mock received.
+func (r *RedfishMockServer) GetBMCResetRequests() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.bmcResetRequests
+}
+
+// GetBMCResetTypes returns the ResetType of every accepted Manager.Reset, in order.
+func (r *RedfishMockServer) GetBMCResetTypes() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return append([]string(nil), r.bmcResetTypes...)
+}
+
+// SetBMCManagerDown makes GET Managers/<id> answer 503, like a BMC that is still rebooting.
+func (r *RedfishMockServer) SetBMCManagerDown(down bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.bmcManagerDown = down
+}
+
+// GetBMCLastResetTime returns the Manager LastResetTime the mock currently reports.
+func (r *RedfishMockServer) GetBMCLastResetTime() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.bmcLastResetTime
+}
+
+// BumpBMCLastResetTime moves the Manager LastResetTime forward, like a BMC that has rebooted.
+func (r *RedfishMockServer) BumpBMCLastResetTime() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	last, err := time.Parse(time.RFC3339, r.bmcLastResetTime)
+	if err != nil {
+		last = time.Now().UTC()
+	}
+	r.bmcLastResetTime = last.Add(time.Minute).UTC().Format(time.RFC3339)
 }
 
 // SetNetworkDeviceFunctionStatus overrides the PF0 GET status for BF3 and BF4.
@@ -2065,6 +2153,14 @@ func (r *RedfishMockServer) handleGetBmcManager(w http.ResponseWriter, req *http
 		return
 	}
 
+	r.mu.RLock()
+	down, lastResetTime := r.bmcManagerDown, r.bmcLastResetTime
+	r.mu.RUnlock()
+	if down {
+		writeRedfishError(w, http.StatusServiceUnavailable, "Base.1.18.1.ServiceTemporarilyUnavailable", "The BMC is rebooting")
+		return
+	}
+
 	dateTime := r.time
 	if dateTime == "" {
 		dateTime = time.Now().Format(time.RFC3339)
@@ -2074,6 +2170,7 @@ func (r *RedfishMockServer) handleGetBmcManager(w http.ResponseWriter, req *http
 		"@odata.id":       "/redfish/v1/Managers/Bluefield_BMC",
 		"DateTime":        dateTime,
 		"FirmwareVersion": r.bmcVersion,
+		"LastResetTime":   lastResetTime,
 	}
 
 	writeJSONResponse(w, response)
