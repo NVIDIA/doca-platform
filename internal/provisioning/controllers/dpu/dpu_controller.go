@@ -199,10 +199,11 @@ func (r *DPUReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 	logger.Info("Reconcile")
 
 	if req.Name == bfbregistry.PodName {
-		if err := r.reconcileBFBRegistry(ctx, req.NamespacedName.Namespace); err != nil {
+		requeueAfter, err := r.reconcileBFBRegistry(ctx, req.NamespacedName.Namespace)
+		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("reconcile bfb-registry: %w", err)
 		}
-		return ctrl.Result{}, nil
+		return ctrl.Result{RequeueAfter: requeueAfter}, nil
 	}
 
 	dpu := &provisioningv1.DPU{}
@@ -814,7 +815,7 @@ func (r *DPUReconciler) bfbRegistryServiceToRequest(ctx context.Context, obj cli
 }
 
 // reconcileBFBRegistry ensures the bfb-registry pod and service exist in the given namespace.
-func (r *DPUReconciler) reconcileBFBRegistry(ctx context.Context, namespace string) error {
+func (r *DPUReconciler) reconcileBFBRegistry(ctx context.Context, namespace string) (time.Duration, error) {
 	logger := log.FromContext(ctx)
 	podName := os.Getenv("POD_NAME")
 	nodeName := os.Getenv("NODE_NAME")
@@ -822,19 +823,20 @@ func (r *DPUReconciler) reconcileBFBRegistry(ctx context.Context, namespace stri
 	registryImage := os.Getenv("BFB_REGISTRY_IMAGE")
 	if podName == "" || nodeName == "" || registryImage == "" {
 		logger.V(4).Info("bfb-registry reconcile skipping: required env not set (POD_NAME, NODE_NAME, BFB_REGISTRY_IMAGE)")
-		return nil
+		return 0, nil
 	}
-	if err := bfbregistry.EnsureBFBRegistry(ctx, bfbregistry.EnsureBFBRegistryDeps{
+	requeueAfter, err := bfbregistry.EnsureBFBRegistry(ctx, bfbregistry.EnsureBFBRegistryDeps{
 		Client:                 r.ctrlCtx.Client,
 		BFBPVC:                 r.ctrlCtx.Options.BFBPVC,
 		ImagePullSecrets:       r.ctrlCtx.Options.ImagePullSecrets,
 		KubernetesAPIServerVIP: r.ctrlCtx.Options.KubernetesAPIServerVIP,
 		CAIssuerRef:            r.ctrlCtx.Options.CAIssuerRef,
 		LoadBalancerAddress:    r.ctrlCtx.Options.BFBRegistryLoadBalancer,
-	}, namespace, podName, nodeName, nodeIP, registryImage); err != nil {
-		return fmt.Errorf("ensure bfb-registry: %w", err)
+	}, namespace, podName, nodeName, nodeIP, registryImage)
+	if err != nil {
+		return 0, fmt.Errorf("ensure bfb-registry: %w", err)
 	}
-	return nil
+	return requeueAfter, nil
 }
 
 func (r *DPUReconciler) UpdateDPUNodeMaintenanceRequestors(ctx context.Context, dpu *provisioningv1.DPU, client client.Client) error {

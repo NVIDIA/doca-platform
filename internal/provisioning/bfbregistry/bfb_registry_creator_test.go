@@ -61,7 +61,7 @@ var _ = Describe("EnsureBFBRegistry", func() {
 
 	It("returns error when leader pod does not exist", func() {
 		c := fake.NewClientBuilder().WithScheme(scheme).Build()
-		err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-pod", "node-1", "10.0.0.1", "img")
+		_, err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-pod", "node-1", "10.0.0.1", "img")
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("get leader pod"))
 	})
@@ -76,7 +76,7 @@ var _ = Describe("EnsureBFBRegistry", func() {
 		}
 		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(leaderPod).Build()
 
-		err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-pod", "node-1", "10.0.0.1", "registry:8082")
+		_, err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-pod", "node-1", "10.0.0.1", "registry:8082")
 		Expect(err).NotTo(HaveOccurred())
 
 		pod := &corev1.Pod{}
@@ -129,7 +129,7 @@ var _ = Describe("EnsureBFBRegistry", func() {
 			WithObjects(leaderPod, existingPod, existingSvc).
 			Build()
 
-		err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-pod", "node-1", "10.0.0.1", "registry:8082")
+		_, err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-pod", "node-1", "10.0.0.1", "registry:8082")
 		Expect(err).NotTo(HaveOccurred())
 
 		// Should still have exactly one pod and one service (no duplicates)
@@ -190,7 +190,7 @@ var _ = Describe("EnsureBFBRegistry", func() {
 			WithObjects(oldLeader, newLeader, existingPod, existingSvc).
 			Build()
 
-		err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-new", "node-2", "10.0.0.2", "registry:8082")
+		_, err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-new", "node-2", "10.0.0.2", "registry:8082")
 		Expect(err).NotTo(HaveOccurred())
 
 		p := &corev1.Pod{}
@@ -229,7 +229,7 @@ var _ = Describe("EnsureBFBRegistry", func() {
 			WithObjects(newLeader, pinned).
 			Build()
 
-		err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-new", "node-2", "10.0.0.2", "registry:8082")
+		_, err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-new", "node-2", "10.0.0.2", "registry:8082")
 		Expect(err).NotTo(HaveOccurred())
 
 		svc := &corev1.Service{}
@@ -366,6 +366,103 @@ var _ = Describe("EnsureBFBRegistry", func() {
 		Expect(run.ensureService(ctx, testNamespace, leaderPod)).To(Succeed())
 	})
 
+})
+
+var _ = Describe("ensurePod with a terminated bfb-registry pod", func() {
+	const testNamespace = "bfb-registry-test"
+
+	var (
+		ctx      context.Context
+		scheme   *runtime.Scheme
+		leader   *corev1.Pod
+		fixedNow time.Time
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		scheme = runtime.NewScheme()
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+		leader = &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "leader-pod",
+				Namespace: testNamespace,
+				UID:       "leader-uid",
+			},
+		}
+		fixedNow = time.Date(2026, 11, 3, 15, 0, 0, 0, time.UTC)
+		origNow := now
+		now = func() time.Time { return fixedNow }
+		DeferCleanup(func() { now = origNow })
+	})
+
+	failedPod := func(owner *corev1.Pod, createdAgo time.Duration) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              PodName,
+				Namespace:         testNamespace,
+				OwnerReferences:   []metav1.OwnerReference{*leaderControllerRef(owner)},
+				CreationTimestamp: metav1.Time{Time: fixedNow.Add(-createdAgo)},
+			},
+			Status: corev1.PodStatus{Phase: corev1.PodFailed},
+		}
+	}
+
+	getRegistryPod := func(c client.Client) *corev1.Pod {
+		p := &corev1.Pod{}
+		Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: PodName}, p)).To(Succeed())
+		return p
+	}
+
+	It("replaces a failed pod once the backoff has passed", func() {
+		c := fake.NewClientBuilder().WithScheme(scheme).
+			WithObjects(leader, failedPod(leader, failedPodRecreateBackoff+time.Second)).Build()
+
+		requeueAfter, err := (&BFBRegistryRunnable{Client: c}).ensurePod(ctx, testNamespace, "node-1", "img", leader)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(requeueAfter).To(BeZero())
+		p := getRegistryPod(c)
+		Expect(p.Status.Phase).To(BeEmpty())
+		Expect(podOwnedByLeaderPod(p, leader)).To(BeTrue())
+	})
+
+	It("keeps a failed pod inside the backoff and returns the rest of it to the caller", func() {
+		c := fake.NewClientBuilder().WithScheme(scheme).
+			WithObjects(leader, failedPod(leader, 10*time.Second)).Build()
+
+		requeueAfter, err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-pod", "node-1", "10.0.0.1", "img")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(requeueAfter).To(Equal(failedPodRecreateBackoff - 10*time.Second))
+		Expect(getRegistryPod(c).Status.Phase).To(Equal(corev1.PodFailed))
+	})
+
+	It("replaces a failed pod of another leader without waiting for the backoff", func() {
+		oldLeader := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "leader-old",
+				Namespace: testNamespace,
+				UID:       "old-uid",
+			},
+		}
+		c := fake.NewClientBuilder().WithScheme(scheme).
+			WithObjects(leader, failedPod(oldLeader, 5*time.Second)).Build()
+
+		requeueAfter, err := (&BFBRegistryRunnable{Client: c}).ensurePod(ctx, testNamespace, "node-1", "img", leader)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(requeueAfter).To(BeZero())
+		Expect(podOwnedByLeaderPod(getRegistryPod(c), leader)).To(BeTrue())
+	})
+
+	It("leaves a terminating pod for its delete event to handle", func() {
+		terminating := failedPod(leader, time.Hour)
+		terminating.Finalizers = []string{"test.dpu.nvidia.com/hold"}
+		terminating.DeletionTimestamp = &metav1.Time{Time: fixedNow}
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(leader, terminating).Build()
+
+		requeueAfter, err := (&BFBRegistryRunnable{Client: c}).ensurePod(ctx, testNamespace, "node-1", "img", leader)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(requeueAfter).To(BeZero())
+		Expect(getRegistryPod(c).DeletionTimestamp).NotTo(BeNil())
+	})
 })
 
 var _ = Describe("desiredPod HTTPS wiring", func() {

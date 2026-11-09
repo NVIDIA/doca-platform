@@ -85,7 +85,15 @@ const (
 	// the DPU reconciler can retry.
 	bfbRegistryPodDeletePollInterval = 200 * time.Millisecond
 	bfbRegistryPodDeleteMaxWait      = 15 * time.Second
+
+	// failedPodRecreateBackoff is how long a terminated bfb-registry Pod is kept before it
+	// is replaced: while the node is under pressure the kubelet rejects every new Pod within
+	// seconds, and replacing it on each rejection event would loop.
+	failedPodRecreateBackoff = 30 * time.Second
 )
+
+// now is overridden in tests.
+var now = time.Now
 
 // ensureGCRaceBackoff bounds how long ensure* retries transient API errors caused by
 // racing the garbage collector at leader handover. The bfb-registry Pod, Service and
@@ -159,7 +167,7 @@ func (r *BFBRegistryRunnable) Start(ctx context.Context) error {
 	if err := r.ensureServerCertificate(ctx, namespace, nodeIP, pod); err != nil {
 		return err
 	}
-	if err := r.ensurePod(ctx, namespace, nodeName, registryImage, pod); err != nil {
+	if _, err := r.ensurePod(ctx, namespace, nodeName, registryImage, pod); err != nil {
 		return err
 	}
 	if err := r.ensureService(ctx, namespace, pod); err != nil {
@@ -214,28 +222,39 @@ func leaderControllerRef(leaderPod *corev1.Pod) *metav1.OwnerReference {
 	return ref
 }
 
-func (r *BFBRegistryRunnable) ensurePod(ctx context.Context, namespace, nodeName, image string, leaderPod *corev1.Pod) error {
+// ensurePod ensures a bfb-registry Pod owned by the leader Pod exists, replacing one owned by
+// another leader, or a terminated one after failedPodRecreateBackoff. It returns the remaining
+// backoff, if any, after which it must be called again.
+func (r *BFBRegistryRunnable) ensurePod(ctx context.Context, namespace, nodeName, image string, leaderPod *corev1.Pod) (time.Duration, error) {
 	ownerRef := leaderControllerRef(leaderPod)
 	existing := &corev1.Pod{}
 	err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: PodName}, existing)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
-			return err
+			return 0, err
 		}
 		desired := r.desiredPod(namespace, nodeName, image, ownerRef)
 		if err := r.Client.Create(ctx, desired); err != nil {
 			if apierrors.IsAlreadyExists(err) {
-				return nil
+				return 0, nil
 			}
-			return err
+			return 0, err
 		}
-		return nil
+		return 0, nil
 	}
 	if podOwnedByLeaderPod(existing, leaderPod) {
-		return nil
+		terminated := existing.Status.Phase == corev1.PodFailed || existing.Status.Phase == corev1.PodSucceeded
+		if !terminated || !existing.DeletionTimestamp.IsZero() {
+			return 0, nil
+		}
+		if remaining := failedPodRecreateBackoff - now().Sub(existing.CreationTimestamp.Time); remaining > 0 {
+			return remaining, nil
+		}
+		log.FromContext(ctx).Info("replacing terminated bfb-registry pod", "phase", existing.Status.Phase,
+			"reason", existing.Status.Reason, "message", existing.Status.Message)
 	}
 	if err := r.Client.Delete(ctx, existing, client.GracePeriodSeconds(0)); err != nil && !apierrors.IsNotFound(err) {
-		return err
+		return 0, err
 	}
 	logger := log.FromContext(ctx)
 	if err := wait.PollUntilContextTimeout(ctx, bfbRegistryPodDeletePollInterval, bfbRegistryPodDeleteMaxWait, true, func(ctx context.Context) (bool, error) {
@@ -253,18 +272,18 @@ func (r *BFBRegistryRunnable) ensurePod(ctx context.Context, namespace, nodeName
 		if errors.Is(err, context.DeadlineExceeded) {
 			logger.Error(err, "timed out waiting for bfb-registry pod deletion; continuing without recreating pod, will retry from reconcile",
 				"maxWait", bfbRegistryPodDeleteMaxWait)
-			return nil
+			return 0, nil
 		}
-		return fmt.Errorf("waiting for bfb-registry pod deletion: %w", err)
+		return 0, fmt.Errorf("waiting for bfb-registry pod deletion: %w", err)
 	}
 	desired := r.desiredPod(namespace, nodeName, image, ownerRef)
 	if err := r.Client.Create(ctx, desired); err != nil {
 		if apierrors.IsAlreadyExists(err) {
-			return nil
+			return 0, nil
 		}
-		return err
+		return 0, err
 	}
-	return nil
+	return 0, nil
 }
 
 func (r *BFBRegistryRunnable) desiredPod(namespace, nodeName, image string, ownerRef *metav1.OwnerReference) *corev1.Pod {
@@ -672,11 +691,11 @@ type EnsureBFBRegistryDeps struct {
 }
 
 // EnsureBFBRegistry ensures the bfb-registry server Certificate, Pod and Service
-// exist in the given namespace.
-func EnsureBFBRegistry(ctx context.Context, deps EnsureBFBRegistryDeps, namespace, leaderPodName, nodeName, nodeIP, registryImage string) error {
+// exist in the given namespace. A non-zero duration is when to call it again.
+func EnsureBFBRegistry(ctx context.Context, deps EnsureBFBRegistryDeps, namespace, leaderPodName, nodeName, nodeIP, registryImage string) (time.Duration, error) {
 	leaderPod := &corev1.Pod{}
 	if err := deps.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: leaderPodName}, leaderPod); err != nil {
-		return fmt.Errorf("get leader pod %s/%s: %w", namespace, leaderPodName, err)
+		return 0, fmt.Errorf("get leader pod %s/%s: %w", namespace, leaderPodName, err)
 	}
 
 	run := &BFBRegistryRunnable{
@@ -688,10 +707,14 @@ func EnsureBFBRegistry(ctx context.Context, deps EnsureBFBRegistryDeps, namespac
 		LoadBalancerAddress:    deps.LoadBalancerAddress,
 	}
 	if err := run.ensureServerCertificate(ctx, namespace, nodeIP, leaderPod); err != nil {
-		return err
+		return 0, err
 	}
-	if err := run.ensurePod(ctx, namespace, nodeName, registryImage, leaderPod); err != nil {
-		return err
+	requeueAfter, err := run.ensurePod(ctx, namespace, nodeName, registryImage, leaderPod)
+	if err != nil {
+		return 0, err
 	}
-	return run.ensureService(ctx, namespace, leaderPod)
+	if err := run.ensureService(ctx, namespace, leaderPod); err != nil {
+		return 0, err
+	}
+	return requeueAfter, nil
 }
