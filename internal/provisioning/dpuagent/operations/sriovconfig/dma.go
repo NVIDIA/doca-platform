@@ -22,7 +22,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
@@ -49,25 +48,16 @@ func selectDMASFTarget(rootFS string, devices []string) (string, error) {
 		}
 		hasRDMA[dev] = rdma
 		if rdma {
-			linksWithRDMA[pciLink(dev)] = true
+			linksWithRDMA[pciutil.PCILink(dev)] = true
 		}
 	}
 	for _, dev := range sorted {
-		if hasRDMA[dev] || linksWithRDMA[pciLink(dev)] {
+		if hasRDMA[dev] || linksWithRDMA[pciutil.PCILink(dev)] {
 			continue
 		}
 		return dev, nil
 	}
 	return "", nil
-}
-
-// pciLink is the domain:bus of a BDF.
-func pciLink(bdf string) string {
-	parts := strings.SplitN(bdf, ":", 3)
-	if len(parts) < 3 {
-		return bdf
-	}
-	return parts[0] + ":" + parts[1]
 }
 
 // dmaSFExists is true if the DMA SF is already on device.

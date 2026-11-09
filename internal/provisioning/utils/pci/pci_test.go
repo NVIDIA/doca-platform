@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -412,23 +413,80 @@ var _ = Describe("DiscoverPhysicalPort", func() {
 
 })
 
+// mlxconfigPFSDGroupOutput builds sample "mlxconfig -e q" output with the given
+// default, current, and next-boot PF_SD_GROUP values.
+func mlxconfigPFSDGroupOutput(def, current, next string) string {
+	return fmt.Sprintf(`
+Device #1:
+----------
+
+Device type:        BlueField4
+Device:             /dev/fwctl/fwctl0
+
+Configurations:                                         Default         Current         Next Boot
+        PF_SD_GROUP                                     %s               %s               %s
+`, def, current, next)
+}
+
 var _ = Describe("VerifyNSUplinksRegistered", func() {
-	var root string
+	var (
+		root string
+		// pfSDGroup maps an mlxconfig -d target to its PF_SD_GROUP current value;
+		// targets without an entry make mlxconfig fail.
+		pfSDGroup map[string]string
+		calls     map[string]int
+		d         *PortDiscoverer
+	)
 
 	writeFunction := func(bdf, vendorID, deviceID string) {
 		writePCIDeviceID(root, bdf, deviceID)
 		ExpectWithOffset(1, os.WriteFile(filepath.Join(root, bdf, "vendor"), []byte(vendorID+"\n"), 0644)).To(Succeed())
 	}
 
+	writeFwctl := func(bdf, name string) {
+		dir := filepath.Join(root, bdf, "fwctl")
+		ExpectWithOffset(1, os.MkdirAll(dir, 0755)).To(Succeed())
+		ExpectWithOffset(1, os.WriteFile(filepath.Join(dir, name), nil, 0644)).To(Succeed())
+	}
+
+	writeSocketDirectBF4 := func() {
+		for bdf, fwctl := range map[string]string{
+			"0002:01:00.0": "fwctl16",
+			"0002:01:00.1": "fwctl17",
+			"0006:01:00.0": "fwctl34",
+			"0006:01:00.1": "fwctl35",
+		} {
+			writeFunction(bdf, "0x15b3", "0xa2df")
+			writeFwctl(bdf, fwctl)
+			pfSDGroup["/dev/fwctl/"+fwctl] = "1"
+		}
+	}
+
 	BeforeEach(func() {
 		root = GinkgoT().TempDir()
 		setSysfsPCIDevicesPathForTest(root)
+		pfSDGroup = map[string]string{}
+		calls = map[string]int{}
+		d = &PortDiscoverer{runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+			target, ok := strings.CutPrefix(cmd, "mlxconfig -d ")
+			target, ok2 := strings.CutSuffix(target, " -e q PF_SD_GROUP")
+			if !ok || !ok2 {
+				return bytes.Buffer{}, bytes.Buffer{}, fmt.Errorf("unexpected command: %s", cmd)
+			}
+			calls[target]++
+			value, found := pfSDGroup[target]
+			if !found {
+				return bytes.Buffer{}, *bytes.NewBufferString("-E- The Device doesn't support PF_SD_GROUP parameter"),
+					fmt.Errorf("exit status 1")
+			}
+			return *bytes.NewBufferString(mlxconfigPFSDGroupOutput(value, value, value)), bytes.Buffer{}, nil
+		}}
 	})
 
-	It("should succeed when every BF3 function has a physical port", func() {
+	It("should succeed without querying NVConfig when every BF3 function has a physical port", func() {
 		writeFunction("0000:03:00.0", "0x15b3", "0xa2dc")
 		writeFunction("0000:03:00.1", "0x15b3", "0xa2dc")
-		Expect(VerifyNSUplinksRegistered([]NICPort{
+		Expect(d.VerifyNSUplinksRegistered([]NICPort{
 			{
 				Netdev:     "p0",
 				PCIAddress: "0000:03:00.0",
@@ -438,29 +496,33 @@ var _ = Describe("VerifyNSUplinksRegistered", func() {
 				PCIAddress: "03:00.1",
 			},
 		})).To(Succeed())
+		Expect(calls).To(BeEmpty())
 	})
 
 	It("should fail when devlink has registered only one of the BF3 functions", func() {
 		writeFunction("0000:03:00.0", "0x15b3", "0xa2dc")
 		writeFunction("0000:03:00.1", "0x15b3", "0xa2dc")
-		err := VerifyNSUplinksRegistered([]NICPort{{
+		pfSDGroup["0000:03:00.1"] = "0"
+		err := d.VerifyNSUplinksRegistered([]NICPort{{
 			Netdev:     "p0",
 			PCIAddress: "0000:03:00.0",
 		}})
-		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("0000:03:00.1"))
+		Expect(err).To(MatchError(ContainSubstring("N/S PCI function(s) 0000:03:00.1")))
 		Expect(err.Error()).NotTo(ContainSubstring("0000:03:00.0"))
+		Expect(err.Error()).NotTo(ContainSubstring("Socket Direct"))
 	})
 
-	It("should fail for BF2 functions without a physical port", func() {
+	It("should fail for BF2 functions whose PF_SD_GROUP cannot be queried", func() {
 		writeFunction("0000:03:00.0", "0x15b3", "0xa2d6")
-		Expect(VerifyNSUplinksRegistered(nil)).To(MatchError(ContainSubstring("0000:03:00.0")))
+		err := d.VerifyNSUplinksRegistered(nil)
+		Expect(err).To(MatchError(ContainSubstring("N/S PCI function(s) 0000:03:00.0")))
+		Expect(err.Error()).To(ContainSubstring("doesn't support PF_SD_GROUP"))
 	})
 
 	It("should succeed when every BF4 function has a physical port", func() {
 		writeFunction("0002:01:00.0", "0x15b3", "0xa2df")
 		writeFunction("0006:01:00.0", "0x15b3", "0xa2df")
-		Expect(VerifyNSUplinksRegistered([]NICPort{
+		Expect(d.VerifyNSUplinksRegistered([]NICPort{
 			{
 				Netdev:     "p0",
 				PCIAddress: "0002:01:00.0",
@@ -470,32 +532,75 @@ var _ = Describe("VerifyNSUplinksRegistered", func() {
 				PCIAddress: "0006:01:00.0",
 			},
 		})).To(Succeed())
+		Expect(calls).To(BeEmpty())
 	})
 
-	It("should not check BF4 functions without a physical port", func() {
-		writeFunction("0002:01:00.0", "0x15b3", "0xa2df")
-		writeFunction("0006:01:00.0", "0x15b3", "0xa2df")
-		Expect(VerifyNSUplinksRegistered([]NICPort{{
+	It("should succeed on a Socket Direct silent-mode BF4 whose secondary ECPFs have no uplink", func() {
+		writeSocketDirectBF4()
+		Expect(d.VerifyNSUplinksRegistered([]NICPort{
+			{
+				Netdev:     "p0",
+				PCIAddress: "0002:01:00.0",
+			},
+			{
+				Netdev:     "p1",
+				PCIAddress: "0006:01:00.0",
+			},
+		})).To(Succeed())
+		Expect(calls).To(Equal(map[string]int{"/dev/fwctl/fwctl17": 1, "/dev/fwctl/fwctl35": 1}))
+	})
+
+	It("should fail on a Socket Direct silent-mode BF4 while a group has no uplink yet", func() {
+		writeSocketDirectBF4()
+		err := d.VerifyNSUplinksRegistered([]NICPort{{
+			Netdev:     "p1",
+			PCIAddress: "0006:01:00.0",
+		}})
+		Expect(err).To(MatchError("devlink has not registered a physical port for Socket Direct group(s) 0002:01 yet"))
+	})
+
+	It("should apply the group rule to a BF3 in Socket Direct silent mode", func() {
+		writeFunction("0000:03:00.0", "0x15b3", "0xa2dc")
+		writeFunction("0000:03:00.1", "0x15b3", "0xa2dc")
+		pfSDGroup["0000:03:00.1"] = "1"
+		Expect(d.VerifyNSUplinksRegistered([]NICPort{{
 			Netdev:     "p0",
-			PCIAddress: "0002:01:00.0",
+			PCIAddress: "0000:03:00.0",
 		}})).To(Succeed())
 	})
 
-	It("should succeed on a socket-direct BF4 whose secondary ECPFs have no uplink", func() {
+	It("should fail for a BF4 function without a physical port or a fwctl device", func() {
 		writeFunction("0002:01:00.0", "0x15b3", "0xa2df")
 		writeFunction("0002:01:00.1", "0x15b3", "0xa2df")
-		writeFunction("0006:01:00.0", "0x15b3", "0xa2df")
-		writeFunction("0006:01:00.1", "0x15b3", "0xa2df")
-		Expect(VerifyNSUplinksRegistered([]NICPort{
-			{
-				Netdev:     "p0",
-				PCIAddress: "0002:01:00.0",
-			},
-			{
-				Netdev:     "p1",
-				PCIAddress: "0006:01:00.0",
-			},
-		})).To(Succeed())
+		err := d.VerifyNSUplinksRegistered([]NICPort{{
+			Netdev:     "p0",
+			PCIAddress: "0002:01:00.0",
+		}})
+		Expect(err).To(MatchError(ContainSubstring("N/S PCI function(s) 0002:01:00.1")))
+		Expect(err.Error()).To(ContainSubstring("fwctl"))
+		Expect(calls).To(BeEmpty())
+	})
+
+	It("should query PF_SD_GROUP only once per function", func() {
+		writeSocketDirectBF4()
+		ports := []NICPort{{
+			Netdev:     "p0",
+			PCIAddress: "0002:01:00.0",
+		}}
+		Expect(d.VerifyNSUplinksRegistered(ports)).To(HaveOccurred())
+		Expect(d.VerifyNSUplinksRegistered(ports)).To(HaveOccurred())
+		Expect(calls).To(Equal(map[string]int{
+			"/dev/fwctl/fwctl17": 1,
+			"/dev/fwctl/fwctl34": 1,
+			"/dev/fwctl/fwctl35": 1,
+		}))
+	})
+
+	It("should retry a failed PF_SD_GROUP query on the next call", func() {
+		writeFunction("0000:03:00.0", "0x15b3", "0xa2dc")
+		Expect(d.VerifyNSUplinksRegistered(nil)).To(HaveOccurred())
+		Expect(d.VerifyNSUplinksRegistered(nil)).To(HaveOccurred())
+		Expect(calls).To(Equal(map[string]int{"0000:03:00.0": 2}))
 	})
 
 	It("should ignore E/W, VF and non-NVIDIA functions", func() {
@@ -503,7 +608,7 @@ var _ = Describe("VerifyNSUplinksRegistered", func() {
 		writeFunction("0000:03:00.2", "0x15b3", "0x101e")
 		writeFunction("000a:01:00.0", "0x15b3", "0x1025")
 		writeFunction("0001:00:00.0", "0x8086", "0xa2dc")
-		Expect(VerifyNSUplinksRegistered([]NICPort{{
+		Expect(d.VerifyNSUplinksRegistered([]NICPort{{
 			Netdev:     "p0",
 			PCIAddress: "0000:03:00.0",
 		}})).To(Succeed())
@@ -511,11 +616,43 @@ var _ = Describe("VerifyNSUplinksRegistered", func() {
 
 	It("should skip entries whose vendor attribute is gone", func() {
 		writePCIDeviceID(root, "0000:03:00.0", "0xa2dc")
-		Expect(VerifyNSUplinksRegistered(nil)).To(Succeed())
+		Expect(d.VerifyNSUplinksRegistered(nil)).To(Succeed())
 	})
 
 	It("should fail when the PCI devices directory cannot be listed", func() {
 		setSysfsPCIDevicesPathForTest(filepath.Join(root, "missing"))
-		Expect(VerifyNSUplinksRegistered(nil)).To(HaveOccurred())
+		Expect(d.VerifyNSUplinksRegistered(nil)).To(HaveOccurred())
+	})
+})
+
+var _ = Describe("parsePFSDGroupCurrent", func() {
+	DescribeTable("reads the Current column",
+		func(output string, expected int) {
+			value, err := parsePFSDGroupCurrent(output)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(value).To(Equal(expected))
+		},
+		Entry("silent mode", mlxconfigPFSDGroupOutput("1", "1", "1"), 1),
+		Entry("legacy mode", mlxconfigPFSDGroupOutput("0", "0", "0"), 0),
+		Entry("pending change not yet applied", mlxconfigPFSDGroupOutput("1", "0", "1"), 0),
+		Entry("modified value marker", "*        PF_SD_GROUP      0      1      1\n", 1),
+		Entry("named value", "        PF_SD_GROUP      False(0)      True(1)      True(1)\n", 1),
+	)
+
+	It("should fail when PF_SD_GROUP is not listed", func() {
+		_, err := parsePFSDGroupCurrent("Configurations:      Default      Current      Next Boot\n")
+		Expect(err).To(MatchError(ContainSubstring("not found")))
+	})
+
+	It("should fail on a non-numeric value", func() {
+		_, err := parsePFSDGroupCurrent("        PF_SD_GROUP      1      unknown      1\n")
+		Expect(err).To(MatchError(ContainSubstring("unknown")))
+	})
+})
+
+var _ = Describe("PCILink", func() {
+	It("should return the domain:bus of a BDF", func() {
+		Expect(PCILink("0002:01:00.1")).To(Equal("0002:01"))
+		Expect(PCILink("01:00.1")).To(Equal("01:00.1"))
 	})
 })
