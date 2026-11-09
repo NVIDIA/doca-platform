@@ -33,6 +33,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -46,6 +47,11 @@ const (
 	InstallationTerminated = "InstallationTerminated"
 	MaxRun                 = 2
 
+	// DownloadRetryInterval and DownloadRetryTimeout bound the retries of a failing BFB/bf.cfg
+	// download inside a single install run; the timeout must stay well below the OS install timeout.
+	DownloadRetryInterval = 10 * time.Second
+	DownloadRetryTimeout  = 5 * time.Minute
+
 	bfbRegistryServiceHostEnv = "BFB_REGISTRY_SERVICE_HOST"
 	bfbRegistryServicePortEnv = "BFB_REGISTRY_SERVICE_PORT"
 )
@@ -56,8 +62,12 @@ type Handler struct {
 	caBundlePath    string
 	taskManager     *future.TaskManager
 	GetDevice       func(string) (hostutil.Device, bool)
+	retryInterval   time.Duration
+	retryTimeout    time.Duration
 }
 
+// NewHandler returns an install phase Handler that downloads BFB files from bfbRegistryAddr
+// and retries failed downloads for up to DownloadRetryTimeout.
 func NewHandler(client client.Client, bfbRegistryAddr string, getDevice func(string) (hostutil.Device, bool)) *Handler {
 	return &Handler{
 		Client:          client,
@@ -65,6 +75,8 @@ func NewHandler(client client.Client, bfbRegistryAddr string, getDevice func(str
 		caBundlePath:    hostutil.CATrustBundleFile,
 		taskManager:     future.NewTaskManager(MaxRun),
 		GetDevice:       getDevice,
+		retryInterval:   DownloadRetryInterval,
+		retryTimeout:    DownloadRetryTimeout,
 	}
 }
 
@@ -136,7 +148,26 @@ func (h *Handler) handle(ctx context.Context, dev hostutil.Device, dpu *provisio
 	return h.installBFB(dev.Address, bfbFile, bfcfgFile)
 }
 
+// download retries downloadOnce every retryInterval for up to retryTimeout, so a short bfb-registry
+// outage does not burn a MaxRun attempt. It returns the last error once the window is exhausted.
+// Every error is retried (no 404/5xx/DNS classification) at a fixed interval; add
+// classification or backoff only if wasted retry time or registry load matters.
 func (h *Handler) download(ctx context.Context, filename string, dst string) error {
+	var lastErr error
+	// The poll's own ctx carries the retry deadline; the transfer uses the caller's ctx so the
+	// window never cuts a download that is already in progress.
+	err := wait.PollUntilContextTimeout(ctx, h.retryInterval, h.retryTimeout, true, func(context.Context) (bool, error) {
+		lastErr = h.downloadOnce(ctx, filename, dst)
+		return lastErr == nil, nil
+	})
+	if err != nil && lastErr != nil {
+		return lastErr
+	}
+	return err
+}
+
+// downloadOnce makes one download attempt: the primary URL, then the CI workarounds.
+func (h *Handler) downloadOnce(ctx context.Context, filename string, dst string) error {
 	logger := log.FromContext(ctx)
 	if _, err := os.Stat(dst); err == nil {
 		logger.Info("file already exists, skip downloading", "dst", dst)
