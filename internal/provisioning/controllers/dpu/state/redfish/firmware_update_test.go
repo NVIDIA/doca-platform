@@ -638,12 +638,13 @@ var _ = Describe("FirmwareUpdate", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(status.Phase).To(Equal(provisioningv1.DPUUpdateFirmware))
 
-		By("moving to PrepareBFB once the DPU Arm is powered off")
+		By("moving to BMC Force Restart once the DPU Arm is powered off")
 		dpu.Status = status
 		status, err = FirmwareUpdate(ctx, dpu, ctrlCtx)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(status.Phase).To(Equal(provisioningv1.DPUPrepareBFB))
+		Expect(status.Phase).To(Equal(provisioningv1.DPUBMCForceRestart))
 		Expect(status.RedfishTaskID).To(BeNil())
+		Expect(mockServer.GetBMCResetRequests()).To(Equal(0), "the firmware update itself must not touch Manager.Reset")
 		Expect(status.Conditions).To(ContainElement(
 			And(
 				HaveField("Type", provisioningv1.DPUCondFwBundleUpdated.String()),
@@ -652,7 +653,7 @@ var _ = Describe("FirmwareUpdate", func() {
 		))
 	})
 
-	It("should clear per-update conditions before continuing to PrepareBFB", func() {
+	It("should clear per-update conditions before continuing to BMC Force Restart", func() {
 		mockServer := createBF4MockRedfishServer()
 		defer mockServer.Stop()
 		mockServer.SetFirmwareVersions("old-bmc", "old-erot", "old-sbios", "old-nic")
@@ -677,11 +678,11 @@ var _ = Describe("FirmwareUpdate", func() {
 			return status
 		}
 
-		By("running the update cycle through to PrepareBFB")
+		By("running the update cycle through to BMC Force Restart")
 		reconcile() // submit
 		reconcile() // task complete, ArmShutdown
 		status := reconcile()
-		Expect(status.Phase).To(Equal(provisioningv1.DPUPrepareBFB))
+		Expect(status.Phase).To(Equal(provisioningv1.DPUBMCForceRestart))
 		Expect(mockServer.GetArmShutdownRequests()).To(Equal(1))
 
 		By("clearing the per-cycle guards, keeping FwBundleActivated for the OS-install reboot")
@@ -886,6 +887,56 @@ var _ = Describe("FirmwareUpdate", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(status.Phase).To(Equal(provisioningv1.DPUPrepareBFB))
 		Expect(status.RebootStatus).To(BeNil())
+	})
+
+	It("should move to BMC Force Restart when a stale reconcile sees the finished update with the bundle activated", func() {
+		mockServer := createBF4MockRedfishServer()
+		defer mockServer.Stop()
+
+		createBMCAndMTLSSecretsForBF4(mockServer)
+		prepareBF4DPUDevice(mockServer)
+		createBlueFieldSoftware(createTempPldmFwBundle(), true)
+
+		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.DPUDeviceName = defaultDPUDeviceName
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
+		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+		// The conditions of a transition whose phase PATCH has not reached the cache yet.
+		cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "Updated", "PLDM Firmware Updated"))
+		cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(provisioningv1.DPUCondFwBundleActivated.String(), nil, "Activated", "Activated Pending Bundle"))
+
+		status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUBMCForceRestart))
+		Expect(mockServer.GetBMCResetRequests()).To(Equal(0))
+	})
+
+	It("should move to BMC Force Restart when the bundle was activated on another reconcile", func() {
+		mockServer := createBF4MockRedfishServer()
+		defer mockServer.Stop()
+		mockServer.SetFirmwareVersions("old-bmc", "old-erot", "old-sbios", "old-nic")
+
+		createBMCAndMTLSSecretsForBF4(mockServer)
+		prepareBF4DPUDevice(mockServer)
+		createBlueFieldSoftware(createTempPldmFwBundle(), true)
+
+		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.DPUDeviceName = defaultDPUDeviceName
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
+		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+		cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(provisioningv1.DPUCondFwBundleSubmitted.String(), nil, "Submitting", "Submitting PLDM Firmware"))
+		cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(provisioningv1.DPUCondFwBundleActivated.String(), nil, "Activated", "Activated Pending Bundle"))
+
+		status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUBMCForceRestart))
+		Expect(status.Conditions).NotTo(ContainElement(HaveField("Type", provisioningv1.DPUCondFwBundleSubmitted.String())))
+		Expect(status.Conditions).To(ContainElement(And(
+			HaveField("Type", provisioningv1.DPUCondFwBundleActivated.String()),
+			HaveField("Status", metav1.ConditionTrue),
+		)))
 	})
 
 	It("should resubmit PLDM firmware update when the task is in Exception", func() {

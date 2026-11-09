@@ -693,6 +693,15 @@ spec:
               bfbVersion:
                 description: bfb version of this DPU
                 type: string
+              bmcLastResetTimeBeforeRestart:
+                description: |-
+                  BMCLastResetTimeBeforeRestart is the Manager LastResetTime the BMC
+                  Force Restart phase read right before the BMC accepted the restart
+                  request. It is set only once the request is accepted, so a set value
+                  means the restart was requested. It is not kept up to date; the
+                  controller treats a different value reported by the BMC as the sign
+                  that the restart has completed.
+                type: string
               conditions:
                 description: Conditions represents the provisioning lifecycle conditions.
                 items:
@@ -969,6 +978,7 @@ spec:
                 - Deleting
                 - Rebooting
                 - Perform ARM Force Restart
+                - BMC Force Restart
                 - Initialize Interface
                 - Node Effect Removal
                 - Checking Host Reboot Required
@@ -1008,6 +1018,7 @@ spec:
                 - Deleting
                 - Rebooting
                 - Perform ARM Force Restart
+                - BMC Force Restart
                 - Initialize Interface
                 - Node Effect Removal
                 - Checking Host Reboot Required

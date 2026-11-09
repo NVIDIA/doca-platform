@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
@@ -93,7 +94,13 @@ type State struct {
 	nextTrust  int
 
 	pendingSeedISO []byte
+
+	lastResetTime time.Time // Manager LastResetTime, moved by Manager.Reset
+	bmcDownUntil  time.Time // The Manager resource answers 503 until then, like a rebooting BMC
 }
+
+// bmcRebootWindow is how long the Manager resource stays unreachable after Manager.Reset on BF4.
+const bmcRebootWindow = 20 * time.Second
 
 // NewState returns the power-on state of a healthy DPU in DpuMode with the configured firmware.
 func NewState(opts Options) *State {
@@ -118,6 +125,7 @@ func NewState(opts Options) *State {
 		virtualMedia:      map[string]bool{},
 		truststore:        map[int]string{},
 		nextTrust:         1,
+		lastResetTime:     time.Now().UTC(),
 	}
 	s.firmware[p.InvBMC] = opts.Firmware.BMC
 	s.firmware[p.InvUEFI] = opts.Firmware.UEFI
@@ -260,7 +268,9 @@ func (s *State) MarkBMCFirmwareUploaded() {
 }
 
 // ResetBMC emulates Manager.Reset: an uploaded BF3 BMC firmware becomes the running one, at the
-// minimum version the DPUDevice controller requires.
+// minimum version the DPUDevice controller requires, and LastResetTime moves to now. On BF4 the
+// Manager resource is also unreachable for bmcRebootWindow, like a BMC that is rebooting; the
+// BF3 DPUDevice flow reads the Manager right after its own reset and keeps its current behavior.
 func (s *State) ResetBMC() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -268,6 +278,25 @@ func (s *State) ResetBMC() {
 		s.firmware[s.p.InvBMC] = config.BMCMinSupportedVersion
 		s.bmcFWUploaded = false
 	}
+	now := time.Now().UTC()
+	s.lastResetTime = now
+	if s.p.IsBF4() {
+		s.bmcDownUntil = now.Add(bmcRebootWindow)
+	}
+}
+
+// LastResetTime returns the Manager LastResetTime.
+func (s *State) LastResetTime() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastResetTime
+}
+
+// BMCDown reports whether the Manager resource is still in its post-reset reboot window.
+func (s *State) BMCDown() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return time.Now().Before(s.bmcDownUntil)
 }
 
 // NewTask registers a running task and returns it.

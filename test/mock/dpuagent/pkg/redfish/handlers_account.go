@@ -40,9 +40,23 @@ func (s *Server) handleFactoryReset(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{})
 }
 
-// handleResetBMC implements Manager.Reset; on BF3 it activates an uploaded BMC firmware.
+// handleResetBMC implements Manager.Reset; on BF3 it activates an uploaded BMC firmware, on BF4
+// it takes the Manager resource offline for a while, like a BMC rebooting into a new image.
 func (s *Server) handleResetBMC(w http.ResponseWriter, r *http.Request) {
-	klog.InfoS("Redfish Manager.Reset accepted")
+	var body struct {
+		ResetType string `json:"ResetType"`
+	}
+	if err := decodeBody(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "Base.1.18.1.MalformedJSON", err.Error())
+		return
+	}
+	switch body.ResetType {
+	case "ForceRestart", "GracefulRestart":
+	default:
+		writeError(w, http.StatusBadRequest, "Base.1.18.1.ActionParameterNotSupported", "Unsupported ResetType "+body.ResetType)
+		return
+	}
+	klog.InfoS("Redfish Manager.Reset accepted", "resetType", body.ResetType)
 	s.state.ResetBMC()
 	writeJSON(w, http.StatusOK, odata(r.URL.Path))
 }
