@@ -70,3 +70,18 @@ func (mr *MockUtilsMockRecorder) GetBlockDeviceNameForNS(address, namespace any)
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBlockDeviceNameForNS", reflect.TypeOf((*MockUtils)(nil).GetBlockDeviceNameForNS), address, namespace)
 }
+
+// GetPCIAddressForBlockDevicePath mocks base method.
+func (m *MockUtils) GetPCIAddressForBlockDevicePath(path string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPCIAddressForBlockDevicePath", path)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPCIAddressForBlockDevicePath indicates an expected call of GetPCIAddressForBlockDevicePath.
+func (mr *MockUtilsMockRecorder) GetPCIAddressForBlockDevicePath(path any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPCIAddressForBlockDevicePath", reflect.TypeOf((*MockUtils)(nil).GetPCIAddressForBlockDevicePath), path)
+}

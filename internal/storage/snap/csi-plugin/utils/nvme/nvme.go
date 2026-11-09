@@ -30,10 +30,15 @@ import (
 
 	"github.com/nvidia/doca-platform/internal/storage/snap/csi-plugin/utils/common"
 
+	"golang.org/x/sys/unix"
 	"k8s.io/klog/v2"
 )
 
-const sysfsBlockPath = "/sys/class/block"
+const (
+	sysfsBlockPath = "/sys/class/block"
+	// sysfsDevBlockPath contains a <major>:<minor> symlink for every block device
+	sysfsDevBlockPath = "/sys/dev/block"
+)
 
 var (
 	// ErrBlockDeviceNotFound is returned when block device is not found
@@ -55,6 +60,10 @@ type Utils interface {
 	// namespace - NVME namespace id
 	// return ErrBlockDeviceNotFound error if device not found
 	GetBlockDeviceNameForNS(address string, namespace int32) (string, error)
+	// GetPCIAddressForBlockDevicePath returns the PCI address of the NVME function that backs the block device
+	// node available at the path, for example a bind mounted /dev/nvme0n1
+	// return ErrBlockDeviceNotFound error if the path is not an NVME block device of a PCI function
+	GetPCIAddressForBlockDevicePath(path string) (string, error)
 }
 
 // New initialize and return a new instance of nvme utils
@@ -81,6 +90,63 @@ func (n *nvmeUtils) GetBlockDeviceNameForNS(deviceID string, namespace int32) (s
 	klog.V(2).InfoS("found block device name for NVME namespace", "deviceID", deviceID, "namespace",
 		namespace, "block_device", devName, "size_sectors", deviceSize)
 	return devName, nil
+}
+
+// GetPCIAddressForBlockDevicePath is an Utils interface implementation for nvmeUtils
+func (n *nvmeUtils) GetPCIAddressForBlockDevicePath(path string) (string, error) {
+	var st unix.Stat_t
+	if err := unix.Stat(path, &st); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", ErrBlockDeviceNotFound
+		}
+		return "", fmt.Errorf("failed to stat %s: %w", path, err)
+	}
+	if st.Mode&unix.S_IFMT != unix.S_IFBLK {
+		return "", ErrBlockDeviceNotFound
+	}
+	// Rdev is uint64 on Linux but int32 on macOS, the conversion keeps the package building on both
+	rdev := uint64(st.Rdev) //nolint:unconvert
+	return n.getPCIAddressForDevNum(unix.Major(rdev), unix.Minor(rdev))
+}
+
+// getPCIAddressForDevNum returns the PCI address of the NVME function that owns the block device with the device number
+func (n *nvmeUtils) getPCIAddressForDevNum(major, minor uint32) (string, error) {
+	// e.g. /sys/dev/block/259:1 -> ../../devices/pci0000:b0/0000:b0:02.0/0000:b1:0c.2/nvme/nvme3/nvme3n1
+	link, err := os.Readlink(filepath.Join(fsRoot, sysfsDevBlockPath, fmt.Sprintf("%d:%d", major, minor)))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", ErrBlockDeviceNotFound
+		}
+		return "", fmt.Errorf("failed to resolve block device %d:%d: %w", major, minor, err)
+	}
+	return n.getPCIAddressForBlockDevice(filepath.Base(link))
+}
+
+// getPCIAddressForBlockDevice returns the PCI address of the NVME function that owns the block device
+func (n *nvmeUtils) getPCIAddressForBlockDevice(deviceName string) (string, error) {
+	// e.g. /sys/bus/pci/drivers/nvme/0000:3b:00.6/nvme/nvme3/nvme2n1
+	devices, err := filepath.Glob(filepath.Join(fsRoot, common.SysfsPCIDriverPath, common.NVMEDriver, "*", common.NVMEDriver, "*", "*"))
+	if err != nil {
+		return "", fmt.Errorf("failed to list NVME block devices: %w", err)
+	}
+	deviceName = normalizeBlockDeviceName(deviceName)
+	for _, device := range devices {
+		if normalizeBlockDeviceName(filepath.Base(device)) != deviceName {
+			continue
+		}
+		// the device is a child of <pci address>/nvme/<controller>
+		return filepath.Base(filepath.Dir(filepath.Dir(filepath.Dir(device)))), nil
+	}
+	return "", ErrBlockDeviceNotFound
+}
+
+// normalizeBlockDeviceName returns the namespace head name for a native multipath path device name,
+// other names are returned as is
+func normalizeBlockDeviceName(name string) string {
+	if matches := nativeMultipathPathRegexp.FindStringSubmatch(name); matches != nil {
+		return fmt.Sprintf("nvme%sn%s", matches[1], matches[2])
+	}
+	return name
 }
 
 // getBlockDeviceInfo returns block device name and device size in sectors
@@ -117,10 +183,7 @@ func (n *nvmeUtils) getBlockDeviceInfo(deviceID string, namespace int32) (string
 		if int32(nsid) != namespace {
 			continue
 		}
-		deviceName = d.Name()
-		if matches := nativeMultipathPathRegexp.FindStringSubmatch(deviceName); matches != nil {
-			deviceName = fmt.Sprintf("nvme%sn%s", matches[1], matches[2])
-		}
+		deviceName = normalizeBlockDeviceName(d.Name())
 		devicePath = filepath.Join(fsRoot, sysfsBlockPath, deviceName)
 		deviceSizeData, err := os.ReadFile(filepath.Join(devicePath, "size"))
 		if err != nil {

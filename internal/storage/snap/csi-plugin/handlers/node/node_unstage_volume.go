@@ -45,9 +45,20 @@ func (h *node) NodeUnstageVolume(
 	case config.EmulationModeNVMe:
 		stagingPath := h.getNVMeStagingPath(req.StagingTargetPath, req.VolumeId)
 		reqLog = reqLog.WithValues("stagingPath", stagingPath)
+		pciAddress, err := h.nvme.GetPCIAddressForBlockDevicePath(stagingPath)
+		if err != nil {
+			reqLog.Info("failed to find the function of the staged volume, skip unbinding the NVMe driver", "error", err.Error())
+		}
 		if err := h.mount.UnmountAndRemove(stagingPath); err != nil {
 			reqLog.Error(err, "failed to unmount staging path")
 			return nil, status.Error(codes.Internal, "failed to unmount staging path")
+		}
+		if pciAddress != "" {
+			if err := h.pci.UnloadDriver(pciAddress); err != nil {
+				reqLog.Info("failed to unbind NVMe driver from the volume device", "pciAddress", pciAddress, "error", err.Error())
+			} else {
+				reqLog.Info("NVMe driver unbound from the volume device", "pciAddress", pciAddress)
+			}
 		}
 		reqLog.Info("NVMe volume unstaged")
 	case config.EmulationModeVirtiofs:

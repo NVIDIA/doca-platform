@@ -16,11 +16,17 @@ limitations under the License.
 package nvme
 
 import (
+	"os"
+	"path/filepath"
+
 	"github.com/nvidia/doca-platform/test/utils/fakefs"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
+
+// concreteUtils returns the implementation behind Utils to reach its unexported methods
+func concreteUtils(u Utils) *nvmeUtils { return u.(*nvmeUtils) }
 
 var _ = Describe("Nvme utils tests", func() {
 	var (
@@ -179,6 +185,101 @@ var _ = Describe("Nvme utils tests", func() {
 			})
 			_, err := nvmeUtils.GetBlockDeviceNameForNS("0000:b1:0c.2", int32(3))
 			Expect(err).To(MatchError(ErrBlockDeviceIsInvalid))
+		})
+	})
+	Context("GetPCIAddressForBlockDevicePath", func() {
+		It("finds the function of a block device", func() {
+			fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
+				Dirs: []fakefs.DirEntry{
+					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.0/nvme/nvme1/nvme1n1"},
+					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme3n1"},
+				},
+			})
+			addr, err := concreteUtils(nvmeUtils).getPCIAddressForBlockDevice("nvme3n1")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(addr).To(Equal("0000:b1:0c.2"))
+		})
+		It("finds the function of a native multipath namespace head", func() {
+			fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
+				Dirs: []fakefs.DirEntry{
+					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme0c3n1"},
+				},
+			})
+			addr, err := concreteUtils(nvmeUtils).getPCIAddressForBlockDevice("nvme0n1")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(addr).To(Equal("0000:b1:0c.2"))
+		})
+		It("finds the function if the requested name is a native multipath path device", func() {
+			fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
+				Dirs: []fakefs.DirEntry{
+					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme2c3n1"},
+				},
+			})
+			addr, err := concreteUtils(nvmeUtils).getPCIAddressForBlockDevice("nvme2c3n1")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(addr).To(Equal("0000:b1:0c.2"))
+		})
+		It("returns not found if no function owns the block device", func() {
+			fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
+				Dirs: []fakefs.DirEntry{
+					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme3n1"},
+				},
+			})
+			_, err := concreteUtils(nvmeUtils).getPCIAddressForBlockDevice("nvme9n1")
+			Expect(err).To(MatchError(ErrBlockDeviceNotFound))
+		})
+		It("returns not found if the driver has no functions", func() {
+			fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
+				Dirs: []fakefs.DirEntry{{Path: "/sys/bus/pci/drivers/nvme"}},
+			})
+			_, err := concreteUtils(nvmeUtils).getPCIAddressForBlockDevice("nvme3n1")
+			Expect(err).To(MatchError(ErrBlockDeviceNotFound))
+		})
+		It("returns not found if the path does not exist", func() {
+			_, err := nvmeUtils.GetPCIAddressForBlockDevicePath(filepath.Join(GinkgoT().TempDir(), "missing"))
+			Expect(err).To(MatchError(ErrBlockDeviceNotFound))
+		})
+		It("returns not found if the path is not a block device", func() {
+			path := filepath.Join(GinkgoT().TempDir(), "file")
+			Expect(os.WriteFile(path, []byte("data"), 0o644)).To(Succeed())
+			_, err := nvmeUtils.GetPCIAddressForBlockDevicePath(path)
+			Expect(err).To(MatchError(ErrBlockDeviceNotFound))
+		})
+		It("finds the function through the major:minor link of the block device", func() {
+			fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
+				Dirs: []fakefs.DirEntry{
+					{Path: "/sys/dev/block"},
+					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.0/nvme/nvme1/nvme1n1"},
+					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme3n1"},
+				},
+				Symlinks: []fakefs.SymlinkEntry{
+					{OldPath: "../../devices/pci0000:b0/0000:b0:02.0/0000:b1:0c.2/nvme/nvme3/nvme3n1", NewPath: "/sys/dev/block/259:1"},
+				},
+			})
+			addr, err := concreteUtils(nvmeUtils).getPCIAddressForDevNum(259, 1)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(addr).To(Equal("0000:b1:0c.2"))
+		})
+		It("finds the function if the major:minor link points to the namespace head of a native multipath device", func() {
+			fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
+				Dirs: []fakefs.DirEntry{
+					{Path: "/sys/dev/block"},
+					{Path: "/sys/bus/pci/drivers/nvme/0000:b1:0c.2/nvme/nvme3/nvme2c3n1"},
+				},
+				Symlinks: []fakefs.SymlinkEntry{
+					{OldPath: "../../devices/virtual/nvme-subsystem/nvme-subsys2/nvme2n1", NewPath: "/sys/dev/block/259:1"},
+				},
+			})
+			addr, err := concreteUtils(nvmeUtils).getPCIAddressForDevNum(259, 1)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(addr).To(Equal("0000:b1:0c.2"))
+		})
+		It("returns not found if the block device has no major:minor link", func() {
+			fakefs.GinkgoConfigureFakeFS(&fsRoot, fakefs.Config{
+				Dirs: []fakefs.DirEntry{{Path: "/sys/dev/block"}},
+			})
+			_, err := concreteUtils(nvmeUtils).getPCIAddressForDevNum(259, 1)
+			Expect(err).To(MatchError(ErrBlockDeviceNotFound))
 		})
 	})
 })
