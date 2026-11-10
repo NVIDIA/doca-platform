@@ -823,6 +823,7 @@ spec:
       _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
       _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
       _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
+      _ovs-vsctl set Open_vSwitch . other_config:hw-offload-ct-ipv6-enabled=true
       _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
       _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
       _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
@@ -846,6 +847,7 @@ spec:
       _ovs-vsctl --may-exist add-port br-sfc p0
       _ovs-vsctl set Interface p0 type=dpdk
       _ovs-vsctl set Interface p0 mtu_request=9216
+      _ovs-vsctl set Interface p0 options:hw-offload-ct-size=64000
       _ovs-vsctl set Port p0 external_ids:dpf-type=physical
       _ovs-vsctl set Interface p0 external_ids:hbn_uplink=p0_if
 
