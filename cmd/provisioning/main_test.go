@@ -29,7 +29,6 @@ func TestResolveBFBRegistry(t *testing.T) {
 		installIface string
 		dmsPodEnvs   []string
 		want         string
-		wantErr      bool
 	}{
 		{
 			name:         "redfish with API VIP returns https host without port",
@@ -38,15 +37,15 @@ func TestResolveBFBRegistry(t *testing.T) {
 			want:         "https://10.0.0.10",
 		},
 		{
-			name:         "redfish with empty VIP returns error",
+			name:         "redfish with empty VIP returns empty base for per-DPU discovery",
 			installIface: string(provisioningv1.InstallViaRedFish),
-			wantErr:      true,
+			want:         "",
 		},
 		{
-			name:         "redfish with hostname VIP returns error",
+			name:         "redfish with hostname VIP returns empty base for per-DPU discovery",
 			installIface: string(provisioningv1.InstallViaRedFish),
 			dmsPodEnvs:   []string{"KUBERNETES_SERVICE_HOST=api.example.com"},
-			wantErr:      true,
+			want:         "",
 		},
 		{
 			name:         "host-agent without load balancer uses https in-cluster default",
@@ -88,18 +87,36 @@ func TestResolveBFBRegistry(t *testing.T) {
 				dmsPodEnvs:                     tc.dmsPodEnvs,
 			}
 
-			got, err := resolveBFBRegistry(flags)
-			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("resolveBFBRegistry() expected an error, got address %q", got)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("resolveBFBRegistry() unexpected error: %v", err)
-			}
+			got := resolveBFBRegistry(flags)
 			if got != tc.want {
 				t.Fatalf("resolveBFBRegistry() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHostAgentBFBRegistryAddress(t *testing.T) {
+	tests := []struct {
+		name     string
+		resolved string
+		want     string
+	}{
+		{
+			name:     "resolved address passes through",
+			resolved: "https://10.0.0.10",
+			want:     "https://10.0.0.10",
+		},
+		{
+			name:     "empty resolved address falls back to the in-cluster Service",
+			resolved: "",
+			want:     "https://" + "bfb-registry:8443",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hostAgentBFBRegistryAddress(tc.resolved); got != tc.want {
+				t.Fatalf("hostAgentBFBRegistryAddress() = %q, want %q", got, tc.want)
 			}
 		})
 	}

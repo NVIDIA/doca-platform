@@ -53,11 +53,17 @@ type TaskWithRetry struct {
 }
 
 type DPUOptions struct {
-	PrarprouterdImageWithTag    string
-	ImagePullSecrets            []corev1.LocalObjectReference
-	DPUInstallInterface         string
-	DeploymentMode              string
-	BFCFGTemplateFile           string
+	PrarprouterdImageWithTag string
+	ImagePullSecrets         []corev1.LocalObjectReference
+	DPUInstallInterface      string
+	DeploymentMode           string
+	BFCFGTemplateFile        string
+	// BFBRegistry is the base address (scheme + host, no port) the redfish and
+	// cloud-init provisioning paths download BFBs from: the
+	// registry.loadBalancerAddress, or the Kubernetes API VIP when it is an IP,
+	// or the in-cluster Service name in host-trusted mode. Empty in zero-trust
+	// when neither is set: GetBFBRegistryAddressWithPort then discovers the
+	// bfb-registry Pod's node IP per DPU.
 	BFBRegistry                 string
 	BFBPVC                      string
 	BFBRegistryLoadBalancer     string
