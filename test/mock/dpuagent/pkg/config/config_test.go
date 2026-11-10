@@ -41,6 +41,17 @@ func TestParseDefaults(t *testing.T) {
 	}
 }
 
+// TestParseBF4CMX accepts the CMX personality.
+func TestParseBF4CMX(t *testing.T) {
+	cfg, err := Parse([]byte("dpuType: bf4-cmx\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DPUType != DPUTypeBF4CMX {
+		t.Fatalf("dpuType %q", cfg.DPUType)
+	}
+}
+
 func TestParseRebootMethods(t *testing.T) {
 	cfg, err := Parse([]byte("dpuType: bf4\nagent:\n  rebootMethod: \"SLR, PowerCycle,NoAction\"\n"))
 	if err != nil {

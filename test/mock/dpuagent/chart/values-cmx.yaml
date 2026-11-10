@@ -1,0 +1,26 @@
+# Example values for mock-dpuagent as CMX nodes. Every replica is one simulated CMX node with its own
+# pod IP as BMC IP; see the "CMX nodes" section of test/mock/dpuagent/README.md. Other values are
+# the defaults of values.yaml.
+
+replicas: 5
+
+image:
+  # image.repository is the mock-dpuagent container image, built with `make docker-build-mock-dpuagent`.
+  repository: example.com/mock-dpuagent
+  # image.tag is the mock-dpuagent image tag.
+  tag: v0.1.0
+
+mockConfig:
+  dpuType: bf4-cmx
+  bmc:
+    firmware:
+      # The placeholder versions never equal a PLDM bundle, so Update Firmware always runs.
+      bmc: mock-0.0
+      erot: mock-0.0
+      uefi: mock-0.0
+      nic: mock-0.0
+
+rebootController:
+  image:
+    repository: example.com/mock-dpuagent
+    tag: v0.1.0

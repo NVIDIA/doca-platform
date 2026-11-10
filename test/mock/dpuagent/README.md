@@ -172,7 +172,7 @@ imagePullSecrets:
 # Rendered verbatim into the ConfigMap mounted at /etc/mock-dpuagent/config.yaml and shared by
 # every replica. See test/mock/dpuagent/pkg/config/config.go for the fields.
 mockConfig:
-  # -- mockConfig.dpuType is required and selects the Redfish personality and the install flow the mock emulates: bf3 installs a BFB, bf4 installs an OS ISO and applies a PLDM bundle.
+  # -- mockConfig.dpuType is required and selects the Redfish personality and the install flow the mock emulates: bf3 installs a BFB, bf4 installs an OS ISO and applies a PLDM bundle, bf4-cmx serves the v0.2 Vera BMC tree for one CMX node (two CX9s, inactive firmware slots on BMC/ERoT/SBIOS only, USB1/USB2 virtual media, CommitImage, Node AC cycle) and installs its OS from the config ISO inserted on USB2 at the next ComputerSystem.Reset.
   dpuType: bf3
   bmc:
     # -- mockConfig.bmc.psid is the PSID the BMC reports. bf4 only: it must be a key of BlueFieldSoftware.spec.pldmFwBundle, and the bundle at that key must carry an image for this PSID.
@@ -253,6 +253,36 @@ share it, so one release is one DPU type and a mixed BF3/BF4 fleet is not suppor
 the fleet. Firmware versions reported after an install or an upgrade are parsed from the artifacts
 the controller sends and are not configurable.
 
+### CMX nodes
+
+`mockConfig.dpuType: bf4-cmx` makes every replica one CMX node: a Vera BMC with `BMC_0`, `System_0` and
+`Chassis_0`, two ConnectX-9 cards and no BlueField SoC. It follows the v0.2 CMX Redfish mockup. The
+BMC user is `root`, `GET /redfish/v1` answers `Product: CMX`, and `BootProgress.LastState` is
+`OSRunning` once the OS is up. `test/mock/dpuagent/chart/values-cmx.yaml` is a small example:
+
+```sh
+helm upgrade --install mock-dpuagent test/mock/dpuagent/chart \
+  --namespace dpf-operator-system --create-namespace \
+  -f test/mock/dpuagent/chart/values-cmx.yaml
+```
+
+What differs from BF4 in the flow the controllers drive:
+
+* **Firmware.** A PLDM bundle is pushed with `update-multipart`; `Targets` (full FirmwareInventory
+  URIs) limits it to those members. Only BMC, ERoT, SBIOS and SMA have an `InactiveFirmwareSlot`; the
+  CX9 firmware (`FW_CX_0` and `FW_CX_1`, both at the bundle's NIC version) has none. There is no
+  `UpdateService.Activate`: `NvidiaUpdateService.CommitImage` marks the staged slots pending,
+  `ComputerSystem.Reset` activates SBIOS and the CX9s, and
+  `Chassis/BMC_0/Actions/Oem/NvidiaChassis.AuxPowerReset` (`AuxPowerCycle`) activates what is still staged.
+* **OS install.** `InsertMedia` on `USB1` (OS ISO, never read) and `USB2` (the per-DPU cidata
+  seed ISO, downloaded at insert), then `ComputerSystem.Reset`. The reset boots the OS, and the agent
+  takes its identity from the seed, as after a BF4 `ArmReset`. `Slot_0` has no `InsertMedia`.
+* **Resets.** `ForceOff` and `GracefulShutdown` power the host off; `On` and `ForceOn` boot it only
+  when it is off; `ForceRestart`, `GracefulRestart` and `PowerCycle` boot it. A reset counts as
+  Rebooting in `phaseDelays`.
+* **Not served.** `SOC.ForceReset`, `NvidiaChassis.Reset`, `UpdateService.Activate`, rshim,
+  `Mode.Set`, host privilege and `NetworkDeviceFunctions` answer 404, as on a CMX BMC.
+
 ### Redfish response delays
 
 A real BMC answers some calls in milliseconds and others, such as `UpdateService.SimpleUpdate` or
@@ -301,7 +331,7 @@ placeholders accept any value.
 | Systems | GET | `/redfish/v1/Systems` |
 | Managers | GET | `/redfish/v1/Managers` |
 | Manager | GET | `/redfish/v1/Managers/{manager}` |
-| Chassis | GET | `/redfish/v1/Chassis/{chassis}` |
+| Chassis | GET | `/redfish/v1/Chassis` and `/redfish/v1/Chassis/{chassis}` |
 | System | GET | `/redfish/v1/Systems/{system}` |
 | SystemOem | GET | `/redfish/v1/Systems/{system}/Oem/Nvidia` |
 | Bios | GET | `/redfish/v1/Systems/{system}/Bios` |
@@ -310,10 +340,15 @@ placeholders accept any value.
 | SecureBoot | GET, PATCH | `/redfish/v1/Systems/{system}/SecureBoot` |
 | SELEntries | GET | `/redfish/v1/Systems/{system}/LogServices/SEL/Entries` |
 | SystemSettings | GET, PATCH | `/redfish/v1/Systems/{system}/Settings` |
+| NetworkAdapter | GET | `/redfish/v1/Chassis/{chassis}/NetworkAdapters` and `.../NetworkAdapters/{adapter}` |
+| NetworkPort | GET | `/redfish/v1/Chassis/{chassis}/NetworkAdapters/{adapter}/Ports` and `.../Ports/{port}` |
+| Drive | GET | `/redfish/v1/Chassis/{chassis}/Drives/{drive}` |
+| Processor | GET | `/redfish/v1/Systems/{system}/Processors/{processor}` |
 | NetworkDeviceFunction | GET | `/redfish/v1/Chassis/{chassis}/NetworkAdapters/{adapter}/NetworkDeviceFunctions/{pf}` |
 | ComputerSystem.Reset | POST | `/redfish/v1/Systems/{system}/Actions/ComputerSystem.Reset` |
 | SOC.ForceReset | POST | `/redfish/v1/Systems/{system}/Oem/Nvidia/SOC.ForceReset` |
 | NvidiaChassis.Reset | POST | `/redfish/v1/Chassis/{chassis}/Actions/Oem/NvidiaChassis.Reset` |
+| NvidiaChassis.AuxPowerReset | POST | `/redfish/v1/Chassis/{chassis}/Actions/Oem/NvidiaChassis.AuxPowerReset` |
 | HostRshim.Set | POST | `/redfish/v1/Systems/{system}/Oem/Nvidia/Actions/HostRshim.Set` |
 | BMCRshim | GET, PATCH | `/redfish/v1/Managers/Bluefield_BMC/Oem/Nvidia` |
 | HostPrivilegeConfig | PATCH | `/redfish/v1/Chassis/BlueField_0/NetworkAdapters/BlueField_NIC_0/Oem/Nvidia/HostPrivilegeConfig/Settings` |
@@ -327,11 +362,12 @@ placeholders accept any value.
 | TruststoreCertificates | GET, POST, DELETE | `/redfish/v1/Managers/{manager}/Truststore/Certificates` and `.../Certificates/{id}` |
 | UpdateService | GET, POST | `/redfish/v1/UpdateService` |
 | UpdateService.SimpleUpdate | POST | `/redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate` |
-| FirmwareInventory | GET | `/redfish/v1/UpdateService/FirmwareInventory/{id}` |
+| FirmwareInventory | GET | `/redfish/v1/UpdateService/FirmwareInventory` and `/redfish/v1/UpdateService/FirmwareInventory/{id}` |
 | UpdateMultipart | POST | `/redfish/v1/UpdateService/update-multipart` |
+| NvidiaUpdateService.CommitImage | POST | `/redfish/v1/UpdateService/Actions/Oem/NvidiaUpdateService.CommitImage` |
 | UpdateService.Activate | POST | `/redfish/v1/UpdateService/Actions/UpdateService.Activate` |
 | Task | GET | `/redfish/v1/TaskService/Tasks/{id}` |
-| VirtualMedia | GET, POST | `/redfish/v1/Managers/{manager}/VirtualMedia/{media}` and `.../VirtualMedia/{media}/Actions/{action}` |
+| VirtualMedia | GET, POST | `/redfish/v1/Managers/{manager}/VirtualMedia`, `.../VirtualMedia/{media}` and `.../VirtualMedia/{media}/Actions/{action}` |
 
 ### Phase delays
 

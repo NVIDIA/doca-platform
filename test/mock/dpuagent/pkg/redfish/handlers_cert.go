@@ -25,8 +25,9 @@ import (
 	"k8s.io/klog/v2"
 )
 
-func truststorePath(id int) string {
-	return fmt.Sprintf("/redfish/v1/Managers/%s/Truststore/Certificates/%d", ManagerID, id)
+// truststorePath returns the Redfish path of truststore certificate id under the personality's manager.
+func (s *Server) truststorePath(id int) string {
+	return fmt.Sprintf("/redfish/v1/Managers/%s/Truststore/Certificates/%d", s.state.Personality().ManagerID, id)
 }
 
 func (s *Server) handleGenerateCSR(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +51,7 @@ func (s *Server) handleGenerateCSR(w http.ResponseWriter, r *http.Request) {
 	klog.InfoS("Redfish GenerateCSR", "commonName", body.CommonName, "alternativeNames", body.AlternativeNames)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"CSRString":             csr,
-		"CertificateCollection": odata("/redfish/v1/Managers/" + ManagerID + "/NetworkProtocol/HTTPS/Certificates"),
+		"CertificateCollection": odata("/redfish/v1/Managers/" + s.state.Personality().ManagerID + "/NetworkProtocol/HTTPS/Certificates"),
 	})
 }
 
@@ -119,7 +120,7 @@ func (s *Server) handleTruststoreCollection(w http.ResponseWriter, r *http.Reque
 		}
 		klog.InfoS("Redfish truststore certificate installed", "id", id)
 		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"@odata.id":       truststorePath(id),
+			"@odata.id":       s.truststorePath(id),
 			"@odata.type":     "#Certificate.v1_7_0.Certificate",
 			"Id":              strconv.Itoa(id),
 			"CertificateType": "PEM",
@@ -129,7 +130,7 @@ func (s *Server) handleTruststoreCollection(w http.ResponseWriter, r *http.Reque
 	ids := s.state.TruststoreIDs()
 	members := make([]map[string]interface{}, 0, len(ids))
 	for _, id := range ids {
-		members = append(members, odata(truststorePath(id)))
+		members = append(members, odata(s.truststorePath(id)))
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"@odata.id":           r.URL.Path,

@@ -32,11 +32,13 @@ import (
 )
 
 // DPUType selects the Redfish personality and the install flow the mock emulates.
+// bf4-cmx serves the v0.2 Vera BMC tree for one CMX node and installs its OS from virtual media.
 type DPUType string
 
 const (
-	DPUTypeBF3 DPUType = "bf3"
-	DPUTypeBF4 DPUType = "bf4"
+	DPUTypeBF3    DPUType = "bf3"
+	DPUTypeBF4    DPUType = "bf4"
+	DPUTypeBF4CMX DPUType = "bf4-cmx"
 )
 
 // JoinMode selects how the mock joins the DPU cluster.
@@ -261,11 +263,11 @@ func (c *Config) applyDefaults() {
 // Validate rejects values the rest of the process cannot act on.
 func (c *Config) Validate() error {
 	switch c.DPUType {
-	case DPUTypeBF3, DPUTypeBF4:
+	case DPUTypeBF3, DPUTypeBF4, DPUTypeBF4CMX:
 	case "":
-		return fmt.Errorf("dpuType is required (bf3 or bf4)")
+		return fmt.Errorf("dpuType is required (bf3, bf4 or bf4-cmx)")
 	default:
-		return fmt.Errorf("unsupported dpuType %q (want bf3 or bf4)", c.DPUType)
+		return fmt.Errorf("unsupported dpuType %q (want bf3, bf4 or bf4-cmx)", c.DPUType)
 	}
 	if c.BMC.Port <= 0 || c.BMC.Port > 65535 {
 		return fmt.Errorf("bmc.port %d is out of range", c.BMC.Port)

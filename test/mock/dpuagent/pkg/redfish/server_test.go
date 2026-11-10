@@ -25,12 +25,16 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"math/big"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"os"
 	"strings"
 	"sync"
@@ -889,5 +893,636 @@ func TestFirmwareTaskPhaseDelay(t *testing.T) {
 			t.Fatalf("task not completed: %+v", prog)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// redfishHTTP is an HTTP client that trusts the mock BMC's certificate.
+func redfishHTTP() *http.Client {
+	return &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+}
+
+// getRedfish fetches a Redfish resource and decodes the JSON object.
+func getRedfish(t *testing.T, client *http.Client, url string) (int, map[string]interface{}) {
+	t.Helper()
+	resp, err := client.Get(url)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return resp.StatusCode, nil
+	}
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatalf("GET %s: %v body %s", url, err, body)
+	}
+	return resp.StatusCode, decoded
+}
+
+// postRedfish posts a JSON body and returns the status code.
+func postRedfish(t *testing.T, client *http.Client, url, body string) int {
+	t.Helper()
+	resp, err := client.Post(url, "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST %s: %v", url, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode
+}
+
+// odataMemberIDs returns the last path segment of each Members[].@odata.id.
+func odataMemberIDs(t *testing.T, body map[string]interface{}) []string {
+	t.Helper()
+	raw, ok := body["Members"].([]interface{})
+	if !ok {
+		t.Fatalf("Members: %#v", body["Members"])
+	}
+	ids := make([]string, 0, len(raw))
+	for _, member := range raw {
+		odataID, _ := member.(map[string]interface{})["@odata.id"].(string)
+		ids = append(ids, odataID[strings.LastIndex(odataID, "/")+1:])
+	}
+	return ids
+}
+
+// inactiveSlotVersion returns Oem.Nvidia.InactiveFirmwareSlot.Version.
+func inactiveSlotVersion(t *testing.T, fw map[string]interface{}) (string, string) {
+	t.Helper()
+	nvidia, ok := fw["Oem"].(map[string]interface{})["Nvidia"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("firmware has no Oem.Nvidia: %#v", fw)
+	}
+	inactive, ok := nvidia["InactiveFirmwareSlot"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("firmware has no InactiveFirmwareSlot: %#v", fw)
+	}
+	version, _ := inactive["Version"].(string)
+	state, _ := inactive["FirmwareState"].(string)
+	return version, state
+}
+
+// TestBF4CMXPersonality checks the discovery tree of the Vera BMC from the v0.2 CMX mockup: the
+// product string, the system, manager and chassis collections, and the two CX9s with their adapters
+// and ports, none of which has a MAC address.
+func TestBF4CMXPersonality(t *testing.T) {
+	_, _, rawURL := startServer(t, config.DPUTypeBF4CMX, defaultFirmware())
+	httpClient := redfishHTTP()
+	base := rawURL + "/redfish/v1"
+
+	status, root := getRedfish(t, httpClient, base)
+	if status != http.StatusOK || root["Product"] != "CMX" {
+		t.Fatalf("root status %d product %#v", status, root["Product"])
+	}
+	c, err := rfclient.NewBasicAuthClient(context.Background(), rawURL, rfclient.BF3BMCUser, "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.IsBF4 {
+		t.Fatal("CMX product string must not be detected as BlueField-4")
+	}
+
+	_, systems := getRedfish(t, httpClient, base+"/Systems")
+	if ids := odataMemberIDs(t, systems); len(ids) != 1 || ids[0] != "System_0" {
+		t.Fatalf("systems %v", ids)
+	}
+	_, system := getRedfish(t, httpClient, base+"/Systems/System_0")
+	links, _ := system["Links"].(map[string]interface{})
+	chassisLinks, _ := links["Chassis"].([]interface{})
+	var link map[string]interface{}
+	if len(chassisLinks) == 1 {
+		link, _ = chassisLinks[0].(map[string]interface{})
+	}
+	if link["@odata.id"] != "/redfish/v1/Chassis/BMC_0" {
+		t.Fatalf("system chassis link %#v, want BMC_0", links["Chassis"])
+	}
+	_, managers := getRedfish(t, httpClient, base+"/Managers")
+	managerIDs := strings.Join(odataMemberIDs(t, managers), " ")
+	for _, id := range []string{"BMC_0", "SMM_0", "StorageBackplane_0"} {
+		if !strings.Contains(managerIDs, id) {
+			t.Fatalf("managers %s missing %s", managerIDs, id)
+		}
+	}
+	_, chassis := getRedfish(t, httpClient, base+"/Chassis")
+	for _, id := range []string{"Chassis_0", "BMC_0", "ERoT_BMC_0", "CX_0", "CX_1", "OSFP_Board_0", "CPLD_0"} {
+		if !strings.Contains(strings.Join(odataMemberIDs(t, chassis), " "), id) {
+			t.Fatalf("chassis collection %v missing %s", odataMemberIDs(t, chassis), id)
+		}
+	}
+	_, node := getRedfish(t, httpClient, base+"/Chassis/Chassis_0")
+	if node["Model"] != "CMX" || node["ChassisType"] != "Zone" || node["SerialNumber"] != testSerial || node["AssetTag"] != testPSID {
+		t.Fatalf("identity chassis %#v", node)
+	}
+	for _, id := range []string{"CX_0", "CX_1"} {
+		_, nic := getRedfish(t, httpClient, base+"/Chassis/"+id)
+		if nic["Model"] != "ConnectX-9 800GE 2P NIC" {
+			t.Fatalf("%s %#v", id, nic)
+		}
+	}
+	_, adapter := getRedfish(t, httpClient, base+"/Chassis/CX_0/NetworkAdapters/CX_NIC_0")
+	if adapter["Model"] != "ConnectX-9 800GE 2P NIC" || adapter["NetworkDeviceFunctions"] != nil || adapter["Controllers"] == nil {
+		t.Fatalf("CX_NIC_0 %#v", adapter)
+	}
+	if status, _ := getRedfish(t, httpClient, base+"/Chassis/CX_0/NetworkAdapters/CX_NIC_0/NetworkDeviceFunctions/0"); status != http.StatusNotFound {
+		t.Fatalf("NetworkDeviceFunctions status %d, want 404", status)
+	}
+	_, ports := getRedfish(t, httpClient, base+"/Chassis/CX_0/NetworkAdapters/CX_NIC_0/Ports")
+	if ids := odataMemberIDs(t, ports); len(ids) != 2 || ids[0] != "Port_0" || ids[1] != "Port_1" {
+		t.Fatalf("CX_NIC_0 ports %v", ids)
+	}
+	_, port0 := getRedfish(t, httpClient, base+"/Chassis/CX_0/NetworkAdapters/CX_NIC_0/Ports/Port_0")
+	if _, ok := port0["MACAddress"]; ok {
+		t.Fatalf("Port_0 has a MAC: %#v", port0)
+	}
+}
+
+// TestBF4CMXInventoryAndMedia checks the CMX firmware inventory before an update, the virtual media
+// slots and the BlueField-only resources that must be absent.
+func TestBF4CMXInventoryAndMedia(t *testing.T) {
+	_, _, rawURL := startServer(t, config.DPUTypeBF4CMX, defaultFirmware())
+	httpClient := redfishHTTP()
+	base := rawURL + "/redfish/v1"
+
+	_, inventory := getRedfish(t, httpClient, base+"/UpdateService/FirmwareInventory")
+	members := strings.Join(odataMemberIDs(t, inventory), " ")
+	for _, id := range []string{"FW_BMC_0", "FW_ERoT_BMC_0", "SBIOS_FW_0", "SBIOS_FMC_0", "FW_CX_0", "FW_CX_1", "FW_CPLD_0", "FW_MCU_OSFP_0", "FW_NVMe_M2_0", "FW_NVMe_E3S_SSD0", "FW_NVMe_E3S_SSD11"} {
+		if !strings.Contains(" "+members+" ", " "+id+" ") {
+			t.Fatalf("firmware inventory %s missing %s", members, id)
+		}
+	}
+	_, cx0 := getRedfish(t, httpClient, base+"/UpdateService/FirmwareInventory/FW_CX_0")
+	related, _ := cx0["RelatedItem"].([]interface{})
+	if cx0["Version"] != config.PlaceholderVersion || cx0["Oem"] != nil || len(related) != 1 || related[0].(map[string]interface{})["@odata.id"] != "/redfish/v1/Chassis/CX_0" {
+		t.Fatalf("FW_CX_0 %#v", cx0)
+	}
+	_, bmcFW := getRedfish(t, httpClient, base+"/UpdateService/FirmwareInventory/FW_BMC_0")
+	if version, state := inactiveSlotVersion(t, bmcFW); version != "" || state != "Unknown" {
+		t.Fatalf("FW_BMC_0 inactive before an update: version %q state %q", version, state)
+	}
+	if status, media := getRedfish(t, httpClient, base+"/Managers/BMC_0/VirtualMedia"); status != http.StatusOK {
+		t.Fatalf("VirtualMedia collection status %d", status)
+	} else if ids := strings.Join(odataMemberIDs(t, media), " "); !strings.Contains(ids, "USB1") || !strings.Contains(ids, "USB2") || !strings.Contains(ids, "Slot_0") {
+		t.Fatalf("VirtualMedia members %s", ids)
+	}
+	if status, usb1 := getRedfish(t, httpClient, base+"/Managers/BMC_0/VirtualMedia/USB1"); status != http.StatusOK {
+		t.Fatalf("USB1 status %d", status)
+	} else if actions, _ := usb1["Actions"].(map[string]interface{}); actions["#VirtualMedia.InsertMedia"] == nil {
+		t.Fatalf("USB1 actions %#v", usb1["Actions"])
+	}
+	if status, slot0 := getRedfish(t, httpClient, base+"/Managers/BMC_0/VirtualMedia/Slot_0"); status != http.StatusOK {
+		t.Fatalf("Slot_0 status %d", status)
+	} else if actions, _ := slot0["Actions"].(map[string]interface{}); actions["#VirtualMedia.InsertMedia"] != nil {
+		t.Fatalf("Slot_0 accepts InsertMedia: %#v", actions)
+	}
+	if status := postRedfish(t, httpClient, base+"/Managers/BMC_0/VirtualMedia/Slot_0/Actions/VirtualMedia.InsertMedia", "{}"); status != http.StatusNotFound {
+		t.Fatalf("Slot_0 InsertMedia status %d, want 404", status)
+	}
+	if status, _ := getRedfish(t, httpClient, base+"/Systems/System_0/Oem/Nvidia"); status != http.StatusNotFound {
+		t.Fatalf("Oem/Nvidia status %d, want 404", status)
+	}
+	if status := postRedfish(t, httpClient, base+"/Systems/System_0/Oem/Nvidia/SOC.ForceReset", "{}"); status != http.StatusNotFound {
+		t.Fatalf("SOC.ForceReset status %d, want 404", status)
+	}
+	if status := postRedfish(t, httpClient, base+"/UpdateService/Actions/UpdateService.Activate", "{}"); status != http.StatusNotFound {
+		t.Fatalf("Activate status %d, want 404", status)
+	}
+
+}
+
+// requireCX9Firmware fails the test unless both CX9 inventory members report version and have no
+// inactive firmware slot. base is the Redfish root URL, when says which step of the test checks.
+func requireCX9Firmware(t *testing.T, httpClient *http.Client, base, version, when string) {
+	t.Helper()
+	for _, id := range []string{"FW_CX_0", "FW_CX_1"} {
+		_, fw := getRedfish(t, httpClient, base+"/UpdateService/FirmwareInventory/"+id)
+		if fw["Version"] != version || fw["Oem"] != nil {
+			t.Fatalf("%s %s %#v", id, when, fw)
+		}
+	}
+}
+
+// TestBF4CMXFirmwareUpdate stages a PLDM bundle through the multipart update, commits it and walks
+// it through a host reset and a Node AC cycle.
+func TestBF4CMXFirmwareUpdate(t *testing.T) {
+	_, sup, rawURL := startServer(t, config.DPUTypeBF4CMX, defaultFirmware())
+	httpClient := redfishHTTP()
+	base := rawURL + "/redfish/v1"
+	c, err := rfclient.NewBasicAuthClient(context.Background(), rawURL, rfclient.BF3BMCUser, "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pldm, err := os.Open("../../testdata/bf4-trimmed.fwpkg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = pldm.Close() }()
+	resp, task, err := c.UpdateBluefieldFirmwareMultipart(context.Background(), pldm, true)
+	if err != nil || resp.StatusCode() != http.StatusAccepted {
+		t.Fatalf("multipart update: %v %v", resp.Status(), err)
+	}
+	if _, prog, err := c.CheckTaskProgress(context.Background(), task.ID); err != nil || prog.TaskState != TaskStateCompleted {
+		t.Fatalf("task %+v %v", prog, err)
+	}
+	requireCX9Firmware(t, httpClient, base, config.PlaceholderVersion, "after stage")
+	_, bmc := getRedfish(t, httpClient, base+"/UpdateService/FirmwareInventory/FW_BMC_0")
+	if bmc["Version"] != config.BMCMinSupportedVersion {
+		t.Fatalf("BMC changed before a reset: %#v", bmc)
+	}
+	if version, state := inactiveSlotVersion(t, bmc); version != "BF4-26.07-0005" || state != "Inactive" {
+		t.Fatalf("FW_BMC_0 inactive after stage: version %q state %q", version, state)
+	}
+	if status := postRedfish(t, httpClient, base+"/UpdateService/Actions/Oem/NvidiaUpdateService.CommitImage", "{}"); status != http.StatusOK {
+		t.Fatalf("CommitImage status %d", status)
+	}
+	_, bmc = getRedfish(t, httpClient, base+"/UpdateService/FirmwareInventory/FW_BMC_0")
+	if version, state := inactiveSlotVersion(t, bmc); version != "BF4-26.07-0005" || state != "PendingActivation" || bmc["Version"] != config.BMCMinSupportedVersion {
+		t.Fatalf("FW_BMC_0 after CommitImage version %#v inactive %q %q", bmc["Version"], version, state)
+	}
+
+	if status := postRedfish(t, httpClient, base+"/Systems/System_0/Actions/ComputerSystem.Reset", `{"ResetType":"PowerCycle"}`); status != http.StatusOK {
+		t.Fatalf("PowerCycle status %d", status)
+	}
+	requireCX9Firmware(t, httpClient, base, "82.48.4004", "after host reset")
+	_, sbios := getRedfish(t, httpClient, base+"/UpdateService/FirmwareInventory/SBIOS_FW_0")
+	if sbios["Version"] != "26.08-0007" {
+		t.Fatalf("SBIOS after host reset %#v", sbios)
+	}
+	if version, _ := inactiveSlotVersion(t, sbios); version != "" {
+		t.Fatalf("SBIOS inactive slot still staged after host reset: %q", version)
+	}
+	_, bmc = getRedfish(t, httpClient, base+"/UpdateService/FirmwareInventory/FW_BMC_0")
+	if bmc["Version"] != config.BMCMinSupportedVersion {
+		t.Fatalf("host reset activated BMC firmware: %#v", bmc)
+	}
+	if version, state := inactiveSlotVersion(t, bmc); version != "BF4-26.07-0005" || state != "PendingActivation" {
+		t.Fatalf("host reset cleared BMC inactive slot: version %q state %q", version, state)
+	}
+
+	if status := postRedfish(t, httpClient, base+"/Chassis/BMC_0/Actions/Oem/NvidiaChassis.AuxPowerReset", `{"ResetType":"AuxPowerCycle"}`); status != http.StatusOK {
+		t.Fatalf("AuxPowerCycle status %d", status)
+	}
+	_, bmc = getRedfish(t, httpClient, base+"/UpdateService/FirmwareInventory/FW_BMC_0")
+	_, erot := getRedfish(t, httpClient, base+"/UpdateService/FirmwareInventory/FW_ERoT_BMC_0")
+	bmcInactive, _ := inactiveSlotVersion(t, bmc)
+	if bmc["Version"] != "BF4-26.07-0005" || erot["Version"] != "02.00.0044.0000_n05" || bmcInactive != "" {
+		t.Fatalf("after Node AC cycle bmc %#v erot %#v inactive %q", bmc["Version"], erot["Version"], bmcInactive)
+	}
+	sup.mu.Lock()
+	reboots := sup.reboots
+	sup.mu.Unlock()
+	if reboots != 2 {
+		t.Fatalf("host reset and Node AC cycle must both reboot, got %d", reboots)
+	}
+}
+
+// TestBF4CMXBootProgress checks that the CMX System reports BootProgress through the standard
+// LastState, as the v0.2 mockup does, while BlueField keeps its OEM state.
+func TestBF4CMXBootProgress(t *testing.T) {
+	state, _, rawURL := startServer(t, config.DPUTypeBF4CMX, defaultFirmware())
+	httpClient := redfishHTTP()
+	bootProgress := func(base string) map[string]interface{} {
+		t.Helper()
+		_, system := getRedfish(t, httpClient, base)
+		progress, _ := system["BootProgress"].(map[string]interface{})
+		if progress == nil {
+			t.Fatalf("%s has no BootProgress: %#v", base, system)
+		}
+		return progress
+	}
+	system := rawURL + "/redfish/v1/Systems/System_0"
+	if progress := bootProgress(system); progress["LastState"] != "OSRunning" || progress["OemLastState"] != nil {
+		t.Fatalf("running CMX BootProgress %#v", progress)
+	}
+	state.SetOSStarting()
+	if progress := bootProgress(system); progress["LastState"] != "OSBootStarted" || progress["OemLastState"] != nil {
+		t.Fatalf("booting CMX BootProgress %#v", progress)
+	}
+	state.SetPowerOff()
+	if progress := bootProgress(system); progress["LastState"] != "None" {
+		t.Fatalf("powered off CMX BootProgress %#v", progress)
+	}
+
+	_, _, bf4URL := startServer(t, config.DPUTypeBF4, defaultFirmware())
+	if progress := bootProgress(bf4URL + "/redfish/v1/Systems/BlueField_0"); progress["LastState"] != "OEM" || progress["OemLastState"] != OemLastStateOSUp {
+		t.Fatalf("BF4 BootProgress changed: %#v", progress)
+	}
+}
+
+// TestBF4CMXSystemReset checks every ResetType in the Vera ResetActionInfo: the shutdown types
+// power the host off, On and ForceOn boot it only when it is off, the restart types boot it, and
+// a BMC-unknown type is rejected.
+func TestBF4CMXSystemReset(t *testing.T) {
+	state, sup, rawURL := startServer(t, config.DPUTypeBF4CMX, defaultFirmware())
+	httpClient := redfishHTTP()
+	reset := rawURL + "/redfish/v1/Systems/System_0/Actions/ComputerSystem.Reset"
+	counts := func() (reboots, powerOffs int) {
+		sup.mu.Lock()
+		defer sup.mu.Unlock()
+		return sup.reboots, sup.powerOffs
+	}
+	post := func(resetType string, want int) {
+		t.Helper()
+		if status := postRedfish(t, httpClient, reset, fmt.Sprintf(`{"ResetType":%q}`, resetType)); status != want {
+			t.Fatalf("ResetType %s status %d, want %d", resetType, status, want)
+		}
+	}
+
+	post("Nmi", http.StatusBadRequest)
+	if reboots, powerOffs := counts(); reboots != 0 || powerOffs != 0 {
+		t.Fatalf("an unsupported ResetType acted: reboots %d powerOffs %d", reboots, powerOffs)
+	}
+	post("On", http.StatusOK)
+	post("ForceOn", http.StatusOK)
+	if reboots, _ := counts(); reboots != 0 {
+		t.Fatalf("On of a running host rebooted it %d times", reboots)
+	}
+
+	for _, resetType := range []string{"GracefulShutdown", "ForceOff"} {
+		state.SetPowerOn()
+		post(resetType, http.StatusOK)
+		if power, _, _ := state.Power(); power != "Off" {
+			t.Fatalf("PowerState after %s is %s, want Off", resetType, power)
+		}
+	}
+	if _, powerOffs := counts(); powerOffs != 2 {
+		t.Fatalf("shutdown types powered off %d times, want 2", powerOffs)
+	}
+
+	for _, resetType := range []string{"On", "ForceOn"} {
+		state.SetPowerOff()
+		post(resetType, http.StatusOK)
+		sup.wait(t)
+	}
+	for _, resetType := range []string{"ForceRestart", "GracefulRestart", "PowerCycle"} {
+		post(resetType, http.StatusOK)
+		sup.wait(t)
+	}
+	sup.mu.Lock()
+	defer sup.mu.Unlock()
+	if sup.reboots != 5 {
+		t.Fatalf("boots %d, want 5", sup.reboots)
+	}
+	for _, phase := range sup.rebootPhases {
+		if phase != provisioningv1.DPURebooting {
+			t.Fatalf("CMX reset is attributed to %s, want %s", phase, provisioningv1.DPURebooting)
+		}
+	}
+}
+
+// TestBF4CMXOSInstall walks the CMX OS install: InsertMedia on USB1 (OS ISO) and USB2 (config ISO),
+// a one-time Usb boot override and ComputerSystem.Reset. The config ISO is downloaded at insert
+// and the reset boots it, and a second reset only restarts the OS.
+func TestBF4CMXOSInstall(t *testing.T) {
+	_, sup, rawURL := startServer(t, config.DPUTypeBF4CMX, defaultFirmware())
+	httpClient := redfishHTTP()
+	base := rawURL + "/redfish/v1"
+	seedISO := []byte("cidata-seed-iso-content")
+	var osISOReads int
+	var mu sync.Mutex
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/seed.iso"):
+			_, _ = w.Write(seedISO)
+		case strings.HasSuffix(r.URL.Path, "/os.iso"):
+			mu.Lock()
+			osISOReads++
+			mu.Unlock()
+			_, _ = w.Write([]byte("os"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer registry.Close()
+	insert := func(slot, body string) int {
+		t.Helper()
+		return postRedfish(t, httpClient, base+"/Managers/BMC_0/VirtualMedia/"+slot+"/Actions/VirtualMedia.InsertMedia", body)
+	}
+	media := func(slot string) map[string]interface{} {
+		t.Helper()
+		_, body := getRedfish(t, httpClient, base+"/Managers/BMC_0/VirtualMedia/"+slot)
+		return body
+	}
+
+	if status := insert("USB2", "{}"); status != http.StatusBadRequest {
+		t.Fatalf("InsertMedia without Image status %d, want 400", status)
+	}
+	if status := insert("USB2", fmt.Sprintf(`{"Image":"%s/missing.iso","TransferMethod":"Stream"}`, registry.URL)); status != http.StatusBadRequest {
+		t.Fatalf("InsertMedia of an unreadable image status %d, want 400", status)
+	}
+	if usb2 := media("USB2"); usb2["Inserted"] != false || usb2["Image"] != nil {
+		t.Fatalf("USB2 after failed inserts %#v", usb2)
+	}
+	osImage := registry.URL + "/bfb/os.iso"
+	seedImage := registry.URL + "/bfb/user-data/ns_dpu_uid/seed.iso"
+	if status := insert("USB1", fmt.Sprintf(`{"Image":%q,"TransferMethod":"Stream"}`, osImage)); status != http.StatusOK {
+		t.Fatalf("InsertMedia USB1 status %d", status)
+	}
+	if status := insert("USB2", fmt.Sprintf(`{"Image":%q,"TransferMethod":"Stream"}`, seedImage)); status != http.StatusOK {
+		t.Fatalf("InsertMedia USB2 status %d", status)
+	}
+	if usb1 := media("USB1"); usb1["Inserted"] != true || usb1["Image"] != osImage || usb1["ConnectedVia"] != "URI" {
+		t.Fatalf("USB1 after insert %#v", usb1)
+	}
+	if usb2 := media("USB2"); usb2["Inserted"] != true || usb2["Image"] != seedImage {
+		t.Fatalf("USB2 after insert %#v", usb2)
+	}
+	mu.Lock()
+	reads := osISOReads
+	mu.Unlock()
+	if reads != 0 {
+		t.Fatalf("the OS ISO was read %d times, a BMC only streams it to the host", reads)
+	}
+
+	patch, err := http.NewRequest(http.MethodPatch, base+"/Systems/System_0/Settings", strings.NewReader(`{"Boot":{"BootSourceOverrideTarget":"Usb","BootSourceOverrideEnabled":"Once"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	patch.Header.Set("Content-Type", "application/json")
+	resp, err := httpClient.Do(patch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("boot override status %d", resp.StatusCode)
+	}
+
+	if status := postRedfish(t, httpClient, base+"/Systems/System_0/Actions/ComputerSystem.Reset", `{"ResetType":"ForceRestart"}`); status != http.StatusOK {
+		t.Fatalf("Reset status %d", status)
+	}
+	sup.wait(t)
+	sup.mu.Lock()
+	boots, reboots := sup.boots, sup.reboots
+	sup.mu.Unlock()
+	if len(boots) != 1 || !bytes.Equal(boots[0], seedISO) || reboots != 0 {
+		t.Fatalf("boots=%d reboots=%d", len(boots), reboots)
+	}
+	if status := postRedfish(t, httpClient, base+"/Systems/System_0/Actions/ComputerSystem.Reset", `{"ResetType":"PowerCycle"}`); status != http.StatusOK {
+		t.Fatalf("second Reset status %d", status)
+	}
+	sup.wait(t)
+	sup.mu.Lock()
+	boots, reboots = sup.boots, sup.reboots
+	sup.mu.Unlock()
+	if len(boots) != 1 || reboots != 1 {
+		t.Fatalf("a reset without a pending seed must only restart: boots=%d reboots=%d", len(boots), reboots)
+	}
+
+	if status := postRedfish(t, httpClient, base+"/Managers/BMC_0/VirtualMedia/USB2/Actions/VirtualMedia.EjectMedia", "{}"); status != http.StatusOK {
+		t.Fatalf("EjectMedia status %d", status)
+	}
+	if usb2 := media("USB2"); usb2["Inserted"] != false || usb2["Image"] != nil || usb2["ConnectedVia"] != "NotConnected" {
+		t.Fatalf("USB2 after eject %#v", usb2)
+	}
+}
+
+// TestBF4CMXEjectSeed checks that ejecting USB2 drops the downloaded config ISO, so the next
+// ComputerSystem.Reset restarts the host instead of booting that seed.
+func TestBF4CMXEjectSeed(t *testing.T) {
+	_, sup, rawURL := startServer(t, config.DPUTypeBF4CMX, defaultFirmware())
+	httpClient := redfishHTTP()
+	base := rawURL + "/redfish/v1"
+	seedISO := []byte("cidata-seed-iso-content")
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/seed.iso") {
+			_, _ = w.Write(seedISO)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer registry.Close()
+
+	seedImage := registry.URL + "/bfb/user-data/ns_dpu_uid/seed.iso"
+	insert := base + "/Managers/BMC_0/VirtualMedia/USB2/Actions/VirtualMedia.InsertMedia"
+	if status := postRedfish(t, httpClient, insert, fmt.Sprintf(`{"Image":%q,"TransferMethod":"Stream"}`, seedImage)); status != http.StatusOK {
+		t.Fatalf("InsertMedia USB2 status %d", status)
+	}
+	eject := base + "/Managers/BMC_0/VirtualMedia/USB2/Actions/VirtualMedia.EjectMedia"
+	if status := postRedfish(t, httpClient, eject, "{}"); status != http.StatusOK {
+		t.Fatalf("EjectMedia status %d", status)
+	}
+	if status := postRedfish(t, httpClient, base+"/Systems/System_0/Actions/ComputerSystem.Reset", `{"ResetType":"ForceRestart"}`); status != http.StatusOK {
+		t.Fatalf("Reset after eject status %d", status)
+	}
+	sup.wait(t)
+	sup.mu.Lock()
+	defer sup.mu.Unlock()
+	if len(sup.boots) != 0 || sup.reboots != 1 {
+		t.Fatalf("a reset after ejecting the seed must not boot it: boots=%d reboots=%d", len(sup.boots), sup.reboots)
+	}
+}
+
+// postMultipartUpdate posts the trimmed PLDM bundle to the multipart update URI with the given
+// UpdateParameters JSON and returns the status code.
+func postMultipartUpdate(t *testing.T, httpClient *http.Client, url, params string) int {
+	t.Helper()
+	pldm, err := os.ReadFile("../../testdata/bf4-trimmed.fwpkg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	file, err := form.CreateFormFile("UpdateFile", "bundle.fwpkg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = file.Write(pldm)
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Disposition", `form-data; name="UpdateParameters"`)
+	header.Set("Content-Type", "application/json")
+	field, err := form.CreatePart(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = field.Write([]byte(params))
+	if err := form.Close(); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := httpClient.Post(url, form.FormDataContentType(), &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode
+}
+
+// TestBF4CMXUpdateTargets checks that a multipart update with Targets stages only the named
+// inventory members: a bundle for FW_CX_1 leaves FW_CX_0 and the dual-slot firmware alone. A target
+// that is not a full FirmwareInventory URI, a member the bundle has no version for, and Targets that
+// is not a list are rejected and stage nothing. A replacement image staged after CommitImage is
+// Inactive until the next commit.
+func TestBF4CMXUpdateTargets(t *testing.T) {
+	_, _, rawURL := startServer(t, config.DPUTypeBF4CMX, defaultFirmware())
+	httpClient := redfishHTTP()
+	base := rawURL + "/redfish/v1"
+	update := base + "/UpdateService/update-multipart"
+	fwURI := func(id string) string { return `"/redfish/v1/UpdateService/FirmwareInventory/` + id + `"` }
+	inactive := func(id string) string {
+		t.Helper()
+		_, fw := getRedfish(t, httpClient, base+"/UpdateService/FirmwareInventory/"+id)
+		version, _ := inactiveSlotVersion(t, fw)
+		return version
+	}
+
+	if status := postMultipartUpdate(t, httpClient, update, `{"Targets":[`+fwURI("FW_NOPE")+`],"ForceUpdate":true}`); status != http.StatusBadRequest {
+		t.Fatalf("unknown target status %d, want 400", status)
+	}
+	if status := postMultipartUpdate(t, httpClient, update, `{"Targets":"FW_CX_1"}`); status != http.StatusBadRequest {
+		t.Fatalf("Targets that is not a list status %d, want 400", status)
+	}
+	if status := postMultipartUpdate(t, httpClient, update, `{"Targets":["/arbitrary/FW_BMC_0"]}`); status != http.StatusBadRequest {
+		t.Fatalf("target that is not a FirmwareInventory URI status %d, want 400", status)
+	}
+	for _, id := range []string{"SBIOS_FMC_0", "FW_CPLD_0"} {
+		if status := postMultipartUpdate(t, httpClient, update, `{"Targets":[`+fwURI(id)+`]}`); status != http.StatusBadRequest {
+			t.Fatalf("%s has no version in the bundle, status %d, want 400", id, status)
+		}
+	}
+	if version := inactive("FW_BMC_0"); version != "" {
+		t.Fatalf("a rejected update staged FW_BMC_0 %q", version)
+	}
+
+	if status := postMultipartUpdate(t, httpClient, update, `{"Targets":[`+fwURI("FW_CX_1")+`]}`); status != http.StatusAccepted {
+		t.Fatalf("FW_CX_1 update status %d", status)
+	}
+	for _, id := range []string{"FW_BMC_0", "FW_ERoT_BMC_0", "SBIOS_FW_0"} {
+		if version := inactive(id); version != "" {
+			t.Fatalf("an update targeting FW_CX_1 staged %s %q", id, version)
+		}
+	}
+	if status := postRedfish(t, httpClient, base+"/Systems/System_0/Actions/ComputerSystem.Reset", `{"ResetType":"ForceRestart"}`); status != http.StatusOK {
+		t.Fatalf("Reset status %d", status)
+	}
+	_, cx0 := getRedfish(t, httpClient, base+"/UpdateService/FirmwareInventory/FW_CX_0")
+	_, cx1 := getRedfish(t, httpClient, base+"/UpdateService/FirmwareInventory/FW_CX_1")
+	if cx0["Version"] != config.PlaceholderVersion || cx1["Version"] != "82.48.4004" {
+		t.Fatalf("after the FW_CX_1 update FW_CX_0 %v FW_CX_1 %v", cx0["Version"], cx1["Version"])
+	}
+
+	if status := postMultipartUpdate(t, httpClient, update, `{"Targets":[`+fwURI("FW_BMC_0")+`,`+fwURI("SBIOS_FW_0")+`]}`); status != http.StatusAccepted {
+		t.Fatalf("FW_BMC_0 and SBIOS_FW_0 update status %d", status)
+	}
+	if bmc, sbios, erot := inactive("FW_BMC_0"), inactive("SBIOS_FW_0"), inactive("FW_ERoT_BMC_0"); bmc != "BF4-26.07-0005" || sbios != "26.08-0007" || erot != "" {
+		t.Fatalf("staged bmc %q sbios %q erot %q", bmc, sbios, erot)
+	}
+	if status := postRedfish(t, httpClient, base+"/UpdateService/Actions/Oem/NvidiaUpdateService.CommitImage", "{}"); status != http.StatusOK {
+		t.Fatalf("CommitImage status %d", status)
+	}
+	_, bmcFW := getRedfish(t, httpClient, base+"/UpdateService/FirmwareInventory/FW_BMC_0")
+	if _, state := inactiveSlotVersion(t, bmcFW); state != "PendingActivation" {
+		t.Fatalf("FW_BMC_0 after CommitImage state %q", state)
+	}
+	if status := postMultipartUpdate(t, httpClient, update, `{"Targets":[`+fwURI("FW_BMC_0")+`]}`); status != http.StatusAccepted {
+		t.Fatalf("replacement FW_BMC_0 update status %d", status)
+	}
+	_, bmcFW = getRedfish(t, httpClient, base+"/UpdateService/FirmwareInventory/FW_BMC_0")
+	if version, state := inactiveSlotVersion(t, bmcFW); version != "BF4-26.07-0005" || state != "Inactive" {
+		t.Fatalf("replacement FW_BMC_0 version %q state %q, want Inactive", version, state)
 	}
 }

@@ -52,6 +52,7 @@ var routes = []route{
 	{"Manager", http.MethodGet, "/redfish/v1/Managers/{manager}", (*Server).handleManager},
 
 	// Chassis, system and NIC resources.
+	{"Chassis", http.MethodGet, "/redfish/v1/Chassis", (*Server).handleChassisCollection},
 	{"Chassis", http.MethodGet, "/redfish/v1/Chassis/{chassis}", (*Server).handleChassis},
 	{"System", http.MethodGet, "/redfish/v1/Systems/{system}", (*Server).handleSystem},
 	{"SystemOem", http.MethodGet, "/redfish/v1/Systems/{system}/Oem/Nvidia", (*Server).handleProductDescription},
@@ -63,12 +64,19 @@ var routes = []route{
 	{"SELEntries", http.MethodGet, "/redfish/v1/Systems/{system}/LogServices/SEL/Entries", (*Server).handleSELEntries},
 	{"SystemSettings", http.MethodGet, "/redfish/v1/Systems/{system}/Settings", (*Server).handleSystemSettings},
 	{"SystemSettings", http.MethodPatch, "/redfish/v1/Systems/{system}/Settings", (*Server).handleSystemSettings},
+	{"NetworkAdapter", http.MethodGet, "/redfish/v1/Chassis/{chassis}/NetworkAdapters", (*Server).handleNetworkAdapterCollection},
+	{"NetworkAdapter", http.MethodGet, "/redfish/v1/Chassis/{chassis}/NetworkAdapters/{adapter}", (*Server).handleNetworkAdapter},
+	{"NetworkPort", http.MethodGet, "/redfish/v1/Chassis/{chassis}/NetworkAdapters/{adapter}/Ports", (*Server).handleNetworkPorts},
+	{"NetworkPort", http.MethodGet, "/redfish/v1/Chassis/{chassis}/NetworkAdapters/{adapter}/Ports/{port}", (*Server).handleNetworkPort},
+	{"Drive", http.MethodGet, "/redfish/v1/Chassis/{chassis}/Drives/{drive}", (*Server).handleDrive},
+	{"Processor", http.MethodGet, "/redfish/v1/Systems/{system}/Processors/{processor}", (*Server).handleProcessor},
 	{"NetworkDeviceFunction", http.MethodGet, "/redfish/v1/Chassis/{chassis}/NetworkAdapters/{adapter}/NetworkDeviceFunctions/{pf}", (*Server).handleNetworkDeviceFunction},
 
 	// Power and reset.
 	{"ComputerSystem.Reset", http.MethodPost, "/redfish/v1/Systems/{system}/Actions/ComputerSystem.Reset", (*Server).handleSystemReset},
 	{"SOC.ForceReset", http.MethodPost, "/redfish/v1/Systems/{system}/Oem/Nvidia/SOC.ForceReset", (*Server).handleSOCForceReset},
 	{"NvidiaChassis.Reset", http.MethodPost, "/redfish/v1/Chassis/{chassis}/Actions/Oem/NvidiaChassis.Reset", (*Server).handleChassisReset},
+	{"NvidiaChassis.AuxPowerReset", http.MethodPost, "/redfish/v1/Chassis/{chassis}/Actions/Oem/NvidiaChassis.AuxPowerReset", (*Server).handleAuxPowerReset},
 
 	// Firmware parameters.
 	{"HostRshim.Set", http.MethodPost, "/redfish/v1/Systems/{system}/Oem/Nvidia/Actions/HostRshim.Set", (*Server).handleHostRshimSet},
@@ -95,12 +103,15 @@ var routes = []route{
 	{"UpdateService", http.MethodGet, "/" + rfclient.RedfishAPIs.Path("APIUpdateFW"), (*Server).handleUpdateServiceGet},
 	{"UpdateService", http.MethodPost, "/" + rfclient.RedfishAPIs.Path("APIUpdateFW"), (*Server).handleBMCFirmwarePush},
 	{"UpdateService.SimpleUpdate", http.MethodPost, "/" + rfclient.RedfishAPIs.Path("APIInstallBFB"), (*Server).handleSimpleUpdate},
+	{"FirmwareInventory", http.MethodGet, "/redfish/v1/UpdateService/FirmwareInventory", (*Server).handleFirmwareInventoryCollection},
 	{"FirmwareInventory", http.MethodGet, "/redfish/v1/UpdateService/FirmwareInventory/{id}", (*Server).handleFirmwareInventory},
 	{"UpdateMultipart", http.MethodPost, "/" + rfclient.RedfishAPIs.Path("APIUpdateBluefieldFWMultipart"), (*Server).handleUpdateMultipart},
+	{"NvidiaUpdateService.CommitImage", http.MethodPost, "/redfish/v1/UpdateService/Actions/Oem/NvidiaUpdateService.CommitImage", (*Server).handleCommitImage},
 	{"UpdateService.Activate", http.MethodPost, "/" + rfclient.RedfishAPIs.Path("APIActivatePendingBundle"), (*Server).handleActivatePendingBundle},
 	{"Task", http.MethodGet, "/redfish/v1/TaskService/Tasks/{id}", (*Server).handleTask},
 
 	// Virtual media.
+	{"VirtualMedia", http.MethodGet, "/redfish/v1/Managers/{manager}/VirtualMedia", (*Server).handleVirtualMediaCollection},
 	{"VirtualMedia", http.MethodGet, "/redfish/v1/Managers/{manager}/VirtualMedia/{media}", (*Server).handleVirtualMediaGet},
 	{"VirtualMedia", http.MethodPost, "/redfish/v1/Managers/{manager}/VirtualMedia/{media}/Actions/{action}", (*Server).handleVirtualMediaAction},
 }

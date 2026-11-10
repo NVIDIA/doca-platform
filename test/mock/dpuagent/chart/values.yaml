@@ -13,7 +13,7 @@ imagePullSecrets: []
 # Rendered verbatim into the ConfigMap mounted at /etc/mock-dpuagent/config.yaml and shared by
 # every replica. See test/mock/dpuagent/pkg/config/config.go for the fields.
 mockConfig:
-  # -- mockConfig.dpuType is required and selects the Redfish personality and the install flow the mock emulates: bf3 installs a BFB, bf4 installs an OS ISO and applies a PLDM bundle.
+  # -- mockConfig.dpuType is required and selects the Redfish personality and the install flow the mock emulates: bf3 installs a BFB, bf4 installs an OS ISO and applies a PLDM bundle, bf4-cmx serves the v0.2 Vera BMC tree for one CMX node (two CX9s, inactive firmware slots on BMC/ERoT/SBIOS only, USB1/USB2 virtual media, CommitImage, Node AC cycle) and installs its OS from the config ISO inserted on USB2 at the next ComputerSystem.Reset.
   dpuType: bf3
   bmc:
     # -- mockConfig.bmc.psid is the PSID the BMC reports. bf4 only: it must be a key of BlueFieldSoftware.spec.pldmFwBundle, and the bundle at that key must carry an image for this PSID.

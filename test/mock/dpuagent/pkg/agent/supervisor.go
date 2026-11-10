@@ -220,7 +220,7 @@ func (s *Supervisor) installIdentity(art []byte) (*Identity, string, error) {
 	var userData []byte
 	var err error
 	switch s.cfg.DPUType {
-	case config.DPUTypeBF4:
+	case config.DPUTypeBF4, config.DPUTypeBF4CMX:
 		userData, err = artifact.UserDataFromSeedISO(art, filepath.Join(s.workDir, seedISOFile))
 	default:
 		userData, err = artifact.UserDataFromBFCFG(art)

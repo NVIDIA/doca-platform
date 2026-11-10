@@ -62,7 +62,7 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateServiceGet(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	body := map[string]interface{}{
 		"@odata.id":            "/redfish/v1/UpdateService",
 		"@odata.type":          "#UpdateService.v1_10_0.UpdateService",
 		"Id":                   "UpdateService",
@@ -70,7 +70,34 @@ func (s *Server) handleUpdateServiceGet(w http.ResponseWriter, _ *http.Request) 
 		"HttpPushUri":          "/redfish/v1/UpdateService",
 		"MultipartHttpPushUri": "/redfish/v1/UpdateService/update-multipart",
 		"FirmwareInventory":    odata("/redfish/v1/UpdateService/FirmwareInventory"),
-	})
+	}
+	if s.state.Personality().IsCMX() {
+		body["@odata.type"] = "#UpdateService.v1_11_1.UpdateService"
+		body["MultipartHttpPushUri@Redfish.OperationApplyTimeSupport"] = map[string]interface{}{
+			"@odata.type":     "#Settings.v1_3_3.OperationApplyTimeSupport",
+			"SupportedValues": []string{"OnReset", "Immediate"},
+		}
+		body["Actions"] = map[string]interface{}{
+			"Oem": map[string]interface{}{
+				"#NvidiaUpdateService.CommitImage": map[string]interface{}{
+					"target": "/redfish/v1/UpdateService/Actions/Oem/NvidiaUpdateService.CommitImage",
+				},
+			},
+		}
+	}
+	writeJSON(w, http.StatusOK, body)
+}
+
+// handleCommitImage implements NvidiaUpdateService.CommitImage. The action takes no parameters and
+// does not change the running version. It marks a staged inactive slot as pending activation.
+func (s *Server) handleCommitImage(w http.ResponseWriter, r *http.Request) {
+	if !s.state.Personality().IsCMX() {
+		writeError(w, http.StatusNotFound, "Base.1.18.1.ResourceMissingAtURI", "The resource at the URI "+r.URL.Path+" was not found.")
+		return
+	}
+	s.state.CommitStagedImage()
+	klog.InfoS("Redfish NvidiaUpdateService.CommitImage")
+	writeJSON(w, http.StatusOK, odata(r.URL.Path))
 }
 
 // handleBMCFirmwarePush is the BF3 BMC firmware HttpPushUri upload. The controller only requires the
@@ -93,6 +120,22 @@ func mustTask(st *State, id string) Task {
 	return t
 }
 
+// handleFirmwareInventoryCollection lists firmware inventory members.
+func (s *Server) handleFirmwareInventoryCollection(w http.ResponseWriter, _ *http.Request) {
+	ids := s.state.FirmwareIDs()
+	members := make([]map[string]interface{}, 0, len(ids))
+	for _, id := range ids {
+		members = append(members, odata("/redfish/v1/UpdateService/FirmwareInventory/"+id))
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"@odata.id":           "/redfish/v1/UpdateService/FirmwareInventory",
+		"@odata.type":         "#SoftwareInventoryCollection.SoftwareInventoryCollection",
+		"Name":                "Software Inventory Collection",
+		"Members":             members,
+		"Members@odata.count": len(members),
+	})
+}
+
 func (s *Server) handleFirmwareInventory(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	version, ok := s.state.FirmwareVersion(id)
@@ -100,7 +143,7 @@ func (s *Server) handleFirmwareInventory(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusNotFound, "Base.1.18.1.ResourceMissingAtURI", "The resource at the URI "+r.URL.Path+" was not found.")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	body := map[string]interface{}{
 		"@odata.id":   r.URL.Path,
 		"@odata.type": "#SoftwareInventory.v1_4_0.SoftwareInventory",
 		"Id":          id,
@@ -108,7 +151,44 @@ func (s *Server) handleFirmwareInventory(w http.ResponseWriter, r *http.Request)
 		"Version":     version,
 		"Updateable":  true,
 		"Status":      map[string]interface{}{"State": "Enabled", "Health": "OK"},
-	})
+	}
+	p := s.state.Personality()
+	if member, ok := p.firmwareMember(id); ok && member.ReportRelated {
+		items := make([]map[string]interface{}, 0, len(member.Related))
+		for _, related := range member.Related {
+			items = append(items, odata(related))
+		}
+		body["RelatedItem"] = items
+	} else if nic, ok := p.nicSlot(id); ok {
+		body["RelatedItem"] = []map[string]interface{}{odata("/redfish/v1/Chassis/" + nic.ChassisID)}
+	}
+	if member, ok := p.firmwareMember(id); ok && member.DualSlot {
+		inactiveVersion, inactiveState, staged := s.state.InactiveSlot(id)
+		if !staged {
+			inactiveVersion = ""
+			inactiveState = "Unknown"
+		}
+		body["Oem"] = map[string]interface{}{
+			"Nvidia": map[string]interface{}{
+				"@odata.type": "#NvidiaSoftwareInventory.v1_2_0.NvidiaSoftwareInventory",
+				"ActiveFirmwareSlot": map[string]interface{}{
+					"SlotId":                   0,
+					"Version":                  version,
+					"FirmwareComparisonNumber": 0,
+					"BuildType":                "Development",
+					"FirmwareState":            "Activated",
+				},
+				"InactiveFirmwareSlot": map[string]interface{}{
+					"SlotId":                   1,
+					"Version":                  inactiveVersion,
+					"FirmwareComparisonNumber": 0,
+					"BuildType":                "Development",
+					"FirmwareState":            inactiveState,
+				},
+			},
+		}
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 // handleSimpleUpdate starts a download of ImageURI for the single target the controller names and
@@ -270,6 +350,7 @@ func (s *Server) handleUpdateMultipart(w http.ResponseWriter, r *http.Request) {
 	var (
 		pkg         *artifact.PLDMPackage
 		forceUpdate bool
+		targets     []string
 		payloadSize int64
 	)
 	for {
@@ -292,10 +373,15 @@ func (s *Server) handleUpdateMultipart(w http.ResponseWriter, r *http.Request) {
 			payloadSize, _ = io.Copy(io.Discard, part)
 		case "UpdateParameters":
 			var params struct {
-				ForceUpdate bool `json:"ForceUpdate"`
+				ForceUpdate bool     `json:"ForceUpdate"`
+				Targets     []string `json:"Targets"`
 			}
-			_ = json.NewDecoder(part).Decode(&params)
+			if err := json.NewDecoder(part).Decode(&params); err != nil {
+				writeError(w, http.StatusBadRequest, "Base.1.18.1.MalformedJSON", "invalid UpdateParameters: "+err.Error())
+				return
+			}
 			forceUpdate = params.ForceUpdate
+			targets = params.Targets
 		default:
 			_, _ = io.Copy(io.Discard, part)
 		}
@@ -308,7 +394,16 @@ func (s *Server) handleUpdateMultipart(w http.ResponseWriter, r *http.Request) {
 		klog.InfoS("PLDM bundle CX9 PSID differs from the configured board PSID; the controller will report the mismatch",
 			"bundlePSID", pkg.Versions.NICPSID, "boardPSID", s.state.PSID())
 	}
-	s.state.SetPendingBundle(pkg.Versions)
+	if s.state.Personality().IsCMX() {
+		only, err := s.cmxUpdateTargets(targets, pkg.Versions)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "Base.1.18.1.PropertyValueNotInList", err.Error())
+			return
+		}
+		s.state.SetPendingBundleTargets(pkg.Versions, only)
+	} else {
+		s.state.SetPendingBundle(pkg.Versions)
+	}
 	task := s.state.NewTask("PLDM firmware update")
 	if hold := s.delays.Draw(provisioningv1.DPUUpdateFirmware, phasedelay.StepFirmwareTask, 1); hold > 0 {
 		go func() {
@@ -324,7 +419,37 @@ func (s *Server) handleUpdateMultipart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, taskResponse(mustTask(s.state, task.ID)))
 }
 
+// cmxUpdateTargets resolves the Targets of a multipart update on a CMX BMC. Each target must be
+// the full FirmwareInventory member URI, and the bundle must carry a version for that member. No
+// Targets means every component of the bundle. It returns the inventory ids to stage, or an error
+// naming a target that is not a member or has no version in the bundle.
+func (s *Server) cmxUpdateTargets(targets []string, v artifact.PLDMVersions) (map[string]struct{}, error) {
+	if len(targets) == 0 {
+		return nil, nil
+	}
+	const prefix = "/redfish/v1/UpdateService/FirmwareInventory/"
+	only := make(map[string]struct{}, len(targets))
+	for _, target := range targets {
+		id := strings.TrimPrefix(target, prefix)
+		if id == target || id == "" || strings.Contains(id, "/") {
+			return nil, fmt.Errorf("target %s is not a firmware inventory member", target)
+		}
+		if _, ok := s.state.FirmwareVersion(id); !ok {
+			return nil, fmt.Errorf("target %s is not a firmware inventory member", target)
+		}
+		if !s.state.Personality().bundleCarries(v, id) {
+			return nil, fmt.Errorf("target %s has no version in the PLDM bundle", target)
+		}
+		only[id] = struct{}{}
+	}
+	return only, nil
+}
+
 func (s *Server) handleActivatePendingBundle(w http.ResponseWriter, r *http.Request) {
+	if s.state.Personality().IsCMX() {
+		writeError(w, http.StatusNotFound, "Base.1.18.1.ResourceMissingAtURI", "The resource at the URI "+r.URL.Path+" was not found.")
+		return
+	}
 	if !s.state.ActivatePendingBundle() {
 		writeError(w, http.StatusBadRequest, "Update.1.0.ActivateFailed", "no pending bundle to activate")
 		return
