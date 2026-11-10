@@ -151,6 +151,10 @@ func (r *DPUDeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 func (r *DPUDeviceReconciler) reconcileDelete(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
+	if err := r.clearRejectedFactoryResetSecret(ctx, dpuDevice); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to clear BMC factory-reset rejection annotation: %w", err)
+	}
+
 	if controllerutil.ContainsFinalizer(dpuDevice, provisioningv1.SPIFFEDeregistrationFinalizer) {
 		// Keep SPIFFE identity and credentials available until the DPU releases the device.
 		if controllerutil.ContainsFinalizer(dpuDevice, provisioningv1.DPUDeviceFinalizer) {
