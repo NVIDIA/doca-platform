@@ -55,6 +55,31 @@ type dpuServiceStatus struct {
 	service *dpuservicev1.DPUService
 	// disruptive reflects whether the DPUService is undergoing a disruptive operation
 	disruptive bool
+	// applyNodeEffect reflects whether the DPUService, and its DPUServiceInterfaces, are updated disruptively. It is
+	// derived from the upgrade policy of the DPUService and from whether any of its dependencies is undergoing a
+	// disruptive operation in this reconcile, see shouldApplyNodeEffect.
+	applyNodeEffect bool
+	// versionDigest is the digest of the DPUService after the dependencies are templated in its values. It is shared with
+	// the DPUServiceInterfaces so that both are synced.
+	versionDigest string
+	// interfaceNames holds the names of the DPUServiceInterfaces that the DPUService refers to.
+	interfaceNames interfaceNameToDPUServiceInterfaceName
+}
+
+// shouldApplyNodeEffect returns whether a service must be updated disruptively. That is the case when the upgrade policy
+// of its DPUServiceConfiguration applies the node effect, or when any of the services it depends on is undergoing a
+// disruptive operation in this reconcile. The latter is needed because the name of a disruptive service changes with
+// every revision and that name is rendered in the configuration of its dependents. Updating a dependent in place would
+// point it to a revision that is not running yet. A dependent that changes on its own, while its dependencies are not
+// disruptively updated, keeps following its own upgrade policy.
+// The dependencies must already be in patchedDPUServices, which is the case when the services are walked in dependency
+// order.
+func shouldApplyNodeEffect(serviceConfig *dpuservicev1.DPUServiceConfiguration, dependsOn []dpuservicev1.LocalObjectDependency, patchedDPUServices map[string]dpuServiceStatus) bool {
+	disruptive := serviceConfig.Spec.UpgradePolicy.ShouldApplyNodeEffect()
+	for _, dependency := range dependsOn {
+		disruptive = disruptive || patchedDPUServices[dependency.Name].disruptive
+	}
+	return disruptive
 }
 
 // reconcileDPUServices reconciles the DPUServices created by the DPUDeployment.
@@ -64,7 +89,6 @@ func reconcileDPUServices(
 	c client.Client,
 	dpuDeployment *dpuservicev1.DPUDeployment,
 	dependencies *dpuDeploymentDependencies,
-	interfaceNameByServiceName map[string]interfaceNameToDPUServiceInterfaceName,
 	dpuNodeLabels map[string]string,
 ) (ctrl.Result, map[string]dpuServiceStatus, bool, error) {
 	owner := metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)
@@ -98,6 +122,17 @@ func reconcileDPUServices(
 		existingDPUServicesMap[dpuService.Name] = dpuService
 	}
 
+	// Get all existing DPUServiceInterfaces, used to decide the names of the DPUServiceInterfaces each DPUService refers to
+	existingDPUServiceInterfaces := &dpuservicev1.DPUServiceInterfaceList{}
+	if err := c.List(ctx,
+		existingDPUServiceInterfaces,
+		client.MatchingLabels{
+			dpuservicev1.ParentDPUDeploymentNameLabel: getParentDPUDeploymentLabelValue(client.ObjectKeyFromObject(dpuDeployment)),
+		},
+		client.InNamespace(dpuDeployment.Namespace)); err != nil {
+		return ctrl.Result{}, nil, false, fmt.Errorf("failed to list existing DPUServiceInterfaces: %w", err)
+	}
+
 	// get an ordered list of the DPUServices
 	sortedServices, err := servicesTopologicalSort(dpuDeployment)
 	if err != nil {
@@ -124,13 +159,22 @@ func reconcileDPUServices(
 			}
 			serviceConfig.Spec.ServiceConfiguration.HelmChart.Values = rendered
 		}
+		// The digest is calculated after the dependencies are templated in the values, so that it matches the one
+		// stored in the existing DPUServices and DPUServiceInterfaces.
 		versionDigest := calculateDPUServiceVersionDigest(serviceConfig, serviceTemplate)
+		applyNodeEffect := shouldApplyNodeEffect(serviceConfig, dpuDeployment.Spec.Services[serviceName].DependsOn, patchedDPUServices)
+		interfaceNames := constructCurrentDPUServiceInterfaceNamesForService(dpuDeployment,
+			serviceName,
+			dependencies,
+			versionDigest,
+			existingDPUServiceInterfaces,
+			applyNodeEffect)
 		newRevision, err := generateDPUService(client.ObjectKeyFromObject(dpuDeployment),
 			owner,
 			serviceName,
 			serviceConfig,
 			serviceTemplate,
-			interfaceNameByServiceName[serviceName],
+			interfaceNames,
 			versionDigest,
 			dpuClusterSelector,
 		)
@@ -161,7 +205,7 @@ func reconcileDPUServices(
 			isDisruptiveService = isDisruptiveUpgradeOngoing
 		case len(oldRevisions) > 0:
 			// we have only previous revisions
-			req, isDisruptive, err := reconcileDPUServiceWithOldRevisions(ctx, c, newRevision, oldRevisions, serviceName, dpuDeployment, serviceConfig, dpuNodeLabels, existingDPUServicesMap)
+			req, isDisruptive, err := reconcileDPUServiceWithOldRevisions(ctx, c, newRevision, oldRevisions, serviceName, dpuDeployment, serviceConfig, dpuNodeLabels, existingDPUServicesMap, applyNodeEffect)
 			if err != nil {
 				errs = append(errs, err)
 				continue
@@ -176,7 +220,8 @@ func reconcileDPUServices(
 			isDisruptiveService = isDisruptive
 		default:
 			// no previous version, we are creating a new one
-			isDisruptive := reconcileNewDPUServiceRevision(newRevision, serviceName, dpuDeployment, serviceConfig, dpuNodeLabels)
+			reconcileNewDPUServiceRevision(newRevision, serviceName, dpuDeployment, serviceConfig, dpuNodeLabels)
+			isDisruptive := applyNodeEffect
 			hasDisruptiveChanges = hasDisruptiveChanges || isDisruptive
 			// Mark this specific service as disruptive
 			isDisruptiveService = isDisruptive
@@ -193,8 +238,11 @@ func reconcileDPUServices(
 		}
 
 		patchedDPUServices[serviceName] = dpuServiceStatus{
-			service:    newRevision,
-			disruptive: isDisruptiveService,
+			service:         newRevision,
+			disruptive:      isDisruptiveService,
+			applyNodeEffect: applyNodeEffect,
+			versionDigest:   versionDigest,
+			interfaceNames:  interfaceNames,
 		}
 	}
 
@@ -217,12 +265,11 @@ func reconcileDPUServices(
 // reconcileNewDPUServiceRevision reconciles a new revision of the DPUService.
 // It accepts a new DPUService object and the DPUService name as defined in the DPUDeployment.
 // It sets the nodeSelector for the DPUService and updates the DPUNodeLabels.
-// Returns true if this is a disruptive service.
 func reconcileNewDPUServiceRevision(newRevision *dpuservicev1.DPUService, serviceName string,
 	dpuDeployment *dpuservicev1.DPUDeployment,
 	serviceConfig *dpuservicev1.DPUServiceConfiguration,
 	dpuNodeLabels map[string]string,
-) bool {
+) {
 
 	var dpuServiceNodeSelector *corev1.NodeSelector
 	if !serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster() {
@@ -239,9 +286,6 @@ func reconcileNewDPUServiceRevision(newRevision *dpuservicev1.DPUService, servic
 		dpuNodeLabels,
 		client.ObjectKeyFromObject(dpuDeployment),
 		serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster())
-
-	// Return true if this is a disruptive service
-	return serviceConfig.Spec.UpgradePolicy.ShouldApplyNodeEffect()
 }
 
 // reconcileDPUServiceWithOldRevisions reconciles a new revision of the DPUService and the old revisions.
@@ -253,11 +297,12 @@ func reconcileDPUServiceWithOldRevisions(ctx context.Context, c client.Client, n
 	dpuDeployment *dpuservicev1.DPUDeployment,
 	serviceConfig *dpuservicev1.DPUServiceConfiguration,
 	dpuNodeLabels map[string]string,
-	existingDPUServicesMap map[string]dpuservicev1.DPUService) (ctrl.Result, bool, error) {
+	existingDPUServicesMap map[string]dpuservicev1.DPUService,
+	disruptive bool) (ctrl.Result, bool, error) {
 	nodeLabelValue := newRevision.Name
 	var toRetain []client.Object
 	isDisruptive := false
-	if serviceConfig.Spec.UpgradePolicy.ShouldApplyNodeEffect() {
+	if disruptive {
 		// Mark this as a disruptive change
 		isDisruptive = true
 		// the logic regarding the previous revisions is as follows:

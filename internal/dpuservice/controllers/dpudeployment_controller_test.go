@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -1041,6 +1042,30 @@ var _ = Describe("DPUDeployment Controller", func() {
 					}
 					return dpuDeployment
 				}(), nil, true),
+			)
+		})
+		Context("Should apply node effect", func() {
+			DescribeTable("Validate",
+				func(applyNodeEffect *bool, dependencies map[string]bool, expected bool) {
+					serviceConfig := &dpuservicev1.DPUServiceConfiguration{
+						Spec: dpuservicev1.DPUServiceConfigurationSpec{
+							UpgradePolicy: dpuservicev1.UpgradePolicy{ApplyNodeEffect: applyNodeEffect},
+						},
+					}
+					dependsOn := make([]dpuservicev1.LocalObjectDependency, 0, len(dependencies))
+					patchedDPUServices := map[string]dpuServiceStatus{}
+					for name, disruptive := range dependencies {
+						dependsOn = append(dependsOn, dpuservicev1.LocalObjectDependency{Name: name})
+						patchedDPUServices[name] = dpuServiceStatus{disruptive: disruptive}
+					}
+					Expect(shouldApplyNodeEffect(serviceConfig, dependsOn, patchedDPUServices)).To(Equal(expected))
+				},
+				Entry("a service with no policy is disruptive", nil, nil, true),
+				Entry("a non-disruptive service with no dependencies stays non-disruptive", ptr.To(false), nil, false),
+				Entry("a disruptive service stays disruptive when its dependencies are not disruptively updated", ptr.To(true), map[string]bool{"a": false}, true),
+				Entry("a non-disruptive service stays non-disruptive when its dependencies are not disruptively updated", ptr.To(false), map[string]bool{"a": false}, false),
+				Entry("a non-disruptive service becomes disruptive when a dependency is disruptively updated", ptr.To(false), map[string]bool{"a": true}, true),
+				Entry("a non-disruptive service becomes disruptive when any of its dependencies is disruptively updated", ptr.To(false), map[string]bool{"a": false, "b": true}, true),
 			)
 		})
 		Context("Get Aggregated DPUClusterSelector", func() {
@@ -7042,6 +7067,161 @@ var _ = Describe("DPUDeployment Controller", func() {
 					g.Expect(gotDPUService3.Spec.HelmChart.Values.Raw).To(Equal([]byte(gotValue)))
 				}).WithTimeout(30 * time.Second).Should(Succeed())
 			})
+			DescribeTable("should handle an update of a service according to the disruptiveness of its dependent", func(producerApplyNodeEffect, consumerApplyNodeEffect *bool, updateConsumer bool, expectedProducerCount, expectedConsumerCount int) {
+				By("Creating the dependencies")
+				createService := func(name string, values string, applyNodeEffect *bool, interfaces ...dpuservicev1.ServiceInterfaceTemplate) {
+					dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)
+					dpuServiceConfiguration.Name = name
+					dpuServiceConfiguration.Spec.DeploymentServiceName = name
+					dpuServiceConfiguration.Spec.UpgradePolicy = dpuservicev1.UpgradePolicy{ApplyNodeEffect: applyNodeEffect}
+					dpuServiceConfiguration.Spec.Interfaces = interfaces
+					dpuServiceConfiguration.Spec.ServiceConfiguration.HelmChart.Values = &runtime.RawExtension{Raw: []byte(values)}
+					Expect(testClient.Create(ctx, dpuServiceConfiguration)).To(Succeed())
+					DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceConfiguration)
+
+					dpuServiceTemplate := getMinimalDPUServiceTemplate(testNS.Name)
+					dpuServiceTemplate.Name = name
+					dpuServiceTemplate.Spec.DeploymentServiceName = name
+					Expect(testClient.Create(ctx, dpuServiceTemplate)).To(Succeed())
+					DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuServiceTemplate)
+					patchDPUServiceTemplateWithStatus(dpuServiceTemplate)
+				}
+				createService("producer", `{"key":"value1"}`, producerApplyNodeEffect)
+				// The name of the producer DPUService is rendered in the values of the consumer.
+				createService("consumer", `{"producerName":"{{ .Services.producer.Name }}"}`, consumerApplyNodeEffect,
+					dpuservicev1.ServiceInterfaceTemplate{Name: "if1", Network: "nad1"})
+
+				By("Creating the DPUDeployment")
+				dpuDeployment := getMinimalDPUDeployment(testNS.Name)
+				dpuDeployment.Spec.DPUs.BFB = ptr.To("somebfb")
+				dpuDeployment.Spec.Services = map[string]dpuservicev1.DPUDeploymentServiceConfiguration{
+					"producer": {ServiceTemplate: "producer", ServiceConfiguration: "producer"},
+					"consumer": {
+						ServiceTemplate:      "consumer",
+						ServiceConfiguration: "consumer",
+						DependsOn:            []dpuservicev1.LocalObjectDependency{{Name: "producer"}},
+					},
+				}
+				Expect(testClient.Create(ctx, dpuDeployment)).To(Succeed())
+				DeferCleanup(testutils.CleanupAndWait, ctx, testClient, dpuDeployment)
+
+				countDPUServices := func(g Gomega, serviceName string) int {
+					dpuServiceList := &dpuservicev1.DPUServiceList{}
+					g.Expect(testClient.List(ctx, dpuServiceList, client.InNamespace(testNS.Name),
+						client.MatchingLabels{dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: serviceName})).To(Succeed())
+					for _, dpuService := range dpuServiceList.Items {
+						g.Expect(dpuService.OwnerReferences).To(ConsistOf(*metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)))
+					}
+					return len(dpuServiceList.Items)
+				}
+
+				By("checking that one DPUService is created for each service")
+				Eventually(func(g Gomega) {
+					g.Expect(countDPUServices(g, "producer")).To(Equal(1))
+					g.Expect(countDPUServices(g, "consumer")).To(Equal(1))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				// The read and the patch are retried together to handle conflicts with the controllers.
+				updateValues := func(name, values string) {
+					Eventually(func(g Gomega) {
+						dpuServiceConfiguration := &dpuservicev1.DPUServiceConfiguration{}
+						g.Expect(testClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: name}, dpuServiceConfiguration)).To(Succeed())
+						original := dpuServiceConfiguration.DeepCopy()
+						dpuServiceConfiguration.Spec.ServiceConfiguration.HelmChart.Values = &runtime.RawExtension{Raw: []byte(values)}
+						g.Expect(testClient.Patch(ctx, dpuServiceConfiguration, client.MergeFrom(original))).To(Succeed())
+					}).WithTimeout(30 * time.Second).Should(Succeed())
+				}
+				if updateConsumer {
+					By("updating the consumer only")
+					updateValues("consumer", `{"producerName":"{{ .Services.producer.Name }}","key":"value2"}`)
+				} else {
+					By("updating the producer, which changes the name rendered in the consumer")
+					updateValues("producer", `{"key":"value2"}`)
+				}
+
+				By("checking the DPUServices of the producer and the consumer")
+				Eventually(func(g Gomega) {
+					g.Expect(countDPUServices(g, "producer")).To(Equal(expectedProducerCount))
+					g.Expect(countDPUServices(g, "consumer")).To(Equal(expectedConsumerCount))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+				if updateConsumer {
+					Consistently(func(g Gomega) {
+						g.Expect(countDPUServices(g, "producer")).To(Equal(expectedProducerCount))
+						g.Expect(countDPUServices(g, "consumer")).To(Equal(expectedConsumerCount))
+					}).WithTimeout(5 * time.Second).Should(Succeed())
+				}
+
+				By("checking that the consumer DPUServices refer to the producer DPUServices")
+				Eventually(func(g Gomega) {
+					listDPUServices := func(serviceName string) []dpuservicev1.DPUService {
+						dpuServiceList := &dpuservicev1.DPUServiceList{}
+						g.Expect(testClient.List(ctx, dpuServiceList, client.InNamespace(testNS.Name),
+							client.MatchingLabels{dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: serviceName})).To(Succeed())
+						return dpuServiceList.Items
+					}
+					producers := listDPUServices("producer")
+					producerNames := make([]string, 0, len(producers))
+					for _, producer := range producers {
+						producerNames = append(producerNames, producer.Name)
+					}
+					slices.Sort(producerNames)
+					// A new consumer revision refers to the new producer and an old one to the old producer.
+					consumers := listDPUServices("consumer")
+					renderedProducerNames := make([]string, 0, len(consumers))
+					for _, consumer := range consumers {
+						values := map[string]interface{}{}
+						g.Expect(json.Unmarshal(consumer.Spec.HelmChart.Values.Raw, &values)).To(Succeed())
+						g.Expect(values).To(HaveKeyWithValue("producerName", BeAssignableToTypeOf("")))
+						renderedProducerNames = append(renderedProducerNames, values["producerName"].(string))
+					}
+					// Compare as sets, as several consumer revisions can refer to the same producer.
+					slices.Sort(renderedProducerNames)
+					g.Expect(slices.Compact(renderedProducerNames)).To(Equal(producerNames))
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+
+				By("checking that every DPUServiceInterface referred to by the consumer DPUServices exists")
+				danglingInterfaces := func(g Gomega) []string {
+					dpuServiceList := &dpuservicev1.DPUServiceList{}
+					g.Expect(testClient.List(ctx, dpuServiceList, client.InNamespace(testNS.Name),
+						client.MatchingLabels{dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: "consumer"})).To(Succeed())
+					dpuServiceInterfaceList := &dpuservicev1.DPUServiceInterfaceList{}
+					g.Expect(testClient.List(ctx, dpuServiceInterfaceList, client.InNamespace(testNS.Name))).To(Succeed())
+					existing := map[string]dpuservicev1.DPUServiceInterface{}
+					for _, dpuServiceInterface := range dpuServiceInterfaceList.Items {
+						existing[dpuServiceInterface.Name] = dpuServiceInterface
+					}
+					var dangling []string
+					for _, dpuService := range dpuServiceList.Items {
+						dpuServiceOwnerRef := metav1.NewControllerRef(&dpuService, dpuservicev1.DPUServiceGroupVersionKind)
+						dpuServiceOwnerRef.Controller = ptr.To(false)
+						dpuServiceOwnerRef.BlockOwnerDeletion = ptr.To(false)
+						for _, name := range dpuService.Spec.Interfaces {
+							dpuServiceInterface, found := existing[name]
+							if !found {
+								dangling = append(dangling, fmt.Sprintf("%s -> %s", dpuService.Name, name))
+								continue
+							}
+							// The interface belongs to the deployment and to the DPUService revision that refers to it.
+							g.Expect(dpuServiceInterface.OwnerReferences).To(ContainElement(*metav1.NewControllerRef(dpuDeployment, dpuservicev1.DPUDeploymentGroupVersionKind)))
+							g.Expect(dpuServiceInterface.OwnerReferences).To(ContainElement(*dpuServiceOwnerRef))
+						}
+					}
+					return dangling
+				}
+				Eventually(func(g Gomega) {
+					g.Expect(danglingInterfaces(g)).To(BeEmpty())
+				}).WithTimeout(30 * time.Second).Should(Succeed())
+				// The names must be stable across reconciles, a name that changes every time never exists.
+				Consistently(func(g Gomega) {
+					g.Expect(danglingInterfaces(g)).To(BeEmpty())
+				}).WithTimeout(10 * time.Second).Should(Succeed())
+			},
+				Entry("a non-disruptive consumer of a disruptive producer gets a new revision when the producer is updated", nil, ptr.To(false), false, 2, 2),
+				Entry("a disruptive consumer of a disruptive producer gets a new revision when the producer is updated", nil, nil, false, 2, 2),
+				Entry("a non-disruptive consumer of a non-disruptive producer is patched in place when the producer is updated", ptr.To(false), ptr.To(false), false, 1, 1),
+				Entry("a non-disruptive consumer of a disruptive producer is patched in place when only the consumer is updated", nil, ptr.To(false), true, 1, 1),
+				Entry("a disruptive consumer of a disruptive producer gets a new revision when only the consumer is updated", nil, nil, true, 1, 2),
+			)
 			It("should report both the underlying failure and the dependency check failure when a dependency fails to be templated", func() {
 				By("Creating the dependencies")
 				dpuServiceConfiguration := getMinimalDPUServiceConfiguration(testNS.Name)

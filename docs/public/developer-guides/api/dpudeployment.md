@@ -278,7 +278,9 @@ rather than on the DPUs. When set to `true`, the service is deployed in the Host
 update should be disruptive or not. The default is `true`, which means that a new
 version of the service is created for every new version of the `DPUServiceConfiguration`
 and the node effect defined in the dpuset is triggered for the relevant nodes for
-the update to happen. If set to `false`, the service is updated non-disruptively.
+the update to happen. If set to `false`, the service is updated non-disruptively, unless a
+service it depends on is updated disruptively at the same time, see
+[Dependencies configuration](#dependencies-configuration).
 
 ### DPUFlavor
 
@@ -599,6 +601,16 @@ spec:
 In the above example, the `consumer` service depends on the `producer` service,
 and the `observer` service depends on both `producer` and `consumer` services.
 The services will not be deployed until their dependencies are deployed.
+
+A disruptive service gets a new `DPUService` with a new name for every new version, and that
+name can be rendered in the configuration of its dependents (see [Templating](#templating)).
+Updating a dependent in place would make it refer to a `DPUService` that is not running yet.
+For this reason, a service is updated disruptively when a service it depends on is updated
+disruptively at the same time, even when its `DPUServiceConfiguration` sets
+`spec.upgradePolicy.applyNodeEffect` to `false`. This also applies to services that depend on
+such a service, transitively. Both are updated together and each dependent revision refers to
+the matching revision of its dependency. A change that only affects the dependent, while its
+dependencies are not updated, follows the upgrade policy of the dependent.
 
 #### Templating
 

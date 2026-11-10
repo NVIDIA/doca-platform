@@ -101,6 +101,120 @@ func ValidateDPUDeploymentMetrics(ctx context.Context, input *systemTestInput) {
 	}).WithTimeout(5 * time.Second).Should(Succeed())
 }
 
+// ValidateDPUDeploymentDependentOfDisruptiveServiceGetsNewRevision validates that a non-disruptive DPUService that
+// depends on a disruptive one gets a new revision, referring to the new revision of its dependency, when the
+// dependency is updated disruptively.
+func ValidateDPUDeploymentDependentOfDisruptiveServiceGetsNewRevision(ctx context.Context, input *systemTestInput) {
+	const (
+		producerDiff = "dependency"
+		consumerDiff = "dependent"
+	)
+
+	By("Creating the dependency DPUService, which is disruptive by default")
+	producerTemplate := generateDPUServiceTemplate(input, producerDiff)
+	useDummyDPUServiceChart(producerTemplate)
+	producerTemplate.SetLabels(CleanupScope.It)
+	Expect(input.client.Create(ctx, producerTemplate)).To(Succeed())
+	producerConfiguration := generateServiceConfiguration(input, producerDiff)
+	producerConfiguration.SetLabels(CleanupScope.It)
+	Expect(input.client.Create(ctx, producerConfiguration)).To(Succeed())
+	producerKey := producerConfiguration.Spec.DeploymentServiceName
+
+	By("Creating the non-disruptive DPUService that renders the name of its dependency in its values")
+	consumerTemplate := generateDPUServiceTemplate(input, consumerDiff)
+	useDummyDPUServiceChart(consumerTemplate)
+	consumerTemplate.SetLabels(CleanupScope.It)
+	Expect(input.client.Create(ctx, consumerTemplate)).To(Succeed())
+	consumerConfiguration := generateServiceConfiguration(input, consumerDiff)
+	consumerConfiguration.SetLabels(CleanupScope.It)
+	consumerConfiguration.Spec.UpgradePolicy = dpuservicev1.UpgradePolicy{ApplyNodeEffect: ptr.To(false)}
+	consumerConfiguration.Spec.ServiceConfiguration.HelmChart.Values = &machineryruntime.RawExtension{
+		// The quotes are escaped because the template is part of a JSON string. The service key contains a dash, so the
+		// field access syntax can't be used.
+		Raw: []byte(fmt.Sprintf(`{"producerName":"{{ (index .Services \"%s\").Name }}"}`, producerKey)),
+	}
+	Expect(input.client.Create(ctx, consumerConfiguration)).To(Succeed())
+	consumerKey := consumerConfiguration.Spec.DeploymentServiceName
+
+	By("Creating the DPUDeployment")
+	dpuDeployment := generateDPUDeployment(input, producerDiff)
+	dpuDeployment.SetLabels(CleanupScope.It)
+	dpuDeployment.Spec.Services[consumerKey] = dpuservicev1.DPUDeploymentServiceConfiguration{
+		ServiceTemplate:      consumerTemplate.GetName(),
+		ServiceConfiguration: consumerConfiguration.GetName(),
+		DependsOn:            []dpuservicev1.LocalObjectDependency{{Name: producerKey}},
+	}
+	Expect(input.client.Create(ctx, dpuDeployment)).To(Succeed())
+
+	listDPUServices := func(g Gomega, serviceKey string) []dpuservicev1.DPUService {
+		dpuServiceList := &dpuservicev1.DPUServiceList{}
+		g.Expect(input.client.List(ctx, dpuServiceList,
+			client.InNamespace(dpuDeployment.GetNamespace()),
+			client.MatchingLabels{
+				"svc.dpu.nvidia.com/owned-by-dpudeployment":          fmt.Sprintf("%s_%s", dpuDeployment.GetNamespace(), dpuDeployment.GetName()),
+				dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: serviceKey,
+			})).To(Succeed())
+		return dpuServiceList.Items
+	}
+	// renderedProducerName returns the name of the dependency DPUService that is rendered in the values of the dependent.
+	renderedProducerName := func(g Gomega, consumer dpuservicev1.DPUService) string {
+		values := map[string]any{}
+		g.Expect(json.Unmarshal(consumer.Spec.HelmChart.Values.Raw, &values)).To(Succeed())
+		g.Expect(values).To(HaveKeyWithValue("producerName", BeAssignableToTypeOf("")))
+		return values["producerName"].(string)
+	}
+
+	By("Checking that the DPUServices are created and the dependent refers to its dependency")
+	var originalProducer, originalConsumer dpuservicev1.DPUService
+	Eventually(func(g Gomega) {
+		g.Expect(VerifyDeploymentUnderlyingObjectsCreated(ctx, g, input.client, dpuDeployment)).To(BeTrue())
+		producers := listDPUServices(g, producerKey)
+		consumers := listDPUServices(g, consumerKey)
+		g.Expect(producers).To(HaveLen(1))
+		g.Expect(consumers).To(HaveLen(1))
+		g.Expect(renderedProducerName(g, consumers[0])).To(Equal(producers[0].Name))
+		originalProducer, originalConsumer = producers[0], consumers[0]
+	}).WithTimeout(15 * time.Minute).WithPolling(time.Second).Should(Succeed())
+
+	By("Updating the dependency to trigger a disruptive upgrade")
+	Eventually(func(g Gomega) {
+		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(producerConfiguration), producerConfiguration)).To(Succeed())
+		original := producerConfiguration.DeepCopy()
+		if producerConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet == nil {
+			producerConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet = &dpuservicev1.DPUServiceConfigurationServiceDaemonSetValues{}
+		}
+		if producerConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels == nil {
+			producerConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels = map[string]string{}
+		}
+		producerConfiguration.Spec.ServiceConfiguration.ServiceDaemonSet.Labels["test-disruptive-upgrade"] = "true"
+		g.Expect(input.client.Patch(ctx, producerConfiguration, client.MergeFrom(original))).To(Succeed())
+	}).WithTimeout(30 * time.Second).Should(Succeed())
+
+	By("Checking that the dependent gets a new revision that refers to the new revision of its dependency")
+	Eventually(func(g Gomega) {
+		producerNames := map[string]struct{}{}
+		for _, producer := range listDPUServices(g, producerKey) {
+			producerNames[producer.Name] = struct{}{}
+		}
+		newProducerExists := false
+		for name := range producerNames {
+			newProducerExists = newProducerExists || name != originalProducer.Name
+		}
+		// The original revision can still exist, paused, until the new one is ready.
+		g.Expect(newProducerExists).To(BeTrue(), "the dependency should have a new revision")
+
+		var newConsumers []dpuservicev1.DPUService
+		for _, consumer := range listDPUServices(g, consumerKey) {
+			// Every revision of the dependent refers to an existing revision of the dependency.
+			g.Expect(producerNames).To(HaveKey(renderedProducerName(g, consumer)))
+			if consumer.Name != originalConsumer.Name {
+				newConsumers = append(newConsumers, consumer)
+			}
+		}
+		g.Expect(newConsumers).ToNot(BeEmpty(), "the dependent should have a new revision even though it is non-disruptive")
+	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
+}
+
 func ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx context.Context, input *systemTestInput) {
 	// This part is needed so that we can test that the deletion logic is able to delete all the DPUServices, even
 	// stale paused ones.

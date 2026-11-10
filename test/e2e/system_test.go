@@ -513,6 +513,9 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		It("verify DPUDeployment and DPUServiceInterface metrics", func() {
 			ValidateDPUDeploymentMetrics(ctx, input)
 		})
+		It("verify a non-disruptive DPUService gets a new revision when a disruptive dependency is updated", func() {
+			ValidateDPUDeploymentDependentOfDisruptiveServiceGetsNewRevision(ctx, input)
+		})
 		It("verify deletion on a disruptive upgrade with bad parameters so that the up to date DPUService never becomes ready", func() {
 			ValidateDPUDeploymentDeletionWhileDisruptiveUpgradeInProgress(ctx, input)
 		})

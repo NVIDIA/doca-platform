@@ -41,7 +41,7 @@ import (
 
 // interfaceNameToDPUServiceInterfaceName is a map that has as keys the interface names as defined in the
 // DPUServiceConfiguration and as value the DPUServiceInterface name associated with that interface. This type is meant
-// to ease readability of the output of constructDPUServiceInterfaceNames() and its consumers.
+// to ease readability of the output of constructCurrentDPUServiceInterfaceNamesForService() and its consumers.
 type interfaceNameToDPUServiceInterfaceName map[string]string
 
 // reconcileDPUServiceInterfaces reconciles the DPUServiceInterfaces created by the DPUDeployment.
@@ -51,7 +51,6 @@ func reconcileDPUServiceInterfaces(
 	scheme *runtime.Scheme,
 	dpuDeployment *dpuservicev1.DPUDeployment,
 	dependencies *dpuDeploymentDependencies,
-	interfaceNameByServiceName map[string]interfaceNameToDPUServiceInterfaceName,
 	dpuNodeLabels map[string]string,
 	patchedDPUServices map[string]dpuServiceStatus,
 ) (ctrl.Result, bool, error) {
@@ -103,8 +102,7 @@ func reconcileDPUServiceInterfaces(
 	// Create or update DPUServiceInterfaces to match what is defined in the DPUDeployment.
 	for serviceName := range dpuDeployment.Spec.Services {
 		serviceConfig := dependencies.DPUServiceConfigurations[serviceName]
-		serviceTemplate := dependencies.DPUServiceTemplates[serviceName]
-		versionDigest := calculateDPUServiceVersionDigest(serviceConfig, serviceTemplate)
+		versionDigest := patchedDPUServices[serviceName].versionDigest
 
 		currentDPUServiceClientObj, _ := getCurrentAndStaleDPUServices(serviceName, versionDigest, mergedDPUServices)
 		// One case where this can happen is if the DPUService was manually deleted
@@ -121,7 +119,7 @@ func reconcileDPUServiceInterfaces(
 
 		for _, serviceInterface := range dependencies.DPUServiceConfigurations[serviceName].Spec.Interfaces {
 			newRevision := generateDPUServiceInterface(
-				interfaceNameByServiceName[serviceName][serviceInterface.Name],
+				patchedDPUServices[serviceName].interfaceNames[serviceInterface.Name],
 				client.ObjectKeyFromObject(dpuDeployment),
 				[]metav1.OwnerReference{*dpuDeploymentOwnerRef, *dpuServiceOwnerRef},
 				serviceName,
@@ -151,7 +149,7 @@ func reconcileDPUServiceInterfaces(
 				hasDisruptiveChanges = hasDisruptiveChanges || isDisruptiveUpgradeOngoing
 			case len(oldRevisions) > 0:
 				// we have only previous revisions
-				req, isDisruptive := reconcileDPUServiceInterfaceWithOldRevisions(newRevision, oldRevisions, dpuDeployment, serviceConfig, existingDPUServiceInterfacesMap, currentDPUServiceNodeSelector)
+				req, isDisruptive := reconcileDPUServiceInterfaceWithOldRevisions(newRevision, oldRevisions, dpuDeployment, serviceConfig, existingDPUServiceInterfacesMap, currentDPUServiceNodeSelector, patchedDPUServices[serviceName].applyNodeEffect)
 				if !req.IsZero() {
 					requeue = req
 				}
@@ -159,7 +157,8 @@ func reconcileDPUServiceInterfaces(
 				hasDisruptiveChanges = hasDisruptiveChanges || isDisruptive
 			default:
 				// no previous version, we are creating a new one
-				isDisruptive := reconcileNewDPUServiceInterfaceRevision(newRevision, serviceConfig, currentDPUServiceNodeSelector)
+				reconcileNewDPUServiceInterfaceRevision(newRevision, serviceConfig, currentDPUServiceNodeSelector)
+				isDisruptive := patchedDPUServices[serviceName].applyNodeEffect
 				hasDisruptiveChanges = hasDisruptiveChanges || isDisruptive
 			}
 
@@ -220,16 +219,13 @@ func reconcileDPUServiceInterfaces(
 // current DPUService.
 // It sets the nodeSelector to the one matching the current DPUService in order for the DPUServiceInterface to match
 // the same nodes as the current DPUService.
-// Returns true if this is a disruptive service interface.
 func reconcileNewDPUServiceInterfaceRevision(newRevision *dpuservicev1.DPUServiceInterface,
 	serviceConfig *dpuservicev1.DPUServiceConfiguration,
 	currentDPUServiceNodeSelector *metav1.LabelSelector,
-) bool {
+) {
 	if !serviceConfig.Spec.ServiceConfiguration.ShouldDeployInCluster() {
 		newRevision.SetServiceInterfaceSetLabelSelector(currentDPUServiceNodeSelector)
 	}
-	// Return true if this is a disruptive service interface
-	return serviceConfig.Spec.UpgradePolicy.ShouldApplyNodeEffect()
 }
 
 // reconcileDPUServiceInterfaceWithOldRevisions reconciles a new revision of the DPUServiceInterface and the old revisions.
@@ -243,10 +239,11 @@ func reconcileDPUServiceInterfaceWithOldRevisions(newRevision *dpuservicev1.DPUS
 	serviceConfig *dpuservicev1.DPUServiceConfiguration,
 	existingDPUServiceInterfacesMap map[string]dpuservicev1.DPUServiceInterface,
 	currentDPUServiceNodeSelector *metav1.LabelSelector,
+	disruptive bool,
 ) (ctrl.Result, bool) {
 	var toRetain []client.Object
 	isDisruptive := false
-	if serviceConfig.Spec.UpgradePolicy.ShouldApplyNodeEffect() {
+	if disruptive {
 		// Mark this as a disruptive change
 		isDisruptive = true
 		toRetain = getRevisionHistoryLimitList(oldRevisions, *dpuDeployment.Spec.RevisionHistoryLimit-1)
@@ -428,40 +425,6 @@ func clientObjectToDPUServiceInterfaceList(oldRevisions []client.Object) []dpuse
 	return oldRevs
 }
 
-// constructDPUServiceInterfaceNames constructs a map that contains the DPUServiceInterface name associated with a service
-// interface as defined in the DPUServiceConfiguration, by service name.
-func constructDPUServiceInterfaceNames(ctx context.Context,
-	c client.Client,
-	dpuDeployment *dpuservicev1.DPUDeployment,
-	dependencies *dpuDeploymentDependencies,
-) (map[string]interfaceNameToDPUServiceInterfaceName, error) {
-
-	// Get all the existing DPUServiceInterfaces.
-	existingDPUServiceInterfaces := &dpuservicev1.DPUServiceInterfaceList{}
-	if err := c.List(ctx,
-		existingDPUServiceInterfaces,
-		client.MatchingLabels{
-			dpuservicev1.ParentDPUDeploymentNameLabel: getParentDPUDeploymentLabelValue(client.ObjectKeyFromObject(dpuDeployment)),
-		},
-		client.InNamespace(dpuDeployment.Namespace)); err != nil {
-		return nil, fmt.Errorf("failed to list existing DPUServiceInterfaces: %w", err)
-	}
-
-	interfaceNameByServiceName := make(map[string]interfaceNameToDPUServiceInterfaceName)
-	// Create or update DPUServices to match what is defined in the DPUDeployment.
-	for serviceName := range dpuDeployment.Spec.Services {
-		serviceConfig := dependencies.DPUServiceConfigurations[serviceName]
-		serviceTemplate := dependencies.DPUServiceTemplates[serviceName]
-		versionDigest := calculateDPUServiceVersionDigest(serviceConfig, serviceTemplate)
-		interfaceNameByServiceName[serviceName] = constructCurrentDPUServiceInterfaceNamesForService(dpuDeployment,
-			serviceName,
-			dependencies,
-			versionDigest,
-			existingDPUServiceInterfaces)
-	}
-	return interfaceNameByServiceName, nil
-}
-
 // constructCurrentDPUServiceInterfaceNamesForService constructs a map that has as key the name of the service interface
 // as defined in the DPUServiceConfiguration and as value the actual name of the current DPUServiceInterface to be
 // consumed by the current DPUService.
@@ -472,7 +435,8 @@ func constructCurrentDPUServiceInterfaceNamesForService(dpuDeployment *dpuservic
 	serviceName string,
 	dependencies *dpuDeploymentDependencies,
 	dpuServiceVersionDigest string,
-	existingDPUServiceInterfaces *dpuservicev1.DPUServiceInterfaceList) interfaceNameToDPUServiceInterfaceName {
+	existingDPUServiceInterfaces *dpuservicev1.DPUServiceInterfaceList,
+	disruptive bool) interfaceNameToDPUServiceInterfaceName {
 
 	serviceConfig := dependencies.DPUServiceConfigurations[serviceName]
 	interfacesFromDependencies := serviceConfig.Spec.Interfaces
@@ -492,7 +456,7 @@ func constructCurrentDPUServiceInterfaceNamesForService(dpuDeployment *dpuservic
 			m[serviceInterface.Name] = currentRevision.GetName()
 		case len(oldRevisions) > 0:
 			// If disruptive, use a newly generated name
-			if serviceConfig.Spec.UpgradePolicy.ShouldApplyNodeEffect() {
+			if disruptive {
 				m[serviceInterface.Name] = generatedServiceInterfaceName
 				continue
 			}
