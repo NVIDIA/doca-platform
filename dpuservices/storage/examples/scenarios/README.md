@@ -734,7 +734,7 @@ spec:
   metadata:
     labels:
       svc.dpu.nvidia.com/pool: storage-pool
-  ipv4Subnet:
+  subnet:
     subnet: "10.44.44.0/24"
     gateway: "10.44.44.1"
     perNodeIPCount: 20
@@ -1460,7 +1460,7 @@ spec:
   metadata:
     labels:
       svc.dpu.nvidia.com/pool: storage-pool
-  ipv4Subnet:
+  subnet:
     subnet: "10.44.44.0/24"
     gateway: "10.44.44.1"
     perNodeIPCount: 20
@@ -2189,7 +2189,7 @@ spec:
   metadata:
     labels:
       svc.dpu.nvidia.com/pool: storage-pool
-  ipv4Subnet:
+  subnet:
     subnet: "10.44.44.0/24"
     gateway: "10.44.44.1"
     perNodeIPCount: 20
@@ -2891,7 +2891,7 @@ spec:
   metadata:
     labels:
       svc.dpu.nvidia.com/pool: storage-pool
-  ipv4Subnet:
+  subnet:
     subnet: "10.44.44.0/24"
     gateway: "10.44.44.1"
     perNodeIPCount: 20
@@ -3734,7 +3734,7 @@ spec:
   metadata:
     labels:
       svc.dpu.nvidia.com/pool: storage-pool
-  ipv4Subnet:
+  subnet:
     subnet: "10.44.44.0/24"
     gateway: "10.44.44.1"
     perNodeIPCount: 20
@@ -4594,7 +4594,7 @@ spec:
   metadata:
     labels:
       svc.dpu.nvidia.com/pool: storage-pool
-  ipv4Subnet:
+  subnet:
     subnet: "10.44.44.0/24"
     gateway: "10.44.44.1"
     perNodeIPCount: 20
@@ -5428,7 +5428,7 @@ spec:
   metadata:
     labels:
       svc.dpu.nvidia.com/pool: storage-pool
-  ipv4Subnet:
+  subnet:
     subnet: "10.44.44.0/24"
     gateway: "10.44.44.1"
     perNodeIPCount: 20

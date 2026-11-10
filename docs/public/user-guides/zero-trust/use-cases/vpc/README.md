@@ -665,7 +665,7 @@ spec:
   metadata:
     labels:
       ovn.vpc.dpu.nvidia.com/pool: vpc-ippool-vtep
-  ipv4Subnet:
+  subnet:
     subnet: $VTEP_CIDR
     gateway: $VTEP_GATEWAY
     perNodeIPCount: 4
@@ -679,7 +679,7 @@ spec:
   metadata:
     labels:
       ovn.vpc.dpu.nvidia.com/pool: vpc-ippool-gateway
-  ipv4Subnet:
+  subnet:
     subnet: $EXTERNAL_CIDR
     gateway: $EXTERNAL_GATEWAY
     perNodeIPCount: 4

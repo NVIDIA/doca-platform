@@ -8,7 +8,7 @@ spec:
   metadata:
     labels:
       svc.dpu.nvidia.com/pool: storage-pool
-  ipv4Subnet:
+  subnet:
     subnet: "10.0.124.0/24"
     gateway: "10.0.124.1"
     perNodeIPCount: 8
