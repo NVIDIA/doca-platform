@@ -83,6 +83,10 @@ func BMCForceRestart(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *duti
 	// A recorded LastResetTime means the restart request was accepted
 	if state.BMCLastResetTimeBeforeRestart != nil {
 		if manager.LastResetTime != *state.BMCLastResetTimeBeforeRestart {
+			// The restarted BMC never answers on a connection opened before the restart. Close
+			// the pooled ones, or the next write within the transport's idle timeout reuses one
+			// and waits on it until the kernel gives up.
+			client.CloseIdleConnections()
 			logger.Info("BMC is back after the restart. Moving to Prepare BFB phase", "lastResetTime", manager.LastResetTime)
 			setBMCRestartCondition(state, metav1.ConditionTrue, bmcRestartReasonCompleted, "BMC restarted after the bundle activation")
 			state.Phase = provisioningv1.DPUPrepareBFB

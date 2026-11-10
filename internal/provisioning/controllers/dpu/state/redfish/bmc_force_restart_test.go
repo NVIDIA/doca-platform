@@ -21,6 +21,7 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	rc "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	redfishmock "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/mock"
 	dutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/util"
 	testutils "github.com/nvidia/doca-platform/test/utils"
@@ -155,6 +156,35 @@ var _ = Describe("BMCForceRestart", func() {
 			HaveField("Status", metav1.ConditionTrue),
 		)))
 		Expect(mockServer.GetBMCResetRequests()).To(Equal(1))
+	})
+
+	It("should close the connections opened before the restart once the BMC is back", func() {
+		// The provisioning manager shares one cached client per BMC across reconciles. A restarted
+		// BMC does not answer on the connections it had before, so none of them may stay pooled.
+		provider := rc.NewProvider(k8sClient)
+		ctrlCtx.RedfishClients = provider
+
+		_, err := reconcile()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(mockServer.GetBMCResetRequests()).To(Equal(1))
+
+		By("another request reaching the BMC before it goes down")
+		dpuDevice := &provisioningv1.DPUDevice{}
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: dpu.Namespace, Name: dpuDeviceName}, dpuDevice)).To(Succeed())
+		bmc, err := provider.AcquireForDevice(ctx, dpu.Namespace, dpuDevice)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = bmc.Client.R().SetContext(ctx).Get(rc.RedfishAPIs.Path("APIRootService"))
+		Expect(err).NotTo(HaveOccurred())
+
+		By("the BMC reporting a new LastResetTime")
+		mockServer.BumpBMCLastResetTime()
+		status, err := reconcile()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUPrepareBFB))
+
+		resp, err := bmc.Client.R().SetContext(ctx).EnableTrace().Get(rc.RedfishAPIs.Path("APIRootService"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.Request.TraceInfo().IsConnReused).To(BeFalse())
 	})
 
 	It("should not send the restart again when only the recorded LastResetTime survived", func() {
