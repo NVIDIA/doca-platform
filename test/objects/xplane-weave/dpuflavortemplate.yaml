@@ -177,7 +177,7 @@ spec:
             _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
             _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
             _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
-            _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
+            _ovs-vsctl set Open_vSwitch . other_config:max-idle=300000
             _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
             _ovs-vsctl set Open_vSwitch . other_config:doca-congestion-threshold=60
             _ovs-vsctl set Open_vSwitch . other_config:flow-limit=500000
@@ -248,13 +248,16 @@ spec:
               for sw_plane_id in "${sw_planes[@]}"; do
                 for hw_plane_id in "${hw_planes[@]}"; do
                   netdev="${rail_plane_netdev[${rail_id}_${sw_plane_id}_${hw_plane_id}]}"
-                  _ovs-vsctl --may-exist add-port br-xplane "$netdev"
-                  _ovs-vsctl set Interface "$netdev" type=dpdk
-                  _ovs-vsctl set Interface "$netdev" mtu_request=9216
-                  _ovs-vsctl set Interface "$netdev" external_ids:xplane=true
-                  _ovs-vsctl set Interface "$netdev" external_ids:xplane-group-id=rail${rail_id}swp${sw_plane_id}
-                  _ovs-vsctl set Interface "$netdev" external_ids:xplane-uplink=true
-                  _ovs-vsctl set Interface "$netdev" external_ids:xplane-plane-id=${hw_plane_id}
+                  # Disable CT offload on XPlane uplinks to reduce OVS memory usage.
+                  _ovs-vsctl --may-exist add-port br-xplane "$netdev" -- \
+                    set Interface "$netdev" \
+                      type=dpdk \
+                      options:hw-offload-ct-size=0 \
+                      mtu_request=9216 \
+                      external_ids:xplane=true \
+                      external_ids:xplane-group-id="rail${rail_id}swp${sw_plane_id}" \
+                      external_ids:xplane-uplink=true \
+                      external_ids:xplane-plane-id="${hw_plane_id}"
                 done
               done
             done
