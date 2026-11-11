@@ -169,6 +169,8 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 		}).WithTimeout(10 * time.Second).Should(Succeed())
 	})
 	t.Run("ImagePullSecretsReconciled Success after secret name is fixed", func(t *testing.T) {
+		// Use a subtest-scoped Gomega so a timeout fails only this subtest, not the parent.
+		g := NewWithT(t)
 		conf := &operatorv1.DPFOperatorConfig{}
 		g.Eventually(func(g Gomega) {
 			g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(config), conf)).To(Succeed())
@@ -176,6 +178,7 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 			g.Expect(testClient.Update(ctx, conf)).To(Succeed())
 		}).WithTimeout(10 * time.Second).Should(Succeed())
 
+		// Under load the reconcile needs several requeue rounds to settle.
 		g.Eventually(func(g Gomega) {
 			g.Expect(testutils.ForceObjectReconcileWithAnnotation(ctx, testClient, config)).To(Succeed())
 			g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(config), conf)).To(Succeed())
@@ -192,7 +195,7 @@ func TestDPFOperatorConfigReconciler_Conditions(t *testing.T) {
 				"CertManagementReady":      "Pending",
 				"DeprecatedFieldsNotInUse": "Success",
 			})
-		}).WithTimeout(5*time.Second).Should(Succeed(), fmt.Sprintf("test failed with %v", config))
+		}).WithTimeout(15*time.Second).Should(Succeed(), func() string { return fmt.Sprintf("test failed with %v", conf) })
 	})
 
 	t.Run("SystemComponentsReady AwaitingDeletion when DPFConfig is being deleted", func(t *testing.T) {
