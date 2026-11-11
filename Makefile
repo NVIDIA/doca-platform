@@ -135,7 +135,7 @@ export KATA_DEPLOY_TAG=3.32.0@sha256:47c4cf29c9e8cf9bb7debab58761b672e1d4c93ee5e
 # VPC dependencies to be able to build/push images and charts.
 # VPC_REF is the dpf-vpc commit to build. airgap-bom keeps a hand-written list of the VPC charts and
 # their images for the air-gap BOM. On a VPC_REF bump, update it if the VPC charts or images changed.
-VPC_REF=773c718655d7069c1f65a22cea5904c347446c21
+VPC_REF=a5dafd6bb32a9effc76d931686388ddaed3540fe
 VPC_DIR=$(REPOSDIR)/ovn-vpc/ovn-vpc-$(VPC_REF)
 # Token used for gitlab reporistory access, usually needed for CI/CD pipelines.
 # dev envs usually have those set in git credentials.
