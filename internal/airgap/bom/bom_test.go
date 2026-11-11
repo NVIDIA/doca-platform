@@ -59,6 +59,8 @@ func TestParseRejectsInvalid(t *testing.T) {
 		"name and ref":          "schemaVersion: v1alpha1\nimages:\n  - name: a\n    ref: ghcr.io/a:v1@" + testDigest + "\n    scope: [dpu]\n",
 		"neither name nor ref":  "schemaVersion: v1alpha1\nimages:\n  - scope: [dpu]\n",
 		"invalid ref":           "schemaVersion: v1alpha1\nimages:\n  - ref: $X/a:v1\n    scope: [dpu]\n",
+		"image without scope":   "schemaVersion: v1alpha1\nimages:\n  - name: a\n",
+		"unknown image scope":   "schemaVersion: v1alpha1\nimages:\n  - name: a\n    scope: [dpu, gpu]\n",
 		"unknown chart field":   "schemaVersion: v1alpha1\ncharts:\n  - name: a\n    scope: [host]\n",
 		"chart without name":    "schemaVersion: v1alpha1\ncharts:\n  - repoURL: https://r\n    version: 1.0.0\n",
 		"chart without version": "schemaVersion: v1alpha1\ncharts:\n  - repoURL: https://r\n    name: a\n",

@@ -366,6 +366,46 @@ func parseMirror(mirror string) (string, error) {
 	return mirror, nil
 }
 
+// Destination returns where the image reference ref is copied to below the mirror of the layout,
+// as ImageCopies lists it: the reference to pull the copy by. An empty layout is LayoutFlat.
+func Destination(mirror string, layout Layout, ref string) (string, error) {
+	m, err := parseMirror(mirror)
+	if err != nil {
+		return "", err
+	}
+	if layout, err = parseLayout(layout); err != nil {
+		return "", err
+	}
+	r, err := bom.ParseImageRef(ref)
+	if err != nil {
+		return "", err
+	}
+	return destinationImage(m, layout, r), nil
+}
+
+// DestinationRepository returns the repository below the mirror of the layout the images of the
+// repository repo (host/path, without tag and digest) are copied to. An empty layout is LayoutFlat.
+func DestinationRepository(mirror string, layout Layout, repo string) (string, error) {
+	m, err := parseMirror(mirror)
+	if err != nil {
+		return "", err
+	}
+	if layout, err = parseLayout(layout); err != nil {
+		return "", err
+	}
+	r, err := bom.ParseImageRef(repo)
+	if err != nil {
+		return "", err
+	}
+	if r.Tag != "" || r.Digest != "" {
+		return "", fmt.Errorf("repository %q has a tag or digest", repo)
+	}
+	if layout == LayoutNested {
+		return m + "/" + hostPathComponent(r.Host) + "/" + r.Path, nil
+	}
+	return m + "/" + path.Base(r.Path), nil
+}
+
 // sourceImage returns the reference an image is copied from: by digest when it has one.
 func sourceImage(ref bom.ImageRef) string {
 	if ref.Digest != "" {

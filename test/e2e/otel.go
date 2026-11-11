@@ -263,6 +263,7 @@ func ValidateAdditionalDPUCollector(ctx context.Context, input *systemTestInput)
 	additionalService := objectFromFile[dpuservicev1.DPUService]("../objects/application/dpuservice-custom-otel.yaml")
 	additionalService.Spec.HelmChart.Source.RepoURL = helmRegistry
 	additionalService.Spec.HelmChart.Source.Version = tag
+	additionalService.Spec.HelmChart.Values = airgapHelmValues(additionalService.Spec.HelmChart.Values)
 	Expect(input.client.Create(ctx, additionalService)).To(Succeed())
 	DeferCleanup(func(ctx context.Context) {
 		Expect(client.IgnoreNotFound(input.client.Delete(ctx, additionalService))).To(Succeed())
@@ -325,7 +326,7 @@ func ValidateManagementClusterLogFlow(ctx context.Context, input *systemTestInpu
 	testNS := createTestNamespaceInCluster(ctx, input.client, testNamespacePrefix)
 
 	By(fmt.Sprintf("Creating log generator pod with message: %s", uniqueMessage))
-	createLogGeneratorPod(ctx, input.client, testNS, "log-generator", uniqueMessage)
+	createLogGeneratorPod(ctx, input.client, testNS, "log-generator", logGeneratorImage(), uniqueMessage)
 
 	By("Waiting for logs to be collected and forwarded to Loki")
 	Eventually(func(g Gomega) {
@@ -368,7 +369,7 @@ func ValidateDPUClusterLogFlow(ctx context.Context, input *systemTestInput) {
 	testNS := createTestNamespaceInCluster(ctx, dpuClusterClient[0], testNamespacePrefix)
 
 	By(fmt.Sprintf("Creating log generator pod in DPU cluster with message: %s", uniqueMessage))
-	createLogGeneratorPod(ctx, dpuClusterClient[0], testNS, "log-generator-dpu", uniqueMessage)
+	createLogGeneratorPod(ctx, dpuClusterClient[0], testNS, "log-generator-dpu", dpuImage(logGeneratorImage()), uniqueMessage)
 
 	By("Waiting for logs to be collected and forwarded to Loki")
 	clusterName := input.dpuClusters[0].Name
@@ -473,8 +474,14 @@ func ValidateDPUClusterMetricsFlow(ctx context.Context, input *systemTestInput) 
 	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
-// createLogGeneratorPod creates a busybox pod that continuously echoes a unique log message
-func createLogGeneratorPod(ctx context.Context, c client.Client, namespace, name, logMessage string) {
+// logGeneratorImage returns the busybox image of the log generator pods.
+func logGeneratorImage() string {
+	return dockerIORegistry + "/busybox:latest"
+}
+
+// createLogGeneratorPod creates a pod that runs image, which needs sh, and continuously echoes a
+// unique log message
+func createLogGeneratorPod(ctx context.Context, c client.Client, namespace, name, image, logMessage string) {
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -485,7 +492,7 @@ func createLogGeneratorPod(ctx context.Context, c client.Client, namespace, name
 			Containers: []corev1.Container{
 				{
 					Name:    "log-generator",
-					Image:   fmt.Sprintf("%s/busybox:latest", dockerIORegistry),
+					Image:   image,
 					Command: []string{"sh", "-c", fmt.Sprintf("while true; do echo '%s'; sleep 1; done", logMessage)},
 				},
 			},

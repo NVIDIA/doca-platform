@@ -375,6 +375,30 @@ func TestChartCopiesFlat(t *testing.T) {
 	g.Expect(err).To(MatchError(ContainSubstring("would both be copied to oci://mirror.example.com/doca-hbn:3.5.0")))
 }
 
+func TestDestination(t *testing.T) {
+	g := NewWithT(t)
+	got, err := Destination("10.0.110.253:5000/airgap", LayoutNested, "registry.k8s.io/pause:3.9@"+digest)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(got).To(Equal("10.0.110.253:5000/airgap/registry.k8s.io/pause:3.9"))
+	got, err = Destination("10.0.110.253:5000/airgap", "", "registry.k8s.io/pause:3.9@"+digest)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(got).To(Equal("10.0.110.253:5000/airgap/pause:3.9"))
+	got, err = Destination("10.0.110.253:5000/airgap", LayoutNested, "nginx")
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(got).To(Equal("10.0.110.253:5000/airgap/docker.io/library/nginx:latest"))
+	_, err = Destination("http://x", LayoutFlat, "nginx")
+	g.Expect(err).To(HaveOccurred())
+
+	repo, err := DestinationRepository("10.0.110.253:5000/airgap", LayoutNested, "Harbor.example.com:8443/dpf/netutils")
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(repo).To(Equal("10.0.110.253:5000/airgap/harbor.example.com_8443/dpf/netutils"))
+	repo, err = DestinationRepository("10.0.110.253:5000/airgap", LayoutFlat, "Harbor.example.com:8443/dpf/netutils")
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(repo).To(Equal("10.0.110.253:5000/airgap/netutils"))
+	_, err = DestinationRepository("10.0.110.253:5000/airgap", LayoutFlat, "registry.k8s.io/pause:3.9")
+	g.Expect(err).To(MatchError(ContainSubstring("has a tag or digest")))
+}
+
 func TestDestinationChartRepo(t *testing.T) {
 	tests := []struct {
 		repoURL string

@@ -273,6 +273,7 @@ func (t *systemTestInput) applySDNConfig(conf config) {
 
 	dpuServiceHBN := &dpuservicev1.DPUService{}
 	Expect(machineryruntime.DefaultUnstructuredConverter.FromUnstructured(svcHBN.Object, dpuServiceHBN)).To(Succeed())
+	dpuServiceHBN.Spec.HelmChart.Values = airgapHelmValues(dpuServiceHBN.Spec.HelmChart.Values)
 	t.dpuServiceHBN = dpuServiceHBN
 }
 

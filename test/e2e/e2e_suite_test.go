@@ -98,6 +98,7 @@ func init() {
 
 //nolint:gocyclo
 func getEnvVariables() {
+	getAirgapEnvVariables()
 	if url, found := os.LookupEnv("BFB_IMAGE_URL"); found {
 		var err error
 		bfbImageURL, err = utils.ResolveBFBImageURL(url)
@@ -295,6 +296,7 @@ func TestE2E(t *testing.T) {
 	GinkgoWriter.Printf("E2E Test Configuration:\n")
 	GinkgoWriter.Printf("  configPath: %s\n", configPath)
 	GinkgoWriter.Printf("  testKubeconfig: %s\n", testKubeconfig)
+	GinkgoWriter.Printf("  airgappedTest: %t\n", airgappedTest)
 	GinkgoWriter.Printf("  numberOfDPUNodes: %d\n", conf.NumberOfDPUNodes)
 	GinkgoWriter.Printf("  numberOfDPUsPerNode: %d\n", conf.NumberOfDPUsPerNode)
 	GinkgoWriter.Printf("  selectDPUDevicesDynamically: %t\n", conf.SelectDPUDevicesDynamically)

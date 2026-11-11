@@ -314,7 +314,7 @@ func generateDNSTestPod(name string) *corev1.Pod {
 			Containers: []corev1.Container{
 				{
 					Name:    "netshoot",
-					Image:   netshoot.Image,
+					Image:   dpuImage(netshoot.Image),
 					Command: []string{"/bin/sh", "-c"},
 					Args:    []string{"tail -F /dev/null"},
 				},

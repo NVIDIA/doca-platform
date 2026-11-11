@@ -70,6 +70,10 @@ func SetInput() {
 		bfsNicFwURL:      bfsNicFwURL,
 	}
 	input.applyConfig(*conf)
+	if airgappedTest {
+		Expect(isUpgradePhase()).To(BeFalse(), "AIRGAPPED_TEST is not supported for the upgrade suites")
+	}
+	applyAirgap(input)
 }
 
 // dpfOperatorConfigFromFile loads the DPFOperatorConfig from the manifest
@@ -954,6 +958,7 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		})
 		It("should validate DPUDeployment becomes ready", Labels{Domain.ZeroTrust, Domain.RequiresNodes, Domain.OCP}, func() {
 			VerifyDPUDeploymentIsReady(ctx, input)
+			VerifyAirgapDPUImages(ctx)
 		})
 		It("should validate DPUDeployment disruptive upgrade of standard DPUServices", Labels{Domain.ZeroTrust, Domain.RequiresNodes, Domain.OCP}, func() {
 			if isGinkgoLabelApplied(Domain.ZeroTrust) {

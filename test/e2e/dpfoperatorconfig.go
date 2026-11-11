@@ -65,7 +65,8 @@ func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *systemTest
 	Expect(input.client.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, modifiedConfig)).To(Succeed())
 	originalConfig := modifiedConfig.DeepCopy()
 
-	dummyRegistryName := "dummy-registry.com"
+	// .invalid never resolves (RFC 2606), so no node connects to the dummy registries.
+	dummyRegistryName := "dummy-registry.invalid"
 	imageTemplate := "%s/%s:v1.0"
 	dummyResourceRequirements := operatorv1.ResourceComponentConfig{
 		Resources: &operatorv1.ResourceRequirements{
@@ -115,6 +116,11 @@ func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *systemTest
 			},
 			ResourceComponentConfig: dummyResourceRequirements,
 		},
+	}
+	// An air-gapped run points config-init at the mirror. verifyComponentOverrides checks only the
+	// main containers, so config-init keeps its original image.
+	if originalConfig.Spec.SRIOVDevicePlugin != nil {
+		modifiedConfig.Spec.SRIOVDevicePlugin.ConfigInit = originalConfig.Spec.SRIOVDevicePlugin.ConfigInit.DeepCopy()
 	}
 	modifiedConfig.Spec.SFCController = &operatorv1.SFCControllerConfiguration{
 		Controller: &operatorv1.DefaultOverridesConfiguration{
@@ -192,14 +198,24 @@ func ValidateDPFOperatorBaseConfiguration(ctx context.Context, input *systemTest
 	By("Verifying all components are updated")
 	verifyComponentOverrides(ctx, input, dummyRegistryName, expectedDummyResources)
 
-	dummyRegistryName = "overridden-registry.com"
+	dummyRegistryName = "overridden-registry.invalid"
 	configCopy := modifiedConfig.DeepCopy()
 	modifiedConfig.Spec.ServiceSetController.Controller.Image = nil
 	modifiedConfig.Spec.ServiceSetController.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.ServiceSetControllerName))
 	modifiedConfig.Spec.Multus.CNI.Image = nil
 	modifiedConfig.Spec.Multus.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.MultusName))
-	modifiedConfig.Spec.SRIOVDevicePlugin.DevicePlugin.Image = nil
-	modifiedConfig.Spec.SRIOVDevicePlugin.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.SRIOVDevicePluginName))
+	sriovDevicePluginImage := ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.SRIOVDevicePluginName))
+	if airgapMirror != nil {
+		// TODO: Set the deprecated image in an air-gapped run too, once the operator applies
+		// configInit.image next to it. While the deprecated image is set, the operator ignores
+		// configInit.image, so config-init would pull the default DPF system image past the
+		// mirror, and the egress block would drop the pull. An air-gapped run therefore doesn't
+		// cover the deprecated image of the SR-IOV device plugin.
+		modifiedConfig.Spec.SRIOVDevicePlugin.DevicePlugin.Image = sriovDevicePluginImage
+	} else {
+		modifiedConfig.Spec.SRIOVDevicePlugin.DevicePlugin.Image = nil
+		modifiedConfig.Spec.SRIOVDevicePlugin.Image = sriovDevicePluginImage
+	}
 	modifiedConfig.Spec.SFCController.Controller.Image = nil
 	modifiedConfig.Spec.SFCController.Image = ptr.To(fmt.Sprintf(imageTemplate, dummyRegistryName, operatorv1.SFCControllerName))
 	modifiedConfig.Spec.NVIPAM.Controller.Image = nil

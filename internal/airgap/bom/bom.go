@@ -18,6 +18,7 @@ package bom
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -147,8 +148,9 @@ func (i Image) sortKey() string {
 	return "1" + i.Ref
 }
 
-// Validate checks the schema version, that every image is a name or a reference that parses, and
-// that every chart has a name and either both repoURL and version or neither.
+// Validate checks the schema version, that every image is a name or a reference that parses and
+// has a scope of only dpu and host, and that every chart has a name and either both repoURL and
+// version or neither.
 func (b *BOM) Validate() error {
 	var errs []error
 	if b.SchemaVersion != SchemaVersion {
@@ -180,8 +182,17 @@ func (i Image) validate() error {
 	case i.Name != "" && i.Ref != "":
 		return fmt.Errorf("image %q has both name and ref %q", i.Name, i.Ref)
 	case i.Ref != "":
-		_, err := ParseImageRef(i.Ref)
-		return err
+		if _, err := ParseImageRef(i.Ref); err != nil {
+			return err
+		}
+	}
+	if len(i.Scope) == 0 {
+		return fmt.Errorf("image %q has no scope, expected %s or %s", cmp.Or(i.Name, i.Ref), ScopeDPU, ScopeHost)
+	}
+	for _, s := range i.Scope {
+		if s != ScopeDPU && s != ScopeHost {
+			return fmt.Errorf("image %q has unknown scope %q, expected %s or %s", cmp.Or(i.Name, i.Ref), s, ScopeDPU, ScopeHost)
+		}
 	}
 	return nil
 }

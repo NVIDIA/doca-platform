@@ -2521,11 +2521,27 @@ func useDummyDPUServiceChart(dpuServiceTemplate *dpuservicev1.DPUServiceTemplate
 		RepoURL: helmRegistry,
 	}
 	dpuServiceTemplate.Spec.HelmChart.Values = nil
+	values := map[string]any{}
 	if ngcAPIKey != "" {
-		dpuServiceTemplate.Spec.HelmChart.Values = &machineryruntime.RawExtension{
-			Raw: []byte(fmt.Sprintf(`{"imagePullSecrets": [{"name": "%s"}]}`, ngcPullSecretName)),
-		}
+		values["imagePullSecrets"] = []map[string]string{{"name": ngcPullSecretName}}
 	}
+	if airgapMirror != nil {
+		// The chart defaults to the dummydpuservice image it was packaged with.
+		values["image"] = map[string]string{"repository": dpuRepository(dummyDPUServiceImage())}
+	}
+	if len(values) > 0 {
+		raw, err := json.Marshal(values)
+		Expect(err).NotTo(HaveOccurred())
+		dpuServiceTemplate.Spec.HelmChart.Values = &machineryruntime.RawExtension{Raw: raw}
+	}
+}
+
+// dummyDPUServiceImage is the repository of the dummydpuservice image the chart is packaged with.
+func dummyDPUServiceImage() string {
+	if img := os.Getenv("DUMMYDPUSERVICE_IMAGE"); img != "" {
+		return img
+	}
+	return os.Getenv("REGISTRY") + "/dummydpuservice"
 }
 
 func generateServiceConfiguration(input *systemTestInput, nameDiff string) *dpuservicev1.DPUServiceConfiguration {

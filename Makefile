@@ -754,10 +754,22 @@ E2E_TEST_DEFAULTS ?= -v -ginkgo.v -ginkgo.fail-fast -ginkgo.timeout=2h30m
 E2E_TEST_ARGS ?= -ginkgo.label-filter="DPFSystem && !SDN && !DPFVPCOVN" -e2e.config=./config-quick.yaml
 # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
 .PHONY: test-e2e ## Run the e2e tests against a Kind k8s instance that is spun up.
+# With AIRGAPPED_TEST=true (CI, physical jobs only) the DPUs run air-gapped: the in-rack mirror is
+# filled and the DPU egress blocked before the tests, and a DPU packet the block dropped fails
+# after them, unless it went to an exempt destination (AIRGAP_EXEMPT_DST).
 test-e2e: stern ## Run e2e tests
+	@if [ "$$AIRGAPPED_TEST" = "true" ]; then \
+		$(CURDIR)/hack/scripts/do_not_publish/ci-airgap.sh prepare && \
+		$(CURDIR)/hack/scripts/do_not_publish/ci-airgap.sh arm; \
+	fi
+	rc=0; \
 	PREREQS_NAMESPACE=$(TEST_DEPLOY_PREREQS_NAMESPACE) \
 	STERN=$(STERN) $(CURDIR)/hack/scripts/log-collector.sh \
-	  go test -timeout 0 ./test/e2e/ $(E2E_TEST_DEFAULTS) $(E2E_TEST_ARGS)
+	  go test -timeout 0 ./test/e2e/ $(strip $(E2E_TEST_DEFAULTS) $(E2E_TEST_ARGS)) || rc=$$?; \
+	if [ "$$AIRGAPPED_TEST" = "true" ]; then \
+		$(CURDIR)/hack/scripts/do_not_publish/ci-airgap.sh verify || rc=1; \
+	fi; \
+	exit $$rc
 
 # Zero-trust provisioning e2e against simulated DPUs (test/mock/dpuagent). Expects the management
 # kind cluster with the operator deployed (test-env-e2e, test-deploy-operator-helm). Builds the mock

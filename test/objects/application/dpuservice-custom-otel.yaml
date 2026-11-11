@@ -16,6 +16,9 @@ spec:
     values:
       opentelemetry-collector:
         enabled: true
+        # The chart's default, set so that an air-gapped run can point it at the mirror.
+        image:
+          repository: otel/opentelemetry-collector-contrib
         imagePullSecrets:
           - name: dpf-pull-secret
         config:
