@@ -128,6 +128,13 @@ func CreateResourceIfNotExist(ctx context.Context, c client.Client, obj client.O
 func cleanupAndWait(ctx context.Context, c client.Client, removeFinalizers bool, objs ...client.Object) error {
 	logger := log.FromContext(ctx)
 
+	// Remember the UIDs of the objects we are about to delete. The polling below overwrites the objects on every Get,
+	// and a controller may recreate an object under the same name, in which case only the UID tells the two apart.
+	originalUIDs := make([]types.UID, len(objs))
+	for i, o := range objs {
+		originalUIDs[i] = o.GetUID()
+	}
+
 	// Step 1: Fire all delete requests without waiting. This ensures all resources are marked for
 	// deletion before we start polling, so finalizers that depend on other resources being deleted
 	// can resolve naturally in the background.
@@ -149,7 +156,8 @@ func cleanupAndWait(ctx context.Context, c client.Client, removeFinalizers bool,
 	// Step 2: Poll until all resources are gone. By this point every resource has a deletionTimestamp,
 	// so finalizer controllers can reconcile them in any order.
 	errs := []error{}
-	for _, o := range objs {
+	for i, o := range objs {
+		originalUID := originalUIDs[i]
 		logger.Info("Waiting for resource to be deleted", "kind", o.GetObjectKind().GroupVersionKind().String(), "namespace", o.GetNamespace(), "name", o.GetName())
 		key := client.ObjectKeyFromObject(o)
 		err := wait.ExponentialBackoff(
@@ -166,6 +174,11 @@ func cleanupAndWait(ctx context.Context, c client.Client, removeFinalizers bool,
 					}
 					logger.Error(err, "Failed delete resource", "namespace", key.Namespace, "name", key.Name, "kind", o.GetObjectKind().GroupVersionKind().String())
 					return false, nil
+				}
+				// The object we deleted is gone if a controller already recreated it under the same name: the new
+				// instance has a different UID. Without a known original UID we can only wait for NotFound.
+				if originalUID != "" && o.GetUID() != originalUID {
+					return true, nil
 				}
 				return false, nil
 			})
