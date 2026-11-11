@@ -993,6 +993,113 @@ var _ = Describe("NVConfig Operation", func() {
 			Expect(out).To(HaveLen(2))
 		})
 
+		It("parses mlxconfig q parameter names containing lowercase characters", func() {
+			out := parseMlxconfigQuery("" +
+				"        EXP_ROM_VIRTIO_NET_UEFI_x86_ENABLE              False(0)\n" +
+				"        EXP_ROM_NVME_UEFI_x86_ENABLE                    True(1)\n" +
+				"        EXP_ROM_UEFI_x86_ENABLE                         True(1)\n" +
+				"        EXP_ROM_PXE_ENABLE                              True(1)\n")
+			Expect(out).To(HaveKey("EXP_ROM_VIRTIO_NET_UEFI_X86_ENABLE"))
+			Expect(out).To(HaveKey("EXP_ROM_NVME_UEFI_X86_ENABLE"))
+			Expect(out).To(HaveKey("EXP_ROM_UEFI_X86_ENABLE"))
+			Expect(out).To(HaveKey("EXP_ROM_PXE_ENABLE"))
+			Expect(out).To(HaveLen(4))
+		})
+
+		It("parses mlxconfig q lines with tab separators", func() {
+			out := parseMlxconfigQuery("" +
+				"EXP_ROM_UEFI_x86_ENABLE\tTrue(1)\n" +
+				"\t  SRIOV_EN \t\t True(1)\n" +
+				"\tBOOT_DBG_LOG\t\n")
+			Expect(out).To(HaveKey("EXP_ROM_UEFI_X86_ENABLE"))
+			Expect(out).To(HaveKey("SRIOV_EN"))
+			Expect(out).To(HaveLen(2))
+		})
+
+		It("ignores mlxconfig q device header lines", func() {
+			out := parseMlxconfigQuery(`
+Device #1:
+----------
+
+Device type:        BlueField3
+Name:               900-9D3B6-00CN-P_Ax
+Description:        NVIDIA BlueField-3 B3240 P-Series FHHL DPU for Cold Aisle; 400GbE / NDR IB (default mode); Dual-port QSFP112; PCIe Gen5.0 x16 with x16 PCIe extension option; 16 Arm cores; 32GB on-board DDR; integrated BMC; Crypto Enabled
+Device:             /dev/mst/mt41692_pciconf0
+
+Configurations:                                         Next Boot
+        ATS_ENABLED                                     False(0)
+        EXP_ROM_UEFI_x86_ENABLE                         True(1)
+        EXP_ROM_PXE_ENABLE                              True(1)
+`)
+			Expect(out).To(HaveKey("ATS_ENABLED"))
+			Expect(out).To(HaveKey("EXP_ROM_UEFI_X86_ENABLE"))
+			Expect(out).To(HaveKey("EXP_ROM_PXE_ENABLE"))
+			Expect(out).To(HaveLen(3))
+		})
+
+		It("parses mlxconfig q array parameters by base name", func() {
+			out := parseMlxconfigQuery(`
+Device #1:
+----------
+
+Device type:        BlueField3
+Name:               900-9D3B6-00CN-A_Ax
+Description:        NVIDIA BlueField-3 B3240 P-Series Dual-slot FHHL DPU; 400GbE / NDR IB (default mode); Dual-port QSFP112; PCIe Gen5.0 x16 with x16 PCIe extension option; 16 Arm cores; 32GB on-board DDR; integrated BMC; Crypto Enabled
+Device:             /dev/mst/mt41692_pciconf0
+
+Configurations:                                          Default             Current         Next Boot
+        MODULE_SPLIT_M0[0]                          0x1(1)               0x1(1)               0x1(1)
+        MODULE_SPLIT_M0[1]                          0x1(1)               0x1(1)               0x1(1)
+        MODULE_SPLIT_M0[15]                         0xFF(255)            0xFF(255)            0xFF(255)
+`)
+			Expect(out).To(HaveKey("MODULE_SPLIT_M0"))
+			Expect(out).To(HaveLen(1))
+
+			out = parseMlxconfigQuery("Configurations:      Next Boot\n        MODULE_SPLIT_M0       Array[0..15]\n")
+			Expect(out).To(HaveKey("MODULE_SPLIT_M0"))
+			Expect(out).To(HaveLen(1))
+		})
+
+		It("parses mlxconfig q -e parameters marked with '*'", func() {
+			out := parseMlxconfigQuery(`
+Device type:        ConnectX6DX
+Name:               MCX623106AE-CDA_Ax
+Description:        ConnectX-6 Dx EN adapter card; 100GbE; Dual-port QSFP56; PCIe 4.0 x16; Crypto; No Secure Boot
+Device:             03:00.0
+
+Configurations:                                         Default              Current              Next Boot
+        NUM_OF_VFS                                      8                    8                    8
+        SRIOV_EN                                        True(1)              True(1)              True(1)
+        PCI_DOWNSTREAM_PORT_OWNER                       Array[0..15]         Array[0..15]         Array[0..15]
+*       ROCE_CONTROL                                    ROCE_ENABLE(2)       DEVICE_DEFAULT(0)    DEVICE_DEFAULT(0)
+        PCI_WR_ORDERING                                 per_mkey(0)          per_mkey(0)          per_mkey(0)
+        HOST_CHAINING_DESCRIPTORS                       Array[0..7]          Array[0..7]          Array[0..7]
+The '*' shows parameters with next value different from default/current value.
+`)
+			Expect(out).To(HaveKey("NUM_OF_VFS"))
+			Expect(out).To(HaveKey("SRIOV_EN"))
+			Expect(out).To(HaveKey("PCI_DOWNSTREAM_PORT_OWNER"))
+			Expect(out).To(HaveKey("ROCE_CONTROL"))
+			Expect(out).To(HaveKey("PCI_WR_ORDERING"))
+			Expect(out).To(HaveKey("HOST_CHAINING_DESCRIPTORS"))
+			Expect(out).To(HaveLen(6))
+		})
+
+		It("filterParamsForSet applies array parameter elements", func() {
+			operation := ConfigureNVConfig{
+				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+					var stdout bytes.Buffer
+					stdout.WriteString("Configurations:      Next Boot\n        MODULE_SPLIT_M0       Array[0..15]\n")
+					return stdout, bytes.Buffer{}, nil
+				},
+			}
+			optCtx := &operations.Context{}
+			resolved, err := operation.filterParamsForSet(optCtx, testPci0, "MODULE_SPLIT_M0[0]=1 MODULE_SPLIT_M0[4]=255")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resolved).To(Equal("MODULE_SPLIT_M0[0]=1 MODULE_SPLIT_M0[4]=255"))
+			Expect(optCtx.DeferredNVConfigParams).To(BeEmpty())
+		})
+
 		It("filterParamsForSet defers hidden params and records CondMessage", func() {
 			operation := ConfigureNVConfig{
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
