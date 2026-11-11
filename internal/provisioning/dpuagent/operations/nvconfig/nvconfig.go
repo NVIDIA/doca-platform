@@ -23,6 +23,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
@@ -348,7 +349,9 @@ func (n *ConfigureNVConfig) filterParamsForSet(optCtx *operations.Context, dev, 
 
 func planParamApply(desired []nvParam, available map[string]struct{}) (toSet, deferred []nvParam) {
 	for _, entry := range desired {
-		if _, ok := available[entry.name]; !ok {
+		// mlxconfig q lists array parameters once by base name, while set addresses each element.
+		name, _, _ := strings.Cut(entry.name, "[")
+		if _, ok := available[name]; !ok {
 			deferred = append(deferred, entry)
 			continue
 		}
@@ -361,9 +364,16 @@ func parseMlxconfigQuery(output string) map[string]struct{} {
 	out := make(map[string]struct{})
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "-E-") || strings.HasPrefix(line, "Configurations:") {
+		if strings.HasPrefix(line, "Configurations:") {
+			// Lines before the Configurations header describe the device, not parameters.
+			clear(out)
 			continue
 		}
+		if line == "" || strings.HasPrefix(line, "-E-") || strings.HasPrefix(line, "The '*'") {
+			continue
+		}
+		// mlxconfig marks parameters whose next boot value differs from default with '*'.
+		line = strings.TrimPrefix(line, "*")
 		name, ok := parseMlxconfigQueryLine(line)
 		if !ok {
 			continue
@@ -374,27 +384,18 @@ func parseMlxconfigQuery(output string) map[string]struct{} {
 }
 
 func parseMlxconfigQueryLine(line string) (name string, ok bool) {
-	i := 0
-	for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
-		i++
-	}
-	if i >= len(line) || line[i] < 'A' || line[i] > 'Z' {
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
 		return "", false
 	}
-	start := i
-	for i < len(line) {
-		c := line[i]
-		if c != '_' && (c < 'A' || c > 'Z') && (c < '0' || c > '9') {
-			break
+	name, _, _ = strings.Cut(fields[0], "[")
+	if name == "" || name[0] < 'A' || name[0] > 'Z' {
+		return "", false
+	}
+	for _, c := range name {
+		if c != '_' && !unicode.IsLetter(c) && !unicode.IsDigit(c) {
+			return "", false
 		}
-		i++
-	}
-	if i == start {
-		return "", false
-	}
-	name = line[start:i]
-	if strings.TrimSpace(line[i:]) == "" {
-		return "", false
 	}
 	return name, true
 }
