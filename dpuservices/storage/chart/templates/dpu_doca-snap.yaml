@@ -161,7 +161,14 @@ data:
   {{- if .Values.dpu.docaSnap.snapRpcInitConf }}
   snap_rpc_init.conf: | {{ .Values.dpu.docaSnap.snapRpcInitConf | nindent 4}}
   {{- end }}
-  {{- if .Values.dpu.docaSnap.spdkRpcInitConf }}
-  spdk_rpc_init.conf: | {{ .Values.dpu.docaSnap.spdkRpcInitConf | nindent 4}}
+  {{- $spdkRpcInitConf := .Values.dpu.docaSnap.spdkRpcInitConf | default "" }}
+  {{- $docaSnapEnv := .Values.dpu.docaSnap.env | default dict }}
+  {{- $appArgs := get $docaSnapEnv "APP_ARGS" | default "" | toString }}
+  {{- $waitForRpc := regexMatch "(^|\\s)--wait-for-rpc(\\s|$)" $appArgs }}
+  {{- if and $waitForRpc (not (regexMatch "(?m)^\\s*framework_start_init\\s*$" $spdkRpcInitConf)) }}
+  {{- $spdkRpcInitConf = printf "framework_start_init\n%s" $spdkRpcInitConf | trimSuffix "\n" }}
+  {{- end }}
+  {{- if $spdkRpcInitConf }}
+  spdk_rpc_init.conf: | {{ $spdkRpcInitConf | nindent 4}}
   {{- end }}
 {{- end }}

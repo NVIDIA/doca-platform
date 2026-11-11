@@ -354,7 +354,7 @@ dpu:
           - "SYS_RAWIO"
           - "SYS_NICE"
     env:
-      APP_ARGS: "-m 0xff"
+      APP_ARGS: "-m 0xff --wait-for-rpc"
       SNAP_SPDK_SOCK: "/var/lib/nvidia/storage/snap/providers/nvidia/snap.sock"
     snapRpcInitConf: ""
     spdkRpcInitConf: ""
