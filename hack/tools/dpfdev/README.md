@@ -25,25 +25,6 @@ By default it will expect this config file to be at `~/.config/dfpdev.json`. The
 
 ## Commands
 
-### Job Commands
-
-#### Analyze Job History
-
-`dpfdev` can retrieve job information from the GitLab API. This information can be used to understand job success rates, durations and to point users to failed job logs.
-
-On start DPF will download job information from the GitLab API. This step can take some time - on subsequent runs only new job data will be downloaded as long as this file remains in place. By default the tool will download 7 days of job history - but this can be customised with the `--start` flag.
-
-
-```bash
-dpfdev jobs analyze --config $PATH_TO_CONFIG.
-```
-
-For more details and options, use the help command:
-
-```bash
-dpfdev jobs analyze --help
-```
-
 ### Config Command
 
 The `config` command guides you through creating or updating the dpfdev configuration file.
