@@ -52,7 +52,7 @@ listed.`,
   dpfdev gitlab schedule pipelines 12506
 
   # Last 14 days of the nightly release schedule
-  dpfdev gitlab schedule pipelines "release-v26.11: Nightly release" --days 14`,
+  dpfdev gitlab schedule pipelines "release-v30.0: Nightly release" --days 14`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if schedulePipelinesDays < 0 {
