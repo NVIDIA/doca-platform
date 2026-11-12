@@ -290,22 +290,45 @@ func createManager(flags *cliFlags) (ctrl.Manager, *rest.Config) {
 	return mgr, clientConfig
 }
 
-func resolveBFBRegistry(flags *cliFlags) (string, error) {
+func resolveBFBRegistry(flags *cliFlags) string {
 	registryAddress := ""
 	if flags.bfbRegistryLoadBalancerAddress != "" {
 		registryAddress = flags.bfbRegistryLoadBalancerAddress
 	} else if flags.dpuInstallInterface == string(provisioningv1.InstallViaRedFish) {
 		vip := bfbregistry.APIServerVIPFromDMSPodEnvs(flags.dmsPodEnvs)
-		if vip == "" || net.ParseIP(vip) == nil {
-			return "", fmt.Errorf("KubernetesAPIServerVIP %q must be a non-empty IP", vip)
+		if vip != "" && net.ParseIP(vip) != nil {
+			// An IP VIP is a stable registry host: it is routable from the DPU
+			// BMC and permanently on the bfb-registry server certificate SANs,
+			// so URLs baked from it survive registry pod failovers.
+			registryAddress = "https://" + vip
 		}
-		registryAddress = "https://" + vip
+		// A hostname or unset VIP leaves the base empty. The Kubernetes API
+		// VIP is not used as a registry host in that case: on some platforms
+		// (e.g. OpenShift) it is an API hostname that belongs to the dpu-agent
+		// bootstrap kubeconfig, and is not necessarily resolvable from DPU
+		// BMCs. The base is instead discovered per DPU in
+		// GetBFBRegistryAddressWithPort from the bfb-registry Pod's node IP.
+		if registryAddress == "" {
+			return ""
+		}
 	} else {
 		registryAddress = defaultBFBRegistryAddress
 	}
 	registryAddress = httputils.EnsureHTTPSScheme(registryAddress)
 	setupLog.Info("bfb-registry address for downloading BFB files", "bfbRegistry", registryAddress)
-	return registryAddress, nil
+	return registryAddress
+}
+
+// hostAgentBFBRegistryAddress returns the registry address baked into the
+// hostagent/DMS Pod command line. The hostagent runs inside the cluster
+// network, so the in-cluster Service name is always a valid fallback,
+// including zero-trust mode where the DPU-facing base is discovered per DPU
+// and resolveBFBRegistry returns an empty string.
+func hostAgentBFBRegistryAddress(resolved string) string {
+	if resolved != "" {
+		return resolved
+	}
+	return httputils.EnsureHTTPSScheme(defaultBFBRegistryAddress)
 }
 
 func setupControllers(ctx context.Context, mgr ctrl.Manager, flags *cliFlags, bfbRegistry string, imagePullSecretsReferences []corev1.LocalObjectReference) *dutil.DPUInProvisioningMap {
@@ -424,7 +447,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, flags *cliFlags, bf
 		DMSTimeout:                 flags.dmsTimeout,
 		DMSPodTimeout:              flags.dmsPodTimeout,
 		DMSPodEnvs:                 flags.dmsPodEnvs,
-		BFBRegistryAddress:         bfbRegistry,
+		BFBRegistryAddress:         hostAgentBFBRegistryAddress(bfbRegistry),
 		HostAgentDNSPolicy:         corev1.DNSPolicy(flags.hostAgentDNSPolicy),
 		CATrustBundleConfigMapName: flags.caTrustBundleConfigMapName,
 	}
@@ -590,11 +613,7 @@ func main() {
 		}
 	}
 
-	bfbRegistryAddress, err := resolveBFBRegistry(flags)
-	if err != nil {
-		setupLog.Error(err, "unable to resolve bfb-registry address", "bfbRegistry", bfbRegistryAddress)
-		os.Exit(1)
-	}
+	bfbRegistryAddress := resolveBFBRegistry(flags)
 
 	// Get the context from the signal handler
 	ctx := ctrl.SetupSignalHandler()

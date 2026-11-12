@@ -1063,11 +1063,24 @@ func NeedUpdateAnnotationsOnNodeInDPUCluster(dpuNode *corev1.Node, annotationsOn
 	return false, nil
 }
 
-// GetBFBRegistryAddressWithPort returns the full bfb-registry address with port
+// GetBFBRegistryAddressWithPort returns the full bfb-registry address with port.
+// hostOnlyBase is the configured base address (scheme + host, no port): the
+// registry load balancer address, or the Kubernetes API VIP when it is an IP.
+// When hostOnlyBase is empty, the base is discovered from the IP of the node
+// running the bfb-registry Pod.
 func GetBFBRegistryAddressWithPort(ctx context.Context, c crclient.Client, namespace, hostOnlyBase string) (string, error) {
 	base := strings.TrimSuffix(hostOnlyBase, "/")
 	if base == "" {
-		return "", fmt.Errorf("bfb-registry base address is empty")
+		// Zero-trust without a configured base: discover the node running the
+		// bfb-registry Pod. That node's IP is on the server certificate SANs
+		// (the Pod is scheduled on the provisioning leader's node, whose IP the
+		// leader reports as NODE_IP), so TLS verification passes for every
+		// consumer of this address.
+		nodeIP, err := bfbRegistryPodNodeIP(ctx, c, namespace)
+		if err != nil {
+			return "", err
+		}
+		base = "https://" + nodeIP
 	}
 	u, err := parseURLWithOptionalScheme(base)
 	if err != nil {
@@ -1088,6 +1101,20 @@ func GetBFBRegistryAddressWithPort(ctx context.Context, c crclient.Client, names
 		return "", fmt.Errorf("bfb-registry Service %s/%s has no NodePort allocated yet", svc.Namespace, svc.Name)
 	}
 	return base + ":" + strconv.Itoa(int(nodePort)), nil
+}
+
+// bfbRegistryPodNodeIP returns the IP of the node running the bfb-registry Pod.
+// It matches the NODE_IP-based SAN on the bfb-registry server certificate, so
+// addresses built from it pass TLS verification.
+func bfbRegistryPodNodeIP(ctx context.Context, c crclient.Client, namespace string) (string, error) {
+	pod := &corev1.Pod{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: bfbregistry.PodName}, pod); err != nil {
+		return "", fmt.Errorf("get bfb-registry Pod %s/%s: %w", namespace, bfbregistry.PodName, err)
+	}
+	if pod.Status.HostIP == "" {
+		return "", fmt.Errorf("bfb-registry Pod %s/%s has no HostIP yet (not scheduled)", namespace, bfbregistry.PodName)
+	}
+	return pod.Status.HostIP, nil
 }
 
 func parseURLWithOptionalScheme(s string) (*url.URL, error) {

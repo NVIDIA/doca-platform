@@ -807,6 +807,21 @@ var _ = Describe("GetBFBRegistryAddressWithPort", func() {
 		return fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(svc).Build()
 	}
 
+	newClientWithServiceAndPod := func(nodePort int32, hostIP string) client.Client {
+		svc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: bfbregistry.PodName, Namespace: ns},
+			Spec: corev1.ServiceSpec{
+				Type:  corev1.ServiceTypeNodePort,
+				Ports: []corev1.ServicePort{{Name: "https", Port: 8443, NodePort: nodePort}},
+			},
+		}
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: bfbregistry.PodName, Namespace: ns},
+			Status:     corev1.PodStatus{HostIP: hostIP},
+		}
+		return fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(svc, pod).Build()
+	}
+
 	It("appends the NodePort and preserves a scheme-less host", func() {
 		c := newClientWithService(30443)
 		addr, err := GetBFBRegistryAddressWithPort(context.Background(), c, ns, "bfb-registry")
@@ -821,8 +836,21 @@ var _ = Describe("GetBFBRegistryAddressWithPort", func() {
 		Expect(addr).To(Equal("https://bfb-registry:30443"))
 	})
 
-	It("returns an error when the base address is empty", func() {
+	It("discovers the bfb-registry Pod node IP when the base address is empty", func() {
+		c := newClientWithServiceAndPod(30443, "192.0.2.10")
+		addr, err := GetBFBRegistryAddressWithPort(context.Background(), c, ns, "")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(addr).To(Equal("https://192.0.2.10:30443"))
+	})
+
+	It("returns an error when the base address is empty and the bfb-registry Pod is missing", func() {
 		c := newClientWithService(30443)
+		_, err := GetBFBRegistryAddressWithPort(context.Background(), c, ns, "")
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("returns an error when the bfb-registry Pod has no HostIP yet", func() {
+		c := newClientWithServiceAndPod(30443, "")
 		_, err := GetBFBRegistryAddressWithPort(context.Background(), c, ns, "")
 		Expect(err).To(HaveOccurred())
 	})
