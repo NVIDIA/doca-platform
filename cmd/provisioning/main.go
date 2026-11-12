@@ -56,6 +56,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
 	clientset "k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -296,8 +297,8 @@ func resolveBFBRegistry(flags *cliFlags) (string, error) {
 		registryAddress = flags.bfbRegistryLoadBalancerAddress
 	} else if flags.dpuInstallInterface == string(provisioningv1.InstallViaRedFish) {
 		vip := bfbregistry.APIServerVIPFromDMSPodEnvs(flags.dmsPodEnvs)
-		if vip == "" || net.ParseIP(vip) == nil {
-			return "", fmt.Errorf("KubernetesAPIServerVIP %q must be a non-empty IP", vip)
+		if net.ParseIP(vip) == nil && len(validation.IsDNS1123Subdomain(vip)) != 0 {
+			return "", fmt.Errorf("KubernetesAPIServerVIP %q must be an IP or a DNS name", vip)
 		}
 		registryAddress = "https://" + vip
 	} else {

@@ -43,9 +43,15 @@ func TestResolveBFBRegistry(t *testing.T) {
 			wantErr:      true,
 		},
 		{
-			name:         "redfish with hostname VIP returns error",
+			name:         "redfish with hostname VIP returns https host without port",
 			installIface: string(provisioningv1.InstallViaRedFish),
-			dmsPodEnvs:   []string{"KUBERNETES_SERVICE_HOST=api.example.com"},
+			dmsPodEnvs:   []string{"KUBERNETES_SERVICE_HOST=api.example.com", "KUBERNETES_SERVICE_PORT=6443"},
+			want:         "https://api.example.com",
+		},
+		{
+			name:         "redfish with invalid VIP returns error",
+			installIface: string(provisioningv1.InstallViaRedFish),
+			dmsPodEnvs:   []string{"KUBERNETES_SERVICE_HOST=api_example!"},
 			wantErr:      true,
 		},
 		{
