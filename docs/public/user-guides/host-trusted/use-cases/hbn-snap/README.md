@@ -1004,7 +1004,7 @@ metadata:
   name: pool1
   namespace: dpf-operator-system
 spec:
-  ipv4Network:
+  network:
     network: "10.0.121.0/24"
     gatewayIndex: 2
     prefixSize: 29
@@ -1015,7 +1015,7 @@ metadata:
   name: pool2
   namespace: dpf-operator-system
 spec:
-  ipv4Network:
+  network:
     network: "10.0.122.0/24"
     gatewayIndex: 2
     prefixSize: 29
@@ -1030,7 +1030,7 @@ metadata:
   name: loopback
   namespace: dpf-operator-system
 spec:
-  ipv4Network:
+  network:
     network: "11.0.0.0/24"
     prefixSize: 32
 ```
@@ -1047,7 +1047,7 @@ spec:
   metadata:
     labels:
       svc.dpu.nvidia.com/pool: storage-pool
-  ipv4Subnet:
+  subnet:
     subnet: "10.0.124.0/24"
     gateway: "10.0.124.1"
     perNodeIPCount: 8
@@ -2254,7 +2254,7 @@ metadata:
   name: pool1
   namespace: dpf-operator-system
 spec:
-  ipv4Network:
+  network:
     network: "10.0.121.0/24"
     gatewayIndex: 2
     prefixSize: 29
@@ -2265,7 +2265,7 @@ metadata:
   name: pool2
   namespace: dpf-operator-system
 spec:
-  ipv4Network:
+  network:
     network: "10.0.122.0/24"
     gatewayIndex: 2
     prefixSize: 29
@@ -2280,7 +2280,7 @@ metadata:
   name: loopback
   namespace: dpf-operator-system
 spec:
-  ipv4Network:
+  network:
     network: "11.0.0.0/24"
     prefixSize: 32
 ```
@@ -2297,7 +2297,7 @@ spec:
   metadata:
     labels:
       svc.dpu.nvidia.com/pool: storage-pool
-  ipv4Subnet:
+  subnet:
     subnet: "10.0.124.0/24"
     gateway: "10.0.124.1"
     perNodeIPCount: 8

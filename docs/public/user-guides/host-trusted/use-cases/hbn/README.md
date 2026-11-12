@@ -839,7 +839,7 @@ metadata:
   name: pool1
   namespace: dpf-operator-system
 spec:
-  ipv4Network:
+  network:
     network: "10.0.121.0/24"
     gatewayIndex: 2
     prefixSize: 29
@@ -850,7 +850,7 @@ metadata:
   name: pool2
   namespace: dpf-operator-system
 spec:
-  ipv4Network:
+  network:
     network: "10.0.122.0/24"
     gatewayIndex: 2
     prefixSize: 29
@@ -868,7 +868,7 @@ metadata:
   name: loopback
   namespace: dpf-operator-system
 spec:
-  ipv4Network:
+  network:
     network: "11.0.0.0/24"
     prefixSize: 32
 ```
