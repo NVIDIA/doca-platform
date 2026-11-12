@@ -135,7 +135,7 @@ export KATA_DEPLOY_TAG=3.32.0@sha256:47c4cf29c9e8cf9bb7debab58761b672e1d4c93ee5e
 # VPC dependencies to be able to build/push images and charts.
 # VPC_REF is the dpf-vpc commit to build. airgap-bom keeps a hand-written list of the VPC charts and
 # their images for the air-gap BOM. On a VPC_REF bump, update it if the VPC charts or images changed.
-VPC_REF=a5dafd6bb32a9effc76d931686388ddaed3540fe
+VPC_REF=cd33814eae23028c2d9fab42178e3d47250a8c81
 VPC_DIR=$(REPOSDIR)/ovn-vpc/ovn-vpc-$(VPC_REF)
 # Token used for gitlab reporistory access, usually needed for CI/CD pipelines.
 # dev envs usually have those set in git credentials.
@@ -1641,9 +1641,10 @@ binary-storage-nvidia-external-attacher: generate-client-for-storage-nvidia-exte
 	./$(NVIDIA_EXTERNAL_ATTACHER_DIR)/hack/client.sh $(PROJECT_DIR) $(EXTERNAL_ATTACHER_BRANCH)
 	# Build nvidia-external-attacher binary
 	# The attacher resolves its own module graph, so the root go.mod pins do not reach it.
-	# Only pin modules that release-4.13 ships below the fixed version (x/crypto v0.55.0 -> GO-2026-6354/6355).
+	# Only pin modules that release-4.13 ships below the fixed version (x/crypto v0.55.0 -> GO-2026-6354/6355,
+	# x/net v0.58.0 -> GO-2026-6603/6610/6611/6612/6617).
 	cd $(NVIDIA_EXTERNAL_ATTACHER_DIR)/external-attacher && \
-	go get golang.org/x/crypto@v0.56.0 && \
+	go get golang.org/x/crypto@v0.58.0 golang.org/x/net@v0.62.0 && \
 	go mod tidy && go mod vendor && \
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -gcflags="$(GO_GCFLAGS)" -trimpath -o $(LOCALBIN)/nvidia-external-attacher github.com/kubernetes-csi/external-attacher/v4/cmd/csi-attacher
 
