@@ -289,7 +289,7 @@ an interrupted BFB flash can leave the BlueField in a state that requires manual
 > The holds are enforced by the provisioning controller of the version you upgrade **from**. The hold in `Pending` was
 > introduced in v26.8.0, so it applies to every upgrade from v26.8.0 on. Upgrading to v26.8.0 does not hold
 > provisioning yet.
-> The hold in `NodeEffect` was introduced in v26.11.0 and applies to every upgrade from that version on. On an upgrade
+> The hold in `NodeEffect` was introduced in v30.0.0 and applies to every upgrade from that version on. On an upgrade
 > from an earlier version, a DPU with a `hold` node effect in `NodeEffect` still holds the upgrade until it reaches
 > `Ready` or `Error`: release any `hold` node effects before such an upgrade.
 
