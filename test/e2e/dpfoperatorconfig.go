@@ -402,7 +402,8 @@ func ValidateDPFOperatorMTUConfigurationChange(ctx context.Context, input *syste
 		netAttachConfig, exists, err = unstructured.NestedString(netAttachDef.Object, "spec", "config")
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(exists).To(BeTrue())
-		g.Expect(netAttachConfig).To(ContainSubstring("mtu\": 9000,"))
+		// The br-hbn NAD template adds 50 to the high-speed MTU for encapsulation (VXLAN) headers.
+		g.Expect(netAttachConfig).To(ContainSubstring("mtu\": 9050,"))
 	}, time.Second*30).Should(Succeed())
 
 	if input.hasDpuNodes() && !isGinkgoLabelApplied(Domain.ZeroTrust) {

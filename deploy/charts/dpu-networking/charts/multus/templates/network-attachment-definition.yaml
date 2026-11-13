@@ -13,7 +13,7 @@ spec:
     {
       "cniVersion": "0.4.0",
       "type": "ovs",
-      "mtu": {{ .Values.mtu }},
+      "mtu": {{ add .Values.mtu 50 }},
       "bridge": "br-hbn",
       "interface_type": "dpdk"
     }
