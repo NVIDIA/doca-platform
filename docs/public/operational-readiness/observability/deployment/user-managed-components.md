@@ -306,7 +306,6 @@ installation uses another registry or DPF version, copy `spec.helmChart.source` 
 `metrics`, and `tracing` are not merged into `config`. Keep the `health_check` extension on port 13133 so the DaemonSet
 probes succeed. The Service exposes 4317, 4318, and 8888. Set `extraPorts` for any other port the config listens on. The
 container is privileged, so the DPUService must set `spec.security.privileged: true`.
-
 Run the custom collector together with the packaged one, or run only the custom collector by disabling the packaged one:
 
 ```yaml
@@ -322,6 +321,9 @@ kind: DPUService
 metadata:
   name: custom-opentelemetry-collector
   namespace: dpf-operator-system
+  labels:
+    # Required so the DPUService controller passes the values the subchart needs.
+    dpu.nvidia.com/component: custom-opentelemetry-collector
 spec:
   security:
     privileged: true

@@ -3,6 +3,9 @@ kind: DPUService
 metadata:
   name: custom-otel
   namespace: dpf-operator-system
+  labels:
+    # Required so the DPUService controller passes the values the subchart needs.
+    dpu.nvidia.com/component: custom-otel
 spec:
   security:
     privileged: true

@@ -66,3 +66,12 @@ Create the name of the service account to use
 {{- define "node-problem-detector.serviceAccountName" -}}
 {{- include "node-problem-detector.fullname" . }}
 {{- end }}
+
+{{/*
+Name of the DPUService. It can be used for naming resources like a Service, so clients inside a DPUCluster can reach
+it by name without knowing the DPUCluster name, which is part of the release name. Only use it in charts of DPUServices
+deployed to DPUClusters (spec.deployInCluster: false). On the host cluster it would cause name collisions.
+*/}}
+{{- define "node-problem-detector.serviceName" -}}
+{{- required "global.dpf.dpuService.name is set by the DPUService controller" ((.Values.global.dpf).dpuService).name | trunc 63 | trimSuffix "-" }}
+{{- end }}

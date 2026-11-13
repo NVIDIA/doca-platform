@@ -161,3 +161,26 @@ func TestEngineServices(t *testing.T) {
 	_, err = e.Services(context.Background(), instances[:1], ServicesOptions{})
 	g.Expect(err).To(MatchError(ContainSubstring("unresolved variables $TAG, ${CHART_REPO}")))
 }
+
+func TestWithDPUServiceValues(t *testing.T) {
+	g := NewWithT(t)
+	inst := ServiceInstance{
+		Name:      "opentelemetry-collector",
+		Namespace: "dpf-operator-system",
+		Values: map[string]any{
+			"global": map[string]any{"keep": "me"},
+			"dpf":    map[string]any{"dpuService": map[string]any{"name": "overridden"}},
+		},
+	}
+	identity := map[string]any{"dpuService": map[string]any{"name": "opentelemetry-collector", "namespace": "dpf-operator-system"}}
+
+	g.Expect(withDPUServiceValues(inst)).To(Equal(map[string]any{
+		"global": map[string]any{"keep": "me", "dpf": identity},
+		"dpf":    identity,
+	}))
+	// The values of the instance are not modified.
+	g.Expect(inst.Values["global"]).To(Equal(map[string]any{"keep": "me"}))
+
+	inst.Values = nil
+	g.Expect(withDPUServiceValues(inst)).To(Equal(map[string]any{"global": map[string]any{"dpf": identity}, "dpf": identity}))
+}

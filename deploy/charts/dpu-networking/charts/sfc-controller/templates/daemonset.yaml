@@ -52,8 +52,8 @@ spec:
         {{- end }}
         {{- $tracingEndpoint := .Values.tracing.endpoint }}
         {{- if and (not $tracingEndpoint) .Values.tracing.dpuCollector }}
-        {{- /* The collector release is {cluster}-opentelemetry-collector, next to {cluster}-sfc-controller. */}}
-        {{- $tracingEndpoint = printf "http://%s-opentelemetry-collector.%s.svc:4318" (trimSuffix "-sfc-controller" .Release.Name) .Release.Namespace }}
+        {{- /* The collector chart exposes a Service named after its DPUService, next to the sfc-controller. */}}
+        {{- $tracingEndpoint = printf "http://opentelemetry-collector.%s.svc:4318" .Release.Namespace }}
         {{- end }}
         {{- if $tracingEndpoint }}
         - --otel-tracing-endpoint={{ $tracingEndpoint }}

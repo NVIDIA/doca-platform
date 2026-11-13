@@ -60,3 +60,13 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+Name of the DPUService. It can be used for naming resources like a Service, so clients inside a DPUCluster can reach
+it by name without knowing the DPUCluster name, which is part of the release name. Only use it in charts of DPUServices
+deployed to DPUClusters (spec.deployInCluster: false). On the host cluster it would cause name collisions.
+The fallback to the release based name is for backwards compatibility with DPF versions prior to v30.0.0.
+*/}}
+{{- define "dummydpuservice.serviceName" -}}
+{{- default (include "dummydpuservice.fullname" .) ((.Values.dpf).dpuService).name }}
+{{- end }}

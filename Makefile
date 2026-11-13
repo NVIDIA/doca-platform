@@ -990,6 +990,7 @@ verify-manifest-dpu-networking-cni-installer: helm-package-dpu-networking helm $
 verify-manifest-dpu-networking-node-problem-detector: helm-package-dpu-networking helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the dpu-networking node-problem-detector subchart
 	$Q $(HELM) template $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz \
 	  --set node-problem-detector.enabled=true \
+	  --set global.dpf.dpuService.name=node-problem-detector \
 	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-node-problem-detector-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-node-problem-detector-$(TAG).yaml" \
 	  MANIFEST_NAME="dpu-networking-node-problem-detector" \
@@ -1020,6 +1021,7 @@ verify-manifest-dpu-networking-dpu-monitoring: helm-package-dpu-networking helm 
 verify-manifest-dpu-networking-opentelemetry-collector: helm-package-dpu-networking helm $(ARTIFACTS_RENDERED_MANIFESTS_DIR) binary-dpfdev ## Run manifest verification for the dpu-networking opentelemetry-collector subchart
 	$Q $(HELM) template $(CHARTSDIR)/$(DPU_NETWORKING_HELM_CHART_NAME)-$(DPU_NETWORKING_HELM_CHART_VER).tgz \
 	  --set opentelemetry-collector.enabled=true \
+	  --set global.dpf.dpuService.name=opentelemetry-collector \
 	> $(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-opentelemetry-collector-$(TAG).yaml
 	$Q RENDERED_MANIFEST="$(ARTIFACTS_RENDERED_MANIFESTS_DIR)/dpu-networking-opentelemetry-collector-$(TAG).yaml" \
 	  MANIFEST_NAME="dpu-networking-opentelemetry-collector" \

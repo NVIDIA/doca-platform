@@ -109,8 +109,11 @@ func objectFiles(path string) ([]string, error) {
 
 // ServiceInstance is one deployment of a DPUService chart: the chart, the helm values the manifests
 // set, and the cluster it is deployed to. The values the DPUService controller adds
-// (serviceDaemonSet, exposed ports) never set an image, so they are not computed.
+// (serviceDaemonSet, exposed ports) never set an image, so they are not computed. The exception is
+// the DPUService name and namespace (dpf.dpuService), which charts may require to render.
 type ServiceInstance struct {
+	// Name is the name of the DPUService.
+	Name string
 	// Chart is the chart as named by the object.
 	Chart ChartRef
 	// ReleaseName is the helm release name, empty for the chart name.
@@ -236,6 +239,7 @@ func newServiceInstance(name, namespace string, src dpuservicev1.ApplicationSour
 		return ServiceInstance{}, fmt.Errorf("DPUService %s: only helm repository charts are supported, chart is empty", name)
 	}
 	inst := ServiceInstance{
+		Name:        name,
 		Chart:       ChartRef{RepoURL: src.RepoURL, Name: src.Chart, Version: src.Version},
 		ReleaseName: src.ReleaseName,
 		Namespace:   cmp.Or(namespace, defaultNamespace),
@@ -298,7 +302,7 @@ func (e *Engine) Services(ctx context.Context, instances []ServiceInstance, opts
 			errs = append(errs, fmt.Errorf("%s: %w", inst.Origin, err))
 			continue
 		}
-		found, err := e.RenderImages(ctx, RenderRequest{Chart: renderRef, Values: inst.Values, ReleaseName: inst.ReleaseName, Namespace: inst.Namespace})
+		found, err := e.RenderImages(ctx, RenderRequest{Chart: renderRef, Values: withDPUServiceValues(inst), ReleaseName: inst.ReleaseName, Namespace: inst.Namespace})
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", inst.Origin, err))
 			continue
@@ -317,4 +321,27 @@ func (e *Engine) Services(ctx context.Context, instances []ServiceInstance, opts
 	b := &BOM{Services: out}
 	b.Normalize()
 	return b.Services, nil
+}
+
+// withDPUServiceValues takes a ServiceInstance and returns a map[string]any with its values and the name and
+// namespace of the DPUService. The DPUService controller sets these under global.dpf for system components and under
+// dpf for others. The instance does not tell which it is, so both are set. The controller overrides values set for
+// these keys. The values of the instance are not modified.
+func withDPUServiceValues(inst ServiceInstance) map[string]any {
+	identity := func() map[string]any {
+		return map[string]any{"dpuService": map[string]any{"name": inst.Name, "namespace": inst.Namespace}}
+	}
+	values := maps.Clone(inst.Values)
+	if values == nil {
+		values = map[string]any{}
+	}
+	global, _ := values["global"].(map[string]any)
+	global = maps.Clone(global)
+	if global == nil {
+		global = map[string]any{}
+	}
+	global["dpf"] = identity()
+	values["global"] = global
+	values["dpf"] = identity()
+	return values
 }
