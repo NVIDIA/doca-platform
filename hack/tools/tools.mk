@@ -325,8 +325,9 @@ kind: $(KIND) ## Download kind locally if necessary.
 	@$(MAKE) tools-path TOOL=kind VERSION=$(KIND_VER)
 $(KIND): | $(TOOLSDIR)
 	$Q echo "Installing kind-$(KIND_VER) to $(TOOLSDIR)"
-	$Q curl -sSL https://kind.sigs.k8s.io/dl/$(KIND_VER)/kind-$(TOOL_OS)-$(KIND_ARCH) -o $(KIND)
-	$Q chmod +x $(KIND)
+	$Q curl -fsSL --retry 3 https://kind.sigs.k8s.io/dl/$(KIND_VER)/kind-$(TOOL_OS)-$(KIND_ARCH) -o $(KIND).tmp
+	$Q chmod +x $(KIND).tmp
+	$Q mv $(KIND).tmp $(KIND)
 
 # lychee is used to check links in documentation.
 .PHONY: lychee
