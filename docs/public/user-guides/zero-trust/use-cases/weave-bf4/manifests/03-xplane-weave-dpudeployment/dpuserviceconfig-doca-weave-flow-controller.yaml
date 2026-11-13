@@ -1,0 +1,31 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: doca-weave-flow-controller
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: doca-weave-flow-controller
+  upgradePolicy:
+    applyNodeEffect: false
+  serviceConfiguration:
+    helmChart:
+      values:
+        weaveFlowController:
+          enabled: true
+          underlayConfigMapData:
+            nicIDType: mac
+            overlayNetworkPrefixLength: $OVERLAY_NETWORK_PREFIX_LENGTH
+            softwarePlaneIDBitLength: $SOFTWARE_PLANE_ID_BIT_LENGTH
+            railIDBitLength: $RAIL_ID_BIT_LENGTH
+            interfaces:
+              - pciAddress: $RAIL0_SWP0_PCI_ADDRESS
+                underlayInterface: brcx-r0swp0
+                overlayDHCPInterface: r0swp0
+                dhcpBridgeName: br-dhcp-r0swp0
+                dropBridgeName: br-drop-r0swp0
+              - pciAddress: $RAIL0_SWP1_PCI_ADDRESS
+                underlayInterface: brcx-r0swp1
+                overlayDHCPInterface: r0swp1
+                dhcpBridgeName: br-dhcp-r0swp1
+                dropBridgeName: br-drop-r0swp1

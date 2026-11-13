@@ -1,0 +1,10 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: doca-xplane
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: doca-xplane
+  upgradePolicy:
+    applyNodeEffect: false

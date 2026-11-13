@@ -1,0 +1,48 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUDeployment
+metadata:
+  name: xplane-weave
+  namespace: dpf-operator-system
+spec:
+  dpus:
+    astraEnabled: true
+    blueFieldSoftware: bf4-${TAG}
+    flavorTemplate: xplane-weave-flavor-template-${TAG}
+    nodeEffect:
+      hold: true
+    dpuSetStrategy:
+      type: OnDelete
+    dpuSets:
+    - nameSuffix: "dpuset1"
+      dpuNodeSelector:
+        matchLabels:
+          feature.node.kubernetes.io/dpu-enabled: "true"
+  services:
+    doca-xplane:
+      serviceTemplate: doca-xplane
+      serviceConfiguration: doca-xplane
+    doca-weave-flow-controller:
+      serviceTemplate: doca-weave-flow-controller
+      serviceConfiguration: doca-weave-flow-controller
+    doca-weave-dhcp-agent:
+      serviceTemplate: doca-weave-dhcp-agent
+      serviceConfiguration: doca-weave-dhcp-agent
+  serviceChains:
+    upgradePolicy:
+      applyNodeEffect: false
+    switches:
+      - ports:
+        - serviceInterface:
+            matchLabels:
+              interface: p-brcx-r0swp0-to-br-sfc
+        - serviceInterface:
+            matchLabels:
+              interface: p-br-xplane-r0swp0-to-br-sfc
+      - ports:
+        - serviceInterface:
+            matchLabels:
+              interface: p-brcx-r0swp1-to-br-sfc
+        - serviceInterface:
+            matchLabels:
+              interface: p-br-xplane-r0swp1-to-br-sfc

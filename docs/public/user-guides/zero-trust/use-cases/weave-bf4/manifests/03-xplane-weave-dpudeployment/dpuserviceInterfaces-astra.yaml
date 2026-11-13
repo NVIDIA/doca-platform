@@ -1,0 +1,76 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: p-brcx-r0swp0-to-br-sfc
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      template:
+        metadata:
+          labels:
+            interface: "p-brcx-r0swp0-to-br-sfc"
+        spec:
+          interfaceType: patch
+          patch:
+            peerBridge: brcx-r0swp0
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: p-brcx-r0swp1-to-br-sfc
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      template:
+        metadata:
+          labels:
+            interface: "p-brcx-r0swp1-to-br-sfc"
+        spec:
+          interfaceType: patch
+          patch:
+            peerBridge: brcx-r0swp1
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: p-br-xplane-r0swp0-to-br-sfc
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      template:
+        metadata:
+          labels:
+            interface: "p-br-xplane-r0swp0-to-br-sfc"
+        spec:
+          interfaceType: patch
+          patch:
+            peerBridge: br-xplane
+            peerExternalIDs:
+              xplane: "true"
+              xplane-group-id: rail0swp0
+              xplane-downlink: patch
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceInterface
+metadata:
+  name: p-br-xplane-r0swp1-to-br-sfc
+  namespace: dpf-operator-system
+spec:
+  template:
+    spec:
+      template:
+        metadata:
+          labels:
+            interface: "p-br-xplane-r0swp1-to-br-sfc"
+        spec:
+          interfaceType: patch
+          patch:
+            peerBridge: br-xplane
+            peerExternalIDs:
+              xplane: "true"
+              xplane-group-id: rail0swp1
+              xplane-downlink: patch

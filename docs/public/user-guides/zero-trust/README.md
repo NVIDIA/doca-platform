@@ -31,6 +31,18 @@ guides with corresponding deployment guides.
 |----------------------------------|--------------------------------------------------------------------|
 | DOCA Host-Based Networking (HBN) | Accelerates underlay BGP routing with ECMP and EVPN-based overlays |
 
+### HBN (BlueField-4)
+
+* [Host Based Networking on BlueField-4](use-cases/hbn-bf4/README.md)
+
+### XPlane and Weave (BlueField-4)
+
+* [DOCA XPlane and DOCA Weave on BlueField-4](use-cases/weave-bf4/README.md)
+
+### SNAP DMA SF (BlueField-4)
+
+* [SNAP DMA SF configuration on BlueField-4](use-cases/snap-bf4/README.md)
+
 ### VPC
 
 * [Virtual Private Cloud](use-cases/vpc/README.md)
