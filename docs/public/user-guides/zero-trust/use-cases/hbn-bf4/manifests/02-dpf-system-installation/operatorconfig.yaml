@@ -1,0 +1,20 @@
+---
+apiVersion: operator.dpu.nvidia.com/v1alpha1
+kind: DPFOperatorConfig
+metadata:
+  name: dpfoperatorconfig
+  namespace: dpf-operator-system
+spec:
+  deploymentMode: zero-trust
+  overrides:
+    kubernetesAPIServerVIP: $TARGETCLUSTER_API_SERVER_HOST
+    kubernetesAPIServerPort: $TARGETCLUSTER_API_SERVER_PORT
+  dpuDetector:
+    disable: true
+  provisioningController:
+    dmsTimeout: 900
+    installInterface:
+      installViaRedfish:
+        skipDPUNodeDiscovery: false
+  kamajiClusterManager:
+    disable: false

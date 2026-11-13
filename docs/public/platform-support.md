@@ -58,6 +58,10 @@ The following NVIDIA BlueField 3 DPU models are recommended for DPF:
 > and connect the required power cable before starting DPF deployment. If the power cable is missing, the DPU may not boot
 > or may not be discoverable through BMC or Redfish.
 
+NVIDIA BlueField-4 DPUs are supported in Zero Trust mode only. See the
+[BlueField-4 use cases](user-guides/zero-trust/use-cases/README.md) and
+[Socket Direct considerations](advanced-configuration/bf4-socket-direct.md).
+
 ## BlueField OS, Firmware and Services Support Matrix
 
 DPF v26.8 supports the following BFB versions for NVIDIA BlueField-3 DPUs, with the coupled DOCA Services matching each BFB's train:

@@ -1,0 +1,29 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: doca-weave-dhcp-agent
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: doca-weave-dhcp-agent
+  upgradePolicy:
+    applyNodeEffect: false
+  serviceConfiguration:
+    serviceDaemonSet:
+      resources:
+        nvidia.com/bf_sf: 2
+    helmChart:
+      values:
+        weaveDHCPAgent:
+          enabled: true
+          dhcpNetworks:
+            createNADs: true
+            networks:
+            - name: dhcp-r0swp0
+              bridge: br-dhcp-r0swp0
+              resourceName: nvidia.com/bf_sf
+              interfaceName: r0swp0
+            - name: dhcp-r0swp1
+              bridge: br-dhcp-r0swp1
+              resourceName: nvidia.com/bf_sf
+              interfaceName: r0swp1

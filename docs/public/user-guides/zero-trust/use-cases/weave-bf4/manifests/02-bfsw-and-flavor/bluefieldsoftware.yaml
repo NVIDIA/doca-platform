@@ -1,0 +1,12 @@
+
+---
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: BlueFieldSoftware
+metadata:
+  name: bf4-$TAG
+  namespace: dpf-operator-system
+spec:
+  osIso: $BFSW_OS_ISO_URL
+  pldmFwBundle:
+    $PLDM_PSID: $BFSW_FW_BUNDLE_URL
+  nicFw: $CXFW_URL

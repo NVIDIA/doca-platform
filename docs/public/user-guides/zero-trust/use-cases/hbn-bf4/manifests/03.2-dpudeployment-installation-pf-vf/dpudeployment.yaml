@@ -1,0 +1,67 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUDeployment
+metadata:
+  name: hbn
+  namespace: dpf-operator-system
+spec:
+  dpus:
+    blueFieldSoftware: "bf4-$TAG"
+    flavor: hbn-$TAG
+    nodeEffect:
+      hold: true
+    dpuSetStrategy:
+      type: OnDelete
+    dpuSets:
+    - nameSuffix: "dpuset1"
+      dpuNodeSelector:
+        matchLabels:
+          feature.node.kubernetes.io/dpu-enabled: "true"
+  services:
+    doca-hbn:
+      serviceTemplate: doca-hbn
+      serviceConfiguration: doca-hbn
+  serviceChains:
+    switches:
+      - ports:
+        - serviceInterface:
+            matchLabels:
+              interface: p0
+        - service:
+            name: doca-hbn
+            interface: p0h
+      - ports:
+        - serviceInterface:
+            matchLabels:
+              interface: p1
+        - service:
+            name: doca-hbn
+            interface: p1h
+      - ports:
+        - serviceInterface:
+            matchLabels:
+              interface: pf0hpf
+        - service:
+            name: doca-hbn
+            interface: pf0hpfh
+      - ports:
+        - serviceInterface:
+            matchLabels:
+              interface: pf1hpf
+        - service:
+            name: doca-hbn
+            interface: pf1hpfh
+      - ports:
+        - serviceInterface:
+            matchLabels:
+              interface: pf0vf10
+        - service:
+            name: doca-hbn
+            interface: pf0vf10h
+      - ports:
+        - serviceInterface:
+            matchLabels:
+              interface: pf1vf10
+        - service:
+            name: doca-hbn
+            interface: pf1vf10h
