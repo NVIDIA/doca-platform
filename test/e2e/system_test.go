@@ -952,6 +952,13 @@ var _ = Describe("DPF System tests - Core", SpecPriority(CoreTestPriority), Labe
 		BeforeAll(func() {
 			By("Should validate DPUDeployment and underlying objects creation")
 			ValidateDPUDeploymentFullCreation(ctx, input)
+
+			// The disruptive upgrade tests need node effects to run one DPU at a time. Set this once here instead
+			// of per test: every change restarts the provisioning controller and risks a BFB/BlueFieldSoftware
+			// re-download. Must come after provisioning, which the limit would otherwise serialize. The revert is
+			// registered as a DeferCleanup and runs once the container finishes.
+			By("Patching the provisioning controller to apply node effect sequentially")
+			setMaxUnavailableDPUNodes(ctx, input.client)
 		})
 		It("should validate per-DPU DPUFlavorTemplate node labels on tenant Nodes", func() {
 			ValidateDPUFlavorTemplatePerDeviceNodeLabels(ctx, input)

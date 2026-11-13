@@ -40,11 +40,13 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	machineryruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -901,9 +903,6 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeDrain(ctx context.Context, 
 		Skip("Skip test as there are not exactly 2 nodes")
 	}
 
-	By("Patching the provisioning controller to apply node effect sequentially")
-	dpfOperatorConfig, originalDPFOperatorConfig := setMaxUnavailableDPUNodes(ctx, input.client)
-
 	By("Getting the existing DPUDeployment")
 	// Get the DPUDeployment created in ValidateDPUDeploymentFullCreation
 	dpuDeployment := &dpuservicev1.DPUDeployment{}
@@ -1106,17 +1105,6 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeDrain(ctx context.Context, 
 			g.Expect(pod.Labels).To(HaveKeyWithValue("test-disruptive-upgrade", "true"))
 		}
 	}).WithTimeout(5 * time.Minute).Should(Succeed())
-
-	By("Reverting the DPFOperatorConfig to its original setting")
-	Eventually(func(g Gomega) {
-		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), dpfOperatorConfig)).To(Succeed())
-		resetConfig := dpfOperatorConfig.DeepCopy()
-		resetConfig.Spec = originalDPFOperatorConfig.Spec
-		g.Expect(input.client.Patch(ctx, resetConfig, client.MergeFrom(dpfOperatorConfig))).To(Succeed())
-	}).WithTimeout(30 * time.Second).Should(Succeed())
-
-	By("Validating that the DPFOperatorConfig is ready for the current generation")
-	VerifyDPFOperatorConfigReady(ctx, input.client, 2*time.Minute)
 }
 
 // ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold validates that DPUDeployment disruptive upgrade flow for
@@ -1126,9 +1114,6 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(ctx context.Context, i
 		// Test assumes that there are exactly 2 DPUNodes
 		Skip("Skip test as there are not exactly 2 DPUNodes")
 	}
-
-	By("Patching the provisioning controller to apply node effect sequentially")
-	dpfOperatorConfig, originalDPFOperatorConfig := setMaxUnavailableDPUNodes(ctx, input.client)
 
 	By("Getting the existing DPUDeployment")
 	// Get the DPUDeployment created in ValidateDPUDeploymentFullCreation
@@ -1375,17 +1360,6 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeHold(ctx context.Context, i
 			fmt.Sprintf("expected all %d DPUs to be ready, but only %d are ready",
 				input.totalDPUs(), readyDPUs))
 	}).WithTimeout(5 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
-
-	By("Reverting the DPFOperatorConfig to its original setting")
-	Eventually(func(g Gomega) {
-		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), dpfOperatorConfig)).To(Succeed())
-		resetConfig := dpfOperatorConfig.DeepCopy()
-		resetConfig.Spec = originalDPFOperatorConfig.Spec
-		g.Expect(input.client.Patch(ctx, resetConfig, client.MergeFrom(dpfOperatorConfig))).To(Succeed())
-	}).WithTimeout(30 * time.Second).Should(Succeed())
-
-	By("Validating that the DPFOperatorConfig is ready for the current generation")
-	VerifyDPFOperatorConfigReady(ctx, input.client, 2*time.Minute)
 }
 
 // ValidateDPUDeploymentDPUServiceDisruptiveUpgradeBadConfigurationAndBack validates that DPUDeployment disruptive upgrade flow
@@ -1398,9 +1372,6 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeBadConfigurationAndBack(ctx
 		// Test assumes that there are exactly 2 host nodes to match the DPU cluster
 		Skip("Skip test as there are not exactly 2 nodes")
 	}
-
-	By("Patching the provisioning controller to apply node effect sequentially")
-	dpfOperatorConfig, originalDPFOperatorConfig := setMaxUnavailableDPUNodes(ctx, input.client)
 
 	By("Getting the existing DPUDeployment")
 	// Get the DPUDeployment created in ValidateDPUDeploymentFullCreation
@@ -1648,17 +1619,6 @@ func ValidateDPUDeploymentDPUServiceDisruptiveUpgradeBadConfigurationAndBack(ctx
 		g.Expect(foundNewReadyPod).To(BeTrue(), "Expected to find the new ready pod on the DPU correlated with the previously drained host node")
 		g.Expect(foundIntactPod).To(BeTrue(), "Expected to find the intact pod on the DPU correlated with the non-drained host node")
 	}).WithTimeout(15 * time.Minute).Should(Succeed())
-
-	By("Reverting the DPFOperatorConfig to its original setting")
-	Eventually(func(g Gomega) {
-		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), dpfOperatorConfig)).To(Succeed())
-		resetConfig := dpfOperatorConfig.DeepCopy()
-		resetConfig.Spec = originalDPFOperatorConfig.Spec
-		g.Expect(input.client.Patch(ctx, resetConfig, client.MergeFrom(dpfOperatorConfig))).To(Succeed())
-	}).WithTimeout(30 * time.Second).Should(Succeed())
-
-	By("Validating that the DPFOperatorConfig is ready for the current generation")
-	VerifyDPFOperatorConfigReady(ctx, input.client, 2*time.Minute)
 }
 
 // ValidateDPUDeploymentInClusterDPUServiceDisruptiveUpgrade validates that DPUDeployment disruptive upgrade flow for
@@ -1761,9 +1721,6 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeDrain(ctx context.Cont
 		// Test assumes that there are exactly 2 host nodes to match the DPU cluster
 		Skip("Skip test as there are not exactly 2 nodes")
 	}
-
-	By("Patching the provisioning controller to apply node effect sequentially")
-	dpfOperatorConfig, originalDPFOperatorConfig := setMaxUnavailableDPUNodes(ctx, input.client)
 
 	By("Getting the existing DPUDeployment")
 	// Get the DPUDeployment created in ValidateDPUDeploymentFullCreation
@@ -1940,17 +1897,6 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeDrain(ctx context.Cont
 			g.Expect(*serviceChain.Spec.Switches[0].ServiceMTU).To(Equal(testMTUValue))
 		}
 	}).WithTimeout(5 * time.Minute).Should(Succeed())
-
-	By("Reverting the DPFOperatorConfig to its original setting")
-	Eventually(func(g Gomega) {
-		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), dpfOperatorConfig)).To(Succeed())
-		resetConfig := dpfOperatorConfig.DeepCopy()
-		resetConfig.Spec = originalDPFOperatorConfig.Spec
-		g.Expect(input.client.Patch(ctx, resetConfig, client.MergeFrom(dpfOperatorConfig))).To(Succeed())
-	}).WithTimeout(30 * time.Second).Should(Succeed())
-
-	By("Validating that the DPFOperatorConfig is ready for the current generation")
-	VerifyDPFOperatorConfigReady(ctx, input.client, 2*time.Minute)
 }
 
 // ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold validates that DPUDeployment disruptive upgrade flow for
@@ -1960,9 +1906,6 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(ctx context.Conte
 		// Test assumes that there are exactly 2 DPUNodes
 		Skip("Skip test as there are not exactly 2 DPUNodes")
 	}
-
-	By("Patching the provisioning controller to apply node effect sequentially")
-	dpfOperatorConfig, originalDPFOperatorConfig := setMaxUnavailableDPUNodes(ctx, input.client)
 
 	By("Getting the existing DPUDeployment")
 	dpuDeployment := &dpuservicev1.DPUDeployment{}
@@ -2148,17 +2091,6 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeHold(ctx context.Conte
 			fmt.Sprintf("expected all %d DPUs to be ready, but only %d are ready",
 				input.totalDPUs(), readyDPUs))
 	}).WithTimeout(5 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
-
-	By("Reverting the DPFOperatorConfig to its original setting")
-	Eventually(func(g Gomega) {
-		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), dpfOperatorConfig)).To(Succeed())
-		resetConfig := dpfOperatorConfig.DeepCopy()
-		resetConfig.Spec = originalDPFOperatorConfig.Spec
-		g.Expect(input.client.Patch(ctx, resetConfig, client.MergeFrom(dpfOperatorConfig))).To(Succeed())
-	}).WithTimeout(30 * time.Second).Should(Succeed())
-
-	By("Validating that the DPFOperatorConfig is ready for the current generation")
-	VerifyDPFOperatorConfigReady(ctx, input.client, 2*time.Minute)
 }
 
 // ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeBadConfigurationAndBack validates that the DPUDeployment
@@ -2171,9 +2103,6 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeBadConfigurationAndBac
 		// Test assumes that there are exactly 2 host nodes to match the DPU cluster
 		Skip("Skip test as there are not exactly 2 nodes")
 	}
-
-	By("Patching the provisioning controller to apply node effect sequentially")
-	dpfOperatorConfig, originalDPFOperatorConfig := setMaxUnavailableDPUNodes(ctx, input.client)
 
 	By("Getting the existing DPUDeployment")
 	dpuDeployment := &dpuservicev1.DPUDeployment{}
@@ -2382,23 +2311,17 @@ func ValidateDPUDeploymentDPUServiceChainDisruptiveUpgradeBadConfigurationAndBac
 		g.Expect(foundNewReadyServiceChain).To(BeTrue(), "Expected to find the new ready ServiceChain on the previously drained node")
 		g.Expect(foundIntactServiceChain).To(BeTrue(), "Expected to find the intact ServiceChain on the non-drained node")
 	}).WithTimeout(15 * time.Minute).Should(Succeed())
-
-	By("Reverting the DPFOperatorConfig to its original setting")
-	Eventually(func(g Gomega) {
-		g.Expect(input.client.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), dpfOperatorConfig)).To(Succeed())
-		resetConfig := dpfOperatorConfig.DeepCopy()
-		resetConfig.Spec = originalDPFOperatorConfig.Spec
-		g.Expect(input.client.Patch(ctx, resetConfig, client.MergeFrom(dpfOperatorConfig))).To(Succeed())
-	}).WithTimeout(30 * time.Second).Should(Succeed())
-
-	By("Validating that the DPFOperatorConfig is ready for the current generation")
-	VerifyDPFOperatorConfigReady(ctx, input.client, 2*time.Minute)
 }
 
 // setMaxUnavailableDPUNodes patches the DPFOperatorConfig to set MaxUnavailableDPUNodes to 1 so that only
 // one node is upgraded at a time, and verifies the provisioning controller reflects the new setting.
-// Returns the patched config and a deep copy of the original for use in revert.
-func setMaxUnavailableDPUNodes(ctx context.Context, c client.Client) (*operatorv1.DPFOperatorConfig, *operatorv1.DPFOperatorConfig) {
+// It registers a DeferCleanup that reverts the change, so the revert also runs if a later check fails.
+//
+// The change restarts the provisioning controller, which can move its leader to a node without the downloaded
+// BFB/BlueFieldSoftware files and trigger a re-download. It is therefore applied once for the whole
+// "Validate DPUDeployment full creation" container rather than per test. It must run after the DPUs are
+// provisioned, since the limit also serializes the node effects of initial provisioning.
+func setMaxUnavailableDPUNodes(ctx context.Context, c client.Client) {
 	dpfOperatorConfig := &operatorv1.DPFOperatorConfig{}
 	Expect(c.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: configName}, dpfOperatorConfig)).To(Succeed())
 	originalDPFOperatorConfig := dpfOperatorConfig.DeepCopy()
@@ -2409,6 +2332,9 @@ func setMaxUnavailableDPUNodes(ctx context.Context, c client.Client) (*operatorv
 	}
 	dpfOperatorConfig.Spec.ProvisioningController.MaxUnavailableDPUNodes = ptr.To(int32(1))
 	Expect(c.Patch(ctx, dpfOperatorConfig, client.MergeFrom(originalDPFOperatorConfig))).To(Succeed())
+	DeferCleanup(func() {
+		revertMaxUnavailableDPUNodes(ctx, c, dpfOperatorConfig, originalDPFOperatorConfig)
+	})
 
 	By("Validating that the DPFOperatorConfig is ready for the current generation")
 	VerifyDPFOperatorConfigReady(ctx, c, 2*time.Minute)
@@ -2418,7 +2344,141 @@ func setMaxUnavailableDPUNodes(ctx context.Context, c client.Client) (*operatorv
 	By("Validating that all provisioning controller pods have --max-unavailable-dpu-nodes=1")
 	VerifyProvisioningControllerPodsArg(ctx, c, "--max-unavailable-dpu-nodes=1", 2*time.Minute)
 
-	return dpfOperatorConfig, originalDPFOperatorConfig
+	waitForDPUDeploymentSoftwareReady(ctx, c)
+}
+
+// revertMaxUnavailableDPUNodes restores the DPFOperatorConfig spec captured by setMaxUnavailableDPUNodes and waits
+// until the restarted provisioning controller has settled.
+func revertMaxUnavailableDPUNodes(ctx context.Context, c client.Client, dpfOperatorConfig, originalDPFOperatorConfig *operatorv1.DPFOperatorConfig) {
+	By("Reverting the DPFOperatorConfig to its original setting")
+	Eventually(func(g Gomega) {
+		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(dpfOperatorConfig), dpfOperatorConfig)).To(Succeed())
+		resetConfig := dpfOperatorConfig.DeepCopy()
+		resetConfig.Spec = originalDPFOperatorConfig.Spec
+		g.Expect(c.Patch(ctx, resetConfig, client.MergeFrom(dpfOperatorConfig))).To(Succeed())
+	}).WithTimeout(30 * time.Second).Should(Succeed())
+
+	By("Validating that the DPFOperatorConfig is ready for the current generation")
+	VerifyDPFOperatorConfigReady(ctx, c, 2*time.Minute)
+
+	// VerifyDPFOperatorConfigReady does not prove the deployment rolled out, so wait for the pods themselves.
+	// Otherwise the software readiness wait below could pass against the old controller pod.
+	if pc := originalDPFOperatorConfig.Spec.ProvisioningController; pc != nil && pc.MaxUnavailableDPUNodes != nil {
+		arg := fmt.Sprintf("--max-unavailable-dpu-nodes=%d", *pc.MaxUnavailableDPUNodes)
+		By(fmt.Sprintf("Validating that all provisioning controller pods have %s", arg))
+		VerifyProvisioningControllerPodsArg(ctx, c, arg, 2*time.Minute)
+	} else {
+		// The operator omits the flag when the field is unset.
+		By("Validating that no provisioning controller pod has --max-unavailable-dpu-nodes")
+		verifyProvisioningControllerPodsWithoutArgPrefix(ctx, c, "--max-unavailable-dpu-nodes=", 2*time.Minute)
+	}
+
+	waitForDPUDeploymentSoftwareReady(ctx, c)
+}
+
+// verifyProvisioningControllerPodsWithoutArgPrefix waits until no provisioning controller pod has an argument with the
+// given prefix in its manager container args.
+func verifyProvisioningControllerPodsWithoutArgPrefix(ctx context.Context, c client.Client, prefix string, timeout time.Duration) {
+	Eventually(func(g Gomega) {
+		pods := &corev1.PodList{}
+		g.Expect(c.List(ctx, pods,
+			client.InNamespace(dpfOperatorSystemNamespace),
+			client.MatchingLabels{operatorv1.DPFComponentLabelKey: "dpf-provisioning-controller-manager"},
+		)).To(Succeed())
+		g.Expect(pods.Items).ToNot(BeEmpty())
+		for _, pod := range pods.Items {
+			for _, container := range pod.Spec.Containers {
+				if container.Name != "manager" {
+					continue
+				}
+				g.Expect(slices.ContainsFunc(container.Args, func(arg string) bool {
+					return strings.HasPrefix(arg, prefix)
+				})).To(BeFalse(), "pod %s manager container still has an arg with prefix %q", pod.Name, prefix)
+			}
+		}
+	}).WithTimeout(timeout).WithPolling(time.Second).Should(Succeed())
+}
+
+const (
+	// provisioningLeaderElectionID is the leader election lease name used by the provisioning controller.
+	provisioningLeaderElectionID = "provisioning.dpu.nvidia.com"
+	// provisioningSoftwareStableFor is how long the BFB/BlueFieldSoftware objects must stay Ready after the
+	// provisioning controller took over leadership before they are considered settled.
+	provisioningSoftwareStableFor = 15 * time.Second
+)
+
+// waitForDPUDeploymentSoftwareReady waits until a current provisioning controller pod holds the leader lease and
+// the BFB/BlueFieldSoftware objects referenced by DPUDeployments have been continuously Ready for
+// provisioningSoftwareStableFor.
+//
+// The provisioning controller stores downloaded software on a node-local hostPath. When a restart reschedules it to
+// another node, it finds the files missing and moves the objects back to Downloading. While that happens the
+// DPUDeployment controller blocks on PrerequisitesReady, so tests that change DPUServices right after a restart
+// would wait on a re-download instead of on the behavior under test.
+func waitForDPUDeploymentSoftwareReady(ctx context.Context, c client.Client) {
+	By("Waiting for a current provisioning controller pod to hold the leader lease")
+	Eventually(func(g Gomega) {
+		lease := &coordinationv1.Lease{}
+		g.Expect(c.Get(ctx, client.ObjectKey{Namespace: dpfOperatorSystemNamespace, Name: provisioningLeaderElectionID}, lease)).To(Succeed())
+		g.Expect(lease.Spec.HolderIdentity).ToNot(BeNil(), "lease has no holder")
+		// controller-runtime sets the holder identity to "<hostname>_<uuid>"; the hostname is the pod name.
+		holder, _, _ := strings.Cut(*lease.Spec.HolderIdentity, "_")
+
+		pods := &corev1.PodList{}
+		g.Expect(c.List(ctx, pods,
+			client.InNamespace(dpfOperatorSystemNamespace),
+			client.MatchingLabels{operatorv1.DPFComponentLabelKey: "dpf-provisioning-controller-manager"},
+		)).To(Succeed())
+		g.Expect(slices.ContainsFunc(pods.Items, func(p corev1.Pod) bool {
+			return p.Name == holder && p.DeletionTimestamp.IsZero()
+		})).To(BeTrue(), "lease holder %q is not a current provisioning controller pod", holder)
+	}).WithTimeout(2 * time.Minute).WithPolling(time.Second).Should(Succeed())
+
+	By("Waiting for the BFB/BlueFieldSoftware objects used by DPUDeployments to be stably Ready")
+	// The new leader re-checks the on-disk files only on its first reconcile, so a single Ready observation right
+	// after the leader change can be stale. Require the objects to stay Ready for a while.
+	var readySince time.Time
+	Eventually(func(g Gomega) {
+		notReady := dpuDeploymentSoftwareNotReady(ctx, g, c)
+		if len(notReady) > 0 {
+			readySince = time.Time{}
+			g.Expect(notReady).To(BeEmpty(), "BFB/BlueFieldSoftware objects are not Ready")
+		}
+		if readySince.IsZero() {
+			readySince = time.Now()
+		}
+		g.Expect(time.Since(readySince)).To(BeNumerically(">=", provisioningSoftwareStableFor),
+			"BFB/BlueFieldSoftware objects have not been Ready for %s yet", provisioningSoftwareStableFor)
+	}).WithTimeout(15 * time.Minute).WithPolling(time.Second).Should(Succeed())
+}
+
+// dpuDeploymentSoftwareNotReady returns the BFB and BlueFieldSoftware objects referenced by DPUDeployments in the
+// DPF operator namespace that are not in the Ready phase, formatted as "<Kind>/<name>: <phase>".
+func dpuDeploymentSoftwareNotReady(ctx context.Context, g Gomega, c client.Client) []string {
+	dpuDeployments := &dpuservicev1.DPUDeploymentList{}
+	g.Expect(c.List(ctx, dpuDeployments, client.InNamespace(dpfOperatorSystemNamespace))).To(Succeed())
+
+	var notReady []string
+	seen := sets.New[string]()
+	for _, d := range dpuDeployments.Items {
+		if name := d.Spec.DPUs.BFB; name != nil && !seen.Has("BFB/"+*name) {
+			seen.Insert("BFB/" + *name)
+			bfb := &provisioningv1.BFB{}
+			g.Expect(c.Get(ctx, client.ObjectKey{Namespace: d.Namespace, Name: *name}, bfb)).To(Succeed())
+			if bfb.Status.Phase != provisioningv1.BFBReady {
+				notReady = append(notReady, fmt.Sprintf("BFB/%s: %s", *name, bfb.Status.Phase))
+			}
+		}
+		if name := d.Spec.DPUs.BlueFieldSoftware; name != nil && !seen.Has("BlueFieldSoftware/"+*name) {
+			seen.Insert("BlueFieldSoftware/" + *name)
+			bfs := &provisioningv1.BlueFieldSoftware{}
+			g.Expect(c.Get(ctx, client.ObjectKey{Namespace: d.Namespace, Name: *name}, bfs)).To(Succeed())
+			if bfs.Status.Phase != provisioningv1.BlueFieldSoftwareReady {
+				notReady = append(notReady, fmt.Sprintf("BlueFieldSoftware/%s: %s", *name, bfs.Status.Phase))
+			}
+		}
+	}
+	return notReady
 }
 
 // verifyNodeDrainRemoved asserts that the given node has no unschedulable taint.
