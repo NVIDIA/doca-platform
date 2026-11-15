@@ -193,7 +193,7 @@ func unstructuredFromFile(path string) *unstructured.Unstructured {
 	Expect(err).ToNot(HaveOccurred())
 	obj := &unstructured.Unstructured{}
 	Expect(yaml.Unmarshal(data, obj)).To(Succeed())
-	obj.SetLabels(CleanupScope.Suite)
+	obj.SetLabels(cleanup.MergeMaps(obj.GetLabels(), CleanupScope.Suite))
 	return obj
 }
 
