@@ -535,7 +535,7 @@ operator:
 ```yaml
 # Kamaji configuration
 # Number of Kamaji controller replicas for High Availability
-replicas: 2
+replicaCount: 2
 resources: null
 affinity:
   nodeAffinity:
@@ -547,6 +547,15 @@ affinity:
         - matchExpressions:
             - key: "node-role.kubernetes.io/control-plane"
               operator: Exists
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: kamaji
+              app.kubernetes.io/component: controller-manager
+          topologyKey: kubernetes.io/hostname
 tolerations:
   - key: node-role.kubernetes.io/master
     operator: Exists
