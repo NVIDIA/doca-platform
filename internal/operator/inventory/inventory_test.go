@@ -18,6 +18,7 @@ package inventory
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -25,6 +26,10 @@ import (
 	"github.com/nvidia/doca-platform/internal/release"
 
 	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -416,4 +421,108 @@ func TestLegacyOVSCNIComponent(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(objs).To(BeEmpty())
 	g.Expect(ApplySetName(inventory.RemoveOVSCNI)).To(Equal("ovs-cni-applyset"))
+}
+
+// Controller-runtime tests the election mechanism itself. This only guards how DPF wires it into
+// the manifests of the host cluster controllers that run with multiple replicas.
+func TestLeaderElectionManifests(t *testing.T) {
+	g := NewWithT(t)
+	defaults := release.NewDefaults()
+	g.Expect(defaults.Parse()).To(Succeed())
+	i := New()
+	g.Expect(i.ParseAll()).To(Succeed())
+	vars := newDefaultVariables(defaults)
+	pvcName := bfbVolumeName
+	vars.DPFProvisioningController = DPFProvisioningVariables{
+		BFBPersistentVolumeClaimName: &pvcName,
+		DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
+	}
+	// Both are disabled by default.
+	vars.DisableSystemComponents[operatorv1.StaticClusterManagerName] = false
+	vars.DisableSystemComponents[operatorv1.NodeSRIOVDevicePluginControllerName] = false
+
+	// Check the generated manifests, some components set the replicas in code.
+	components := []Component{
+		i.DPFProvisioning,
+		i.DPUService,
+		i.KamajiClusterManager,
+		i.StaticClusterManager,
+		i.NodeSRIOVDevicePluginController,
+	}
+
+	for _, component := range components {
+		t.Run(component.Name().String(), func(t *testing.T) {
+			g := NewWithT(t)
+			objs, err := component.GenerateManifests(context.Background(), vars)
+			g.Expect(err).ToNot(HaveOccurred())
+
+			var deployments []appsv1.Deployment
+			var roles []rbacv1.Role
+			var bindings []rbacv1.RoleBinding
+			for _, obj := range objs {
+				u, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+				g.Expect(err).ToNot(HaveOccurred())
+				switch obj.GetObjectKind().GroupVersionKind().Kind {
+				case string(DeploymentKind):
+					d := appsv1.Deployment{}
+					g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(u, &d)).To(Succeed())
+					deployments = append(deployments, d)
+				case "Role":
+					r := rbacv1.Role{}
+					g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(u, &r)).To(Succeed())
+					roles = append(roles, r)
+				case "RoleBinding":
+					b := rbacv1.RoleBinding{}
+					g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(u, &b)).To(Succeed())
+					bindings = append(bindings, b)
+				}
+			}
+			g.Expect(deployments).ToNot(BeEmpty())
+
+			for _, d := range deployments {
+				g.Expect(d.Spec.Replicas).ToNot(BeNil(), "deployment %s", d.Name)
+				g.Expect(*d.Spec.Replicas).To(BeNumerically(">=", 2), "deployment %s is not HA", d.Name)
+
+				i := slices.IndexFunc(d.Spec.Template.Spec.Containers, func(c corev1.Container) bool { return c.Name == "manager" })
+				g.Expect(i).To(BeNumerically(">=", 0), "deployment %s has no manager container", d.Name)
+				// Some manifests pass the flag in command, others in args.
+				manager := d.Spec.Template.Spec.Containers[i]
+				g.Expect(slices.Concat(manager.Command, manager.Args)).To(ContainElement("--leader-elect"), "deployment %s", d.Name)
+
+				sa := d.Spec.Template.Spec.ServiceAccountName
+				g.Expect(hasLeaseAccess(sa, roles, bindings)).To(BeTrue(),
+					"service account %q of deployment %s cannot manage leases", sa, d.Name)
+			}
+		})
+	}
+}
+
+// hasLeaseAccess reports whether a RoleBinding gives the service account a Role that can get,
+// create and update leases.
+func hasLeaseAccess(serviceAccount string, roles []rbacv1.Role, bindings []rbacv1.RoleBinding) bool {
+	for _, b := range bindings {
+		bound := slices.ContainsFunc(b.Subjects, func(s rbacv1.Subject) bool {
+			return s.Kind == "ServiceAccount" && s.Name == serviceAccount
+		})
+		if !bound || b.RoleRef.Kind != "Role" {
+			continue
+		}
+		for _, r := range roles {
+			if r.Name == b.RoleRef.Name && grantsLeases(r.Rules) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// grantsLeases reports whether one rule grants get, create and update on leases.
+func grantsLeases(rules []rbacv1.PolicyRule) bool {
+	return slices.ContainsFunc(rules, func(rule rbacv1.PolicyRule) bool {
+		return slices.Contains(rule.APIGroups, "coordination.k8s.io") &&
+			slices.Contains(rule.Resources, "leases") &&
+			slices.Contains(rule.Verbs, "get") &&
+			slices.Contains(rule.Verbs, "create") &&
+			slices.Contains(rule.Verbs, "update")
+	})
 }
