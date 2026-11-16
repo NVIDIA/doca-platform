@@ -7,7 +7,7 @@ spec:
   helmChart:
     source:
       repoURL: https://helm.ngc.nvidia.com/nvidia/doca
-      version: 1.25.32
+      version: 1.25.42
       chart: doca-telemetry
     values:
       dtsConfigDir: "astra_spectrum_x"
@@ -20,6 +20,7 @@ spec:
           sync-time-limit: 10
           event-buffer-size: 65536
           counter-buffer-size: 65536
+          nofile-limit: 2048
 
           diagnostic-data-yml-file: "/config/diagnostic_data_configs/all-single-port.yml"
           level-labels-file: "/config/level_labels.ini"
