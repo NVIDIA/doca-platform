@@ -32,6 +32,8 @@ const (
 	ibWriteBWPort           = 18515
 	ibWriteBWClientJSONPath = "/tmp/ib_write_bw_client.json"
 	ibWriteBWServerLogPath  = "/tmp/ib_write_bw_server.log"
+	// iperfConnectTimeoutMs is the per-connection iperf3 client connect timeout.
+	iperfConnectTimeoutMs = "10000"
 	// pingNoRouteError is what ping reports when the kernel has no route, for either family.
 	pingNoRouteError = "Network is unreachable"
 )
@@ -168,7 +170,8 @@ func (h Host) stopIperf3Server() {
 
 // runIperf3Client runs iperf3 -c against Destination, reverse is -R.
 func (h Host) runIperf3Client(cfg Net, reverse bool) string {
-	args := withVRF(cfg.VRF, "iperf3", "-c", cfg.Destination, "-J")
+	// A short connect timeout lets each attempt fail fast.
+	args := withVRF(cfg.VRF, "iperf3", "-c", cfg.Destination, "-J", "--connect-timeout", iperfConnectTimeoutMs)
 	if flag := cfg.Family.iperfIPFlag(); flag != "" {
 		args = append(args, flag)
 	}
