@@ -46,6 +46,21 @@ var _ = Describe("Network", func() {
 		})
 	})
 
+	Context("buildBridgeMTUConfig", Label("buildBridgeMTUConfig"), func() {
+		It("should list the members under the bridge and set the MTU on all of them", func() {
+			members := []string{"enP4s4f0v0", "enP6s6f0np0"}
+			config := buildBridgeMTUConfig("br-dpu", 1300, members)
+
+			Expect(config.Network.Bridges).To(HaveKey("br-dpu"))
+			Expect(config.Network.Bridges["br-dpu"].Interfaces).To(Equal(members))
+			Expect(*config.Network.Bridges["br-dpu"].MTU).To(BeEquivalentTo(1300))
+			Expect(config.Network.Ethernets).To(HaveLen(2))
+			for _, m := range members {
+				Expect(*config.Network.Ethernets[m].MTU).To(BeEquivalentTo(1300))
+			}
+		})
+	})
+
 	Context("parseDHCPFromNetworkdConfig", Label("parseDHCPFromNetworkdConfig"), func() {
 		var tempDir string
 

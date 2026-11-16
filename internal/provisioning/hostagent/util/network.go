@@ -19,6 +19,7 @@ package util
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -513,29 +514,52 @@ func ConfigureBridgeMTUForBridge(bridgeName string, controlPlaneMTU int) (bool, 
 	return needsApply, nil
 }
 
+// RefreshBridgeMembersConfig rewrites the bridge netplan file from the current bridge members, keeping the current
+// bridge MTU. It is used after a VF is removed from the bridge so that a later netplan apply or reboot does not
+// enslave it again. It does not run netplan apply.
+func RefreshBridgeMembersConfig(bridgeName string) error {
+	mtu, err := GetCurrentMTU(bridgeName)
+	if err != nil {
+		var notFound netlink.LinkNotFoundError
+		if errors.As(err, &notFound) {
+			return nil
+		}
+		return err
+	}
+	return writeBridgeMTUConfig(bridgeName, mtu)
+}
+
+// buildBridgeMTUConfig builds the netplan config that sets the MTU of the bridge and its members.
+// The members are also listed under the bridge so that networkd keeps them enslaved when it reloads.
+func buildBridgeMTUConfig(bridgeName string, controlPlaneMTU int, memberNames []string) *netplan.Config {
+	mtu := int32(controlPlaneMTU)
+	config := &netplan.Config{
+		Network: netplan.Network{
+			Version: 2,
+			Bridges: map[string]netplan.Bridge{
+				bridgeName: {
+					Ethernet: netplan.Ethernet{
+						MTU: &mtu,
+					},
+					Interfaces: memberNames,
+				},
+			},
+			Ethernets: make(map[string]netplan.Ethernet, len(memberNames)),
+		},
+	}
+	for _, memberName := range memberNames {
+		config.Network.Ethernets[memberName] = netplan.Ethernet{MTU: &mtu}
+	}
+	return config
+}
+
 // writeBridgeMTUConfig writes the bridge and its member interfaces MTU configuration to netplan
 func writeBridgeMTUConfig(bridgeName string, controlPlaneMTU int) error {
-	// Get bridge member interfaces
 	memberNames, err := GetBridgeMembers(bridgeName)
 	if err != nil {
 		return fmt.Errorf("failed to get bridge members for %s: %w", bridgeName, err)
 	}
-
-	mtu := int32(controlPlaneMTU)
-	config := netplan.Config{
-		Network: netplan.Network{
-			Version:   2,
-			Bridges:   map[string]netplan.Bridge{bridgeName: {Ethernet: netplan.Ethernet{MTU: &mtu}}},
-			Ethernets: make(map[string]netplan.Ethernet, len(memberNames)),
-		},
-	}
-
-	// Configure MTU for all bridge member interfaces
-	for _, memberName := range memberNames {
-		config.Network.Ethernets[memberName] = netplan.Ethernet{MTU: &mtu}
-	}
-
-	return writeNetplanFile(BridgeMTUNetplanFile, &config)
+	return writeNetplanFile(BridgeMTUNetplanFile, buildBridgeMTUConfig(bridgeName, controlPlaneMTU, memberNames))
 }
 
 // cleanupLegacyBridgeMTUNetplanFile removes the deprecated bridge MTU netplan file from previous releases.

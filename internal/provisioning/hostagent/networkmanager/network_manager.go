@@ -197,6 +197,13 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 		if err = hostutil.RemoveVFFromBridge(nr.VFName); err != nil {
 			return fmt.Errorf("failed to remove VF: %w", err)
 		}
+		// Keep the request until the netplan file no longer lists the VF, so a failure is retried on the next tick.
+		if err = nm.refreshOOBBridgeName(); err != nil {
+			return fmt.Errorf("failed to refresh OOB bridge name: %w", err)
+		}
+		if err = hostutil.RefreshBridgeMembersConfig(hostutil.OOBBridge.GetBridgeName()); err != nil {
+			return fmt.Errorf("failed to refresh bridge members in netplan file: %w", err)
+		}
 		err = os.Remove(filepath.Join(NetworkRequestDir, nr.UID))
 		if err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("failed to remove network request file: %w", err)
@@ -292,6 +299,7 @@ func (nm *NetworkManager) processNetworkRequest(nr NetworkRequest) error {
 				if err := writeNetworkRequestFile(&nr); err != nil {
 					return fmt.Errorf("failed to update vf name in network request file: %w", err)
 				}
+				nm.reqs[nr.UID] = nr
 				return hostutil.AddVFToBridge(nr.VFName, hostutil.OOBBridge.GetBridgeName())
 			},
 		},
