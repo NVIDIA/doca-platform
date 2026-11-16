@@ -41,15 +41,19 @@ import (
 // of the span in the trace context of obj. The timeout is only checked when obj is reconciled. An
 // object that is ready when first seen is not a rollout, as its start is unknown, so its change span
 // is the root of the trace.
+//
+// Call it from the reconciles of a deletion too. The deletion ends the rollout as deleted and is a
+// change of its own without a rollout, so its change span is the root of the deletion's trace.
 func ObserveRollout(ctx context.Context, controller string, obj client.Object, ready bool) {
 	in, ok := ctx.Value(incomingKey{}).(incoming)
 	if !ok {
 		return
 	}
-	started, finished := reconciles.Load().observeRollout(controller, obj.GetUID(), obj.GetGeneration(), in, ready)
+	deleting := !obj.GetDeletionTimestamp().IsZero()
+	started, finished := reconciles.Load().observeRollout(controller, obj.GetUID(), obj.GetGeneration(), in, ready, deleting)
 	if started && in.derived {
 		// No rollout span will take the span ID the reconciles point at, so the change span takes it.
-		noRollout := ready && !slices.ContainsFunc(finished, func(r finishedRollout) bool {
+		noRollout := (ready || deleting) && !slices.ContainsFunc(finished, func(r finishedRollout) bool {
 			return r.in.spanContext.SpanID() == in.spanContext.SpanID()
 		})
 		startChange(ctx, controller, obj, in, noRollout)

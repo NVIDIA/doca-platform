@@ -4,20 +4,23 @@ DPF controllers can export OpenTelemetry trace spans for their reconcile
 loops. The shared helpers live in `internal/utils/tracing` and are used by
 every instrumented controller the same way.
 
-One change of a top-level object, such as a DPUDeployment, is one trace. All
-reconciles of the object and of everything it creates join it, so they show up
-together in the backend.
+One change of a workflow root, a DPUDeployment, DPUService or DPUDevice, is one
+trace. All reconciles of the object and of everything it creates join it, so
+they show up together in the backend. Any other object without a trace context,
+such as a DPUServiceTemplate or DPUServiceIPAM a user creates, gets a trace of
+its own for each reconcile, see
+[Propagating the trace to child objects](#propagating-the-trace-to-child-objects).
 
 The trace ID comes from the `traceparent` annotation when the object has one.
 Otherwise DPF derives it from the object's UID and generation, so a spec change
 starts a new trace. The ID is also set as the `workflow.id` span attribute, so
 you can search for it.
 
-The trace is flat, its spans have no parent and child between them. Controllers
-do not call each other, they react to objects, so DPF cannot tell which
-reconcile caused another. All of them sit side by side under the root of the
-change: the rollout span, or the upstream span when the caller set the trace.
-Read the order from the timestamps.
+The trace is flat, its reconcile spans are not parent and child of each other.
+Controllers do not call each other, they react to objects, so DPF cannot tell
+which reconcile caused another. All of them sit side by side under the root of
+the change: the rollout span, or the upstream span when the caller set the
+trace. Read the order from the timestamps.
 
 For how to enable tracing on a running deployment and view the result, see
 [Tracing](../../operational-readiness/observability/deployment/operator-managed-components.md#tracing)
@@ -182,8 +185,9 @@ first is an instant `<controller>.change` span, exported right away so the
 trace has a root while the change is in progress. The second is the
 `<controller>.rollout` span, exported when the object is ready, when the
 rollout timeout has passed, an hour by default (`rollout.result` is `timeout`
-and the span has an error status), or
-when a newer generation replaces it (`superseded`). It covers the real
+and the span has an error status),
+when a newer generation replaces it (`superseded`), or when the deletion of the
+object starts (`deleted`). It covers the real
 duration, so the time a generation took to become ready is visible at a
 glance, and it is the parent of the reconciles of the object and of everything
 it creates. Until it is exported, those reconciles hang under a span the
@@ -201,9 +205,17 @@ ends at the deadline, not when the reconcile noticed.
 An object that is ready the first time the process sees it has no rollout
 span, as its start is unknown. Its change span is then the root and takes the
 span ID the reconciles point at, so they do not hang under a missing span.
-A restart loses a rollout that was in progress. When an upstream caller set the
-trace, it owns the root and the end of that trace, and DPF exports only the
-rollout span as a child of it.
+A restart loses a rollout that was in progress. The new process sees the change
+as new and exports a second change span into the same trace. When an upstream
+caller set the trace, it owns the root and the end of that trace, and DPF
+exports only the rollout span as a child of it.
+
+The API server bumps the generation when the deletion of an object starts, so a
+deletion is a change of its own with a trace of its own. Call `ObserveRollout`
+from the reconciles of the deletion too. The deletion ends the running rollout
+as `deleted` and has no rollout itself, as the object never becomes ready
+again. Its change span is the root of its trace, like that of an object that
+is ready when first seen.
 
 ## Spans for a slow or meaningful sub-operation
 

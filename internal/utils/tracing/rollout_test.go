@@ -26,6 +26,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // observe runs one reconcile of obj by a WorkflowRoot controller that reports its rollout.
@@ -38,6 +39,14 @@ func observeRevision(obj *corev1.ConfigMap, revision string, ready bool) {
 	ctx, endSpan := ReconcileSpan(context.Background(), "dpudeployment", obj, WorkflowRoot(), Revision(revision))
 	ObserveRollout(ctx, "dpudeployment", obj, ready)
 	endSpan(nil)
+}
+
+// newDeletingTestObject returns the test object at generation with its deletion started.
+func newDeletingTestObject(generation int64) *corev1.ConfigMap {
+	obj := newTestObject(nil)
+	obj.Generation = generation
+	obj.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+	return obj
 }
 
 // spansNamed returns the exported spans with name.
@@ -283,6 +292,64 @@ func TestObserveRollout_NewRevisionIsANewChange(t *testing.T) {
 	require.Len(t, rollouts, 2)
 	require.Equal(t, "superseded", attrValue(t, rollouts[0].Attributes, "rollout.result").AsString())
 	require.Equal(t, "ready", attrValue(t, rollouts[1].Attributes, "rollout.result").AsString())
+}
+
+func TestObserveRollout_DeletionEndsRolloutAndIsARoot(t *testing.T) {
+	exporter := useInMemoryTracerProvider(t)
+	useTracker(t)
+	obj := newTestObject(nil)
+
+	observe(obj, false)
+	// The API server bumps the generation when it sets the deletion timestamp.
+	deleting := newDeletingTestObject(obj.Generation + 1)
+	observe(deleting, false)
+	observe(deleting, false)
+
+	rollouts := spansNamed(exporter, "dpudeployment.rollout")
+	require.Len(t, rollouts, 1, "the deletion has no rollout of its own")
+	require.Equal(t, "deleted", attrValue(t, rollouts[0].Attributes, "rollout.result").AsString())
+	require.Equal(t, obj.Generation, attrValue(t, rollouts[0].Attributes, "k8s.object.generation").AsInt64())
+	require.Equal(t, newSpanContextForObject(obj, "").SpanID(), rollouts[0].SpanContext.SpanID(),
+		"the rollout is exported, so the reconciles before the deletion have their parent")
+
+	changes := spansNamed(exporter, "dpudeployment.change")
+	require.Len(t, changes, 2, "the deletion is a change of its own")
+	derived := newSpanContextForObject(deleting, "")
+	require.Equal(t, derived.TraceID(), changes[1].SpanContext.TraceID())
+	require.Equal(t, derived.SpanID(), changes[1].SpanContext.SpanID(), "the change span is the root of the deletion")
+	for _, reconcile := range spansNamed(exporter, "dpudeployment.reconcile") {
+		if reconcile.SpanContext.TraceID() == derived.TraceID() {
+			require.Equal(t, derived.SpanID(), reconcile.Parent.SpanID(), "the reconciles of the deletion point at it")
+		}
+	}
+}
+
+func TestObserveRollout_DeletionWithoutNewGenerationEndsRollout(t *testing.T) {
+	exporter := useInMemoryTracerProvider(t)
+	useTracker(t)
+	obj := newTestObject(nil)
+
+	observe(obj, false)
+	observe(newDeletingTestObject(obj.Generation), false)
+
+	require.Len(t, spansNamed(exporter, "dpudeployment.change"), 1, "the deletion continues the trace of the change")
+	rollouts := spansNamed(exporter, "dpudeployment.rollout")
+	require.Len(t, rollouts, 1)
+	require.Equal(t, "deleted", attrValue(t, rollouts[0].Attributes, "rollout.result").AsString())
+}
+
+func TestObserveRollout_DeletionFirstSeenIsARoot(t *testing.T) {
+	exporter := useInMemoryTracerProvider(t)
+	useTracker(t)
+	deleting := newDeletingTestObject(4)
+
+	observe(deleting, false)
+	observe(deleting, false)
+
+	changes := spansNamed(exporter, "dpudeployment.change")
+	require.Len(t, changes, 1)
+	require.Equal(t, newSpanContextForObject(deleting, "").SpanID(), changes[0].SpanContext.SpanID())
+	require.Empty(t, spansNamed(exporter, "dpudeployment.rollout"))
 }
 
 func TestObserveRollout_ReadyWhenFirstSeenIsNoRollout(t *testing.T) {

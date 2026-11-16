@@ -191,6 +191,8 @@ func (r *DPUDeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	defer endSpan(&reterr)
 
 	if !dpuDevice.DeletionTimestamp.IsZero() {
+		// The deletion ends the rollout and is the root of its own trace.
+		tracing.ObserveRollout(ctx, DPUDeviceControllerName, dpuDevice, false)
 		return r.reconcileDelete(ctx, dpuDevice)
 	}
 

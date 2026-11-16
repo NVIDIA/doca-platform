@@ -240,11 +240,10 @@ func (r *DPUServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
 
-		if dpuService.DeletionTimestamp.IsZero() {
-			// The status still holds the previous generation until the patch below, so a new generation is not ready yet.
-			tracing.ObserveRollout(ctx, DPUServiceControllerName, dpuService,
-				conditions.IsTrue(dpuService, conditions.TypeReady) && dpuService.Status.ObservedGeneration == dpuService.Generation)
-		}
+		// The status still holds the previous generation until the patch below, so a new generation is not ready yet.
+		// A deletion is reported too, it ends the rollout and is the root of its own trace.
+		tracing.ObserveRollout(ctx, DPUServiceControllerName, dpuService,
+			conditions.IsTrue(dpuService, conditions.TypeReady) && dpuService.Status.ObservedGeneration == dpuService.Generation)
 
 		if err := patcher.Patch(ctx, dpuService,
 			patch.WithFieldOwner(DPUServiceControllerName),

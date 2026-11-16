@@ -37,6 +37,7 @@ const (
 	rolloutReady      = "ready"
 	rolloutTimedOut   = "timeout"
 	rolloutSuperseded = "superseded"
+	rolloutDeleted    = "deleted"
 )
 
 // reconciles is the process-wide tracker used by ReconcileSpan and ObserveRollout. It stays nil,
@@ -185,8 +186,9 @@ func (t *tracker) finish(controller string, uid types.UID, resourceVersion strin
 // rollouts that ended with this reconcile. A rollout starts at in.started when the process first
 // sees a change and ends when the object is ready, after the rollout timeout, or when a newer change
 // replaces it. An object that is ready the first time it is seen is not a rollout, as its start is
-// unknown. A nil tracker reports nothing.
-func (t *tracker) observeRollout(controller string, uid types.UID, generation int64, in incoming, ready bool) (started bool, finished []finishedRollout) {
+// unknown. The deletion of the object ends its rollout and is a change without a rollout, as the
+// object never becomes ready again. A nil tracker reports nothing.
+func (t *tracker) observeRollout(controller string, uid types.UID, generation int64, in incoming, ready, deleting bool) (started bool, finished []finishedRollout) {
 	if t == nil || uid == "" {
 		return false, nil
 	}
@@ -209,18 +211,26 @@ func (t *tracker) observeRollout(controller string, uid types.UID, generation in
 		}
 		return finishedRollout{state.generation, state.in, at, outcome}
 	}
+	// The API server bumps the generation when the deletion starts, so it usually ends the rollout here.
+	replaced := rolloutSuperseded
+	if deleting {
+		replaced = rolloutDeleted
+	}
 	if known && state.change != change {
 		if !state.ended {
-			finished = append(finished, end(rolloutSuperseded))
+			finished = append(finished, end(replaced))
 		}
-		state = rolloutState{change: change, generation: generation, in: in}
+		state = rolloutState{change: change, generation: generation, in: in, ended: deleting}
 		started = true
 	} else if !known {
-		state = rolloutState{change: change, generation: generation, in: in, ended: ready}
+		state = rolloutState{change: change, generation: generation, in: in, ended: ready || deleting}
 		started = true
 	}
 	switch {
 	case state.ended:
+	case deleting:
+		state.ended = true
+		finished = append(finished, end(rolloutDeleted))
 	case ready:
 		state.ended = true
 		finished = append(finished, end(rolloutReady))
