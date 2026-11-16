@@ -840,6 +840,16 @@ func IsDPUHeldForUpgrade(status *provisioningv1.DPUStatus) bool {
 		condition.Reason == ReasonDPFOperatorUpgradeInProgress
 }
 
+// IsDPUHeldInPendingForUpgrade reports whether the DPU controller confirmed it is holding the DPU in
+// the Pending phase because a DPF upgrade is in progress. Such a DPU is not provisioned yet, so it
+// does not have a Node in the DPU cluster and does not get one before the upgrade completed.
+// A check which needs the Node of a DPU has to use this instead of IsDPUHeldForUpgrade to skip a DPU:
+// a DPU held in Node Effect is expected to already have a Node, so such a check must still look at
+// it and may only tolerate that the Node is missing.
+func IsDPUHeldInPendingForUpgrade(status *provisioningv1.DPUStatus) bool {
+	return status != nil && status.Phase == provisioningv1.DPUPending && IsDPUHeldForUpgrade(status)
+}
+
 func IsDPUAfterProvisioningPhase(phase provisioningv1.DPUPhase) bool {
 	switch phase {
 	case provisioningv1.DPUConfig,

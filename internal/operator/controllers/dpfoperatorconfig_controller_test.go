@@ -1952,6 +1952,117 @@ func TestValidateKubernetesVersionSkew(t *testing.T) {
 		g.Expect(testClient.Delete(ctx, kamajiCluster)).To(Succeed())
 	})
 
+	t.Run("handles DPUs held for the upgrade", func(t *testing.T) {
+		kamajiCluster := &provisioningv1.DPUCluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "kamaji-cluster-pending-phase",
+				Namespace: testNS.Name,
+			},
+			Spec: provisioningv1.DPUClusterSpec{
+				Type:       string(provisioningv1.KamajiCluster),
+				Kubeconfig: "kamaji-cluster-pending-phase-admin-kubeconfig",
+			},
+		}
+		g.Expect(testClient.Create(ctx, kamajiCluster)).To(Succeed())
+		secret := ensureClusterSecret(kamajiCluster)
+		t.Cleanup(func() {
+			g.Expect(testClient.Delete(ctx, secret)).To(Succeed())
+			g.Expect(testClient.Delete(ctx, kamajiCluster)).To(Succeed())
+		})
+		dpuClusters := []*dpucluster.Config{
+			dpucluster.NewConfig(testClient, kamajiCluster),
+		}
+
+		tests := []struct {
+			name            string
+			phase           provisioningv1.DPUPhase
+			conditionType   provisioningv1.DPUConditionType
+			conditionReason string
+			// kubeletVersion creates a Node for the DPU in the DPU cluster if set.
+			kubeletVersion *string
+			wantErr        string
+		}{
+			{
+				name:            "Pending and held for the upgrade",
+				phase:           provisioningv1.DPUPending,
+				conditionType:   provisioningv1.DPUCondPending,
+				conditionReason: util.ReasonDPFOperatorUpgradeInProgress,
+			},
+			{
+				name:    "Pending without a condition",
+				phase:   provisioningv1.DPUPending,
+				wantErr: "not found",
+			},
+			{
+				name:            "Pending for another reason",
+				phase:           provisioningv1.DPUPending,
+				conditionType:   provisioningv1.DPUCondPending,
+				conditionReason: "CannotProceed",
+				wantErr:         "not found",
+			},
+			{
+				name:            "Node Effect and held for the upgrade without a node",
+				phase:           provisioningv1.DPUNodeEffect,
+				conditionType:   provisioningv1.DPUCondNodeEffectReady,
+				conditionReason: util.ReasonDPFOperatorUpgradeInProgress,
+			},
+			{
+				name:            "Node Effect and held for the upgrade with a node violating the skew",
+				phase:           provisioningv1.DPUNodeEffect,
+				conditionType:   provisioningv1.DPUCondNodeEffectReady,
+				conditionReason: util.ReasonDPFOperatorUpgradeInProgress,
+				kubeletVersion:  ptr.To("v2.0.0"),
+				wantErr:         "must match kube-apiserver major version",
+			},
+			{
+				name:            "Node Effect for another reason without a node",
+				phase:           provisioningv1.DPUNodeEffect,
+				conditionType:   provisioningv1.DPUCondNodeEffectReady,
+				conditionReason: "NodeEffectInProgress",
+				wantErr:         "not found",
+			},
+			{
+				name:            "Ready with a stale hold condition",
+				phase:           provisioningv1.DPUReady,
+				conditionType:   provisioningv1.DPUCondPending,
+				conditionReason: util.ReasonDPFOperatorUpgradeInProgress,
+				wantErr:         "not found",
+			},
+		}
+		for i, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				g := NewWithT(t)
+				dpu, node := createDPU(fmt.Sprintf("dpu-pending-phase-%d", i), kamajiCluster, tt.kubeletVersion)
+				t.Cleanup(func() {
+					g.Expect(testClient.Delete(ctx, dpu)).To(Succeed())
+					if node != nil {
+						g.Expect(testClient.Delete(ctx, node)).To(Succeed())
+					}
+				})
+				patcher := patch.NewSerialPatcher(dpu, testClient)
+				dpu.Status.Phase = tt.phase
+				if tt.conditionType != "" {
+					dpu.Status.Conditions = []metav1.Condition{{
+						Type:               tt.conditionType.String(),
+						Status:             metav1.ConditionFalse,
+						Reason:             tt.conditionReason,
+						LastTransitionTime: metav1.Now(),
+					}}
+				}
+				g.Expect(patcher.Patch(ctx, dpu, patch.WithFieldOwner("test"))).To(Succeed())
+
+				err := newReconciler().validateKubernetesVersionSkew(ctx, &operatorv1.DPFOperatorConfig{}, dpuClusters)
+				if tt.wantErr == "" {
+					g.Expect(err).NotTo(HaveOccurred())
+					return
+				}
+				g.Expect(err).To(HaveOccurred())
+				g.Expect(err.Error()).To(ContainSubstring(dpu.Name))
+				g.Expect(err.Error()).To(ContainSubstring(tt.wantErr))
+			})
+		}
+	})
+
 	t.Run("reads kubelet version from DPU cluster node", func(t *testing.T) {
 		kamajiCluster := testutils.GetTestDPUCluster(testNS.Name, "kamaji-cluster-node-version")
 		g.Expect(testClient.Create(ctx, &kamajiCluster)).To(Succeed())

@@ -787,12 +787,17 @@ func (r *DPFOperatorConfigReconciler) updateSystemComponentStatus(ctx context.Co
 //   - Kamaji clusters: the KubernetesVersion constant (the version being upgraded to)
 //   - Static clusters: the actual version from DPUCluster.Status.Version
 //
-// It then checks every non-error DPU assigned to that cluster by reading the
+// It then checks every DPU assigned to that cluster, except the ones in the Error
+// phase and the ones held in Pending for the upgrade
+// (see util.IsDPUHeldInPendingForUpgrade), by reading the
 // kubelet version from the corresponding Node in the DPU cluster
 // (node.Status.NodeInfo.KubeletVersion):
 //   - Kubelet major version must match the kube-apiserver major version
 //   - Kubelet minor version must not be newer than the kube-apiserver
 //   - Kubelet minor version must be at most 3 versions behind the kube-apiserver
+//
+// A DPU without a Node fails the validation, unless it is held in Node Effect for
+// the upgrade.
 //
 // All errors across clusters and DPUs are aggregated and returned together.
 func (r *DPFOperatorConfigReconciler) validateKubernetesVersionSkew(ctx context.Context, _ *operatorv1.DPFOperatorConfig, dpuClusters []*dpucluster.Config) error {
@@ -847,7 +852,18 @@ func (r *DPFOperatorConfigReconciler) validateKubernetesVersionSkew(ctx context.
 			if dpu.Status.Phase == provisioningv1.DPUError {
 				continue
 			}
+			// Skip DPUs held in Pending for the upgrade, they are not provisioned yet and do not have a Node
+			// in the DPU cluster before the upgrade completed. Failing on the missing Node would deadlock
+			// the upgrade.
+			if util.IsDPUHeldInPendingForUpgrade(&dpu.Status) {
+				continue
+			}
 			if err := r.validateDPUKubeletVersion(ctx, clusterClient, &dpu, apiserverVersion); err != nil {
+				// A DPU held in Node Effect on its first provisioning has no Node before the upgrade
+				// completed, failing on it would deadlock the upgrade.
+				if errors.Is(err, errDPUClusterNodeNotFound) && util.IsDPUHeldForUpgrade(&dpu.Status) {
+					continue
+				}
 				errs = append(errs, fmt.Errorf("cluster %s/%s: %v",
 					dpuCluster.Cluster.Namespace, dpuCluster.Cluster.Name, err))
 			}
@@ -916,6 +932,9 @@ func (r *DPFOperatorConfigReconciler) validateDPUKubeletVersion(ctx context.Cont
 	return nil
 }
 
+// errDPUClusterNodeNotFound is returned by resolveDPUKubeletVersion if the DPU has no Node in the DPU cluster.
+var errDPUClusterNodeNotFound = errors.New("not found")
+
 // resolveDPUKubeletVersion returns the kubelet version from the DPU cluster Node
 // named after the DPU (node.Status.NodeInfo.KubeletVersion).
 func resolveDPUKubeletVersion(ctx context.Context, clusterClient client.Reader, dpu *provisioningv1.DPU) (string, error) {
@@ -926,7 +945,7 @@ func resolveDPUKubeletVersion(ctx context.Context, clusterClient client.Reader, 
 	node := &corev1.Node{}
 	if err := clusterClient.Get(ctx, types.NamespacedName{Name: dpu.Name}, node); err != nil {
 		if apierrors.IsNotFound(err) {
-			return "", fmt.Errorf("DPU cluster node %s not found", dpu.Name)
+			return "", fmt.Errorf("DPU cluster node %s %w", dpu.Name, errDPUClusterNodeNotFound)
 		}
 		return "", fmt.Errorf("failed to get DPU cluster node %s: %w", dpu.Name, err)
 	}
