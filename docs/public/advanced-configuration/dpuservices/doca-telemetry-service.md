@@ -35,7 +35,7 @@ spec:
   helmChart:
     source:
       repoURL: https://helm.ngc.nvidia.com/nvidia/doca
-      version: 1.26.5
+      version: 1.27.7
       chart: doca-telemetry
     values:
       configMapData:
@@ -46,6 +46,7 @@ spec:
           sync-time-limit: 10000
           event-buffer-size: 65536
           counter-buffer-size: 65536
+          nofile-limit: 2048
           amber_mlxlink_as_service: 0
         fluent:
           forward:
@@ -206,7 +207,7 @@ spec:
   helmChart:
     source:
       repoURL: https://helm.ngc.nvidia.com/nvidia/doca
-      version: 1.25.32
+      version: 1.25.42
       chart: doca-telemetry
     values:
       dtsConfigDir: "astra_spectrum_x"
@@ -219,6 +220,7 @@ spec:
           sync-time-limit: 10
           event-buffer-size: 65536
           counter-buffer-size: 65536
+          nofile-limit: 2048
 
           diagnostic-data-yml-file: "/config/diagnostic_data_configs/all-single-port.yml"
           level-labels-file: "/config/level_labels.ini"
