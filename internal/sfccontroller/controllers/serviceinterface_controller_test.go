@@ -889,8 +889,11 @@ var _ = Describe("service interface controller", func() {
 			cleanupObjects = append(cleanupObjects, nsi)
 
 			sir.Client = mgrClient
-			Eventually(func() error {
-				return mgrClient.Get(ctx, client.ObjectKeyFromObject(si), &dpuservicev1.ServiceInterface{})
+			// Wait for the cache to observe deletion before reconciling the SI.
+			Eventually(func(g Gomega) {
+				cachedSI := &dpuservicev1.ServiceInterface{}
+				g.Expect(mgrClient.Get(ctx, client.ObjectKeyFromObject(si), cachedSI)).To(Succeed())
+				g.Expect(cachedSI.DeletionTimestamp.IsZero()).To(BeFalse())
 			}).Should(Succeed())
 			Eventually(func(g Gomega) {
 				nsiList := &dpuservicev1.NodeServiceInterfacesList{}
