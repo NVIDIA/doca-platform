@@ -413,9 +413,9 @@ var _ = Describe("DiscoverPhysicalPort", func() {
 
 })
 
-// mlxconfigPFSDGroupOutput builds sample "mlxconfig -e q" output with the given
-// default, current, and next-boot PF_SD_GROUP values.
-func mlxconfigPFSDGroupOutput(def, current, next string) string {
+// mlxconfigParamOutput builds sample "mlxconfig -e q SILENT_MODE" output with
+// the given default, current, and next-boot values.
+func mlxconfigParamOutput(def, current, next string) string {
 	return fmt.Sprintf(`
 Device #1:
 ----------
@@ -424,18 +424,18 @@ Device type:        BlueField4
 Device:             /dev/fwctl/fwctl0
 
 Configurations:                                         Default         Current         Next Boot
-        PF_SD_GROUP                                     %s               %s               %s
+        SILENT_MODE                                     %s               %s               %s
 `, def, current, next)
 }
 
 var _ = Describe("VerifyNSUplinksRegistered", func() {
 	var (
 		root string
-		// pfSDGroup maps an mlxconfig -d target to its PF_SD_GROUP current value;
+		// silentMode maps an mlxconfig -d target to its SILENT_MODE current value;
 		// targets without an entry make mlxconfig fail.
-		pfSDGroup map[string]string
-		calls     map[string]int
-		d         *PortDiscoverer
+		silentMode map[string]string
+		calls      map[string]int
+		d          *PortDiscoverer
 	)
 
 	writeFunction := func(bdf, vendorID, deviceID string) {
@@ -458,28 +458,32 @@ var _ = Describe("VerifyNSUplinksRegistered", func() {
 		} {
 			writeFunction(bdf, "0x15b3", "0xa2df")
 			writeFwctl(bdf, fwctl)
-			pfSDGroup["/dev/fwctl/"+fwctl] = "1"
 		}
+		// Primaries own the uplinks. Secondaries are silenced.
+		silentMode["/dev/fwctl/fwctl16"] = "False(0)"
+		silentMode["/dev/fwctl/fwctl17"] = "True(1)"
+		silentMode["/dev/fwctl/fwctl34"] = "False(0)"
+		silentMode["/dev/fwctl/fwctl35"] = "True(1)"
 	}
 
 	BeforeEach(func() {
 		root = GinkgoT().TempDir()
 		setSysfsPCIDevicesPathForTest(root)
-		pfSDGroup = map[string]string{}
+		silentMode = map[string]string{}
 		calls = map[string]int{}
 		d = &PortDiscoverer{runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
 			target, ok := strings.CutPrefix(cmd, "mlxconfig -d ")
-			target, ok2 := strings.CutSuffix(target, " -e q PF_SD_GROUP")
+			target, ok2 := strings.CutSuffix(target, " -e q SILENT_MODE")
 			if !ok || !ok2 {
 				return bytes.Buffer{}, bytes.Buffer{}, fmt.Errorf("unexpected command: %s", cmd)
 			}
 			calls[target]++
-			value, found := pfSDGroup[target]
+			value, found := silentMode[target]
 			if !found {
-				return bytes.Buffer{}, *bytes.NewBufferString("-E- The Device doesn't support PF_SD_GROUP parameter"),
+				return bytes.Buffer{}, *bytes.NewBufferString("-E- The Device doesn't support SILENT_MODE parameter"),
 					fmt.Errorf("exit status 1")
 			}
-			return *bytes.NewBufferString(mlxconfigPFSDGroupOutput(value, value, value)), bytes.Buffer{}, nil
+			return *bytes.NewBufferString(mlxconfigParamOutput(value, value, value)), bytes.Buffer{}, nil
 		}}
 	})
 
@@ -502,21 +506,20 @@ var _ = Describe("VerifyNSUplinksRegistered", func() {
 	It("should fail when devlink has registered only one of the BF3 functions", func() {
 		writeFunction("0000:03:00.0", "0x15b3", "0xa2dc")
 		writeFunction("0000:03:00.1", "0x15b3", "0xa2dc")
-		pfSDGroup["0000:03:00.1"] = "0"
+		silentMode["0000:03:00.1"] = "False(0)"
 		err := d.VerifyNSUplinksRegistered([]NICPort{{
 			Netdev:     "p0",
 			PCIAddress: "0000:03:00.0",
 		}})
 		Expect(err).To(MatchError(ContainSubstring("N/S PCI function(s) 0000:03:00.1")))
 		Expect(err.Error()).NotTo(ContainSubstring("0000:03:00.0"))
-		Expect(err.Error()).NotTo(ContainSubstring("Socket Direct"))
 	})
 
-	It("should fail for BF2 functions whose PF_SD_GROUP cannot be queried", func() {
+	It("should fail for BF2 functions whose SILENT_MODE cannot be queried", func() {
 		writeFunction("0000:03:00.0", "0x15b3", "0xa2d6")
 		err := d.VerifyNSUplinksRegistered(nil)
 		Expect(err).To(MatchError(ContainSubstring("N/S PCI function(s) 0000:03:00.0")))
-		Expect(err.Error()).To(ContainSubstring("doesn't support PF_SD_GROUP"))
+		Expect(err.Error()).To(ContainSubstring("doesn't support SILENT_MODE"))
 	})
 
 	It("should succeed when every BF4 function has a physical port", func() {
@@ -550,19 +553,33 @@ var _ = Describe("VerifyNSUplinksRegistered", func() {
 		Expect(calls).To(Equal(map[string]int{"/dev/fwctl/fwctl17": 1, "/dev/fwctl/fwctl35": 1}))
 	})
 
-	It("should fail on a Socket Direct silent-mode BF4 while a group has no uplink yet", func() {
+	It("should fail on a Socket Direct BF4 while a primary uplink is not registered yet", func() {
 		writeSocketDirectBF4()
 		err := d.VerifyNSUplinksRegistered([]NICPort{{
 			Netdev:     "p1",
 			PCIAddress: "0006:01:00.0",
 		}})
-		Expect(err).To(MatchError("devlink has not registered a physical port for Socket Direct group(s) 0002:01 yet"))
+		Expect(err).To(MatchError("devlink has not registered a physical port for N/S PCI function(s) 0002:01:00.0 yet"))
 	})
 
-	It("should apply the group rule to a BF3 in Socket Direct silent mode", func() {
+	It("should accept a single-port BF4 secondary that spans PCI domains", func() {
+		writeFunction("0002:01:00.0", "0x15b3", "0xa2df")
+		writeFunction("0006:01:00.0", "0x15b3", "0xa2df")
+		writeFwctl("0002:01:00.0", "fwctl0")
+		writeFwctl("0006:01:00.0", "fwctl1")
+		silentMode["/dev/fwctl/fwctl0"] = "False(0)"
+		silentMode["/dev/fwctl/fwctl1"] = "True(1)"
+		Expect(d.VerifyNSUplinksRegistered([]NICPort{{
+			Netdev:     "p0",
+			PCIAddress: "0002:01:00.0",
+		}})).To(Succeed())
+		Expect(calls).To(Equal(map[string]int{"/dev/fwctl/fwctl1": 1}))
+	})
+
+	It("should accept a BF3 ECPF whose SILENT_MODE is set", func() {
 		writeFunction("0000:03:00.0", "0x15b3", "0xa2dc")
 		writeFunction("0000:03:00.1", "0x15b3", "0xa2dc")
-		pfSDGroup["0000:03:00.1"] = "1"
+		silentMode["0000:03:00.1"] = "True(1)"
 		Expect(d.VerifyNSUplinksRegistered([]NICPort{{
 			Netdev:     "p0",
 			PCIAddress: "0000:03:00.0",
@@ -581,7 +598,7 @@ var _ = Describe("VerifyNSUplinksRegistered", func() {
 		Expect(calls).To(BeEmpty())
 	})
 
-	It("should query PF_SD_GROUP only once per function", func() {
+	It("should query SILENT_MODE only once per function", func() {
 		writeSocketDirectBF4()
 		ports := []NICPort{{
 			Netdev:     "p0",
@@ -596,7 +613,7 @@ var _ = Describe("VerifyNSUplinksRegistered", func() {
 		}))
 	})
 
-	It("should retry a failed PF_SD_GROUP query on the next call", func() {
+	It("should retry a failed SILENT_MODE query on the next call", func() {
 		writeFunction("0000:03:00.0", "0x15b3", "0xa2dc")
 		Expect(d.VerifyNSUplinksRegistered(nil)).To(HaveOccurred())
 		Expect(d.VerifyNSUplinksRegistered(nil)).To(HaveOccurred())
@@ -625,27 +642,26 @@ var _ = Describe("VerifyNSUplinksRegistered", func() {
 	})
 })
 
-var _ = Describe("parsePFSDGroupCurrent", func() {
+var _ = Describe("parseMlxconfigCurrent", func() {
 	DescribeTable("reads the Current column",
 		func(output string, expected int) {
-			value, err := parsePFSDGroupCurrent(output)
+			value, err := parseMlxconfigCurrent(output)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(value).To(Equal(expected))
 		},
-		Entry("silent mode", mlxconfigPFSDGroupOutput("1", "1", "1"), 1),
-		Entry("legacy mode", mlxconfigPFSDGroupOutput("0", "0", "0"), 0),
-		Entry("pending change not yet applied", mlxconfigPFSDGroupOutput("1", "0", "1"), 0),
-		Entry("modified value marker", "*        PF_SD_GROUP      0      1      1\n", 1),
-		Entry("named value", "        PF_SD_GROUP      False(0)      True(1)      True(1)\n", 1),
+		Entry("secondary", mlxconfigParamOutput("True(1)", "True(1)", "True(1)"), 1),
+		Entry("primary", mlxconfigParamOutput("False(0)", "False(0)", "False(0)"), 0),
+		Entry("pending change not yet applied", mlxconfigParamOutput("True(1)", "False(0)", "True(1)"), 0),
+		Entry("modified value marker", "*        SILENT_MODE      False(0)      True(1)      True(1)\n", 1),
 	)
 
-	It("should fail when PF_SD_GROUP is not listed", func() {
-		_, err := parsePFSDGroupCurrent("Configurations:      Default      Current      Next Boot\n")
+	It("should fail when SILENT_MODE is not listed", func() {
+		_, err := parseMlxconfigCurrent("Configurations:      Default      Current      Next Boot\n")
 		Expect(err).To(MatchError(ContainSubstring("not found")))
 	})
 
 	It("should fail on a non-numeric value", func() {
-		_, err := parsePFSDGroupCurrent("        PF_SD_GROUP      1      unknown      1\n")
+		_, err := parseMlxconfigCurrent("        SILENT_MODE      False(0)      unknown      False(0)\n")
 		Expect(err).To(MatchError(ContainSubstring("unknown")))
 	})
 })
