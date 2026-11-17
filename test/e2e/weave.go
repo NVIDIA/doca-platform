@@ -96,6 +96,9 @@ const (
 	// weaveMetricBurstCount is the ICMP echo count per ping-based metric-delta burst.
 	weaveMetricBurstCount = 30
 
+	// weaveMetricsSyncWait lets HW counters reach OVS before a scrape, DPUFlavor max-revalidator (5s) + 1s delta.
+	weaveMetricsSyncWait = 6 * time.Second
+
 	// weaveDHCPTxSlack is the acceptable gap, in packets, between host_tx and (tx_sent+tx_dropped). The only
 	// legitimate host_tx traffic that carries no weave cookie (so lands in neither tx_sent nor tx_dropped) is the
 	// DHCP exchange. Allow a small margin to cover it plus a resend if a packet is lost. Anything above this
@@ -520,6 +523,17 @@ func readWeaveMetrics(pod *corev1.Pod) weaveMetrics {
 	return metrics
 }
 
+// readSettledWeaveMetrics waits for HW counters to sync into OVS, then scrapes each pod.
+func readSettledWeaveMetrics(pods ...*corev1.Pod) []weaveMetrics {
+	By(fmt.Sprintf("Waiting %s for HW counters to sync", weaveMetricsSyncWait))
+	time.Sleep(weaveMetricsSyncWait)
+	metrics := make([]weaveMetrics, len(pods))
+	for i, pod := range pods {
+		metrics[i] = readWeaveMetrics(pod)
+	}
+	return metrics
+}
+
 // metricDelta returns after-before for a counter on a bridge, asserting it did not go backwards
 func metricDelta(g Gomega, before, after weaveMetrics, bridge, name string) uint64 {
 	b, bOK := before[bridge][name]
@@ -825,10 +839,7 @@ func eventuallyAssertWeaveMetrics(pods []*corev1.Pod, assert func(g Gomega, curr
 func verifyMetricsAfterPingBurst(byTraffic, byVerify string, pods []*corev1.Pod, pingBurst func(),
 	assert func(g Gomega, before, after []weaveMetrics)) {
 	By("Reading baseline weave metrics")
-	before := make([]weaveMetrics, len(pods))
-	for i, pod := range pods {
-		before[i] = readWeaveMetrics(pod)
-	}
+	before := readSettledWeaveMetrics(pods...)
 
 	By(byTraffic)
 	pingBurst()
@@ -869,8 +880,8 @@ func verifyCrossNodeIperfMetric(fcPod1, fcPod2 *corev1.Pod, vni uint32, runIperf
 	bridge := weaveHW.P0.IsolationBridgeName(vni)
 
 	By("Reading baseline weave metrics")
-	baseline1 := readWeaveMetrics(fcPod1)
-	baseline2 := readWeaveMetrics(fcPod2)
+	baselines := readSettledWeaveMetrics(fcPod1, fcPod2)
+	baseline1, baseline2 := baselines[0], baselines[1]
 
 	By("Running iperf cross-node")
 	forward := runIperf()
