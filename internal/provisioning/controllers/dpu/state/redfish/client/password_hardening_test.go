@@ -350,7 +350,7 @@ var _ = Describe("BMC password hardening", func() {
 		client, err := InitPassword(ctx, bmc.server.URL, testNamespace, nil, k8sClient)
 		Expect(err).NotTo(HaveOccurred())
 		defer client.CloseIdleConnections()
-		Expect(client.IsBF4).To(BeTrue())
+		Expect(client.IsBF4()).To(BeTrue())
 
 		patches := bmc.recordedPatches()
 		Expect(patches).To(HaveLen(2))
@@ -394,7 +394,7 @@ var _ = Describe("BMC password hardening", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer client.CloseIdleConnections()
 		Expect(user).To(Equal(BF4BMCUser))
-		Expect(client.IsBF4).To(BeTrue())
+		Expect(client.IsBF4()).To(BeTrue())
 	})
 
 	It("still reports a wrong password as rejected when the model is unknown", func() {

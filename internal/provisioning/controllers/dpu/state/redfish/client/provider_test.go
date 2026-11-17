@@ -522,6 +522,8 @@ func TestDeviceKeyMapsRecordedTypeOntoFamily(t *testing.T) {
 		provisioningv1.DPUTypeBlueField2: familyUnknown,
 		provisioningv1.DPUTypeUnknown:    familyUnknown,
 		"":                               familyUnknown,
+
+		provisioningv1.DPUTypeBlueField4CMX: familyCMX,
 	} {
 		key, err := deviceKey(providerNamespace, device(dpuType))
 		if err != nil {
@@ -541,5 +543,28 @@ func TestDeviceKeyMapsRecordedTypeOntoFamily(t *testing.T) {
 	// A device with no recorded address cannot be keyed at all.
 	if _, err := deviceKey(providerNamespace, &provisioningv1.DPUDevice{}); err == nil {
 		t.Error("deviceKey accepted a device with no BMC address")
+	}
+}
+
+// TestRootServiceInfoFamily checks that only an exact CMX product selects the CMX family and that
+// every other named product keeps the BF3 or BF4 family it had before CMX existed.
+func TestRootServiceInfoFamily(t *testing.T) {
+	var nilInfo *RootServiceInfo
+	if got := nilInfo.Family(); got != familyUnknown {
+		t.Errorf("nil Family() = %q, want %q", got, familyUnknown)
+	}
+	for product, want := range map[string]bfFamily{
+		"CMX":         familyCMX,
+		" cmx ":       familyCMX,
+		"CMX-Board":   familyBF3,
+		"BlueField-4": familyBF4,
+		"B4-Board":    familyBF4,
+		"BlueField-3": familyBF3,
+		"":            familyUnknown,
+		"  ":          familyUnknown,
+	} {
+		if got := (&RootServiceInfo{Product: product}).Family(); got != want {
+			t.Errorf("Family(%q) = %q, want %q", product, got, want)
+		}
 	}
 }

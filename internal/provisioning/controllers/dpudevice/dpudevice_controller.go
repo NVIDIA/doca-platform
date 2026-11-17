@@ -864,9 +864,14 @@ func (r *DPUDeviceReconciler) initializeDPUDevice(ctx context.Context, dpuDevice
 	}
 
 	defer basicAuthClient.CloseIdleConnections()
-	if basicAuthClient.IsBF4 {
+	switch {
+	case basicAuthClient.IsCMX():
+		// CMX has no BF3 BMC firmware bundle. Recording BF3 here would make later
+		// reconciles select the BF3 client certificate and resource ids.
+		dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField4CMX
+	case basicAuthClient.IsBF4():
 		dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField4
-	} else {
+	default:
 		dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField3
 		stop, err = r.checkAndUpdateBmcFw(ctx, dpuDevice, basicAuthClient)
 		if err != nil {
@@ -1216,13 +1221,19 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 	}
 
 	psid, err := client.GetPSID(ctx)
-	if err == nil {
+	switch {
+	case err == nil:
 		dpuDevice.Status.PSID = ptr.To(psid)
-	} else {
-		log.Error(err, "Failed to get PSID", "address", bmcAddress, "psid", psid)
-		if client.IsBF4 {
-			return err
-		}
+	case errors.Is(err, rfclient.ErrPSIDNotReported):
+		log.V(1).Info("PSID is not reported by this BMC", "address", bmcAddress)
+		// A BMC that does not report a PSID must not keep one recorded earlier.
+		dpuDevice.Status.PSID = nil
+		delete(dpuDevice.Labels, cutil.DPUDevicePSIDLabel)
+	case client.IsBF4():
+		log.Error(err, "Failed to get PSID", "address", bmcAddress)
+		return err
+	default:
+		log.Error(err, "Failed to get PSID", "address", bmcAddress)
 	}
 
 	dpuDevice.Status.OPN = ptr.To(chassisInfo.PartNumber)
@@ -1258,7 +1269,7 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 // discoverPF0MAC records available PF0 metadata, tolerating a missing resource.
 func (r *DPUDeviceReconciler) discoverPF0MAC(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, client *rfclient.Client) error {
 	device := "eth0f0"
-	if client.IsBF4 {
+	if client.IsBF4() {
 		device = "0"
 	}
 	_, pf0, err := client.GetNetworkDeviceFunction(ctx, device)
@@ -1272,7 +1283,7 @@ func (r *DPUDeviceReconciler) discoverPF0MAC(ctx context.Context, dpuDevice *pro
 	}
 
 	mac := pf0.Ethernet.MACAddress
-	if client.IsBF4 {
+	if client.IsBF4() {
 		mac = pf0.Ethernet.PermanentMACAddress
 	}
 	if mac == "" {

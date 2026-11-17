@@ -975,6 +975,23 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(dpuDevice.Labels).To(HaveKeyWithValue("provisioning.dpu.nvidia.com/dpudevice-psid", mock.DpuPSID74))
 		})
 
+		It("clears a stored PSID when the CMX BMC reports none", func() {
+			ctx := context.Background()
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			mockServer.SetDpuVersion(mock.CMX)
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-cmx-psid")
+			stale := "MT_stale_psid"
+			dpuDevice.Status.PSID = &stale
+			dpuDevice.Labels = map[string]string{"provisioning.dpu.nvidia.com/dpudevice-psid": stale}
+
+			Expect(reconciler.discoverDPUDevice(ctx, dpuDevice)).To(Succeed())
+			Expect(dpuDevice.Status.DPUType).To(Equal(provisioningv1.DPUTypeBlueField4CMX))
+			Expect(dpuDevice.Status.PSID).To(BeNil())
+			Expect(dpuDevice.Labels).NotTo(HaveKey("provisioning.dpu.nvidia.com/dpudevice-psid"))
+		})
+
 		It("should detect Secure Boot disabled state", func() {
 			ctx := context.Background()
 			mockServer, reconciler := setupDiscoveryTest()
@@ -1295,6 +1312,25 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
 			Expect(condition.Reason).To(Equal("Pending"))
 			Expect(condition.Message).To(Equal("BMC firmware update in progress"))
+		})
+
+		It("records a CMX device and skips the BF3 BMC firmware update", func() {
+			setupBMCUpdateTest("BF-24.04-1")
+			mockServer.SetDpuVersion(mock.CMX)
+
+			err := reconciler.initializeDPUDevice(ctx, dpuDevice)
+
+			Expect(dpuDevice.Status.DPUType).To(Equal(provisioningv1.DPUTypeBlueField4CMX))
+			_, updating := dutil.BmcFwUpdateTaskMap.Load(fmt.Sprintf("%s-%s", testDeviceName, testUID))
+			Expect(updating).To(BeFalse())
+			condition := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceInitialized))
+			if condition != nil {
+				Expect(condition.Message).NotTo(ContainSubstring("BMC firmware update"))
+			}
+			// mTLS setup still runs after the type is recorded, and this mock has no client
+			// certificate installed on the BMC. The type must already be CMX by then.
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("mTLS"))
 		})
 
 		It("should set Initialized=False with resetting message when BMC update is completed", func() {

@@ -208,7 +208,7 @@ func cmxPersonality() Personality {
 	return Personality{
 		Type:         config.DPUTypeBF4CMX,
 		Product:      "CMX",
-		User:         rfclient.BF3BMCUser,
+		User:         rfclient.BF4BMCUser,
 		ManagerID:    "BMC_0",
 		ManagerIDs:   []string{"BMC_0", "SMM_0", "StorageBackplane_0"},
 		SystemID:     "System_0",

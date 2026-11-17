@@ -17,6 +17,7 @@ limitations under the License.
 package mock
 
 import (
+	"context"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -145,6 +146,7 @@ type DpuVersion int
 const (
 	BF3 DpuVersion = 3
 	BF4 DpuVersion = 4
+	CMX DpuVersion = 5
 )
 
 // NewRedfishMockServer creates a new mock Redfish server
@@ -184,6 +186,7 @@ func NewRedfishMockServer(bmcVersion, password string) *RedfishMockServer {
 	// Chassis
 	mux.HandleFunc("/redfish/v1/Chassis/Card1", mock.handleGetChassis)
 	mux.HandleFunc("/redfish/v1/Chassis/BlueField_0", mock.handleGetChassis)
+	mux.HandleFunc("/redfish/v1/Chassis/Chassis_0", mock.handleGetChassis)
 	mux.HandleFunc("/redfish/v1/Chassis/BlueField_ERoT_BMC_0", mock.handleGetErotChassis)
 
 	// UpdateService
@@ -350,7 +353,7 @@ func (r *RedfishMockServer) factoryDefaultPasswordUnavailable(req *http.Request)
 }
 
 func (r *RedfishMockServer) redfishUser() string {
-	if r.dpuVersion == BF4 {
+	if r.dpuVersion == BF4 || r.dpuVersion == CMX {
 		return client.BF4BMCUser
 	}
 	return client.BF3BMCUser
@@ -426,24 +429,10 @@ func (r *RedfishMockServer) GetAddress() string {
 	return ""
 }
 
-// GetClient returns a Redfish client configured to connect to this mock server
+// GetClient returns a Redfish client configured to connect to this mock server.
+// The root service names the product, and the client derives BF3 or BF4 from that.
 func (r *RedfishMockServer) GetClient() (*client.Client, error) {
-	// Create a client that skips TLS verification for testing
-	c, err := client.NewRawClient(r.server.URL)
-	if err != nil {
-		return nil, err
-	}
-
-	// Set basic auth
-	if r.dpuVersion == BF3 {
-		c.SetBasicAuth("root", r.password)
-		c.IsBF4 = false
-	} else {
-		c.SetBasicAuth("admin", r.password)
-		c.IsBF4 = true
-	}
-
-	return c, nil
+	return client.NewBasicAuthClient(context.Background(), r.server.URL, r.redfishUser(), r.password)
 }
 
 // writeJSONResponse writes a JSON response to the HTTP writer with error handling
@@ -462,8 +451,11 @@ func (r *RedfishMockServer) handleRootService(w http.ResponseWriter, req *http.R
 	}
 
 	product := "BlueField-3 DPU"
-	if r.dpuVersion == BF4 {
+	switch r.dpuVersion {
+	case BF4:
 		product = "B4240"
+	case CMX:
+		product = "CMX"
 	}
 
 	response := map[string]interface{}{
@@ -540,9 +532,13 @@ func (r *RedfishMockServer) handleGetChassis(w http.ResponseWriter, req *http.Re
 
 	chassisID := "Card1"
 	defaultModel := "BlueField-3 DPU"
-	if r.dpuVersion == BF4 {
+	switch r.dpuVersion {
+	case BF4:
 		chassisID = "BlueField_0"
 		defaultModel = "BlueField-4"
+	case CMX:
+		chassisID = "Chassis_0"
+		defaultModel = "CMX"
 	}
 
 	model := r.model
@@ -1610,7 +1606,7 @@ func (r *RedfishMockServer) GetOemLastState() string {
 	return r.oemLastState
 }
 
-// SetDpuVersion sets the DPU version (BF3 or BF4), which affects the root service product string
+// SetDpuVersion sets the DPU version (BF3, BF4, or CMX), which affects the root service product string
 func (r *RedfishMockServer) SetDpuVersion(version DpuVersion) {
 	r.dpuVersion = version
 }

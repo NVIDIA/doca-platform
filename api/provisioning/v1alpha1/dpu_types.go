@@ -508,7 +508,7 @@ type DPUStatus struct {
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
 	// The type of the DPU
-	// +kubebuilder:validation:Enum=Unknown;BlueField2;BlueField3;BlueField4
+	// +kubebuilder:validation:Enum=Unknown;BlueField2;BlueField3;BlueField4;BlueField4CMX
 	// +kubebuilder:default=Unknown
 	// +optional
 	DPUType DPUType `json:"dpuType,omitempty"`

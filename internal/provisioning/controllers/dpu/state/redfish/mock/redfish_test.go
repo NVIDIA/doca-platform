@@ -101,7 +101,7 @@ func testChassisInfo(t *testing.T, client *client.Client) {
 	if resp.StatusCode() != 200 {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode())
 	}
-	if client.IsBF4 {
+	if client.IsBF4() {
 		t.Errorf("Expected BF3 model")
 	}
 	if chassisInfo.PartNumber != "900-9D3B4-00SV-EA0" {
@@ -131,7 +131,7 @@ func TestBF4Auth(t *testing.T) {
 		t.Errorf("Expected status 200 with BF4 auth, got %d", resp.StatusCode())
 	}
 
-	if !client.IsBF4 {
+	if !client.IsBF4() {
 		t.Errorf("Expected IsBF4 to be true")
 	}
 

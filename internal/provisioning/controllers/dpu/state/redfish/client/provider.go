@@ -53,18 +53,33 @@ const (
 	familyUnknown bfFamily = ""
 	familyBF3     bfFamily = "bf3"
 	familyBF4     bfFamily = "bf4"
+	familyCMX     bfFamily = "cmx"
 )
-
-// familyFor maps a discovered or recorded BF4 flag onto a family.
-func familyFor(isBF4 bool) bfFamily {
-	if isBF4 {
-		return familyBF4
-	}
-	return familyBF3
-}
 
 // isBF4 reports whether the family is BlueField-4.
 func (f bfFamily) isBF4() bool { return f == familyBF4 }
+
+// bmcUser is the BMC account this family's client certificate is issued as.
+// BF4 and CMX use admin. BF3 uses root.
+func (f bfFamily) bmcUser() string {
+	switch f {
+	case familyBF4, familyCMX:
+		return BF4BMCUser
+	default:
+		return BF3BMCUser
+	}
+}
+
+// certDirSuffix is the directory suffix of this family's mounted client key pair.
+// CMX uses the BF4 key pair: both certificates are CN admin from the same issuer.
+func (f bfFamily) certDirSuffix() string {
+	switch f {
+	case familyBF4, familyCMX:
+		return "-bf4"
+	default:
+		return ""
+	}
+}
 
 // cacheKey identifies one cached mTLS client. It carries no credential material: rotation is
 // expressed by the generation recorded alongside the entry, so obsolete credentials can never be
@@ -232,11 +247,11 @@ func (p *Provider) acquire(ctx context.Context, key cacheKey) (*Client, error) {
 func (p *Provider) buildClient(ctx context.Context, key cacheKey, ca *caCreds, files *fileCreds) (*Client, error) {
 	family := key.Family
 	if family == familyUnknown {
-		isBF4, err := probeFamily(ctx, key.Endpoint)
+		probed, err := probeFamily(ctx, key.Endpoint)
 		if err != nil {
 			return nil, tlsClientError(key.Endpoint, err)
 		}
-		family = familyFor(isBF4)
+		family = probed
 	}
 	pair := files.pairs[family]
 	if pair.err != nil {
@@ -245,21 +260,26 @@ func (p *Provider) buildClient(ctx context.Context, key cacheKey, ca *caCreds, f
 	if err := verifyClientKeyPairChainsToCA(pair.cert, ca.pem); err != nil {
 		return nil, tlsClientError(key.Endpoint, err)
 	}
-	return newVerifiedTLSClient(key.Endpoint, ca.pool, pair.cert, family.isBF4())
+	return newVerifiedTLSClient(key.Endpoint, ca.pool, pair.cert, family)
 }
 
-// probeFamily reads the unauthenticated root service to determine the BlueField generation.
-func probeFamily(ctx context.Context, endpoint string) (bool, error) {
+// probeFamily reads the unauthenticated root service to determine which client certificate to use.
+// A root service that names no product stays on the BF3 certificate, which is the previous default.
+func probeFamily(ctx context.Context, endpoint string) (bfFamily, error) {
 	rawClient, err := NewRawClient(endpoint)
 	if err != nil {
-		return false, fmt.Errorf("failed to create raw client: %w", err)
+		return familyUnknown, fmt.Errorf("failed to create raw client: %w", err)
 	}
 	defer rawClient.CloseIdleConnections()
 	_, rootServiceInfo, err := rawClient.GetRootService(ctx)
 	if err != nil {
-		return false, err
+		return familyUnknown, err
 	}
-	return rootServiceInfo != nil && rootServiceInfo.IsBF4(), nil
+	family := rootServiceInfo.Family()
+	if family == familyUnknown {
+		return familyBF3, nil
+	}
+	return family, nil
 }
 
 // RetireEndpoint drops every cached client at an endpoint regardless of family or device UID and
@@ -308,7 +328,7 @@ func (p *Provider) refreshFileCreds(ctx context.Context) (*fileCreds, error) {
 func (p *Provider) loadFileCreds() *fileCreds {
 	fc := &fileCreds{pairs: map[bfFamily]keyPair{}}
 	parts := make([]string, 0, 2)
-	for _, family := range []bfFamily{familyBF3, familyBF4} {
+	for _, family := range []bfFamily{familyBF3, familyBF4, familyCMX} {
 		kp := p.loadKeyPair(family)
 		fc.pairs[family] = kp
 		state := kp.digest
@@ -328,10 +348,7 @@ func (p *Provider) loadKeyPair(family bfFamily) keyPair {
 	if p.certDir == "" {
 		return keyPair{err: errors.New("no Redfish client certificate directory configured")}
 	}
-	dir := p.certDir
-	if family.isBF4() {
-		dir += "-bf4"
-	}
+	dir := p.certDir + family.certDirSuffix()
 	certFile := filepath.Join(dir, corev1.TLSCertKey)
 	keyFile := filepath.Join(dir, corev1.TLSPrivateKeyKey)
 	certPEM, err := os.ReadFile(certFile)
@@ -413,7 +430,7 @@ func (p *Provider) readCACreds(ctx context.Context, namespace string) (*caCreds,
 //
 // The returned client is immutable: nothing writes its auth, TLS or header settings afterwards,
 // which is what makes it safe to share between concurrent callers.
-func newVerifiedTLSClient(endpoint string, caPool *x509.CertPool, pair tls.Certificate, isBF4 bool) (*Client, error) {
+func newVerifiedTLSClient(endpoint string, caPool *x509.CertPool, pair tls.Certificate, family bfFamily) (*Client, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse BMC address %q: %w", endpoint, err)
@@ -432,14 +449,10 @@ func newVerifiedTLSClient(endpoint string, caPool *x509.CertPool, pair tls.Certi
 	})
 	// No traceParent: the client is shared across reconciles, so a span captured at creation would
 	// parent other DPUs' calls. Its spans take their parent from the request context only.
-	mtlsUser := BF3BMCUser
-	if isBF4 {
-		mtlsUser = BF4BMCUser
-	}
 	c := &Client{
 		Client:   rc,
-		IsBF4:    isBF4,
-		mtlsUser: mtlsUser,
+		family:   family,
+		mtlsUser: family.bmcUser(),
 	}
 	c.installRedfishTracing(rc)
 	return c, nil
@@ -460,6 +473,8 @@ func deviceKey(namespace string, dpuDevice *provisioningv1.DPUDevice) (cacheKey,
 	switch dpuDevice.Status.DPUType {
 	case provisioningv1.DPUTypeBlueField4:
 		family = familyBF4
+	case provisioningv1.DPUTypeBlueField4CMX:
+		family = familyCMX
 	case provisioningv1.DPUTypeBlueField3:
 		family = familyBF3
 	}

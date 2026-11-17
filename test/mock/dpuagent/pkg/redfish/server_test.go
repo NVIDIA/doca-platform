@@ -161,7 +161,7 @@ func TestBF3Discovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.IsBF4 {
+	if c.IsBF4() {
 		t.Fatal("BF3 personality detected as BF4")
 	}
 	resp, chassis, err := c.GetChassis(context.Background())
@@ -383,7 +383,7 @@ func TestBF4Discovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !c.IsBF4 {
+	if !c.IsBF4() {
 		t.Fatal("BF4 personality not detected")
 	}
 	resp, chassis, err := c.GetChassis(context.Background())
@@ -978,11 +978,11 @@ func TestBF4CMXPersonality(t *testing.T) {
 	if status != http.StatusOK || root["Product"] != "CMX" {
 		t.Fatalf("root status %d product %#v", status, root["Product"])
 	}
-	c, err := rfclient.NewBasicAuthClient(context.Background(), rawURL, rfclient.BF3BMCUser, "x")
+	c, err := rfclient.NewBasicAuthClient(context.Background(), rawURL, rfclient.BF4BMCUser, "x")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.IsBF4 {
+	if c.IsBF4() {
 		t.Fatal("CMX product string must not be detected as BlueField-4")
 	}
 
@@ -1111,7 +1111,7 @@ func TestBF4CMXFirmwareUpdate(t *testing.T) {
 	_, sup, rawURL := startServer(t, config.DPUTypeBF4CMX, defaultFirmware())
 	httpClient := redfishHTTP()
 	base := rawURL + "/redfish/v1"
-	c, err := rfclient.NewBasicAuthClient(context.Background(), rawURL, rfclient.BF3BMCUser, "x")
+	c, err := rfclient.NewBasicAuthClient(context.Background(), rawURL, rfclient.BF4BMCUser, "x")
 	if err != nil {
 		t.Fatal(err)
 	}

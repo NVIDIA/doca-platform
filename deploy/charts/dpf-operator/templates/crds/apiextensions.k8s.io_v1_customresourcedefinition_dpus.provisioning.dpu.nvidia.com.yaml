@@ -839,6 +839,7 @@ spec:
                 - BlueField2
                 - BlueField3
                 - BlueField4
+                - BlueField4CMX
                 type: string
               firmware:
                 description: the firmware information of DPU

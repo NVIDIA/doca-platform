@@ -2729,7 +2729,7 @@ _Appears in:_
 | `pciAddress` _string_ | PCIAddress is the PCI address of the device in the host system.<br />Example: "0000-03-00", "03-00" |  | Optional: \{\} <br /> |
 | `pf0Name` _string_ | PF0Name is the name of the PF0 on the device.<br />Example: "eth0" |  | Optional: \{\} <br /> |
 | `pf0Mac` _string_ | PF0MAC is the MAC address of the PF0 on the device.<br />Example: "00:00:00:00:00:00" |  | Pattern: `^([0-9A-Fa-f]\{2\}[:-])\{5\}([0-9A-Fa-f]\{2\})$` <br />Optional: \{\} <br /> |
-| `dpuType` _[DPUType](#dputype)_ | DPUType is the type of the DPU. | Unknown | Enum: [Unknown BlueField2 BlueField3 BlueField4] <br />Optional: \{\} <br /> |
+| `dpuType` _[DPUType](#dputype)_ | DPUType is the type of the DPU. | Unknown | Enum: [Unknown BlueField2 BlueField3 BlueField4 BlueField4CMX] <br />Optional: \{\} <br /> |
 | `dpuMode` _[DpuModeType](#dpumodetype)_ | DPUMode is the mode of the DPU. | dpu | Enum: [dpu zero-trust nic] <br />Optional: \{\} <br /> |
 | `secureBoot` _[SecureBootStatus](#securebootstatus)_ | SecureBoot indicates the current UEFI Secure Boot state. |  | Optional: \{\} <br /> |
 | `bmcCredentialSecretName` _string_ | BMCCredentialSecretName is the name of the Secret last used successfully<br />for BMC authentication. |  | Optional: \{\} <br /> |
@@ -3473,7 +3473,7 @@ _Appears in:_
 | `postProvisioningDPUConfig` _boolean_ | PostProvisioningDPUConfig must be set before entering Node Effect for an<br />in-place flavor reconfig, so Node Effect exits to DPU Config instead of<br />Initialize Interface. The DPU controller owns this field. If both this<br />and PostProvisioningNodeEffect would be set, only this one is set. |  | Optional: \{\} <br /> |
 | `dpuReconfig` _[DPUReconfigStatus](#dpureconfigstatus)_ | DPUReconfig is the in-place reconfig round state for this DPU. DPUSet<br />writes it. The DPU controller reads inProgress and does not write these<br />fields. Nil means no round has been assigned. |  | Optional: \{\} <br /> |
 | `observedGeneration` _integer_ | ObservedGeneration records the Generation observed on the object<br />the last time it was patched. |  | Optional: \{\} <br /> |
-| `dpuType` _[DPUType](#dputype)_ | The type of the DPU | Unknown | Enum: [Unknown BlueField2 BlueField3 BlueField4] <br />Optional: \{\} <br /> |
+| `dpuType` _[DPUType](#dputype)_ | The type of the DPU | Unknown | Enum: [Unknown BlueField2 BlueField3 BlueField4 BlueField4CMX] <br />Optional: \{\} <br /> |
 | `agentLastStartupTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | AgentLastStartupTime is the time when the DPU agent was last started.<br />This is copied from agentStatus.lastStartupTime. |  | Optional: \{\} <br /> |
 | `agentStatus` _[AgentStatus](#agentstatus)_ | AgentStatus contains the information reported from inside the DPU |  | Optional: \{\} <br /> |
 | `rebootStatus` _[RebootStatus](#rebootstatus)_ | RebootStatus contains host reboot progress.<br />DPU controller derives user-facing DPUCondRebooted from this status. |  | Optional: \{\} <br /> |
@@ -3544,6 +3544,7 @@ _Appears in:_
 | `BlueField2` |  |
 | `BlueField3` |  |
 | `BlueField4` |  |
+| `BlueField4CMX` |  |
 
 
 #### DeploymentMode

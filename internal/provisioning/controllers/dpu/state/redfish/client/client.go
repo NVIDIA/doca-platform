@@ -79,16 +79,20 @@ var RedfishAPIs = newRedfishAPIMap(map[string]string{
 	"APITruststoreCert":               "redfish/v1/Managers/{MANAGER_ID}/Truststore/Certificates/{CERT_ID}",
 	"APIServerCert":                   "redfish/v1/Managers/{MANAGER_ID}/NetworkProtocol/HTTPS/Certificates/1",
 	"APIReplaceCert":                  "redfish/v1/CertificateService/Actions/CertificateService.ReplaceCertificate",
+	"APIGetFirmwareInventory":         "redfish/v1/UpdateService/FirmwareInventory",
 	"APIUpdateBluefieldFWMultipart":   "redfish/v1/UpdateService/update-multipart",
 	"APIActivatePendingBundle":        "redfish/v1/UpdateService/Actions/UpdateService.Activate",
+	"APICommitImage":                  "redfish/v1/UpdateService/Actions/Oem/NvidiaUpdateService.CommitImage",
 	"APIGetBios":                      "redfish/v1/Systems/{SYSTEM_ID}/Bios",
 	"APISetBiosSettings":              "redfish/v1/Systems/{SYSTEM_ID}/Bios/Settings",
 	"APISetMode":                      "/redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/Mode.Set",
 	"APIGenerateCSR":                  "redfish/v1/CertificateService/Actions/CertificateService.GenerateCSR",
 	"APIEnableMTLS":                   "redfish/v1/AccountService",
 	"APIProductDescription":           "redfish/v1/Systems/{SYSTEM_ID}/Oem/Nvidia",
+	"APIGetChassisCollection":         "redfish/v1/Chassis",
 	"APIGetChassis":                   "redfish/v1/Chassis/{CHASSIS_ID}",
 	"APIChassisReset":                 "redfish/v1/Chassis/{CHASSIS_ID}/Actions/Oem/NvidiaChassis.Reset",
+	"APIAuxPowerReset":                "redfish/v1/Chassis/{CHASSIS_ID}/Actions/Oem/NvidiaChassis.AuxPowerReset",
 	"APIGetNetworkDeviceFunctions":    "redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/NetworkDeviceFunctions/{PF_ID}",
 	"APIGetNetworkDeviceFunctionsBF4": "redfish/v1/Chassis/BlueField_0/NetworkAdapters/BlueField_NIC_0/NetworkDeviceFunctions/{PF_ID}",
 	"APIRootService":                  "redfish/v1",
@@ -350,7 +354,37 @@ type RootServiceInfo struct {
 }
 
 func (r *RootServiceInfo) IsBF4() bool {
+	if r == nil {
+		return false
+	}
 	return strings.Contains(strings.ToUpper(r.Product), "B4") || strings.Contains(strings.ToUpper(r.Product), "BLUEFIELD-4")
+}
+
+// IsCMX reports whether the root service identifies a CMX BMC. The v0.2 mockup returns Product "CMX".
+func (r *RootServiceInfo) IsCMX() bool {
+	if r == nil {
+		return false
+	}
+	product := strings.TrimSpace(r.Product)
+	return strings.EqualFold(product, "CMX")
+}
+
+// Family is the client certificate family for this root service. An empty product is unknown,
+// so the caller keeps the account it already selected.
+func (r *RootServiceInfo) Family() bfFamily {
+	if r == nil {
+		return familyUnknown
+	}
+	switch {
+	case r.IsCMX():
+		return familyCMX
+	case r.IsBF4():
+		return familyBF4
+	case strings.TrimSpace(r.Product) != "":
+		return familyBF3
+	default:
+		return familyUnknown
+	}
 }
 
 type SystemInfo struct {
@@ -380,8 +414,9 @@ type Client struct {
 	*resty.Client
 	readOnce sync.Once
 	reader   *resty.Client
-	IsBF4    bool
 	ids      stableIDs
+	// family selects the BMC behavior and the mounted client certificate. IsBF4 and IsCMX are derived from it.
+	family bfFamily
 	// traceParent is the span active when the client was created, detached from
 	// that context's cancellation. Requests with no span of their own use it.
 	traceParent context.Context
@@ -458,7 +493,7 @@ func (c *Client) GetBmcManager(ctx context.Context) (*resty.Response, *BmcManage
 // https://docs.nvidia.com/networking/display/bluefieldbmcv2410/connecting+to+bmc+interfaces#src-704886267_ConnectingtoBMCInterfaces-ChangingDefaultPassword
 func (c *Client) ChangeBMCPassword(ctx context.Context, newPassword string, user string) (*resty.Response, *ExtendedInfo, error) {
 	resp, info, err := c.SetRedfishUserPassword(ctx, user, newPassword)
-	if err != nil || !PasswordChangeAccepted(resp) || !c.IsBF4 {
+	if err != nil || !PasswordChangeAccepted(resp) || !c.IsBF4() {
 		return resp, info, err
 	}
 
@@ -486,7 +521,7 @@ func (c *Client) SetRedfishUserPassword(ctx context.Context, user, newPassword s
 // BF3, which has no such account, and tolerates a 404 on BF4 so DPF keeps working against BMC
 // firmware that predates Redfish support for that account.
 func (c *Client) SetServiceAccountPassword(ctx context.Context, newPassword string) error {
-	if !c.IsBF4 {
+	if !c.IsBF4() {
 		return nil
 	}
 
@@ -737,12 +772,7 @@ func (c *Client) EnableMTLS(ctx context.Context) (*resty.Response, *ExtendedInfo
 // CheckBMCFirmware fetches BMC firmware version. For more information, refer to
 // https://docs.nvidia.com/networking/display/bluefieldbmcv2410/cec+and+bmc+firmware+operations#src-704886294_CECandBMCFirmwareOperations-FetchingRunningBMCFirmwareVersion
 func (c *Client) CheckBMCFirmware(ctx context.Context) (*resty.Response, *VersionInfo, error) {
-	bmcFwID := "BMC_Firmware"
-	if c.IsBF4 {
-		bmcFwID = "BlueField_FW_BMC_0"
-	}
-
-	return read[VersionInfo](ctx, c, RedfishAPIs.Path("APICheckBMCFW"), map[string]string{"BMC_FW_ID": bmcFwID})
+	return read[VersionInfo](ctx, c, RedfishAPIs.Path("APICheckBMCFW"), map[string]string{"BMC_FW_ID": c.bmcFirmwareID()})
 }
 
 func (c *Client) CheckDpuBoardFW(ctx context.Context) (*resty.Response, *VersionInfo, error) {
@@ -750,6 +780,9 @@ func (c *Client) CheckDpuBoardFW(ctx context.Context) (*resty.Response, *Version
 }
 
 func (c *Client) CheckBMCEROTFW(ctx context.Context) (*resty.Response, *VersionInfo, error) {
+	if c.IsCMX() {
+		return c.GetFirmwareInventory(ctx, CMXFirmwareERoT)
+	}
 	return read[VersionInfo](ctx, c, RedfishAPIs.Path("APICheckBMCEROTFW"))
 }
 
@@ -766,12 +799,7 @@ func (c *Client) GetSystem(ctx context.Context) (*resty.Response, *SystemInfo, e
 
 // CheckDPUNIC fetches DPU NIC version
 func (c *Client) CheckDPUNIC(ctx context.Context) (*resty.Response, *VersionInfo, error) {
-	dpuNicID := "DPU_NIC"
-	if c.IsBF4 {
-		dpuNicID = "BlueField_FW_NIC_0"
-	}
-
-	return read[VersionInfo](ctx, c, RedfishAPIs.Path("APICheckDPUNIC"), map[string]string{"DPU_NIC_ID": dpuNicID})
+	return read[VersionInfo](ctx, c, RedfishAPIs.Path("APICheckDPUNIC"), map[string]string{"DPU_NIC_ID": c.nicFirmwareID()})
 }
 
 // CheckDPUOS fetches DPU OS version
@@ -780,12 +808,7 @@ func (c *Client) CheckDPUOS(ctx context.Context) (*resty.Response, *VersionInfo,
 }
 
 func (c *Client) CheckDPUUEFI(ctx context.Context) (*resty.Response, *VersionInfo, error) {
-	uefiID := "DPU_UEFI"
-	if c.IsBF4 {
-		uefiID = "BlueField_FW_CPU_0"
-	}
-
-	return read[VersionInfo](ctx, c, RedfishAPIs.Path("APICheckDPUUEFI"), map[string]string{"DPU_UEFI_ID": uefiID})
+	return read[VersionInfo](ctx, c, RedfishAPIs.Path("APICheckDPUUEFI"), map[string]string{"DPU_UEFI_ID": c.uefiFirmwareID()})
 }
 
 func (c *Client) CheckDPUBSP(ctx context.Context) (*resty.Response, *VersionInfo, error) {
@@ -956,6 +979,9 @@ func (c *Client) GetSELEntries(ctx context.Context) (*resty.Response, *SELEntrie
 // DisableHostRshim disables host RShim. For more information, refer to
 // https://docs.nvidia.com/networking/display/bluefieldbmcv2410/nic+subsystem+management#src-704886345_NICSubsystemManagement-DisablingHostRShim
 func (c *Client) DisableHostRshim(ctx context.Context) (*resty.Response, *ExtendedInfo, error) {
+	if c.IsCMX() {
+		return cmxSkippedAction("DisableHostRshim")
+	}
 	reqBody := `{"HostRshim":"Disabled"}`
 	return do[ExtendedInfo](func() (*resty.Response, error) {
 		return c.Client.R().SetContext(ctx).
@@ -969,6 +995,9 @@ func (c *Client) DisableHostRshim(ctx context.Context) (*resty.Response, *Extend
 //
 //	redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/Oem/Nvidia/HostPrivilegeConfig/Settings
 func (c *Client) SetHostPrivilegeRestricted(ctx context.Context) (*resty.Response, *ExtendedInfo, error) {
+	if c.IsCMX() {
+		return cmxSkippedAction("SetHostPrivilegeRestricted")
+	}
 	payload := map[string]interface{}{
 		"PrivilegeMode": "Restricted",
 	}
@@ -983,6 +1012,9 @@ func (c *Client) SetHostPrivilegeRestricted(ctx context.Context) (*resty.Respons
 // EnableBMCRShim enables the RShim on BMC OS. For more information, refer to
 // https://docs.nvidia.com/networking/display/bluefieldbmcv2410/rshim+over+usb#src-704886337_RShimOverUSB-EnablingRShimonBlueFieldBMC
 func (c *Client) EnableBMCRShim(ctx context.Context) (*resty.Response, *ExtendedInfo, error) {
+	if c.IsCMX() {
+		return cmxSkippedAction("EnableBMCRShim")
+	}
 	reqBody := `{"BmcRShim": {"BmcRShimEnabled":true}}`
 	return do[ExtendedInfo](func() (*resty.Response, error) {
 		return c.Client.R().SetContext(ctx).
@@ -999,6 +1031,10 @@ type BMCRShimOem struct {
 
 // GetBMCRShimEnabled GETs Managers/Bluefield_BMC/Oem/Nvidia and returns BmcRShimEnabled.
 func (c *Client) GetBMCRShimEnabled(ctx context.Context) (bool, *resty.Response, error) {
+	if c.IsCMX() {
+		resp, _, err := cmxSkippedAction("GetBMCRShimEnabled")
+		return false, resp, err
+	}
 	resp, oem, err := read[BMCRShimOem](ctx, c, RedfishAPIs.Path("APIEnableBMCRshim"))
 	if err != nil {
 		return false, resp, err
@@ -1016,6 +1052,10 @@ const ChassisAssetTagUnavailable = "N/A"
 // AssetTag (PSID) in either the System or the Chassis resource.
 var ErrAssetTagUnavailable = errors.New("AssetTag is not available")
 
+// ErrPSIDNotReported is returned by GetPSID when the BMC has no PSID to report.
+// CMX returns it without calling the BMC. Callers treat it as expected.
+var ErrPSIDNotReported = errors.New("BMC does not report a PSID")
+
 // isAssetTagSet reports whether a BMC AssetTag carries a usable PSID.
 func isAssetTagSet(assetTag string) bool {
 	return assetTag != "" && assetTag != ChassisAssetTagUnavailable
@@ -1027,7 +1067,27 @@ type ChassisInfo struct {
 	Model        string                 `json:"Model"`
 	PartNumber   string                 `json:"PartNumber"`
 	SerialNumber string                 `json:"SerialNumber"`
+	Location     *ResourceLocation      `json:"Location,omitempty"`
+	Links        ChassisLinks           `json:"Links,omitempty"`
 	Oem          map[string]interface{} `json:"Oem"`
+}
+
+// ResourceLocation is the Redfish Location object. CMX uses ServiceLabel for silk names such as "NIC 0".
+type ResourceLocation struct {
+	PartLocation        PartLocation `json:"PartLocation,omitempty"`
+	PartLocationContext string       `json:"PartLocationContext,omitempty"`
+}
+
+// PartLocation is one Redfish PartLocation.
+type PartLocation struct {
+	LocationType         string `json:"LocationType,omitempty"`
+	LocationOrdinalValue int    `json:"LocationOrdinalValue,omitempty"`
+	ServiceLabel         string `json:"ServiceLabel,omitempty"`
+}
+
+// ChassisLinks holds the chassis Links CMX discovery reads. OSFP_Board_0 contains the CX9s.
+type ChassisLinks struct {
+	Contains []odataRef `json:"Contains,omitempty"`
 }
 
 var blueFieldRegex = regexp.MustCompile(`bluefield[- ]?(\d+)`)
@@ -1035,7 +1095,10 @@ var blueFieldRegex = regexp.MustCompile(`bluefield[- ]?(\d+)`)
 func (c *Client) GetPSID(ctx context.Context) (string, error) {
 	ctx, cancel := ReadContext(ctx)
 	defer cancel()
-	if !c.IsBF4 {
+	if c.IsCMX() {
+		return "", ErrPSIDNotReported
+	}
+	if !c.IsBF4() {
 		_, versionInfo, err := c.CheckDpuBoardFW(ctx)
 		if err != nil {
 			return "", fmt.Errorf("failed to check DPU board firmware: %w", err)
@@ -1083,21 +1146,19 @@ func (c *ChassisInfo) GetBlueFieldVersion() provisioningv1.DPUType {
 	if strings.HasPrefix(strings.ToUpper(c.Model), "B4") {
 		return provisioningv1.DPUTypeBlueField4
 	}
+	if strings.EqualFold(strings.TrimSpace(c.Model), "CMX") {
+		return provisioningv1.DPUTypeBlueField4CMX
+	}
 	return provisioningv1.DPUTypeUnknown
 }
 
 // GetChassis fetches part number of DPU
 func (c *Client) GetChassis(ctx context.Context) (*resty.Response, *ChassisInfo, error) {
-	chassisID := "Card1"
-	if c.IsBF4 {
-		chassisID = "BlueField_0"
-	}
-
-	return read[ChassisInfo](ctx, c, RedfishAPIs.Path("APIGetChassis"), map[string]string{"CHASSIS_ID": chassisID})
+	return read[ChassisInfo](ctx, c, RedfishAPIs.Path("APIGetChassis"), map[string]string{"CHASSIS_ID": c.identityChassisID()})
 }
 
 func (c *Client) GetErotChassis(ctx context.Context) (*resty.Response, *ChassisInfo, error) {
-	return read[ChassisInfo](ctx, c, RedfishAPIs.Path("APIGetChassis"), map[string]string{"CHASSIS_ID": "BlueField_ERoT_BMC_0"})
+	return read[ChassisInfo](ctx, c, RedfishAPIs.Path("APIGetChassis"), map[string]string{"CHASSIS_ID": c.erotChassisID()})
 }
 
 func (c *Client) GetSystems(ctx context.Context) (*resty.Response, *Systems, error) {
@@ -1112,7 +1173,8 @@ func getSystemID(ctx context.Context, c *Client) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	systemID, err := findSystemID(systems)
+	// The client carries the family: CMX serves System_0, which does not contain "bluefield".
+	systemID, err := findSystemIDFor(c, systems)
 	if err != nil {
 		return "", err
 	}
@@ -1132,6 +1194,10 @@ func findSystemID(systems *Systems) (string, error) {
 
 // GetProductDescription fetches product spec of DPU
 func (c *Client) GetProductDescription(ctx context.Context) (*resty.Response, *ProductSpecInfo, error) {
+	if c.IsCMX() {
+		resp, _, err := cmxSkippedAction("GetProductDescription")
+		return resp, &ProductSpecInfo{}, err
+	}
 	ctx, cancel := ReadContext(ctx)
 	defer cancel()
 	systemID, err := getSystemID(ctx, c)
@@ -1165,8 +1231,15 @@ type Ethernet struct {
 }
 
 func (c *Client) GetNetworkDeviceFunction(ctx context.Context, pfID string) (*resty.Response, *NetworkDeviceFunction, error) {
+	if c.IsCMX() {
+		resp, _, err := cmxSkippedAction("GetNetworkDeviceFunction")
+		if err != nil {
+			return resp, nil, err
+		}
+		return resp, &NetworkDeviceFunction{ID: pfID, NetDevFuncType: "Ethernet"}, nil
+	}
 	path := RedfishAPIs.Path("APIGetNetworkDeviceFunctions")
-	if c.IsBF4 {
+	if c.IsBF4() {
 		path = RedfishAPIs.Path("APIGetNetworkDeviceFunctionsBF4")
 	}
 	return read[NetworkDeviceFunction](ctx, c, path, map[string]string{"PF_ID": pfID})
@@ -1174,6 +1247,10 @@ func (c *Client) GetNetworkDeviceFunction(ctx context.Context, pfID string) (*re
 
 // SetDpuMode returns a Bios information for current DPU
 func (c *Client) SetDpuMode(ctx context.Context, desiredMode provisioningv1.DpuModeType) (*resty.Response, error) {
+	if c.IsCMX() {
+		resp, _, err := cmxSkippedAction("SetDpuMode")
+		return resp, err
+	}
 	systemID, err := getSystemID(ctx, c)
 	if err != nil {
 		return nil, err
@@ -1395,17 +1472,15 @@ func probeBMCPassword(ctx context.Context, bmcAddress, password string, users []
 	return nil, "", nil, ErrBMCPasswordRejected
 }
 
-// bmcUserCandidates names the Redfish accounts to try, in order. A root service that reports a
-// model identifies the account on its own; a model-less root service rules out neither, so a BF4
-// BMC that has just been reset is not written off as rejecting a password it never saw.
+// bmcUserCandidates names the Redfish accounts to try, in order. A root service that names a
+// product selects that product's account: admin for BF4 and CMX, root for every other product.
+// A root service with no product rules out neither account, so a BMC that has just been reset
+// is still offered both.
 func bmcUserCandidates(rootServiceInfo *RootServiceInfo) []string {
 	if rootServiceInfo == nil || rootServiceInfo.Product == "" {
 		return []string{BF3BMCUser, BF4BMCUser}
 	}
-	if rootServiceInfo.IsBF4() {
-		return []string{BF4BMCUser}
-	}
-	return []string{BF3BMCUser}
+	return []string{rootServiceInfo.Family().bmcUser()}
 }
 
 // InitPassword resolves the BMC password and authenticates to the BMC.
@@ -1589,10 +1664,9 @@ func NewBasicAuthClient(ctx context.Context, bmcAddress, user, passwd string) (*
 		SetBaseURL(bmcAddress).
 		SetBasicAuth(user, passwd)
 
-	// Preserve the family selected by the root/admin fallback when a post-reset BMC omits its model.
 	client := &Client{
 		Client:      c,
-		IsBF4:       user == BF4BMCUser,
+		family:      familyUnknown,
 		traceParent: traceParent,
 	}
 	client.installRedfishTracing(c)
@@ -1606,8 +1680,14 @@ func NewBasicAuthClient(ctx context.Context, bmcAddress, user, passwd string) (*
 		return nil, err
 	}
 
-	if rootServiceInfo != nil && rootServiceInfo.Product != "" {
-		client.IsBF4 = rootServiceInfo.IsBF4()
+	// Prefer the product the root service names. A BMC that has just been reset omits it, and the
+	// account that accepted the password is then the only signal: admin is BF4, root is BF3.
+	if discovered := rootServiceInfo.Family(); discovered != familyUnknown {
+		client.family = discovered
+	} else if user == BF4BMCUser {
+		client.family = familyBF4
+	} else {
+		client.family = familyBF3
 	}
 
 	return client, nil
@@ -1928,6 +2008,10 @@ func (c *Client) UpdateBluefieldFirmwareMultipart(ctx context.Context, fwFile *o
 }
 
 func (c *Client) ActivatePendingBundle(ctx context.Context) (*resty.Response, error) {
+	if c.IsCMX() {
+		resp, _, err := cmxSkippedAction("ActivatePendingBundle")
+		return resp, err
+	}
 	reqBody := map[string]interface{}{
 		"Targets": []Manager{
 			{ODataID: "/" + RedfishAPIs.Path("APICheckPendingBundle")},
@@ -1992,7 +2076,8 @@ func legacyBootSystemID(ctx context.Context, c *Client) (string, error) {
 	if response.StatusCode() != http.StatusOK {
 		return "", fmt.Errorf("unexpected status code: %d", response.StatusCode())
 	}
-	return findSystemID(systems)
+	// The client carries the family: CMX serves System_0, which does not contain "bluefield".
+	return findSystemIDFor(c, systems)
 }
 
 // legacyBootManagerID discovers the BMC manager without changing boot-mutation timeouts.

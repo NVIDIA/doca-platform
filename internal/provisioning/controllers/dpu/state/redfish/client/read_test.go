@@ -799,14 +799,15 @@ func TestMTLSClientSpanUser(t *testing.T) {
 	pool := x509.NewCertPool()
 	pool.AddCert(authority.cert)
 	for _, tt := range []struct {
-		isBF4 bool
-		want  string
+		family bfFamily
+		want   string
 	}{
-		{false, BF3BMCUser},
-		{true, BF4BMCUser},
+		{familyBF3, BF3BMCUser},
+		{familyBF4, BF4BMCUser},
+		{familyCMX, BF4BMCUser},
 	} {
 		rec.Reset()
-		c, err := newVerifiedTLSClient(server.URL, pool, pair, tt.isBF4)
+		c, err := newVerifiedTLSClient(server.URL, pool, pair, tt.family)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -815,7 +816,7 @@ func TestMTLSClientSpanUser(t *testing.T) {
 		}
 		c.CloseIdleConnections()
 		if got := spanStringAttr(rec, "dpu.redfish.APIRootService", "user"); got != tt.want {
-			t.Errorf("isBF4=%t: user = %q, want %q", tt.isBF4, got, tt.want)
+			t.Errorf("family=%s: user = %q, want %q", tt.family, got, tt.want)
 		}
 	}
 }

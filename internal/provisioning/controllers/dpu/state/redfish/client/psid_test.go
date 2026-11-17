@@ -44,7 +44,7 @@ var _ = Describe("GetPSID", func() {
 		}))
 		return &Client{
 			Client: resty.New().SetBaseURL(server.URL),
-			IsBF4:  true,
+			family: familyBF4,
 		}, &chassisReads, server.Close
 	}
 
