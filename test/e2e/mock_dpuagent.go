@@ -652,6 +652,8 @@ func waitForMockDPUsReady(ctx context.Context, env *mockDPUEnv) {
 			g.Expect(dpu.Status.Phase).To(Equal(provisioningv1.DPUReady), "DPU %s is %s", dpu.Name, dpu.Status.Phase)
 		}
 	}).WithTimeout(mockProvisioningTimeout).WithPolling(mockPollInterval).Should(Succeed())
+
+	VerifyDPUObjectSizes(ctx, env.client, env.replicas, client.InNamespace(env.namespace))
 }
 
 func dpuConditionsSummary(dpu *provisioningv1.DPU) string {

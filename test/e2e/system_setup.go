@@ -969,6 +969,7 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 
 	if err := verifyExpectedDPUsToBeReady(ctx, nil, input, expectedDPUs); err == nil {
 		By("All DPUs are already ready")
+		VerifyDPUObjectSizes(ctx, input.client, expectedDPUs)
 		return
 	}
 
@@ -998,6 +999,7 @@ func VerifyDPUClusterWithNodes(ctx context.Context, input ProvisionDPUClustersIn
 		g.Expect(verifyExpectedDPUsToBeReady(ctx, tracker, input, expectedDPUs)).To(Succeed())
 	}).WithTimeout(20 * time.Minute).Should(Succeed())
 
+	VerifyDPUObjectSizes(ctx, input.client, expectedDPUs)
 }
 
 func verifyExpectedDPUsToBeReady(ctx context.Context, tracker *ByTracker, input ProvisionDPUClustersInput, expectedDPUs int) error {

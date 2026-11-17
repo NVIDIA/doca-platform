@@ -412,6 +412,8 @@ func CreateProvisioningDPUSet(ctx context.Context, input *systemTestInput) {
 		g.Expect(readyCount).To(Equal(provisioningExpected.TotalDPUs),
 			fmt.Sprintf("All %d DPUs should reach Ready phase, only %d ready", provisioningExpected.TotalDPUs, readyCount))
 	}).WithTimeout(30 * time.Minute).WithPolling(time.Second).Should(Succeed())
+
+	VerifyDPUObjectSizes(ctx, input.client, provisioningExpected.TotalDPUs)
 }
 
 func VerifyProvisioning(ctx context.Context, input *systemTestInput) {
