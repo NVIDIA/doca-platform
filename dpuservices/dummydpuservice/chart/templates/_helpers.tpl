@@ -68,5 +68,5 @@ deployed to DPUClusters (spec.deployInCluster: false). On the host cluster it wo
 The fallback to the release based name is for backwards compatibility with DPF versions prior to v30.0.0.
 */}}
 {{- define "dummydpuservice.serviceName" -}}
-{{- default (include "dummydpuservice.fullname" .) ((.Values.dpf).dpuService).name }}
+{{- default (include "dummydpuservice.fullname" .) ((.Values.dpf).dpuService).name | trunc 63 | trimSuffix "-" }}
 {{- end }}
