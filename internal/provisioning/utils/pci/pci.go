@@ -23,7 +23,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -53,9 +52,10 @@ const (
 
 	nvidiaVendorID = "0x15b3"
 
-	// pfSDGroupParam is the NVConfig parameter that enables Socket Direct silent
-	// mode, in which only one ECPF of a Socket Direct group owns the uplink.
-	pfSDGroupParam = "PF_SD_GROUP"
+	// silentModeParam is the per-ECPF NVConfig parameter that reports whether the
+	// function is silenced. 0 means this ECPF owns the uplink. 1 means it is a
+	// Socket Direct secondary and has no uplink.
+	silentModeParam = "SILENT_MODE"
 )
 
 var (
@@ -175,101 +175,85 @@ func PCILink(bdf string) string {
 // reported as complete.
 //
 // Each BlueField N/S PCI function in sysfs must have a physical port in ports,
-// unless its NVConfig PF_SD_GROUP is nonzero. In that Socket Direct silent mode
-// (the BlueField-4 default) only one ECPF of a group owns the uplink, so the
-// function passes when another function on its PCI link (domain:bus) has one.
+// unless the Current value of its NVConfig SILENT_MODE is nonzero. A silenced
+// ECPF is a Socket Direct secondary and does not own an uplink. A function whose
+// SILENT_MODE cannot be queried must have its own uplink.
 func (d *PortDiscoverer) VerifyNSUplinksRegistered(ports []NICPort) error {
 	functions, err := nsFunctions()
 	if err != nil {
 		return err
 	}
 	discovered := sets.New[string]()
-	linksWithUplink := sets.New[string]()
 	for _, port := range ports {
-		pci := NormalizeAddress(port.PCIAddress)
-		discovered.Insert(pci)
-		linksWithUplink.Insert(PCILink(pci))
+		discovered.Insert(NormalizeAddress(port.PCIAddress))
 	}
-	var missingFunctions, missingGroups, queryErrs []string
+	var missingFunctions, queryErrs []string
 	for _, f := range functions {
 		if discovered.Has(f.PCIAddress) {
 			continue
 		}
-		silent, err := d.socketDirectSilent(f)
+		silent, err := d.silentMode(f)
 		if err != nil {
 			queryErrs = append(queryErrs, err.Error())
 			missingFunctions = append(missingFunctions, f.PCIAddress)
 			continue
 		}
-		if !silent {
-			missingFunctions = append(missingFunctions, f.PCIAddress)
+		if silent {
+			klog.InfoS("Accepting N/S PCI function without a physical port: SILENT_MODE is set",
+				"pci", f.PCIAddress)
 			continue
 		}
-		link := PCILink(f.PCIAddress)
-		if linksWithUplink.Has(link) {
-			klog.InfoS("Accepting N/S PCI function without a physical port: Socket Direct silent mode and its group has an uplink",
-				"pci", f.PCIAddress, "group", link)
-			continue
-		}
-		if !slices.Contains(missingGroups, link) {
-			missingGroups = append(missingGroups, link)
-		}
+		missingFunctions = append(missingFunctions, f.PCIAddress)
 	}
-	var problems []string
-	if len(missingFunctions) > 0 {
-		problems = append(problems, fmt.Sprintf("N/S PCI function(s) %s", strings.Join(missingFunctions, ", ")))
-	}
-	if len(missingGroups) > 0 {
-		problems = append(problems, fmt.Sprintf("Socket Direct group(s) %s", strings.Join(missingGroups, ", ")))
-	}
-	if len(problems) == 0 {
+	if len(missingFunctions) == 0 {
 		return nil
 	}
-	msg := fmt.Sprintf("devlink has not registered a physical port for %s yet", strings.Join(problems, " and "))
+	msg := fmt.Sprintf("devlink has not registered a physical port for N/S PCI function(s) %s yet", strings.Join(missingFunctions, ", "))
 	if len(queryErrs) > 0 {
 		msg += fmt.Sprintf(" (%s)", strings.Join(queryErrs, "; "))
 	}
 	return errors.New(msg)
 }
 
-// socketDirectSilent reports whether the current NVConfig PF_SD_GROUP of f is
-// nonzero. A successful result is cached: the current value only changes on reboot,
-// which also restarts the agent.
-func (d *PortDiscoverer) socketDirectSilent(f NICPort) (bool, error) {
+// silentMode reports whether the Current NVConfig SILENT_MODE of f is nonzero.
+// A successful result is cached: the current value only changes on reboot, which
+// also restarts the agent. A failed query is not cached.
+func (d *PortDiscoverer) silentMode(f NICPort) (bool, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if silent, ok := d.sdSilent[f.PCIAddress]; ok {
+	if silent, ok := d.silent[f.PCIAddress]; ok {
 		return silent, nil
 	}
 	target, err := f.FwctlOrPCI()
 	if err != nil {
-		return false, fmt.Errorf("query %s for PCI %s: %w", pfSDGroupParam, f.PCIAddress, err)
+		return false, fmt.Errorf("query %s for PCI %s: %w", silentModeParam, f.PCIAddress, err)
 	}
-	cmd := fmt.Sprintf("mlxconfig -d %s -e q %s", target, pfSDGroupParam)
+	cmd := fmt.Sprintf("mlxconfig -d %s -e q %s", target, silentModeParam)
 	stdout, stderr, err := d.run(cmd)
 	if err != nil {
 		return false, fmt.Errorf("%s: %w (stderr: %s)", cmd, err, strings.TrimSpace(stderr))
 	}
-	value, err := parsePFSDGroupCurrent(stdout)
+	value, err := parseMlxconfigCurrent(stdout)
 	if err != nil {
 		return false, fmt.Errorf("%s: %w", cmd, err)
 	}
-	if d.sdSilent == nil {
-		d.sdSilent = make(map[string]bool)
+	if d.silent == nil {
+		d.silent = make(map[string]bool)
 	}
-	d.sdSilent[f.PCIAddress] = value != 0
+	d.silent[f.PCIAddress] = value != 0
 	return value != 0, nil
 }
 
-// parsePFSDGroupCurrent returns the Current column of the PF_SD_GROUP row in
-// "mlxconfig -e q" output (columns: Default, Current, Next Boot).
-func parsePFSDGroupCurrent(output string) (int, error) {
+// parseMlxconfigCurrent returns the Current column of the SILENT_MODE row in
+// "mlxconfig -e q" output. Columns are Default, Current, and Next Boot. A
+// parenthesized number, as in False(0) or True(1), is the value.
+func parseMlxconfigCurrent(output string) (int, error) {
 	for _, line := range strings.Split(output, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) > 0 && fields[0] == "*" {
 			fields = fields[1:]
 		}
-		if len(fields) < 4 || fields[0] != pfSDGroupParam {
+		if len(fields) < 4 || fields[0] != silentModeParam {
 			continue
 		}
 		raw := fields[2]
@@ -278,11 +262,11 @@ func parsePFSDGroupCurrent(output string) (int, error) {
 		}
 		value, err := strconv.Atoi(raw)
 		if err != nil {
-			return 0, fmt.Errorf("parse %s current value %q: %w", pfSDGroupParam, fields[2], err)
+			return 0, fmt.Errorf("parse %s current value %q: %w", silentModeParam, fields[2], err)
 		}
 		return value, nil
 	}
-	return 0, fmt.Errorf("%s not found in mlxconfig output", pfSDGroupParam)
+	return 0, fmt.Errorf("%s not found in mlxconfig output", silentModeParam)
 }
 
 // nsFunctions returns the BlueField N/S PCI functions present in sysfs, sorted by
@@ -374,8 +358,9 @@ type PortDiscoverer struct {
 	runBash bash.RunFunc
 
 	mu sync.Mutex
-	// sdSilent caches, per N/S PCI function, whether its PF_SD_GROUP is nonzero.
-	sdSilent map[string]bool
+	// silent caches, per N/S PCI function, whether its SILENT_MODE Current value
+	// is nonzero.
+	silent map[string]bool
 }
 
 // DefaultPortDiscoverer is a PortDiscoverer with production defaults.
