@@ -149,7 +149,7 @@ For production deployments, it is recommended to set appropriate resource limits
 
 ### Monitoring
 
-The `spec.monitoring` field configures DPF-operator-managed observability components deployed on each DPU cluster. By default, Kube-State-Metrics and Node-Problem-Detector are enabled. OpenTelemetry Collector requires an explicit logging endpoint.
+The `spec.monitoring` field configures DPF-operator-managed observability components deployed on each DPU cluster. By default, Kube-State-Metrics and Node-Problem-Detector are enabled. OpenTelemetry Collector is enabled as soon as at least one signal (`logging`, `metrics`, or `tracing`) is configured; any one of them is sufficient.
 
 ```yaml
 spec:
@@ -176,11 +176,16 @@ spec:
       # caSecretRef fields, configured independently of logging.
       # metrics:
       #   endpoint: "http://<host-node-ip>:30050"
+      # tracing exports distributed trace spans from the DPF controllers and
+      # DPU cluster collector. It takes the same endpoint, transport and
+      # caSecretRef fields and is configured independently of logging/metrics.
+      # tracing:
+      #   endpoint: "http://<host-node-ip>:30050"
 ```
 
 Each component supports `disable` and `daemon` (image, resources) overrides. To disable all monitoring at once, set `spec.monitoring.disable: true`.
 
-For TLS endpoints (`https://`), the certificate is verified against the system CA pool by default. To use a private CA, create a Secret with the CA bundle under the `ca.crt` key and reference it via `caSecretRef`. The Secret may live in any namespace, for example alongside the endpoint's cert-manager `Certificate`; the reference's namespace defaults to `dpf-operator-system`. Certificate verification is never skipped. `transport` and `caSecretRef` are set per signal, so `logging` and `metrics` can target different endpoints.
+For TLS endpoints (`https://`), the certificate is verified against the system CA pool by default. To use a private CA, create a Secret with the CA bundle under the `ca.crt` key and reference it via `caSecretRef`. The Secret may live in any namespace, for example alongside the endpoint's cert-manager `Certificate`; the reference's namespace defaults to the DPFOperatorConfig namespace. Certificate verification is never skipped. `transport` and `caSecretRef` are set per signal, so `logging`, `metrics`, and `tracing` can target different endpoints. For details on the tracing signal and its data flow, see [Tracing](../../operational-readiness/observability/deployment/operator-managed-components.md#tracing).
 
 A single node IP as the endpoint is a single point of failure. For production, use a highly available address that fronts the Host Cluster nodes (a failover VIP, a `LoadBalancer` Service address, or a DNS name resolving to one of those). See the [High Availability](../../operational-readiness/observability/deployment/operator-managed-components.md#high-availability) section for details.
 
@@ -287,6 +292,14 @@ spec:
     disableHostNetworkReadyNoExecuteTaints: false
 ```
 
+* `spec.dpuServiceController.defaultServiceDaemonSetMaxUnavailable`: Fallback `maxUnavailable` applied to a DPUService's ServiceDaemonSet rolling updates when `serviceDaemonSet.updateStrategy` is omitted, or its `rollingUpdate.maxUnavailable` is unset and `maxSurge` is unset or zero. Defaults to `30000` (a deliberately large value that lets rollouts proceed despite unreachable DPU nodes) when unset. If `maxSurge` is nonzero, an omitted `maxUnavailable` is left unset; explicit `maxUnavailable` values and `OnDelete` strategies are always preserved. Lower this value (minimum `1`) to cap how many DPU pods go unavailable at once during an update, for example to limit image-pull burst across a large DPU fleet.
+
+```yaml
+spec:
+  dpuServiceController:
+    defaultServiceDaemonSetMaxUnavailable: 10
+```
+
 #### Flannel Configuration Options
 
 * `spec.flannel.podCIDR`: CIDR range for pod networking when using Flannel CNI.
@@ -333,7 +346,7 @@ spec:
     The default value is 50. The value must be at least 1.
 
 * `spec.provisioningController.dpuMaxConcurrentReconciles`: Controls how many different DPU objects the DPU controller can reconcile concurrently.
-    The value must be at least 1. The controller-runtime workqueue still serializes reconciles for the same DPU.
+    The value must be at least 1. When unset, a single-worker default applies and reconciles run one at a time. The controller-runtime workqueue still serializes reconciles for the same DPU.
     This worker limit is independent of `maxDPUParallelInstallations`: the latter limits how many DPUs may be in the provisioning lifecycle,
     while this setting limits how many DPU reconcile loops may execute at once. It does not affect other controllers in the provisioning manager.
 
@@ -345,13 +358,13 @@ spec:
 
 * `spec.provisioningController.osInstallRetries`: Maximum number of retryable OS installation attempts in zero-trust mode before the DPU transitions to Error. When unset, the provisioning controller defaults to 2.
 
-* `spec.provisioningController.osInstallTimeout`: Maximum time allowed for OS installation. If the installation exceeds this timeout, the DPU transitions to Error. The value is a duration string built from integer-and-unit segments (`h`, `m`, `s`, `ms`, `us`/`µs`, `ns`); fractional values such as `1.5h` are rejected (e.g. `60m`, `1h30m`).
+* `spec.provisioningController.osInstallTimeout`: Maximum time allowed for OS installation. If the installation exceeds this timeout, the DPU transitions to Error. Leave it unset to use the provisioning controller's built-in timeout. The value is a duration string built from integer-and-unit segments (`h`, `m`, `s`, `ms`, `us`/`µs`, `ns`); fractional values such as `1.5h` are rejected (e.g. `60m`, `1h30m`).
 
-* `spec.provisioningController.firmwareUpdateTimeout`: Maximum time allowed for the BF4 firmware-update phase in zero-trust mode. The timeout is measured from the time the DPU's interface was initialized (the `InterfaceInitialized` condition), so time spent in the firmware-configuration steps that precede the update counts against this budget; if the elapsed time exceeds the timeout, the DPU transitions to Error. The value is a duration string built from integer-and-unit segments (`h`, `m`, `s`, `ms`, `us`/`µs`, `ns`); fractional values such as `1.5h` are rejected (e.g. `45m`, `1h`).
+* `spec.provisioningController.firmwareUpdateTimeout`: Maximum time allowed for the BF4 firmware-update phase in zero-trust mode. Leave it unset to use the provisioning controller's built-in timeout. The timeout is measured from the time the DPU's interface was initialized (the `InterfaceInitialized` condition), so time spent in the firmware-configuration steps that precede the update counts against this budget; if the elapsed time exceeds the timeout, the DPU transitions to Error. The value is a duration string built from integer-and-unit segments (`h`, `m`, `s`, `ms`, `us`/`µs`, `ns`); fractional values such as `1.5h` are rejected (e.g. `45m`, `1h`).
 
 * `spec.provisioningController.nodeJoinTokenTTL`: Lifetime of the kubeadm bootstrap token created for a DPU node to join its DPUCluster. Long-running provisioning can exceed the token lifetime, causing kubeadm discovery to fail and leaving an otherwise provisioned DPU unable to join; raise this when provisioning routinely outlasts the token lifetime. The value must be greater than zero and is a duration string built from integer-and-unit segments (`h`, `m`, `s`, `ms`, `us`/`µs`, `ns`); fractional values such as `1.5h` are rejected (e.g. `3h`, `30m`).
 
-* `spec.provisioningController.hostAgentDNSPolicy`: DNS policy for the hostagent pod. Valid values are `ClusterFirstWithHostNet`, `ClusterFirst`, or `Default`.
+* `spec.provisioningController.hostAgentDNSPolicy`: DNS policy for the hostagent pod. Supported values are `ClusterFirstWithHostNet`, `ClusterFirst`, or `Default`. Defaults to `ClusterFirstWithHostNet`. Although the API accepts `None`, hostagent pod creation does not supply the `dnsConfig` required by Kubernetes, so that value cannot currently be used.
 
 * `spec.provisioningController.preInstallAgentRegistrationTimeout`: How long the `Initializing` phase waits for the in-band dpu-agent to set `preInstall.agentReported` on a DPU CR during initial provisioning or reprovisioning. When the timeout elapses, provisioning continues without agent-assisted pre-install for that cycle. The value is a duration string built from integer-and-unit segments (`h`, `m`, `s`, `ms`, `us`/`µs`, `ns`); fractional values such as `1.5h` are rejected (e.g. `30s`, `1m`).
 
