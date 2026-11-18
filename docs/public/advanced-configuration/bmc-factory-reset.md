@@ -70,7 +70,6 @@ spec:
   provisioningController:
     installInterface:
       installViaRedfish:
-        enabled: true
         discoveredDPUDeviceBMCFactoryResetPolicy: Never
 ```
 

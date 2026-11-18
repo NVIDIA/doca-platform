@@ -197,7 +197,6 @@ spec:
   provisioningController:
     installInterface:
       installViaRedfish:
-        enabled: true
         skipDPUNodeDiscovery: true  # Set to false to create DPUNode by DPUDiscovery process
         discoveredDPUDeviceBMCFactoryResetPolicy: OnInitialization  # Set to Never for BMCs with a static IP address
 ```
@@ -213,7 +212,7 @@ spec:
 
 The discovery process uses Redfish protocol for BMC communication. Ensure:
 
-* **Redfish is enabled** in DPFOperatorConfig
+* **Redfish is selected** in DPFOperatorConfig by setting `spec.provisioningController.installInterface.installViaRedfish` (exactly one install interface may be set)
 * **BMC credentials** are properly configured
 * **Network connectivity** to BMC IPs is available
 * **Firewall rules** allow Redfish traffic (typically port 443)
