@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -1066,6 +1067,73 @@ var _ = Describe("DPUDeployment Controller", func() {
 				Entry("a non-disruptive service stays non-disruptive when its dependencies are not disruptively updated", ptr.To(false), map[string]bool{"a": false}, false),
 				Entry("a non-disruptive service becomes disruptive when a dependency is disruptively updated", ptr.To(false), map[string]bool{"a": true}, true),
 				Entry("a non-disruptive service becomes disruptive when any of its dependencies is disruptively updated", ptr.To(false), map[string]bool{"a": false, "b": true}, true),
+			)
+		})
+		Context("Reconcile DPUServiceInterface with old revisions", func() {
+			DescribeTable("Validate",
+				func(plannedName string, expectedDisruptive bool, expectedLeftovers []string) {
+					dpuDeployment := getMinimalDPUDeployment("my-ns")
+					dpuDeployment.Spec.RevisionHistoryLimit = ptr.To[int32](2)
+					serviceConfig := getMinimalDPUServiceConfiguration("my-ns")
+					// The old revisions are not listed in creation order, which is a, then b, then c.
+					creationOrder := map[string]int64{"svc-if1-a": 0, "svc-if1-b": 1, "svc-if1-c": 2}
+					names := []string{"svc-if1-c", "svc-if1-a", "svc-if1-b"}
+					oldRevisions := make([]client.Object, 0, len(names))
+					existingDPUServiceInterfacesMap := map[string]dpuservicev1.DPUServiceInterface{}
+					for _, name := range names {
+						dpuServiceInterface := &dpuservicev1.DPUServiceInterface{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:              name,
+								Namespace:         "my-ns",
+								CreationTimestamp: metav1.NewTime(time.Unix(creationOrder[name], 0)),
+							},
+						}
+						dpuServiceInterface.Spec.Template.Spec.NodeSelector = &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "version",
+									Operator: metav1.LabelSelectorOpIn,
+									Values:   []string{name},
+								},
+							},
+						}
+						oldRevisions = append(oldRevisions, dpuServiceInterface)
+						existingDPUServiceInterfacesMap[name] = *dpuServiceInterface
+					}
+					newRevision := &dpuservicev1.DPUServiceInterface{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      plannedName,
+							Namespace: "my-ns",
+						},
+					}
+					currentDPUServiceNodeSelector := &metav1.LabelSelector{
+						MatchLabels: map[string]string{"version": "new"},
+					}
+
+					_, isDisruptive := reconcileDPUServiceInterfaceWithOldRevisions(newRevision, oldRevisions, dpuDeployment, serviceConfig,
+						existingDPUServiceInterfacesMap, currentDPUServiceNodeSelector)
+
+					Expect(isDisruptive).To(Equal(expectedDisruptive))
+					// The DPUService refers to the planned name, so it must be kept.
+					Expect(newRevision.Name).To(Equal(plannedName))
+					Expect(slices.Collect(maps.Keys(existingDPUServiceInterfacesMap))).To(ConsistOf(expectedLeftovers))
+					// A new revision selects the nodes of the current DPUService, an in-place update keeps the nodes of
+					// the revision it patches.
+					if expectedDisruptive {
+						Expect(newRevision.Spec.Template.Spec.NodeSelector).To(Equal(currentDPUServiceNodeSelector))
+					} else {
+						Expect(newRevision.Spec.Template.Spec.NodeSelector.MatchExpressions).To(Equal([]metav1.LabelSelectorRequirement{
+							{
+								Key:      "version",
+								Operator: metav1.LabelSelectorOpIn,
+								Values:   []string{plannedName},
+							},
+						}))
+					}
+				},
+				Entry("a new name creates a new revision", "svc-if1-new", true, []string{"svc-if1-a", "svc-if1-b"}),
+				Entry("the name of the newest old revision patches it in place", "svc-if1-c", false, []string{"svc-if1-a"}),
+				Entry("the name of an older revision patches that revision in place and keeps it", "svc-if1-a", false, []string{}),
 			)
 		})
 		Context("Get Aggregated DPUClusterSelector", func() {

@@ -7334,7 +7334,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `applyNodeEffect` _boolean_ | ApplyNodeEffect specifies if the node effect should be applied during the<br />upgrade. It signals the reconciler that this object upgrade is<br />disruptive. Hence a new revision of the object should be created and node<br />effect should be applied.<br />When set to false, an upgrade can still happen disruptively, if a<br />dependency is upgraded disruptively. | true | Optional: \{\} <br /> |
+| `applyNodeEffect` _boolean_ | ApplyNodeEffect specifies if the node effect should be applied during the<br />upgrade. It signals the reconciler that this object upgrade is<br />disruptive. Hence a new revision of the object should be created and node<br />effect should be applied.<br />When set to false, the upgrade is still disruptive if an object it<br />relies on is upgraded disruptively at the same time:<br />- for a service, another service it depends on.<br />- for a service chain, a service whose interface the chain uses. | true | Optional: \{\} <br /> |
 
 
 #### VF

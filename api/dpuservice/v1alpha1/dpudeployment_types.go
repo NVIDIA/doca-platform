@@ -160,8 +160,10 @@ type UpgradePolicy struct {
 	// upgrade. It signals the reconciler that this object upgrade is
 	// disruptive. Hence a new revision of the object should be created and node
 	// effect should be applied.
-	// When set to false, an upgrade can still happen disruptively, if a
-	// dependency is upgraded disruptively.
+	// When set to false, the upgrade is still disruptive if an object it
+	// relies on is upgraded disruptively at the same time:
+	// - for a service, another service it depends on.
+	// - for a service chain, a service whose interface the chain uses.
 	// +kubebuilder:default=true
 	// +optional
 	ApplyNodeEffect *bool `json:"applyNodeEffect,omitempty"`

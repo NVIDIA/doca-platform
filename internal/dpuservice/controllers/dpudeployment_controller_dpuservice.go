@@ -55,10 +55,6 @@ type dpuServiceStatus struct {
 	service *dpuservicev1.DPUService
 	// disruptive reflects whether the DPUService is undergoing a disruptive operation
 	disruptive bool
-	// applyNodeEffect reflects whether the DPUService, and its DPUServiceInterfaces, are updated disruptively. It is
-	// derived from the upgrade policy of the DPUService and from whether any of its dependencies is undergoing a
-	// disruptive operation in this reconcile, see shouldApplyNodeEffect.
-	applyNodeEffect bool
 	// versionDigest is the digest of the DPUService after the dependencies are templated in its values. It is shared with
 	// the DPUServiceInterfaces so that both are synced.
 	versionDigest string
@@ -238,11 +234,10 @@ func reconcileDPUServices(
 		}
 
 		patchedDPUServices[serviceName] = dpuServiceStatus{
-			service:         newRevision,
-			disruptive:      isDisruptiveService,
-			applyNodeEffect: applyNodeEffect,
-			versionDigest:   versionDigest,
-			interfaceNames:  interfaceNames,
+			service:        newRevision,
+			disruptive:     isDisruptiveService,
+			versionDigest:  versionDigest,
+			interfaceNames: interfaceNames,
 		}
 	}
 

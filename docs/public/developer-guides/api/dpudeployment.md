@@ -698,7 +698,8 @@ The following fields are available in the `spec.serviceChains`:
   update should be disruptive or not. The default is `true`, which means that a
   new version of the service chain is created for every new version of the `DPUService`
   and the node effect defined in the dpuset is triggered for the relevant nodes
-  for the update to happen. If set to `false`, the service chain is updated non-disruptively.
+  for the update to happen. If set to `false`, the service chain is updated non-disruptively,
+  unless a service whose interface the chain uses is updated disruptively at the same time.
   The disruptive operation applies the node effect defined for the `DPUSet` on
   the nodes.
 * `switches`: A list of switches that are part of the service chain.
