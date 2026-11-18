@@ -17,11 +17,20 @@ limitations under the License.
 package agent
 
 import (
+	"context"
 	"testing"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statestore"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statusmanager"
 	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/config"
 	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/phasedelay"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 // TestBuildOperationsStages checks that every operation counts against the phase whose controller
@@ -58,5 +67,63 @@ func TestBuildOperationsStages(t *testing.T) {
 	first := buildOperations(&runInputs{startPhase: provisioningv1.DPUOSInstalling, joinMode: config.JoinSimulated})
 	if first[0].phase != provisioningv1.DPUOSInstalling {
 		t.Fatalf("agent start after a new OS counts against %q", first[0].phase)
+	}
+}
+
+func TestHandleRebootReportsSequenceCountFromStateStore(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := provisioningv1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	dpu := &provisioningv1.DPU{ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "dpu", UID: "uid"}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+	store := statestore.New(t.TempDir(), "uid")
+	status := statusmanager.New(c, "ns", "dpu", "uid", sequenceCountSource(store))
+	status.Start(t.Context())
+
+	reportedCount := func() *int32 {
+		t.Helper()
+		if err := status.UpdateRemote(true); err != nil {
+			t.Fatal(err)
+		}
+		got := &provisioningv1.DPU{}
+		if err := c.Get(context.Background(), client.ObjectKeyFromObject(dpu), got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Status.AgentStatus == nil {
+			return nil
+		}
+		return got.Status.AgentStatus.RebootSequenceCount
+	}
+	run := func(bootID string, method provisioningv1.RebootMethodType) {
+		t.Helper()
+		// A canceled context stands for the host reboot that ends a run reporting a reboot method.
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		optCtx := &operations.Context{Status: status, StateStore: store, CurrentBootID: bootID}
+		in := &runInputs{rebootMethod: method}
+		err := in.handleReboot(ctx, optCtx)
+		if method == provisioningv1.RebootMethodNoAction && err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if got := reportedCount(); got != nil {
+		t.Fatalf("count before Handle Reboot = %d, want unset", *got)
+	}
+	for i, want := range []struct {
+		bootID string
+		method provisioningv1.RebootMethodType
+		count  int32
+	}{
+		{"boot-1", provisioningv1.RebootMethodPowerCycle, 1},
+		{"boot-2", provisioningv1.RebootMethodSystemLevelReset, 2},
+		{"boot-3", provisioningv1.RebootMethodNoAction, 0},
+		{"boot-4", provisioningv1.RebootMethodPowerCycle, 1},
+	} {
+		run(want.bootID, want.method)
+		if got := reportedCount(); got == nil || *got != want.count {
+			t.Fatalf("step %d: count = %v, want %d", i, got, want.count)
+		}
 	}
 }

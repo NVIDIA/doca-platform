@@ -512,8 +512,11 @@ spec:
                       rule: '(has(self.skipped) ? 1 : 0) + (has(self.succeeded) ?
                         1 : 0) == 1'
                   initialBootID:
-                    description: InitialBootID is the boot ID of the DPU OS during
-                      the first boot
+                    description: |-
+                      InitialBootID is the boot ID of the DPU OS during the first boot
+
+                      Deprecated: the DPU agent keeps this on the DPU and no longer
+                      reports it. Kept only for older agents.
                     type: string
                   kubeletVersion:
                     description: KubeletVersion represents the kubelet version running
@@ -524,16 +527,27 @@ spec:
                       LastObservedPendingNVConfig stores the last pending NVConfig parameters
                       seen during reboot-method discovery on this boot. It is used on the next
                       boot to ignore repeated parameters that remained unchanged across boots.
+
+                      Deprecated: the DPU agent keeps this on the DPU and no longer
+                      reports it. Kept only for older agents.
                     properties:
                       bootID:
                         type: string
                       devices:
                         items:
+                          description: |-
+                            PendingNVConfigDevice is one device of PendingNVConfigState.
+
+                            Deprecated: the DPU agent no longer reports it. Kept only for older agents.
                           properties:
                             device:
                               type: string
                             entries:
                               items:
+                                description: |-
+                                  PendingNVConfigEntry is one pending parameter of PendingNVConfigDevice.
+
+                                  Deprecated: the DPU agent no longer reports it. Kept only for older agents.
                                 properties:
                                   current:
                                     type: string
@@ -652,9 +666,10 @@ spec:
                   rebootSequenceCount:
                     description: |-
                       RebootSequenceCount is the length of the current non-NoAction
-                      RebootMethod sequence: it increments on each agent run that reports a
-                      RebootMethod other than NoAction and resets to 0 when the agent reports
-                      NoAction. Used with RebootMethod to bound host reboot loops.
+                      RebootMethod sequence: it counts the consecutive DPU boots on which the
+                      agent concluded a RebootMethod other than NoAction, and resets to 0 when
+                      the agent concludes NoAction. Repeated agent runs in the same boot do
+                      not increment it. Used with RebootMethod to bound host reboot loops.
                     format: int32
                     minimum: 0
                     type: integer

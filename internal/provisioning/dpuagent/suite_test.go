@@ -18,6 +18,7 @@ package dpuagent
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -28,6 +29,8 @@ import (
 var (
 	ctx    context.Context
 	cancel context.CancelFunc
+	// stateRoot holds the state directories of the specs; see newTestOptCtx.
+	stateRoot string
 )
 
 func TestDPUAgent(t *testing.T) {
@@ -37,8 +40,12 @@ func TestDPUAgent(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	ctx, cancel = context.WithCancel(ctrl.SetupSignalHandler())
+	var err error
+	stateRoot, err = os.MkdirTemp("", "dpuagent-state-")
+	Expect(err).NotTo(HaveOccurred())
 })
 
 var _ = AfterSuite(func() {
 	cancel()
+	Expect(os.RemoveAll(stateRoot)).To(Succeed())
 })

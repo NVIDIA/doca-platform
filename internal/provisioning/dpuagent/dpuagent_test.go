@@ -18,17 +18,20 @@ package dpuagent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/ovsscript"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statestore"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statusmanager"
 	dpuutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
@@ -72,6 +75,11 @@ func newTestDPU() *provisioningv1.DPU {
 	}
 }
 
+// stateDirs numbers the state directory of each context newTestOptCtx returns.
+var stateDirs atomic.Int64
+
+// newTestOptCtx returns a context whose state directory is not shared with any other
+// context.
 func newTestOptCtx(fakeClient client.Client) *operations.Context {
 	return &operations.Context{
 		Client: fakeClient,
@@ -80,7 +88,8 @@ func newTestOptCtx(fakeClient client.Client) *operations.Context {
 			DPUNamespace: "test-ns",
 			DPUUID:       "test-uid",
 		},
-		Status: statusmanager.New(fakeClient, "test-ns", "test-dpu", "test-uid"),
+		Status:     statusmanager.New(fakeClient, "test-ns", "test-dpu", "test-uid"),
+		StateStore: statestore.New(filepath.Join(stateRoot, strconv.FormatInt(stateDirs.Add(1), 10)), "test-uid"),
 		DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 			return []pciutil.NICPort{
 				{Netdev: "p0", PCIAddress: "0000:03:00.0"},
@@ -101,21 +110,9 @@ var _ = Describe("DPUAgent", func() {
 				Message:            "must stay",
 				LastTransitionTime: metav1.NewTime(time.Unix(99, 0)),
 			}
-			existingPending := &provisioningv1.PendingNVConfigState{
-				BootID: "old-boot",
-				Devices: []provisioningv1.PendingNVConfigDevice{
-					{
-						Device: "0000:03:00.0",
-						Entries: []provisioningv1.PendingNVConfigEntry{
-							{Name: "VIRTIO_NET_EMULATION_NUM_MSIX", Current: "0", NextBoot: "2"},
-						},
-					},
-				},
-			}
 			existingStatus := provisioningv1.AgentStatus{
-				RebootMethod:                &existingRebootMethod,
-				LastObservedPendingNVConfig: existingPending,
-				Conditions:                  []metav1.Condition{existingCond},
+				RebootMethod: &existingRebootMethod,
+				Conditions:   []metav1.Condition{existingCond},
 				PreInstall: &provisioningv1.AgentPreInstallStatus{
 					AgentReported: ptr.To(metav1.NewTime(time.Unix(98, 0))),
 					Conditions: []metav1.Condition{
@@ -141,26 +138,6 @@ var _ = Describe("DPUAgent", func() {
 			Expect(changed).To(BeTrue())
 			Expect(optCtx.Options.DPUUID).To(Equal("old-uid"))
 			Expect(optCtx.Status.GetLocal()).To(Equal(existingStatus))
-		})
-
-		It("does not clear LastObservedPendingNVConfig when UID does not change", func() {
-			existing := &provisioningv1.PendingNVConfigState{
-				BootID: "boot-1",
-				Devices: []provisioningv1.PendingNVConfigDevice{
-					{Device: "0000:03:00.0"},
-				},
-			}
-			optCtx := &operations.Context{
-				Options: opts.Options{DPUUID: "same-uid"},
-				Status:  statusmanager.New(nil, "", "", ""),
-			}
-			optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) { s.LastObservedPendingNVConfig = existing.DeepCopy() })
-			dpu := &provisioningv1.DPU{ObjectMeta: metav1.ObjectMeta{UID: "same-uid"}}
-
-			changed := dpuUIDChanged(optCtx, dpu)
-
-			Expect(changed).To(BeFalse())
-			Expect(optCtx.Status.GetLocal().LastObservedPendingNVConfig).To(Equal(existing))
 		})
 	})
 
@@ -1139,6 +1116,93 @@ var _ = Describe("DPUAgent", func() {
 			Expect(agent.Run(ctx)).To(Succeed())
 			_, err = os.Stat(filepath.Join(runDir, doneMarkerFileName))
 			Expect(os.IsNotExist(err)).To(BeTrue())
+		})
+
+		Context("reboot state", func() {
+			// saveRebootState writes a HandleReboot state file with one recorded request.
+			saveRebootState := func(optCtx *operations.Context) {
+				Expect(optCtx.StateStore.Save("reboot", map[string]any{
+					"initialBootID": "boot-1",
+					"requests":      []map[string]any{{"bootID": "boot-1", "method": "PowerCycle"}},
+				})).To(Succeed())
+			}
+			rebootStateExists := func(optCtx *operations.Context) bool {
+				var state map[string]any
+				err := optCtx.StateStore.Load("reboot", &state)
+				if errors.Is(err, os.ErrNotExist) {
+					return false
+				}
+				Expect(err).NotTo(HaveOccurred())
+				return true
+			}
+			newAgent := func(optCtx *operations.Context) *DPUAgent {
+				return &DPUAgent{
+					retryInterval:       testRetryInterval,
+					writeDoneMarkerFunc: noopMarker,
+					optCtx:              optCtx,
+					operations: []operations.Operation{
+						&mockOperation{name: "op1", conditionType: "Op1Condition", executeFunc: func(context.Context, *operations.Context) error {
+							return nil
+						}},
+					},
+				}
+			}
+
+			It("removes the reboot state on an in-place reconfig Run", func() {
+				dpu := newTestDPU()
+				fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+				optCtx := newTestOptCtx(fakeClient)
+				optCtx.ReapplyConfig = true
+				saveRebootState(optCtx)
+
+				Expect(newAgent(optCtx).Run(ctx)).To(Succeed())
+				Expect(rebootStateExists(optCtx)).To(BeFalse())
+			})
+
+			It("keeps the reboot state on a Run that is not an in-place reconfig", func() {
+				dpu := newTestDPU()
+				fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+				optCtx := newTestOptCtx(fakeClient)
+				saveRebootState(optCtx)
+
+				Expect(newAgent(optCtx).Run(ctx)).To(Succeed())
+				Expect(rebootStateExists(optCtx)).To(BeTrue())
+			})
+
+			It("fails an in-place reconfig Run when the reboot state cannot be removed", func() {
+				dpu := newTestDPU()
+				fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+				root := GinkgoT().TempDir()
+				// A non-empty directory in place of the file cannot be removed.
+				Expect(os.MkdirAll(filepath.Join(root, "test-uid", "reboot.json", "child"), 0o700)).To(Succeed())
+				optCtx := newTestOptCtx(fakeClient)
+				optCtx.StateStore = statestore.New(root, "test-uid")
+				optCtx.ReapplyConfig = true
+
+				Expect(newAgent(optCtx).Run(ctx)).To(MatchError(ContainSubstring("reset reboot state")))
+			})
+
+			It("reports the reboot sequence count from the state directory on every push", func() {
+				dpu := newTestDPU()
+				fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
+				agent := NewDPUAgent(&operations.Context{
+					Client: fakeClient,
+					Options: opts.Options{
+						DPUName:      "test-dpu",
+						DPUNamespace: "test-ns",
+						DPUUID:       "test-uid",
+					},
+					StateStore: statestore.New(GinkgoT().TempDir(), "test-uid"),
+				})
+				saveRebootState(agent.optCtx)
+				agent.optCtx.Status.Start(ctx)
+
+				Expect(agent.optCtx.Status.UpdateRemote(true)).To(Succeed())
+				got := &provisioningv1.DPU{}
+				Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(dpu), got)).To(Succeed())
+				Expect(got.Status.AgentStatus).NotTo(BeNil())
+				Expect(got.Status.AgentStatus.RebootSequenceCount).To(Equal(ptr.To(int32(1))))
+			})
 		})
 
 		It("removes the OVS script marker on an in-place reconfig Run", func() {

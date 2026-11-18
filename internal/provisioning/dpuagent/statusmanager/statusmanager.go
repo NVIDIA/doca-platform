@@ -40,12 +40,18 @@ const defaultRetryInterval = 2 * time.Second
 // ErrStaleDPU is returned when the DPU UID no longer matches the UID given to New.
 var ErrStaleDPU = errors.New("stale DPU object")
 
+// Source fills fields that another component owns into the status about to be pushed. The
+// manager calls every Source on each push; an error fails that push.
+type Source func(s *provisioningv1.AgentStatus) error
+
 // Manager holds the agent's AgentStatus in memory and pushes it to the DPU CR status.
 type Manager struct {
 	client client.Client
 	key    client.ObjectKey
 	// uid is the expected DPU UID; empty means pushes do not check the DPU UID.
 	uid string
+	// sources fill owner-held fields into every pushed snapshot.
+	sources []Source
 
 	// mu guards status and pending.
 	mu     sync.Mutex
@@ -79,12 +85,13 @@ func (r *request) finish(err error) {
 
 // New returns a Manager that pushes to the DPU namespace/name. Call Start before UpdateRemote.
 // When uid is not empty, pushes refuse a DPU with another UID, and UpdateRemote with untilSuccess
-// stops retrying when the DPU is missing or has another UID.
-func New(c client.Client, namespace, name, uid string) *Manager {
+// stops retrying when the DPU is missing or has another UID. sources run on every push, in order.
+func New(c client.Client, namespace, name, uid string, sources ...Source) *Manager {
 	return &Manager{
 		client:        c,
 		key:           client.ObjectKey{Namespace: namespace, Name: name},
 		uid:           uid,
+		sources:       sources,
 		wake:          make(chan struct{}, 1),
 		retryInterval: defaultRetryInterval,
 	}
@@ -208,7 +215,9 @@ func (m *Manager) isDPUGone(err error) bool {
 	return m.uid != "" && (apierrors.IsNotFound(err) || errors.Is(err, ErrStaleDPU))
 }
 
-// push reads the latest DPU, merges s into its AgentStatus, and patches the status.
+// push reads the latest DPU, fills s from the sources, merges s into its AgentStatus, and patches
+// the status. The DPU is checked first so that a failing source never hides a deleted or
+// recreated DPU, which ends the retries.
 func (m *Manager) push(ctx context.Context, s *provisioningv1.AgentStatus) error {
 	latestDPU := &provisioningv1.DPU{}
 	if err := m.client.Get(ctx, m.key, latestDPU); err != nil {
@@ -216,6 +225,11 @@ func (m *Manager) push(ctx context.Context, s *provisioningv1.AgentStatus) error
 	}
 	if m.uid != "" && string(latestDPU.UID) != m.uid {
 		return fmt.Errorf("%w: expected UID %s but got %s", ErrStaleDPU, m.uid, latestDPU.UID)
+	}
+	for _, source := range m.sources {
+		if err := source(s); err != nil {
+			return fmt.Errorf("fill status from source: %w", err)
+		}
 	}
 	patch := client.MergeFrom(latestDPU.DeepCopy())
 	if latestDPU.Status.AgentStatus == nil {
@@ -232,9 +246,6 @@ func (m *Manager) push(ctx context.Context, s *provisioningv1.AgentStatus) error
 func mergeAgentStatus(dst, s *provisioningv1.AgentStatus) {
 	if s.LastStartupTime != nil {
 		dst.LastStartupTime = s.LastStartupTime
-	}
-	if s.InitialBootID != nil {
-		dst.InitialBootID = s.InitialBootID
 	}
 	if s.RebootMethod != nil {
 		dst.RebootMethod = s.RebootMethod
@@ -258,9 +269,6 @@ func mergeAgentStatus(dst, s *provisioningv1.AgentStatus) {
 	}
 	if s.TrustBundleLastUpdateTime != nil {
 		dst.TrustBundleLastUpdateTime = s.TrustBundleLastUpdateTime
-	}
-	if s.LastObservedPendingNVConfig != nil {
-		dst.LastObservedPendingNVConfig = s.LastObservedPendingNVConfig.DeepCopy()
 	}
 	// hostOSInit is always copied, nil included: it must read unset until ReleaseHostOSInit
 	// records this boot's outcome, so a result left from an earlier run is cleared.

@@ -24,6 +24,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statestore"
 	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/phasedelay"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,8 +40,9 @@ func newTestRunner(t *testing.T, ops []stagedOp, delays *phasedelay.Delays) *Run
 	dpu := &provisioningv1.DPU{ObjectMeta: metav1.ObjectMeta{Name: "dpu", Namespace: "ns", UID: "uid"}}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dpu).WithStatusSubresource(&provisioningv1.DPU{}).Build()
 	optCtx := &operations.Context{
-		Client:  c,
-		Options: opts.Options{DPUName: "dpu", DPUNamespace: "ns", DPUUID: "uid"},
+		Client:     c,
+		Options:    opts.Options{DPUName: "dpu", DPUNamespace: "ns", DPUUID: "uid"},
+		StateStore: statestore.New(t.TempDir(), "uid"),
 	}
 	return NewRunner(optCtx, ops, delays)
 }

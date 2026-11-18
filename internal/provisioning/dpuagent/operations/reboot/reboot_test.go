@@ -20,15 +20,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	opts "github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/nvconfig"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statestore"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statusmanager"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
@@ -81,6 +85,64 @@ func newTestStatus(initial ...provisioningv1.AgentStatus) *statusmanager.Manager
 	return m
 }
 
+// newTestStateStore returns an empty state store that is removed when the spec ends.
+func newTestStateStore() *statestore.Store {
+	return statestore.New(GinkgoT().TempDir(), "test-uid")
+}
+
+// newTestStateStoreWith returns a state store holding state as the HandleReboot file.
+func newTestStateStoreWith(state rebootState) *statestore.Store {
+	store := newTestStateStore()
+	Expect(store.Save(stateFileName, state)).To(Succeed())
+	return store
+}
+
+// savedState returns the HandleReboot state saved in optCtx.StateStore.
+func savedState(optCtx *operations.Context) rebootState {
+	var state rebootState
+	Expect(optCtx.StateStore.Load(stateFileName, &state)).To(Succeed())
+	return state
+}
+
+// expectNoSavedState asserts that HandleReboot has not saved any state.
+func expectNoSavedState(optCtx *operations.Context) {
+	var state rebootState
+	Expect(errors.Is(optCtx.StateStore.Load(stateFileName, &state), os.ErrNotExist)).To(BeTrue())
+}
+
+// reportedSequenceCount returns what SequenceCountSource reports for optCtx.StateStore.
+func reportedSequenceCount(optCtx *operations.Context) *int32 {
+	s := &provisioningv1.AgentStatus{}
+	Expect(SequenceCountSource(optCtx.StateStore)(s)).To(Succeed())
+	return s.RebootSequenceCount
+}
+
+// requestsOnBoots returns one request with method per boot, oldest first, for boots named
+// "<prefix>-1", "<prefix>-2", ...
+func requestsOnBoots(prefix string, method provisioningv1.RebootMethodType, n int) []rebootRequest {
+	requests := make([]rebootRequest, 0, n)
+	for i := 1; i <= n; i++ {
+		requests = append(requests, rebootRequest{BootID: fmt.Sprintf("%s-%d", prefix, i), Method: method})
+	}
+	return requests
+}
+
+// methods returns the method of every recorded request, oldest first.
+func methods(state rebootState) []provisioningv1.RebootMethodType {
+	out := make([]provisioningv1.RebootMethodType, 0, len(state.Requests))
+	for _, r := range state.Requests {
+		out = append(out, r.Method)
+	}
+	return out
+}
+
+// getRebootMethod runs h.getRebootMethod on the state saved in optCtx.StateStore, as Execute does.
+func getRebootMethod(h *HandleReboot, optCtx *operations.Context) (*provisioningv1.RebootMethodType, error) {
+	state, err := loadState(optCtx.StateStore, optCtx.CurrentBootID)
+	Expect(err).NotTo(HaveOccurred())
+	return h.getRebootMethod(optCtx, &state)
+}
+
 // pushedAgentStatus returns the AgentStatus pushed to c.
 func pushedAgentStatus(c client.Client) *provisioningv1.AgentStatus {
 	dpu := &provisioningv1.DPU{}
@@ -100,21 +162,21 @@ var _ = Describe("Reboot", func() {
 		Expect(h.ShouldSkip(&operations.Context{Options: opts.Options{SkipReboot: true}})).To(BeFalse())
 	})
 
-	It("should report NoAction when SkipReboot is true", func() {
+	It("should report NoAction when SkipReboot is true without saved state", func() {
 		h := &HandleReboot{}
 		optCtx := &operations.Context{
-			Options: opts.Options{SkipReboot: true},
+			Options:    opts.Options{SkipReboot: true},
+			StateStore: newTestStateStore(),
 			Status: newTestStatus(provisioningv1.AgentStatus{
-				InitialBootID: ptr.To("previous-boot-id"),
-				RebootMethod:  ptr.To(provisioningv1.RebootMethodUnknown),
+				RebootMethod: ptr.To(provisioningv1.RebootMethodUnknown),
 			}),
 		}
 
 		err := h.Execute(context.Background(), optCtx)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(optCtx.Status.GetLocal().InitialBootID).To(BeNil())
 		Expect(optCtx.Status.GetLocal().RebootMethod).NotTo(BeNil())
 		Expect(*optCtx.Status.GetLocal().RebootMethod).To(Equal(provisioningv1.RebootMethodNoAction))
+		expectNoSavedState(optCtx)
 	})
 
 	Describe("RebootMethodDiscovery false (boot-ID based)", func() {
@@ -126,6 +188,7 @@ var _ = Describe("Reboot", func() {
 				bootIDStr := strings.TrimSpace(string(bootID))
 				optCtx := &operations.Context{
 					Status:                newTestStatus(),
+					StateStore:            newTestStateStore(),
 					LatestDPU:             dpu,
 					RebootMethodDiscovery: false,
 					CurrentBootID:         bootIDStr,
@@ -138,18 +201,19 @@ var _ = Describe("Reboot", func() {
 					},
 				}
 				Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
-				Expect(optCtx.Status.GetLocal().InitialBootID).NotTo(BeNil())
-				Expect(*optCtx.Status.GetLocal().InitialBootID).To(Equal(bootIDStr))
-				Expect(optCtx.Status.GetLocal().RebootSequenceCount).NotTo(BeNil())
-				Expect(*optCtx.Status.GetLocal().RebootSequenceCount).To(Equal(int32(1)))
+				state := savedState(optCtx)
+				Expect(state.InitialBootID).To(Equal(bootIDStr))
+				Expect(methods(state)).To(Equal([]provisioningv1.RebootMethodType{provisioningv1.RebootMethodSystemLevelReset}))
+				Expect(reportedSequenceCount(optCtx)).To(Equal(ptr.To(int32(1))))
 				cond := meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, cutil.AgentCondRebootMethodDiscovery)
 				Expect(cond).To(BeNil(), "legacy boot-ID path omits RebootMethodDiscovery condition")
 			})
 
 			It("should request a power cycle instead of a system-level reset on BlueField-4 with Astra enabled", func() {
 				optCtx := &operations.Context{
-					Status:  newTestStatus(),
-					Options: opts.Options{AstraEnabled: true},
+					Status:     newTestStatus(),
+					StateStore: newTestStateStore(),
+					Options:    opts.Options{AstraEnabled: true},
 					LatestDPU: &provisioningv1.DPU{
 						Status: provisioningv1.DPUStatus{
 							DPUType: provisioningv1.DPUTypeBlueField4,
@@ -168,8 +232,7 @@ var _ = Describe("Reboot", func() {
 				Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
 				Expect(optCtx.Status.GetLocal().RebootMethod).NotTo(BeNil())
 				Expect(*optCtx.Status.GetLocal().RebootMethod).To(Equal(provisioningv1.RebootMethodPowerCycle))
-				Expect(optCtx.Status.GetLocal().RebootSequenceCount).NotTo(BeNil())
-				Expect(*optCtx.Status.GetLocal().RebootSequenceCount).To(Equal(int32(1)))
+				Expect(reportedSequenceCount(optCtx)).To(Equal(ptr.To(int32(1))))
 				cond := meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, cutil.AgentCondRebootMethodDiscovery)
 				Expect(cond).To(BeNil(), "legacy boot-ID path omits RebootMethodDiscovery condition")
 			})
@@ -180,47 +243,124 @@ var _ = Describe("Reboot", func() {
 				currentBootIDStr := strings.TrimSpace(string(bootID))
 				aDifferentBootID := currentBootIDStr + "-other"
 
-				dpu := &provisioningv1.DPU{
-					Status: provisioningv1.DPUStatus{
-						AgentStatus: &provisioningv1.AgentStatus{
-							InitialBootID: ptr.To(aDifferentBootID),
-						},
-					},
-				}
-
 				optCtx := &operations.Context{
-					Status:                newTestStatus(),
-					LatestDPU:             dpu,
+					Status: newTestStatus(),
+					StateStore: newTestStateStoreWith(rebootState{
+						InitialBootID: aDifferentBootID,
+						Requests:      []rebootRequest{{BootID: aDifferentBootID, Method: provisioningv1.RebootMethodSystemLevelReset}},
+					}),
+					LatestDPU:             &provisioningv1.DPU{},
 					RebootMethodDiscovery: false,
 					CurrentBootID:         currentBootIDStr,
 				}
 				reboot := &HandleReboot{}
 				Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
-				Expect(optCtx.Status.GetLocal().InitialBootID).To(BeNil())
-				Expect(optCtx.Status.GetLocal().RebootSequenceCount).NotTo(BeNil())
-				Expect(*optCtx.Status.GetLocal().RebootSequenceCount).To(Equal(int32(0)))
+				state := savedState(optCtx)
+				Expect(state.InitialBootID).To(Equal(aDifferentBootID))
+				Expect(methods(state)).To(Equal([]provisioningv1.RebootMethodType{
+					provisioningv1.RebootMethodSystemLevelReset, provisioningv1.RebootMethodNoAction,
+				}))
+				Expect(reportedSequenceCount(optCtx)).To(Equal(ptr.To(int32(0))))
 				cond := meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, cutil.AgentCondRebootMethodDiscovery)
 				Expect(cond).To(BeNil(), "legacy boot-ID path omits RebootMethodDiscovery condition")
 			})
 
-			It("returns error when rebootSequenceCount limit is reached", func() {
-				dpu := &provisioningv1.DPU{
-					Status: provisioningv1.DPUStatus{
-						AgentStatus: &provisioningv1.AgentStatus{
-							RebootSequenceCount: ptr.To(int32(5)),
+			It("reboots once: same-boot retries repeat the request, later boots and restarts report NoAction", func() {
+				store := newTestStateStore()
+				run := func(bootID string) provisioningv1.RebootMethodType {
+					optCtx := &operations.Context{
+						Status:                newTestStatus(),
+						StateStore:            store,
+						LatestDPU:             &provisioningv1.DPU{},
+						RebootMethodDiscovery: false,
+						CurrentBootID:         bootID,
+					}
+					h := &HandleReboot{
+						skipBlock: true,
+						runBash: func(string) (bytes.Buffer, bytes.Buffer, error) {
+							return bytes.Buffer{}, bytes.Buffer{}, nil
 						},
-					},
+					}
+					Expect(h.Execute(context.Background(), optCtx)).To(Succeed())
+					return *optCtx.Status.GetLocal().RebootMethod
+				}
+
+				Expect(run("boot-1")).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+				Expect(run("boot-1")).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+				optCtx := &operations.Context{StateStore: store}
+				Expect(reportedSequenceCount(optCtx)).To(Equal(ptr.To(int32(1))))
+
+				Expect(run("boot-2")).To(Equal(provisioningv1.RebootMethodNoAction))
+				Expect(run("boot-2")).To(Equal(provisioningv1.RebootMethodNoAction))
+				Expect(run("boot-3")).To(Equal(provisioningv1.RebootMethodNoAction))
+
+				state := savedState(optCtx)
+				Expect(state.InitialBootID).To(Equal("boot-1"))
+				Expect(methods(state)).To(Equal([]provisioningv1.RebootMethodType{
+					provisioningv1.RebootMethodSystemLevelReset, provisioningv1.RebootMethodNoAction, provisioningv1.RebootMethodNoAction,
+				}))
+				Expect(reportedSequenceCount(optCtx)).To(Equal(ptr.To(int32(0))))
+			})
+
+			It("returns error when rebootSequenceCount limit is reached and records nothing", func() {
+				initial := rebootState{
+					InitialBootID: "boot-id",
+					Requests:      requestsOnBoots("prev", provisioningv1.RebootMethodSystemLevelReset, 5),
 				}
 				optCtx := &operations.Context{
 					Status:                newTestStatus(),
-					LatestDPU:             dpu,
+					StateStore:            newTestStateStoreWith(initial),
+					LatestDPU:             &provisioningv1.DPU{},
 					RebootMethodDiscovery: false,
 					CurrentBootID:         "boot-id",
 				}
 				reboot := &HandleReboot{skipBlock: true}
 				err := reboot.Execute(context.Background(), optCtx)
 				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(ContainSubstring("rebootSequenceCount limit exceeded"))
+				Expect(err.Error()).To(ContainSubstring("rebootSequenceCount limit exceeded (5 >= 5)"))
+				Expect(savedState(optCtx)).To(Equal(initial))
+			})
+
+			It("does not refuse a retry on the boot that reached the limit", func() {
+				requests := requestsOnBoots("prev", provisioningv1.RebootMethodSystemLevelReset, 4)
+				requests = append(requests, rebootRequest{BootID: "boot-id", Method: provisioningv1.RebootMethodSystemLevelReset})
+				optCtx := &operations.Context{
+					Status:                newTestStatus(),
+					StateStore:            newTestStateStoreWith(rebootState{InitialBootID: "boot-id", Requests: requests}),
+					LatestDPU:             &provisioningv1.DPU{},
+					RebootMethodDiscovery: false,
+					CurrentBootID:         "boot-id",
+				}
+				reboot := &HandleReboot{
+					skipBlock: true,
+					runBash: func(string) (bytes.Buffer, bytes.Buffer, error) {
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					},
+				}
+				Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
+				Expect(savedState(optCtx).Requests).To(HaveLen(5))
+				Expect(reportedSequenceCount(optCtx)).To(Equal(ptr.To(int32(5))))
+			})
+
+			It("keeps counting when a same-boot NoAction is replaced by a later request", func() {
+				requests := requestsOnBoots("prev", provisioningv1.RebootMethodSystemLevelReset, 3)
+				requests = append(requests, rebootRequest{BootID: "boot-id", Method: provisioningv1.RebootMethodNoAction})
+				optCtx := &operations.Context{
+					Status:                newTestStatus(),
+					StateStore:            newTestStateStoreWith(rebootState{InitialBootID: "boot-id", Requests: requests}),
+					LatestDPU:             &provisioningv1.DPU{},
+					RebootMethodDiscovery: false,
+					CurrentBootID:         "boot-id",
+				}
+				reboot := &HandleReboot{
+					skipBlock: true,
+					runBash: func(string) (bytes.Buffer, bytes.Buffer, error) {
+						return bytes.Buffer{}, bytes.Buffer{}, nil
+					},
+				}
+				Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
+				Expect(savedState(optCtx).Requests).To(HaveLen(4))
+				Expect(reportedSequenceCount(optCtx)).To(Equal(ptr.To(int32(4))))
 			})
 
 			// WORKAROUND(mlxfwreset-no-reset-level): hostless-only. PowerCycle from that mlxfwreset
@@ -230,13 +370,14 @@ var _ = Describe("Reboot", func() {
 				dpu := &provisioningv1.DPU{
 					Status: provisioningv1.DPUStatus{
 						Hostless: true,
-						AgentStatus: &provisioningv1.AgentStatus{
-							RebootSequenceCount: ptr.To(int32(5)),
-						},
 					},
 				}
 				optCtx := &operations.Context{
-					Status:                newTestStatus(),
+					Status: newTestStatus(),
+					StateStore: newTestStateStoreWith(rebootState{
+						InitialBootID: "prev-1",
+						Requests:      requestsOnBoots("prev", provisioningv1.RebootMethodPowerCycle, 5),
+					}),
 					LatestDPU:             dpu,
 					RebootMethodDiscovery: true,
 					CurrentBootID:         "boot-id",
@@ -255,8 +396,11 @@ var _ = Describe("Reboot", func() {
 				Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
 				Expect(optCtx.Status.GetLocal().RebootMethod).NotTo(BeNil())
 				Expect(*optCtx.Status.GetLocal().RebootMethod).To(Equal(provisioningv1.RebootMethodNoAction))
-				Expect(optCtx.Status.GetLocal().RebootSequenceCount).NotTo(BeNil())
-				Expect(*optCtx.Status.GetLocal().RebootSequenceCount).To(Equal(int32(0)))
+				state := savedState(optCtx)
+				Expect(state.Requests).To(HaveLen(6))
+				Expect(state.Requests[5].BootID).To(Equal("boot-id"))
+				Expect(state.Requests[5].Method).To(Equal(provisioningv1.RebootMethodNoAction))
+				Expect(reportedSequenceCount(optCtx)).To(Equal(ptr.To(int32(0))))
 				cond := meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, cutil.AgentCondRebootMethodDiscovery)
 				Expect(cond).NotTo(BeNil())
 				Expect(cond.Reason).To(Equal(string(provisioningv1.RebootMethodNoAction)))
@@ -268,13 +412,14 @@ var _ = Describe("Reboot", func() {
 				dpu := &provisioningv1.DPU{
 					Status: provisioningv1.DPUStatus{
 						Hostless: true,
-						AgentStatus: &provisioningv1.AgentStatus{
-							RebootSequenceCount: ptr.To(int32(2)),
-						},
 					},
 				}
 				optCtx := &operations.Context{
-					Status:                newTestStatus(),
+					Status: newTestStatus(),
+					StateStore: newTestStateStoreWith(rebootState{
+						InitialBootID: "prev-1",
+						Requests:      requestsOnBoots("prev", provisioningv1.RebootMethodPowerCycle, 2),
+					}),
 					LatestDPU:             dpu,
 					RebootMethodDiscovery: true,
 					CurrentBootID:         "boot-id",
@@ -293,8 +438,7 @@ var _ = Describe("Reboot", func() {
 				Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
 				Expect(optCtx.Status.GetLocal().RebootMethod).NotTo(BeNil())
 				Expect(*optCtx.Status.GetLocal().RebootMethod).To(Equal(provisioningv1.RebootMethodPowerCycle))
-				Expect(optCtx.Status.GetLocal().RebootSequenceCount).NotTo(BeNil())
-				Expect(*optCtx.Status.GetLocal().RebootSequenceCount).To(Equal(int32(3)))
+				Expect(reportedSequenceCount(optCtx)).To(Equal(ptr.To(int32(3))))
 			})
 
 			It("returns error for no-reset-level on non-hostless DPUs when rebootSequenceCount limit is reached", func() {
@@ -302,13 +446,14 @@ var _ = Describe("Reboot", func() {
 				dpu := &provisioningv1.DPU{
 					Status: provisioningv1.DPUStatus{
 						Hostless: false,
-						AgentStatus: &provisioningv1.AgentStatus{
-							RebootSequenceCount: ptr.To(int32(5)),
-						},
 					},
 				}
 				optCtx := &operations.Context{
-					Status:                newTestStatus(),
+					Status: newTestStatus(),
+					StateStore: newTestStateStoreWith(rebootState{
+						InitialBootID: "prev-1",
+						Requests:      requestsOnBoots("prev", provisioningv1.RebootMethodPowerCycle, 5),
+					}),
 					LatestDPU:             dpu,
 					RebootMethodDiscovery: true,
 					CurrentBootID:         "boot-id",
@@ -328,19 +473,17 @@ var _ = Describe("Reboot", func() {
 				Expect(err).To(HaveOccurred())
 				// PowerCycle from the non-hostless fallback is not downgraded to NoAction.
 				Expect(err.Error()).To(ContainSubstring("rebootSequenceCount limit exceeded"))
+				Expect(savedState(optCtx).Requests).To(HaveLen(5))
 			})
 
 			It("surfaces NVConfigApplied=False when the reboot limit is reached with deferred NVConfig params", func() {
-				dpu := &provisioningv1.DPU{
-					Status: provisioningv1.DPUStatus{
-						AgentStatus: &provisioningv1.AgentStatus{
-							RebootSequenceCount: ptr.To(int32(5)),
-						},
-					},
-				}
 				optCtx := &operations.Context{
-					Status:                newTestStatus(),
-					LatestDPU:             dpu,
+					Status: newTestStatus(),
+					StateStore: newTestStateStoreWith(rebootState{
+						InitialBootID: "boot-id",
+						Requests:      requestsOnBoots("prev", provisioningv1.RebootMethodSystemLevelReset, 5),
+					}),
+					LatestDPU:             &provisioningv1.DPU{},
 					RebootMethodDiscovery: false,
 					CurrentBootID:         "boot-id",
 					DeferredNVConfigParams: []operations.DeferredNVConfigParam{
@@ -358,16 +501,13 @@ var _ = Describe("Reboot", func() {
 			})
 
 			It("increments RebootSequenceCount on each non-NoAction reboot", func() {
-				dpu := &provisioningv1.DPU{
-					Status: provisioningv1.DPUStatus{
-						AgentStatus: &provisioningv1.AgentStatus{
-							RebootSequenceCount: ptr.To(int32(2)),
-						},
-					},
-				}
 				optCtx := &operations.Context{
-					Status:                newTestStatus(),
-					LatestDPU:             dpu,
+					Status: newTestStatus(),
+					StateStore: newTestStateStoreWith(rebootState{
+						InitialBootID: "boot-id",
+						Requests:      requestsOnBoots("prev", provisioningv1.RebootMethodSystemLevelReset, 2),
+					}),
+					LatestDPU:             &provisioningv1.DPU{},
 					RebootMethodDiscovery: false,
 					CurrentBootID:         "boot-id",
 				}
@@ -378,8 +518,7 @@ var _ = Describe("Reboot", func() {
 					},
 				}
 				Expect(reboot.Execute(context.Background(), optCtx)).To(Succeed())
-				Expect(optCtx.Status.GetLocal().RebootSequenceCount).NotTo(BeNil())
-				Expect(*optCtx.Status.GetLocal().RebootSequenceCount).To(Equal(int32(3)))
+				Expect(reportedSequenceCount(optCtx)).To(Equal(ptr.To(int32(3))))
 			})
 		})
 
@@ -390,19 +529,12 @@ var _ = Describe("Reboot", func() {
 				currentBootIDStr := strings.TrimSpace(string(bootID))
 				aDifferentBootID := currentBootIDStr + "-other"
 
-				dpu := &provisioningv1.DPU{
-					Status: provisioningv1.DPUStatus{
-						AgentStatus: &provisioningv1.AgentStatus{
-							InitialBootID: ptr.To(aDifferentBootID),
-						},
-					},
-				}
-
 				var rebootCmd string
 				statusClient := newTestStatusClient()
 				optCtx := &operations.Context{
 					Status:                newTestStatusFor(statusClient),
-					LatestDPU:             dpu,
+					StateStore:            newTestStateStoreWith(rebootState{InitialBootID: aDifferentBootID}),
+					LatestDPU:             &provisioningv1.DPU{},
 					RebootMethodDiscovery: false,
 					CurrentBootID:         currentBootIDStr,
 					GrubConfigChanged:     true,
@@ -426,6 +558,7 @@ var _ = Describe("Reboot", func() {
 				statusClient := newTestStatusClient()
 				optCtx := &operations.Context{
 					Status:                newTestStatusFor(statusClient),
+					StateStore:            newTestStateStore(),
 					RebootMethodDiscovery: true,
 					CurrentBootID:         "boot-id",
 					DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -457,7 +590,8 @@ var _ = Describe("Reboot", func() {
 		It("getRebootMethod returns PowerCycle immediately when mlxfwreset reports no reset level on hostless", func() {
 			device := testPCIAddress0
 			optCtx := &operations.Context{
-				Status: newTestStatus(),
+				Status:     newTestStatus(),
+				StateStore: newTestStateStore(),
 				LatestDPU: &provisioningv1.DPU{
 					Status: provisioningv1.DPUStatus{Hostless: true},
 				},
@@ -474,7 +608,7 @@ var _ = Describe("Reboot", func() {
 					return bytes.Buffer{}, stderr, fmt.Errorf("exit status 1")
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
 			cond := meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, cutil.AgentCondRebootMethodDiscovery)
@@ -486,7 +620,8 @@ var _ = Describe("Reboot", func() {
 		It("getRebootMethod returns PowerCycle and reports the failure when mlxfwreset reports no reset level on non-hostless", func() {
 			device := testPCIAddress0
 			optCtx := &operations.Context{
-				Status: newTestStatus(),
+				Status:     newTestStatus(),
+				StateStore: newTestStateStore(),
 				LatestDPU: &provisioningv1.DPU{
 					Status: provisioningv1.DPUStatus{Hostless: false},
 				},
@@ -503,7 +638,7 @@ var _ = Describe("Reboot", func() {
 					return bytes.Buffer{}, stderr, fmt.Errorf("exit status 1")
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
 			cond := meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, cutil.AgentCondRebootMethodDiscovery)
@@ -517,7 +652,8 @@ var _ = Describe("Reboot", func() {
 		It("getRebootMethod does not query further PCI devices after no-reset-level PowerCycle", func() {
 			queried := []string{}
 			optCtx := &operations.Context{
-				Status: newTestStatus(),
+				Status:     newTestStatus(),
+				StateStore: newTestStateStore(),
 				LatestDPU: &provisioningv1.DPU{
 					Status: provisioningv1.DPUStatus{Hostless: true},
 				},
@@ -538,7 +674,7 @@ var _ = Describe("Reboot", func() {
 					return bytes.Buffer{}, stderr, fmt.Errorf("exit status 1")
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
 			Expect(queried).To(Equal([]string{fmt.Sprintf("mlxfwreset -d %s status --json", testPCIAddress0)}))
@@ -548,6 +684,7 @@ var _ = Describe("Reboot", func() {
 			device := testPCIAddress0
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -561,7 +698,7 @@ var _ = Describe("Reboot", func() {
 					return bytes.Buffer{}, stderr, fmt.Errorf("exit status 1")
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).To(HaveOccurred())
 			Expect(m).To(BeNil())
 			Expect(err.Error()).To(ContainSubstring(fmt.Sprintf("mlxfwreset -d %s status --json", device)))
@@ -582,8 +719,8 @@ var _ = Describe("Reboot", func() {
 
 				h := &HandleReboot{}
 
-				optCtxNotBooted := &operations.Context{LatestDPU: &provisioningv1.DPU{}, RebootMethodDiscovery: false, CurrentBootID: currentBootIDStr}
-				m, err := h.getRebootMethod(optCtxNotBooted)
+				optCtxNotBooted := &operations.Context{LatestDPU: &provisioningv1.DPU{}, StateStore: newTestStateStore(), RebootMethodDiscovery: false, CurrentBootID: currentBootIDStr}
+				m, err := getRebootMethod(h, optCtxNotBooted)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(m).NotTo(BeNil())
 				Expect(allowedMethods[*m]).To(BeTrue(), "getRebootMethod got %s", *m)
@@ -592,15 +729,10 @@ var _ = Describe("Reboot", func() {
 				optCtxBooted := &operations.Context{
 					RebootMethodDiscovery: false,
 					CurrentBootID:         currentBootIDStr,
-					LatestDPU: &provisioningv1.DPU{
-						Status: provisioningv1.DPUStatus{
-							AgentStatus: &provisioningv1.AgentStatus{
-								InitialBootID: ptr.To(differentBootID),
-							},
-						},
-					},
+					LatestDPU:             &provisioningv1.DPU{},
+					StateStore:            newTestStateStoreWith(rebootState{InitialBootID: differentBootID}),
 				}
-				m, err = h.getRebootMethod(optCtxBooted)
+				m, err = getRebootMethod(h, optCtxBooted)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(m).NotTo(BeNil())
 				Expect(allowedMethods[*m]).To(BeTrue(), "getRebootMethod got %s", *m)
@@ -615,6 +747,7 @@ var _ = Describe("Reboot", func() {
 
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -630,7 +763,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(ran).To(Equal([]string{
 				fmt.Sprintf("mlxfwreset -d %s status --json", device),
@@ -646,6 +779,7 @@ var _ = Describe("Reboot", func() {
 
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -669,7 +803,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(m).NotTo(BeNil())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
@@ -680,6 +814,7 @@ var _ = Describe("Reboot", func() {
 
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -694,7 +829,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(m).NotTo(BeNil())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodNoAction))
@@ -710,6 +845,7 @@ var _ = Describe("Reboot", func() {
 
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -728,7 +864,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(m).NotTo(BeNil())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodNoAction))
@@ -743,6 +879,7 @@ var _ = Describe("Reboot", func() {
 
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -758,7 +895,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(m).NotTo(BeNil())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodNoAction))
@@ -785,6 +922,7 @@ var _ = Describe("Reboot", func() {
 				Status: newTestStatus(provisioningv1.AgentStatus{
 					Conditions: []metav1.Condition{},
 				}),
+				StateStore: newTestStateStore(),
 			}
 			h := &HandleReboot{
 				runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
@@ -817,6 +955,7 @@ var _ = Describe("Reboot", func() {
 `)
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "current-boot-id",
 				DeferredNVConfigParams: []operations.DeferredNVConfigParam{
@@ -843,7 +982,20 @@ var _ = Describe("Reboot", func() {
 		})
 
 		Context("removeForeverPending workaround", func() {
-			It("stores current pending NVConfig entries in agent status", func() {
+			// observation returns a pending NVConfig observation of one device on bootID.
+			observation := func(bootID, device string, entries ...pendingEntry) *pendingObservation {
+				return &pendingObservation{BootID: bootID, Devices: []pendingDevice{{Device: device, Entries: entries}}}
+			}
+			// latestObservation returns the newest saved observation without its timestamp.
+			latestObservation := func(optCtx *operations.Context) *pendingObservation {
+				latest := savedState(optCtx).Pending.Latest
+				Expect(latest).NotTo(BeNil())
+				Expect(latest.ObservedAt.IsZero()).To(BeFalse())
+				latest.ObservedAt = time.Time{}
+				return latest
+			}
+
+			It("stores current pending NVConfig entries in the state store", func() {
 				device := testPCIAddress0
 				currentBootID, err := getCurrentRebootID()
 				Expect(err).NotTo(HaveOccurred())
@@ -860,6 +1012,7 @@ var _ = Describe("Reboot", func() {
 `)
 				optCtx := &operations.Context{
 					Status:                newTestStatus(),
+					StateStore:            newTestStateStore(),
 					RebootMethodDiscovery: true,
 					CurrentBootID:         currentBootID,
 					DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -873,20 +1026,13 @@ var _ = Describe("Reboot", func() {
 						return b, bytes.Buffer{}, nil
 					},
 				}
-				_, err = h.getRebootMethod(optCtx)
+				_, err = getRebootMethod(h, optCtx)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(optCtx.Status.GetLocal().LastObservedPendingNVConfig).To(Equal(&provisioningv1.PendingNVConfigState{
-					BootID: currentBootID,
-					Devices: []provisioningv1.PendingNVConfigDevice{
-						{
-							Device: device,
-							Entries: []provisioningv1.PendingNVConfigEntry{
-								{Name: "PARAM_A", Current: "0", NextBoot: "1"},
-								{Name: "PARAM_B", Current: "x", NextBoot: "y"},
-							},
-						},
-					},
-				}))
+				Expect(latestObservation(optCtx)).To(Equal(observation(currentBootID, device,
+					pendingEntry{Name: "PARAM_A", Current: "0", NextBoot: "1"},
+					pendingEntry{Name: "PARAM_B", Current: "x", NextBoot: "y"},
+				)))
+				Expect(savedState(optCtx).Pending.Previous).To(BeNil())
 			})
 
 			It("stores pending NVConfig state when reset_needed is false", func() {
@@ -901,6 +1047,7 @@ var _ = Describe("Reboot", func() {
 `)
 				optCtx := &operations.Context{
 					Status:                newTestStatus(),
+					StateStore:            newTestStateStore(),
 					RebootMethodDiscovery: true,
 					CurrentBootID:         "boot-id",
 					DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -914,16 +1061,11 @@ var _ = Describe("Reboot", func() {
 						return b, bytes.Buffer{}, nil
 					},
 				}
-				_, err := h.getRebootMethod(optCtx)
+				_, err := getRebootMethod(h, optCtx)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(optCtx.Status.GetLocal().LastObservedPendingNVConfig).To(Equal(&provisioningv1.PendingNVConfigState{
-					BootID: "boot-id",
-					Devices: []provisioningv1.PendingNVConfigDevice{
-						{
-							Device:  device,
-							Entries: []provisioningv1.PendingNVConfigEntry{},
-						},
-					},
+				Expect(latestObservation(optCtx)).To(Equal(&pendingObservation{
+					BootID:  "boot-id",
+					Devices: []pendingDevice{{Device: device, Entries: []pendingEntry{}}},
 				}))
 			})
 
@@ -932,6 +1074,7 @@ var _ = Describe("Reboot", func() {
 				currentBootID, err := getCurrentRebootID()
 				Expect(err).NotTo(HaveOccurred())
 				cmd := fmt.Sprintf("mlxfwreset -d %s reset --level 3", device)
+				stuck := pendingEntry{Name: "PARAM_A", Default: "2", Current: "0", NextBoot: "1"}
 
 				mlxfwresetJSON := fmt.Sprintf(`{
   "reset_needed": true,
@@ -941,30 +1084,19 @@ var _ = Describe("Reboot", func() {
   "command_required": %q,
   "reasons": ["Pending NVCONFIG parameter change"]
 }`, cmd)
+				previous := observation("previous-boot", device, stuck)
 				optCtx := &operations.Context{
-					Status:                newTestStatus(),
+					Status: newTestStatus(),
+					StateStore: newTestStateStoreWith(rebootState{
+						InitialBootID: "previous-boot",
+						Pending:       pendingNVConfigState{Latest: previous},
+					}),
 					RebootMethodDiscovery: true,
 					DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 					},
 					CurrentBootID: currentBootID,
-					LatestDPU: &provisioningv1.DPU{
-						Status: provisioningv1.DPUStatus{
-							AgentStatus: &provisioningv1.AgentStatus{
-								LastObservedPendingNVConfig: &provisioningv1.PendingNVConfigState{
-									BootID: "previous-boot",
-									Devices: []provisioningv1.PendingNVConfigDevice{
-										{
-											Device: device,
-											Entries: []provisioningv1.PendingNVConfigEntry{
-												{Name: "PARAM_A", Default: "2", Current: "0", NextBoot: "1"},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
+					LatestDPU:     &provisioningv1.DPU{},
 				}
 				h := &HandleReboot{
 					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
@@ -973,24 +1105,15 @@ var _ = Describe("Reboot", func() {
 						return b, bytes.Buffer{}, nil
 					},
 				}
-				m, err := h.getRebootMethod(optCtx)
+				m, err := getRebootMethod(h, optCtx)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(*m).To(Equal(provisioningv1.RebootMethodNoAction))
 				Expect(optCtx.CondMessage).To(Equal(fmt.Sprintf(
 					"device=%s pending NVCONFIG params did not take effect after reboot: [PARAM_A(default=2,current=0,next=1)]; reset ignored because stuck pending NVCONFIG params did not progress after reboot.",
 					device,
 				)))
-				Expect(optCtx.Status.GetLocal().LastObservedPendingNVConfig).To(Equal(&provisioningv1.PendingNVConfigState{
-					BootID: currentBootID,
-					Devices: []provisioningv1.PendingNVConfigDevice{
-						{
-							Device: device,
-							Entries: []provisioningv1.PendingNVConfigEntry{
-								{Name: "PARAM_A", Default: "2", Current: "0", NextBoot: "1"},
-							},
-						},
-					},
-				}))
+				Expect(latestObservation(optCtx)).To(Equal(observation(currentBootID, device, stuck)))
+				Expect(savedState(optCtx).Pending.Previous).To(Equal(previous), "a new boot moves the latest observation to previous")
 			})
 
 			It("identifies desired N/S NVConfig parameters", func() {
@@ -1012,8 +1135,9 @@ var _ = Describe("Reboot", func() {
 
 			It("identifies desired E/W NVConfig parameters", func() {
 				optCtx := &operations.Context{
-					Status:  newTestStatus(),
-					Options: opts.Options{AstraEnabled: true},
+					Status:     newTestStatus(),
+					StateStore: newTestStateStore(),
+					Options:    opts.Options{AstraEnabled: true},
 					LatestDPU: &provisioningv1.DPU{
 						Status: provisioningv1.DPUStatus{DPUType: provisioningv1.DPUTypeBlueField4},
 					},
@@ -1054,23 +1178,13 @@ var _ = Describe("Reboot", func() {
 					LatestDPU: &provisioningv1.DPU{
 						Status: provisioningv1.DPUStatus{
 							DPUType: provisioningv1.DPUTypeBlueField4,
-							AgentStatus: &provisioningv1.AgentStatus{
-								LastObservedPendingNVConfig: &provisioningv1.PendingNVConfigState{
-									BootID: "previous-boot",
-									Devices: []provisioningv1.PendingNVConfigDevice{
-										{
-											Device: device,
-											Entries: []provisioningv1.PendingNVConfigEntry{
-												{Name: "PARAM_A", Current: "a", NextBoot: "next-a"},
-												{Name: "PARAM_B", Current: "b", NextBoot: "next-b"},
-											},
-										},
-									},
-								},
-							},
 						},
 					},
 				}
+				baseline := observation("previous-boot", device,
+					pendingEntry{Name: "PARAM_A", Current: "a", NextBoot: "next-a"},
+					pendingEntry{Name: "PARAM_B", Current: "b", NextBoot: "next-b"},
+				)
 				resolved := operations.ResolvedNVConfig{
 					PCIToParams: map[string]operations.NVConfigParams{
 						device: {Params: "PARAM_A=desired"},
@@ -1095,7 +1209,7 @@ var _ = Describe("Reboot", func() {
 				desiredParameters, err := getDesiredNVConfigParameters(optCtx, devices)
 				Expect(err).NotTo(HaveOccurred())
 
-				effective, shouldIgnore := removeForeverPending(optCtx, desiredParameters, device, mlxfwresetStatusJSON{
+				effective, shouldIgnore, _ := removeForeverPending(baseline, desiredParameters, device, mlxfwresetStatusJSON{
 					PendingNvconfigParameters: mlxfwresetOutput,
 				})
 				Expect(shouldIgnore).To(BeFalse())
@@ -1124,7 +1238,11 @@ var _ = Describe("Reboot", func() {
   "reasons": ["Pending NVCONFIG parameter change"]
 }`, cmd)
 				optCtx := &operations.Context{
-					Status:                newTestStatus(),
+					Status: newTestStatus(),
+					StateStore: newTestStateStoreWith(rebootState{Pending: pendingNVConfigState{
+						Latest: observation("previous-boot", device,
+							pendingEntry{Name: "INTERNAL_CPU_MODEL", Default: "model-default", Current: "x", NextBoot: "y"}),
+					}}),
 					RebootMethodDiscovery: true,
 					DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
@@ -1136,21 +1254,6 @@ var _ = Describe("Reboot", func() {
 								cutil.AgentAnnotationAllowFirmwareResetReboot: "true",
 							},
 						},
-						Status: provisioningv1.DPUStatus{
-							AgentStatus: &provisioningv1.AgentStatus{
-								LastObservedPendingNVConfig: &provisioningv1.PendingNVConfigState{
-									BootID: "previous-boot",
-									Devices: []provisioningv1.PendingNVConfigDevice{
-										{
-											Device: device,
-											Entries: []provisioningv1.PendingNVConfigEntry{
-												{Name: "INTERNAL_CPU_MODEL", Default: "model-default", Current: "x", NextBoot: "y"},
-											},
-										},
-									},
-								},
-							},
-						},
 					},
 				}
 				h := &HandleReboot{
@@ -1160,7 +1263,7 @@ var _ = Describe("Reboot", func() {
 						return b, bytes.Buffer{}, nil
 					},
 				}
-				m, err := h.getRebootMethod(optCtx)
+				m, err := getRebootMethod(h, optCtx)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(*m).To(Equal(provisioningv1.RebootMethodFirmwareReset))
 				Expect(optCtx.CondMessage).To(Equal(fmt.Sprintf(
@@ -1172,6 +1275,7 @@ var _ = Describe("Reboot", func() {
 			It("ignores reset when stuck pending NVCONFIG remains despite extra mlxfwreset reasons", func() {
 				device := testPCIAddress0
 				currentBootID := "current-boot-id"
+				stuck := pendingEntry{Name: "PARAM_A", Default: "2", Current: "0", NextBoot: "1"}
 
 				mlxfwresetJSON := `{
   "reset_needed": true,
@@ -1182,29 +1286,16 @@ var _ = Describe("Reboot", func() {
   "reasons": ["Pending NVCONFIG parameter change", "PCI rescan is required"]
 }`
 				optCtx := &operations.Context{
-					Status:                newTestStatus(),
+					Status: newTestStatus(),
+					StateStore: newTestStateStoreWith(rebootState{Pending: pendingNVConfigState{
+						Latest: observation("previous-boot", device, stuck),
+					}}),
 					RebootMethodDiscovery: true,
 					DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 					},
 					CurrentBootID: currentBootID,
-					LatestDPU: &provisioningv1.DPU{
-						Status: provisioningv1.DPUStatus{
-							AgentStatus: &provisioningv1.AgentStatus{
-								LastObservedPendingNVConfig: &provisioningv1.PendingNVConfigState{
-									BootID: "previous-boot",
-									Devices: []provisioningv1.PendingNVConfigDevice{
-										{
-											Device: device,
-											Entries: []provisioningv1.PendingNVConfigEntry{
-												{Name: "PARAM_A", Default: "2", Current: "0", NextBoot: "1"},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
+					LatestDPU:     &provisioningv1.DPU{},
 				}
 				h := &HandleReboot{
 					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
@@ -1214,32 +1305,19 @@ var _ = Describe("Reboot", func() {
 					},
 				}
 
-				m, err := h.getRebootMethod(optCtx)
+				m, err := getRebootMethod(h, optCtx)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(*m).To(Equal(provisioningv1.RebootMethodNoAction))
 				Expect(optCtx.CondMessage).To(Equal(fmt.Sprintf(
 					"device=%s pending NVCONFIG params did not take effect after reboot: [PARAM_A(default=2,current=0,next=1)]; reset ignored because stuck pending NVCONFIG params did not progress after reboot.",
 					device,
 				)))
-				Expect(optCtx.Status.GetLocal().LastObservedPendingNVConfig).To(Equal(&provisioningv1.PendingNVConfigState{
-					BootID: currentBootID,
-					Devices: []provisioningv1.PendingNVConfigDevice{
-						{
-							Device: device,
-							Entries: []provisioningv1.PendingNVConfigEntry{
-								{Name: "PARAM_A", Default: "2", Current: "0", NextBoot: "1"},
-							},
-						},
-					},
-				}))
+				Expect(latestObservation(optCtx)).To(Equal(observation(currentBootID, device, stuck)))
 			})
 
-			It("ignores repeated pending NVConfig entries on the same boot", func() {
+			It("compares a discovery repeated on the same boot against the previous boot", func() {
 				device := testPCIAddress0
-				currentBootID, err := getCurrentRebootID()
-				Expect(err).NotTo(HaveOccurred())
-				cmd := fmt.Sprintf("mlxfwreset -d %s reset --level 3", device)
-
+				stuck := pendingEntry{Name: "INTERNAL_CPU_MODEL", Current: "x", NextBoot: "y"}
 				mlxfwresetJSON := fmt.Sprintf(`{
   "reset_needed": true,
   "pending_nvconfig_parameters": [
@@ -1247,31 +1325,18 @@ var _ = Describe("Reboot", func() {
   ],
   "command_required": %q,
   "reasons": ["Pending NVCONFIG parameter change"]
-}`, cmd)
-				optCtx := &operations.Context{
-					Status:                newTestStatus(),
-					RebootMethodDiscovery: true,
-					DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
-						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
-					},
-					CurrentBootID: currentBootID,
-					LatestDPU: &provisioningv1.DPU{
-						Status: provisioningv1.DPUStatus{
-							AgentStatus: &provisioningv1.AgentStatus{
-								LastObservedPendingNVConfig: &provisioningv1.PendingNVConfigState{
-									BootID: currentBootID,
-									Devices: []provisioningv1.PendingNVConfigDevice{
-										{
-											Device: device,
-											Entries: []provisioningv1.PendingNVConfigEntry{
-												{Name: "INTERNAL_CPU_MODEL", Current: "x", NextBoot: "y"},
-											},
-										},
-									},
-								},
-							},
+}`, fmt.Sprintf("mlxfwreset -d %s reset --level 3", device))
+				newCtx := func(store *statestore.Store) *operations.Context {
+					return &operations.Context{
+						Status:                newTestStatus(),
+						StateStore:            store,
+						RebootMethodDiscovery: true,
+						DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+							return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
 						},
-					},
+						CurrentBootID: "boot-2",
+						LatestDPU:     &provisioningv1.DPU{},
+					}
 				}
 				h := &HandleReboot{
 					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
@@ -1280,32 +1345,25 @@ var _ = Describe("Reboot", func() {
 						return b, bytes.Buffer{}, nil
 					},
 				}
-				m, err := h.getRebootMethod(optCtx)
+
+				By("a boot with a previous-boot baseline ignores the stuck entry, also when discovery runs again")
+				store := newTestStateStoreWith(rebootState{Pending: pendingNVConfigState{Latest: observation("boot-1", device, stuck)}})
+				for range 2 {
+					m, err := getRebootMethod(h, newCtx(store))
+					Expect(err).NotTo(HaveOccurred())
+					Expect(*m).To(Equal(provisioningv1.RebootMethodNoAction))
+				}
+
+				By("an observation of the current boot is never used as the baseline")
+				store = newTestStateStoreWith(rebootState{Pending: pendingNVConfigState{Latest: observation("boot-2", device, stuck)}})
+				m, err := getRebootMethod(h, newCtx(store))
 				Expect(err).NotTo(HaveOccurred())
-				Expect(*m).To(Equal(provisioningv1.RebootMethodNoAction))
+				Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
 			})
 
-			It("keeps a same-boot pending parameter that the live flavor still requests during reconfig", func() {
+			It("keeps a stuck pending parameter that the live flavor still requests", func() {
 				device := testPCIAddress0
-				optCtx := &operations.Context{
-					ReapplyConfig: true,
-					CurrentBootID: "boot-1",
-					LatestDPU: &provisioningv1.DPU{
-						Status: provisioningv1.DPUStatus{
-							AgentStatus: &provisioningv1.AgentStatus{
-								LastObservedPendingNVConfig: &provisioningv1.PendingNVConfigState{
-									BootID: "boot-1",
-									Devices: []provisioningv1.PendingNVConfigDevice{{
-										Device: device,
-										Entries: []provisioningv1.PendingNVConfigEntry{{
-											Name: "PARAM_A", Current: "0", NextBoot: "1",
-										}},
-									}},
-								},
-							},
-						},
-					},
-				}
+				baseline := observation("boot-1", device, pendingEntry{Name: "PARAM_A", Current: "0", NextBoot: "1"})
 				desired := desiredNVConfigParameters{device: []string{"PARAM_A"}}
 				out := mlxfwresetStatusJSON{
 					ResetNeeded: ptr.To(true),
@@ -1313,17 +1371,75 @@ var _ = Describe("Reboot", func() {
 						Name: "PARAM_A", Current: "0", NextBoot: "1",
 					}},
 				}
-				filtered, ignore := removeForeverPending(optCtx, desired, device, out)
+				filtered, ignore, _ := removeForeverPending(baseline, desired, device, out)
 				Expect(ignore).To(BeFalse())
-				Expect(filtered.PendingNvconfigParameters).To(ConsistOf(provisioningv1.PendingNVConfigEntry{
+				Expect(filtered.PendingNvconfigParameters).To(ConsistOf(pendingEntry{
 					Name: "PARAM_A", Current: "0", NextBoot: "1",
 				}))
+			})
+
+			It("does not save the observation when a device query fails", func() {
+				device := testPCIAddress0
+				stuck := pendingEntry{Name: "PARAM_A", Current: "0", NextBoot: "1"}
+				initial := rebootState{Pending: pendingNVConfigState{Latest: observation("boot-1", device, stuck)}}
+				optCtx := &operations.Context{
+					Status:                newTestStatus(),
+					StateStore:            newTestStateStoreWith(initial),
+					RebootMethodDiscovery: true,
+					DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}, {Netdev: "p1", PCIAddress: testPCIAddress1}}, nil
+					},
+					CurrentBootID: "boot-2",
+					LatestDPU:     &provisioningv1.DPU{},
+				}
+				h := &HandleReboot{
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						if strings.Contains(cmd, testPCIAddress1) {
+							return bytes.Buffer{}, bytes.Buffer{}, fmt.Errorf("exit status 1")
+						}
+						var b bytes.Buffer
+						_, _ = b.WriteString(`{"reset_needed":true,"pending_nvconfig_parameters":[{"name":"PARAM_A","current":"0","next_boot":"1"}]}`)
+						return b, bytes.Buffer{}, nil
+					},
+				}
+				_, err := getRebootMethod(h, optCtx)
+				Expect(err).To(HaveOccurred())
+				Expect(savedState(optCtx)).To(Equal(initial))
+			})
+
+			It("fails when the observation cannot be saved", func() {
+				device := testPCIAddress0
+				notADir := filepath.Join(GinkgoT().TempDir(), "file")
+				Expect(os.WriteFile(notADir, nil, 0o600)).To(Succeed())
+				optCtx := &operations.Context{
+					Status:                newTestStatus(),
+					StateStore:            statestore.New(notADir, "test-uid"),
+					RebootMethodDiscovery: true,
+					DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+						return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
+					},
+					CurrentBootID: "boot-2",
+					LatestDPU:     &provisioningv1.DPU{},
+				}
+				state := rebootState{Pending: pendingNVConfigState{
+					Latest: observation("boot-1", device, pendingEntry{Name: "PARAM_A", Current: "0", NextBoot: "1"}),
+				}}
+				h := &HandleReboot{
+					runBash: func(cmd string) (bytes.Buffer, bytes.Buffer, error) {
+						var b bytes.Buffer
+						_, _ = b.WriteString(`{"reset_needed":true,"pending_nvconfig_parameters":[{"name":"PARAM_A","current":"0","next_boot":"1"}]}`)
+						return b, bytes.Buffer{}, nil
+					},
+				}
+				_, err := h.getRebootMethod(optCtx, &state)
+				Expect(err).To(MatchError(ContainSubstring("save reboot state")))
 			})
 		})
 
 		It("getRebootMethod returns error when no PCI devices are found", func() {
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -1331,7 +1447,7 @@ var _ = Describe("Reboot", func() {
 				},
 			}
 			h := &HandleReboot{}
-			_, err := h.getRebootMethod(optCtx)
+			_, err := getRebootMethod(h, optCtx)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("no PCI devices found"))
 		})
@@ -1345,6 +1461,7 @@ var _ = Describe("Reboot", func() {
 
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -1387,6 +1504,7 @@ var _ = Describe("Reboot", func() {
 
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: testPCIAddress0}}, nil
@@ -1400,7 +1518,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
 			cond := meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, cutil.AgentCondRebootMethodDiscovery)
@@ -1414,6 +1532,7 @@ var _ = Describe("Reboot", func() {
 
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				Options:               opts.Options{AstraEnabled: true},
@@ -1434,7 +1553,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(m).NotTo(BeNil())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
@@ -1474,6 +1593,7 @@ var _ = Describe("Reboot", func() {
 
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
@@ -1498,7 +1618,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodFirmwareReset))
 			cond := meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, cutil.AgentCondRebootMethodDiscovery)
@@ -1516,6 +1636,7 @@ var _ = Describe("Reboot", func() {
 `)
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -1529,7 +1650,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
 		})
@@ -1546,6 +1667,7 @@ var _ = Describe("Reboot", func() {
 `)
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -1559,7 +1681,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
 			cond := meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, cutil.AgentCondRebootMethodDiscovery)
@@ -1577,6 +1699,7 @@ var _ = Describe("Reboot", func() {
 `)
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -1590,7 +1713,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
 			cond := meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, cutil.AgentCondRebootMethodDiscovery)
@@ -1609,6 +1732,7 @@ var _ = Describe("Reboot", func() {
 `)
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -1622,7 +1746,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
 			cond := meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, cutil.AgentCondRebootMethodDiscovery)
@@ -1641,6 +1765,7 @@ var _ = Describe("Reboot", func() {
 `)
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -1654,7 +1779,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
 			cond := meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, cutil.AgentCondRebootMethodDiscovery)
@@ -1675,6 +1800,7 @@ var _ = Describe("Reboot", func() {
 `)
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -1692,7 +1818,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
 			cond := meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, cutil.AgentCondRebootMethodDiscovery)
@@ -1710,6 +1836,7 @@ var _ = Describe("Reboot", func() {
 `)
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -1723,7 +1850,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
 			cond := meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, cutil.AgentCondRebootMethodDiscovery)
@@ -1735,6 +1862,7 @@ var _ = Describe("Reboot", func() {
 			mlxfwresetJSON := `{"reset_needed":true,"command_required":"  reboot EXTERNAL host is required  "}`
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -1748,7 +1876,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
 		})
@@ -1761,6 +1889,7 @@ var _ = Describe("Reboot", func() {
 			jsonPC := `{"reset_needed":true,"pending_nvconfig_parameters":[{"name":"INTERNAL_CPU_MODEL"}]}`
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -1784,7 +1913,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
 			Expect(h.perDeviceFirmwareResetCmds).To(BeNil())
@@ -1800,6 +1929,7 @@ var _ = Describe("Reboot", func() {
 			jsonSLR := `{"reset_needed":true,"command_required":"Reboot external host is required"}`
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -1823,7 +1953,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
 			Expect(h.perDeviceFirmwareResetCmds).To(BeNil())
@@ -1838,6 +1968,7 @@ var _ = Describe("Reboot", func() {
 			jsonB := `{"reset_needed":true,"tag":"b"}`
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
@@ -1857,7 +1988,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			_, err := h.getRebootMethod(optCtx)
+			_, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			cond := meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, cutil.AgentCondRebootMethodDiscovery)
 			Expect(cond.Message).To(Equal(jsonA + "\n---\n" + jsonB))
@@ -1872,6 +2003,7 @@ var _ = Describe("Reboot", func() {
 			jsonB := `{"reset_needed":true,"command_required":"` + cmdB + `"}`
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
 					return []pciutil.NICPort{
@@ -1899,7 +2031,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodFirmwareReset))
 			Expect(h.perDeviceFirmwareResetCmds).To(Equal([]firmwareResetPerDevice{
@@ -1915,6 +2047,7 @@ var _ = Describe("Reboot", func() {
 			mlxfwresetJSON := `{"reset_needed":true,"pending_nvconfig_parameters":[{"name":"PARAM_A","current":"0","next_boot":"1"}],"command_required":"` + resetCmd + `"}`
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -1942,7 +2075,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodFirmwareReset))
 			Expect(resolvedPorts).To(Equal([]pciutil.NICPort{{Netdev: "p0", PCIAddress: device, DeviceID: pciutil.BlueField4DeviceID}}))
@@ -1953,14 +2086,13 @@ var _ = Describe("Reboot", func() {
 				"mlxfwreset -d " + target + " query",
 			}))
 			Expect(h.perDeviceFirmwareResetCmds).To(Equal([]firmwareResetPerDevice{{Device: target, Cmd: resetCmd}}))
-			// Status and condition keep identifying the port by PCI address.
-			Expect(optCtx.Status.GetLocal().LastObservedPendingNVConfig).To(Equal(&provisioningv1.PendingNVConfigState{
-				BootID: "boot-id",
-				Devices: []provisioningv1.PendingNVConfigDevice{{
-					Device:  device,
-					Entries: []provisioningv1.PendingNVConfigEntry{{Name: "PARAM_A", Current: "0", NextBoot: "1"}},
-				}},
-			}))
+			// The pending observation and condition keep identifying the port by PCI address.
+			latest := savedState(optCtx).Pending.Latest
+			Expect(latest).NotTo(BeNil())
+			Expect(latest.Devices).To(Equal([]pendingDevice{{
+				Device:  device,
+				Entries: []pendingEntry{{Name: "PARAM_A", Current: "0", NextBoot: "1"}},
+			}}))
 			cond := meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, cutil.AgentCondRebootMethodDiscovery)
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Reason).To(Equal(string(provisioningv1.RebootMethodFirmwareReset)))
@@ -1971,6 +2103,7 @@ var _ = Describe("Reboot", func() {
 			const target = "/dev/fwctl/fwctl0"
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -1991,7 +2124,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			m, err := h.getRebootMethod(optCtx)
+			m, err := getRebootMethod(h, optCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
 			Expect(cmds).To(Equal([]string{
@@ -2003,6 +2136,7 @@ var _ = Describe("Reboot", func() {
 		It("getRebootMethod returns an error naming the PCI device and runs no mlxfwreset when the fwctl device cannot be resolved", func() {
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -2018,16 +2152,17 @@ var _ = Describe("Reboot", func() {
 					return bytes.Buffer{}, bytes.Buffer{}, nil
 				},
 			}
-			_, err := h.getRebootMethod(optCtx)
+			_, err := getRebootMethod(h, optCtx)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("resolve mlxfwreset device for PCI device " + testPCIAddress0))
 			Expect(err.Error()).To(ContainSubstring("no fwctl device found"))
-			Expect(optCtx.Status.GetLocal().LastObservedPendingNVConfig).To(BeNil())
+			expectNoSavedState(optCtx)
 		})
 
 		It("getRebootMethod returns error when mlxfwreset JSON is invalid", func() {
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -2041,7 +2176,7 @@ var _ = Describe("Reboot", func() {
 					return b, bytes.Buffer{}, nil
 				},
 			}
-			_, err := h.getRebootMethod(optCtx)
+			_, err := getRebootMethod(h, optCtx)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("parse JSON:"))
 		})
@@ -2051,6 +2186,7 @@ var _ = Describe("Reboot", func() {
 			const mftDiagnostic = "-E- Failed to open device"
 			optCtx := &operations.Context{
 				Status:                newTestStatus(),
+				StateStore:            newTestStateStore(),
 				RebootMethodDiscovery: true,
 				CurrentBootID:         "boot-id",
 				DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
@@ -2064,7 +2200,7 @@ var _ = Describe("Reboot", func() {
 					return stdout, bytes.Buffer{}, fmt.Errorf("exit status 1")
 				},
 			}
-			_, err := h.getRebootMethod(optCtx)
+			_, err := getRebootMethod(h, optCtx)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring(mftDiagnostic))
 			Expect(err.Error()).To(ContainSubstring("stdout:"))
@@ -2162,7 +2298,6 @@ var _ = Describe("Reboot", func() {
 				Expect(h.execSystemLevelReset(optCtx)).To(Succeed())
 				Expect(optCtx.Status.GetLocal().RebootMethod).NotTo(BeNil())
 				Expect(*optCtx.Status.GetLocal().RebootMethod).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
-				// InitialBootID is set in Execute() for host-reboot methods, not in execSystemLevelReset.
 				Expect(shutdownCmd).To(Equal(fmt.Sprintf("sleep %d && shutdown -h now", shutdownDelayInSeconds)))
 			})
 		})

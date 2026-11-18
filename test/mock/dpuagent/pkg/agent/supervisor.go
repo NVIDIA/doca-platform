@@ -27,6 +27,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statestore"
 	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/artifact"
 	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/config"
 	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/node"
@@ -240,6 +241,10 @@ func (s *Supervisor) installIdentity(art []byte) (*Identity, string, error) {
 	if _, err := Materialize(files, dir); err != nil {
 		return nil, "", err
 	}
+	// A fresh install wipes the DPU disk, so the reboot state of a previous install is gone too.
+	if err := statestore.New(s.workDir, id.DPUUID).Reset(rebootStateName); err != nil {
+		return nil, "", fmt.Errorf("reset mock reboot state: %w", err)
+	}
 	return id, dir, nil
 }
 
@@ -352,5 +357,7 @@ func (s *Supervisor) buildContext(ctx context.Context, id *Identity, dir string)
 		WatchClient: dpuClient,
 		K8sClient:   k8sClient,
 		Options:     id.Options(),
+		// <work dir>/<dpu uid> is also where the identity of this DPU lives.
+		StateStore: statestore.New(s.workDir, id.DPUUID),
 	}, nil
 }

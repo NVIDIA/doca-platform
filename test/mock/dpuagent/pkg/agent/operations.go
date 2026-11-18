@@ -18,9 +18,12 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
+	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
@@ -31,6 +34,8 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/laststartuptime"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/netplan"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/nvconfig"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statestore"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statusmanager"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
 	nvconfigutil "github.com/nvidia/doca-platform/internal/provisioning/utils/nvconfig"
 	"github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/config"
@@ -198,21 +203,23 @@ func (in *runInputs) handleReboot(ctx context.Context, optCtx *operations.Contex
 	method := in.rebootMethod
 	setRebootMethodDiscoveryCondition(optCtx, method)
 
-	var prev int32
-	if optCtx.LatestDPU != nil && optCtx.LatestDPU.Status.AgentStatus != nil && optCtx.LatestDPU.Status.AgentStatus.RebootSequenceCount != nil {
-		prev = *optCtx.LatestDPU.Status.AgentStatus.RebootSequenceCount
+	// Like the real operation, record the method in the state file before reporting it;
+	// sequenceCountSource reports the resulting rebootSequenceCount on the next push.
+	state, err := loadRebootState(optCtx.StateStore)
+	if err != nil {
+		return err
+	}
+	state.record(rebootRequest{BootID: optCtx.CurrentBootID, Method: method, At: time.Now().UTC()})
+	if err := optCtx.StateStore.Save(rebootStateName, state); err != nil {
+		return fmt.Errorf("save mock reboot state: %w", err)
 	}
 	if method == provisioningv1.RebootMethodNoAction {
 		optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
-			s.RebootSequenceCount = ptr.To(int32(0))
-			s.InitialBootID = nil
 			s.RebootMethod = ptr.To(provisioningv1.RebootMethodNoAction)
 		})
 		return nil
 	}
 	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
-		s.RebootSequenceCount = ptr.To(prev + 1)
-		s.InitialBootID = ptr.To(optCtx.CurrentBootID)
 		s.RebootMethod = ptr.To(method)
 	})
 	if err := optCtx.Status.UpdateRemote(true); err != nil {
@@ -229,6 +236,72 @@ func (in *runInputs) handleReboot(ctx context.Context, optCtx *operations.Contex
 	}
 	<-ctx.Done()
 	return ctx.Err()
+}
+
+const (
+	// rebootStateName is the state file of the mock Handle Reboot.
+	rebootStateName = "reboot"
+	// maxRebootRequests caps rebootState.Requests like the real operation does.
+	maxRebootRequests = 10
+)
+
+// rebootState is the mock's own reboot bookkeeping: the method reported on each boot, oldest
+// first. The real operation keeps more, but the mock needs only the sequence count. Every mock run
+// is a new boot.
+type rebootState struct {
+	Requests []rebootRequest `json:"requests,omitempty"`
+}
+
+type rebootRequest struct {
+	BootID string                          `json:"bootID"`
+	Method provisioningv1.RebootMethodType `json:"method"`
+	At     time.Time                       `json:"at"`
+}
+
+// record sets the method of r.BootID, replacing an entry of the same boot and dropping the oldest
+// entries beyond maxRebootRequests.
+func (s *rebootState) record(r rebootRequest) {
+	if n := len(s.Requests); n > 0 && s.Requests[n-1].BootID == r.BootID {
+		s.Requests[n-1] = r
+	} else {
+		s.Requests = append(s.Requests, r)
+	}
+	if len(s.Requests) > maxRebootRequests {
+		s.Requests = s.Requests[len(s.Requests)-maxRebootRequests:]
+	}
+}
+
+// sequenceCount returns the number of trailing requests whose method is not NoAction.
+func (s rebootState) sequenceCount() int32 {
+	var count int32
+	for i := len(s.Requests) - 1; i >= 0 && s.Requests[i].Method != provisioningv1.RebootMethodNoAction; i-- {
+		count++
+	}
+	return count
+}
+
+// loadRebootState reads the mock reboot state; a missing file is an empty state.
+func loadRebootState(store *statestore.Store) (rebootState, error) {
+	var state rebootState
+	if err := store.Load(rebootStateName, &state); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return rebootState{}, fmt.Errorf("load mock reboot state: %w", err)
+	}
+	return state, nil
+}
+
+// sequenceCountSource reports agentStatus.rebootSequenceCount from the mock reboot state on every
+// status push. Like the real agent it leaves the field unset until Handle Reboot recorded a method.
+func sequenceCountSource(store *statestore.Store) statusmanager.Source {
+	return func(s *provisioningv1.AgentStatus) error {
+		state, err := loadRebootState(store)
+		if err != nil {
+			return err
+		}
+		if len(state.Requests) > 0 {
+			s.RebootSequenceCount = ptr.To(state.sequenceCount())
+		}
+		return nil
+	}
 }
 
 func setRebootMethodDiscoveryCondition(optCtx *operations.Context, method provisioningv1.RebootMethodType) {

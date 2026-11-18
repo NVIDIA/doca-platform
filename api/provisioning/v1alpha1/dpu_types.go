@@ -616,6 +616,9 @@ type AgentStatus struct {
 	LastStartupTime *metav1.Time `json:"lastStartupTime,omitempty"`
 
 	// InitialBootID is the boot ID of the DPU OS during the first boot
+	//
+	// Deprecated: the DPU agent keeps this on the DPU and no longer
+	// reports it. Kept only for older agents.
 	InitialBootID *string `json:"initialBootID,omitempty"`
 
 	// RebootMethod is the type of reset/reboot set by the DPU agent
@@ -629,13 +632,17 @@ type AgentStatus struct {
 	// LastObservedPendingNVConfig stores the last pending NVConfig parameters
 	// seen during reboot-method discovery on this boot. It is used on the next
 	// boot to ignore repeated parameters that remained unchanged across boots.
+	//
+	// Deprecated: the DPU agent keeps this on the DPU and no longer
+	// reports it. Kept only for older agents.
 	// +optional
 	LastObservedPendingNVConfig *PendingNVConfigState `json:"lastObservedPendingNvconfig,omitempty"`
 
 	// RebootSequenceCount is the length of the current non-NoAction
-	// RebootMethod sequence: it increments on each agent run that reports a
-	// RebootMethod other than NoAction and resets to 0 when the agent reports
-	// NoAction. Used with RebootMethod to bound host reboot loops.
+	// RebootMethod sequence: it counts the consecutive DPU boots on which the
+	// agent concluded a RebootMethod other than NoAction, and resets to 0 when
+	// the agent concludes NoAction. Repeated agent runs in the same boot do
+	// not increment it. Used with RebootMethod to bound host reboot loops.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	RebootSequenceCount *int32 `json:"rebootSequenceCount,omitempty"`
@@ -830,16 +837,25 @@ type AgentPreInstallStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
+// PendingNVConfigState is the type of AgentStatus.LastObservedPendingNVConfig.
+//
+// Deprecated: the DPU agent no longer reports it. Kept only for older agents.
 type PendingNVConfigState struct {
 	BootID  string                  `json:"bootID,omitempty"`
 	Devices []PendingNVConfigDevice `json:"devices,omitempty"`
 }
 
+// PendingNVConfigDevice is one device of PendingNVConfigState.
+//
+// Deprecated: the DPU agent no longer reports it. Kept only for older agents.
 type PendingNVConfigDevice struct {
 	Device  string                 `json:"device,omitempty"`
 	Entries []PendingNVConfigEntry `json:"entries"`
 }
 
+// PendingNVConfigEntry is one pending parameter of PendingNVConfigDevice.
+//
+// Deprecated: the DPU agent no longer reports it. Kept only for older agents.
 type PendingNVConfigEntry struct {
 	Name    string `json:"name,omitempty"`
 	Default string `json:"default,omitempty"`

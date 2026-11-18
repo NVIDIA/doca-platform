@@ -28,6 +28,7 @@ import (
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
 	dpuagentclient "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/client"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/checkbridge"
@@ -55,6 +56,7 @@ import (
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/systemd"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/underlaymtu"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/operations/vfmac"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statestore"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statusmanager"
 	dpuutil "github.com/nvidia/doca-platform/internal/provisioning/dpuagent/util"
 	hostutil "github.com/nvidia/doca-platform/internal/provisioning/hostagent/util"
@@ -123,7 +125,11 @@ const (
 )
 
 func NewDPUAgent(optCtx *operations.Context) *DPUAgent {
-	optCtx.Status = statusmanager.New(optCtx.Client, optCtx.Options.DPUNamespace, optCtx.Options.DPUName, optCtx.Options.DPUUID)
+	if optCtx.StateStore == nil {
+		optCtx.StateStore = statestore.New(opts.StateDir, optCtx.Options.DPUUID)
+	}
+	optCtx.Status = statusmanager.New(optCtx.Client, optCtx.Options.DPUNamespace, optCtx.Options.DPUName, optCtx.Options.DPUUID,
+		reboot.SequenceCountSource(optCtx.StateStore))
 	agent := &DPUAgent{
 		optCtx: optCtx,
 		runDir: defaultRunDir,
@@ -186,11 +192,16 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 	if err := removeMarker(d.runDir); err != nil {
 		return fmt.Errorf("failed to remove stale done marker: %w", err)
 	}
-	// Only an in-process reconfig deletes the OVS marker. A process restart in
-	// the same boot must keep it so the script stays once-per-boot.
+	// Only an in-process reconfig deletes the OVS marker and the reboot state.
+	// A process restart in the same boot must keep the OVS marker so the script
+	// stays once-per-boot; the reboot bookkeeping of the old flavor no longer
+	// counts once the flavor changed.
 	if d.optCtx.ReapplyConfig {
 		if err := removeOVSScriptMarker(d.runDir); err != nil {
 			return fmt.Errorf("failed to remove stale OVS script marker: %w", err)
+		}
+		if err := reboot.ResetState(d.optCtx.StateStore); err != nil {
+			return err
 		}
 	}
 	// Run the pipeline. When a stuck operation observes a flavor spec change

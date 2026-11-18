@@ -27,7 +27,9 @@ const (
 	DefaultCertDir             = DPUAgentDir + "/pki"
 	DefaultKubeconfig          = DPUAgentDir + "/kubeconfig"
 	DefaultNodeLabelScriptsDir = DPUAgentDir + "/node-label-scripts"
-	DefaultNICDeviceCount      = provisioningconstants.DefaultNICDeviceCount
+	// StateDir is where the agent keeps its own state across restarts, one subdirectory per DPU UID.
+	StateDir              = DPUAgentDir + "/state"
+	DefaultNICDeviceCount = provisioningconstants.DefaultNICDeviceCount
 )
 
 type Options struct {

@@ -23,6 +23,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/cmd/dpuagent/opts"
+	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statestore"
 	"github.com/nvidia/doca-platform/internal/provisioning/dpuagent/statusmanager"
 	pciutil "github.com/nvidia/doca-platform/internal/provisioning/utils/pci"
 
@@ -88,6 +89,10 @@ type Context struct {
 	// Status holds the in-memory AgentStatus. Operations change it with UpdateLocal, read it
 	// with GetLocal, and push it to the DPU CR with UpdateRemote. It is safe for concurrent use.
 	Status *statusmanager.Manager
+
+	// StateStore keeps the agent's own state for this DPU on the DPU, so operations do not read it
+	// back from the DPU CR. Each operation that owns state uses its own file name.
+	StateStore *statestore.Store
 
 	// CondMessage is cleared before each operation attempt. On success, dpuagent
 	// truncates and writes it to the operation condition message.

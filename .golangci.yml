@@ -162,6 +162,11 @@ linters:
         text: "SA1019: .*\\.NodeSelector is deprecated"
       - linters:
           - staticcheck
+        # The DPU agent no longer reports AgentStatus.InitialBootID and LastObservedPendingNVConfig. The host agent
+        # /update-status path still accepts them from older agents; they are removed in v27.1.0.
+        text: "SA1019: .*(InitialBootID|LastObservedPendingNVConfig|PendingNVConfig(State|Device|Entry)) is deprecated"
+      - linters:
+          - staticcheck
         # Images is deprecated in favor of the cni/daemon fields but still supported until v27.1.0.
         text: "SA1019: .*\\.Images is deprecated"
       - linters:

@@ -386,6 +386,71 @@ var _ = Describe("Manager", func() {
 		})
 	})
 
+	Describe("sources", func() {
+		It("fills every pushed snapshot from the sources", func() {
+			c := newTestClient(interceptor.Funcs{}, newTestDPU(testDPUUID))
+			count := int32(1)
+			m := New(c, testDPUNamespace, testDPUName, testDPUUID,
+				func(s *provisioningv1.AgentStatus) error {
+					s.RebootSequenceCount = ptr.To(count)
+					return nil
+				},
+				func(s *provisioningv1.AgentStatus) error {
+					s.KubeletVersion = ptr.To("from-source")
+					return nil
+				},
+			)
+			startManager(m)
+
+			Expect(m.UpdateRemote(true)).To(Succeed())
+			Expect(getAgentStatus(c).RebootSequenceCount).To(Equal(ptr.To(int32(1))))
+			Expect(getAgentStatus(c).KubeletVersion).To(Equal(ptr.To("from-source")))
+
+			count = 2
+			Expect(m.UpdateRemote(true)).To(Succeed())
+			Expect(getAgentStatus(c).RebootSequenceCount).To(Equal(ptr.To(int32(2))))
+			Expect(m.GetLocal().RebootSequenceCount).To(BeNil(), "sources fill the pushed snapshot, not the in-memory status")
+		})
+
+		It("fails a single-attempt push without patching when a source fails", func() {
+			gate := newPatchGate()
+			close(gate.release)
+			c := newTestClient(gate.funcs(), newTestDPU(testDPUUID))
+			m := New(c, testDPUNamespace, testDPUName, testDPUUID, func(*provisioningv1.AgentStatus) error {
+				return errors.New("source failure")
+			})
+			startManager(m)
+
+			Expect(m.UpdateRemote(false)).To(MatchError(ContainSubstring("source failure")))
+			Expect(gate.calls.Load()).To(BeZero())
+		})
+
+		It("retries a push until the source recovers", func() {
+			c := newTestClient(interceptor.Funcs{}, newTestDPU(testDPUUID))
+			var calls atomic.Int32
+			m := New(c, testDPUNamespace, testDPUName, testDPUUID, func(s *provisioningv1.AgentStatus) error {
+				if calls.Add(1) < 3 {
+					return errors.New("source failure")
+				}
+				s.RebootSequenceCount = ptr.To(int32(4))
+				return nil
+			})
+			startManager(m)
+
+			Expect(m.UpdateRemote(true)).To(Succeed())
+			Expect(calls.Load()).To(Equal(int32(3)))
+			Expect(getAgentStatus(c).RebootSequenceCount).To(Equal(ptr.To(int32(4))))
+		})
+
+		It("stops retrying with ErrStaleDPU when the DPU UID changed while a source keeps failing", func() {
+			m := New(newTestClient(interceptor.Funcs{}, newTestDPU("new-uid")), testDPUNamespace, testDPUName, testDPUUID,
+				func(*provisioningv1.AgentStatus) error { return errors.New("source failure") })
+			startManager(m)
+
+			Expect(m.UpdateRemote(true)).To(MatchError(ErrStaleDPU))
+		})
+	})
+
 	Describe("merge rules", func() {
 		var c client.Client
 

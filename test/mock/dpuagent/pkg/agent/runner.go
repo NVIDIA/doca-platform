@@ -51,7 +51,8 @@ type Runner struct {
 
 // NewRunner builds a runner for one agent run. delays may be nil.
 func NewRunner(optCtx *operations.Context, ops []stagedOp, delays *phasedelay.Delays) *Runner {
-	optCtx.Status = statusmanager.New(optCtx.Client, optCtx.Options.DPUNamespace, optCtx.Options.DPUName, optCtx.Options.DPUUID)
+	optCtx.Status = statusmanager.New(optCtx.Client, optCtx.Options.DPUNamespace, optCtx.Options.DPUName, optCtx.Options.DPUUID,
+		sequenceCountSource(optCtx.StateStore))
 	return &Runner{optCtx: optCtx, operations: ops, delays: delays, retryInterval: defaultRetryInterval}
 }
 

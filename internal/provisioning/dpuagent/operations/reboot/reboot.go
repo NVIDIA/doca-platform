@@ -130,45 +130,55 @@ func (h *HandleReboot) ShouldSkip(_ *operations.Context) bool {
 }
 
 func (h *HandleReboot) ShouldUpdateStatusBeforeContinue(ctx *operations.Context) bool {
-	// Must update status before continuing, because the initialBootID is used to check if the host reboot is required.
+	// Must update status before continuing: the controller waits for the reboot method to leave
+	// DPU Config.
 	return true
 }
 
 func (h *HandleReboot) Execute(execCtx context.Context, optCtx *operations.Context) error {
 	if optCtx.Options.SkipReboot {
 		optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
-			s.InitialBootID = nil
 			s.RebootMethod = ptr.To(provisioningv1.RebootMethodNoAction)
 		})
 		return nil
 	}
 
-	m, err := h.getRebootMethod(optCtx)
+	state, err := loadState(optCtx.StateStore, optCtx.CurrentBootID)
+	if err != nil {
+		return err
+	}
+	m, err := h.getRebootMethod(optCtx, &state)
 	if err != nil {
 		return err
 	}
 	if m == nil {
 		return fmt.Errorf("reboot method is nil")
 	}
+	// Record this boot's conclusion before counting: it replaces an earlier conclusion of the same
+	// boot, so a retry or an agent restart within one boot counts once.
+	state.record(rebootRequest{BootID: optCtx.CurrentBootID, Method: *m, At: time.Now().UTC()})
 	// WORKAROUND(mlxfwreset-no-reset-level): hostless-only. PowerCycle from "No reset level is
 	// supported" that keeps failing through maxRebootSequenceCount cannot make progress;
 	// downgrade to NoAction so provisioning continues. Other PowerCycle causes still hit the
 	// hard limit error.
-	if shouldDowngradeNoResetLevelPowerCycleToNoAction(optCtx, m, h) {
+	if shouldDowngradeNoResetLevelPowerCycleToNoAction(state.sequenceCount(), m, h) {
 		klog.Warningf("(mlxfwreset-no-reset-level): rebootSequenceCount limit reached after repeated PowerCycle due to %q; continuing with NoAction",
 			noResetLevelSupportedText)
 		msg := fmt.Sprintf("(mlxfwreset-no-reset-level): rebootSequenceCount limit exceeded after PowerCycle from %q; continuing with NoAction",
 			noResetLevelSupportedText)
 		setRebootMethodDiscoveryCondition(optCtx, provisioningv1.RebootMethodNoAction, msg)
 		m = ptr.To(provisioningv1.RebootMethodNoAction)
+		state.record(rebootRequest{BootID: optCtx.CurrentBootID, Method: *m, At: time.Now().UTC()})
 	}
-	if err := checkRebootSequenceCount(optCtx, m); err != nil {
+	if err := checkRebootSequenceCount(optCtx, state.sequenceCount(), m); err != nil {
+		return err
+	}
+	// The status pushes below read the sequence count from this file, so save it before them.
+	if err := saveState(optCtx.StateStore, state); err != nil {
 		return err
 	}
 
 	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
-		// Keep track of the current boot ID on Client side.
-		s.InitialBootID = ptr.To(optCtx.CurrentBootID)
 		s.RebootMethod = nil
 	})
 	switch *m {
@@ -187,7 +197,6 @@ func (h *HandleReboot) Execute(execCtx context.Context, optCtx *operations.Conte
 			return err
 		}
 		optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
-			s.InitialBootID = nil
 			s.RebootMethod = ptr.To(provisioningv1.RebootMethodNoAction)
 		})
 		return nil
@@ -331,16 +340,16 @@ func deferredNVConfigWithoutRebootError(optCtx *operations.Context) error {
 }
 
 // getRebootMethod returns the reboot method for this run.
-func (h *HandleReboot) getRebootMethod(optCtx *operations.Context) (*provisioningv1.RebootMethodType, error) {
+func (h *HandleReboot) getRebootMethod(optCtx *operations.Context, state *rebootState) (*provisioningv1.RebootMethodType, error) {
 	if !optCtx.RebootMethodDiscovery {
-		return getRebootMethodBootID(optCtx)
+		return getRebootMethodBootID(optCtx, state)
 	}
-	return h.getRebootMethodDeviceQuery(optCtx)
+	return h.getRebootMethodDeviceQuery(optCtx, state)
 }
 
 // getRebootMethodBootID is used when RebootMethodDiscovery is false (Boot-ID based).
-func getRebootMethodBootID(optCtx *operations.Context) (*provisioningv1.RebootMethodType, error) {
-	if hasBeenBooted(optCtx.LatestDPU, optCtx.CurrentBootID) {
+func getRebootMethodBootID(optCtx *operations.Context, state *rebootState) (*provisioningv1.RebootMethodType, error) {
+	if hasBeenBooted(state, optCtx.CurrentBootID) {
 		if optCtx.GrubConfigChanged {
 			return ptr.To(provisioningv1.RebootMethodDPUWarmReboot), nil
 		}
@@ -354,7 +363,7 @@ func getRebootMethodBootID(optCtx *operations.Context) (*provisioningv1.RebootMe
 	return ptr.To(provisioningv1.RebootMethodSystemLevelReset), nil
 }
 
-type pendingParamList []provisioningv1.PendingNVConfigEntry
+type pendingParamList []pendingEntry
 
 func (p *pendingParamList) UnmarshalJSON(data []byte) error {
 	data = bytes.TrimSpace(data)
@@ -362,7 +371,7 @@ func (p *pendingParamList) UnmarshalJSON(data []byte) error {
 		*p = pendingParamList{}
 		return nil
 	}
-	out := []provisioningv1.PendingNVConfigEntry{}
+	out := []pendingEntry{}
 	if err := json.Unmarshal(data, &out); err != nil {
 		return err
 	}
@@ -374,7 +383,7 @@ func (p *pendingParamList) UnmarshalJSON(data []byte) error {
 // Other fields remain in the raw JSON string passed to the discovery condition Message.
 type mlxfwresetStatusJSON struct {
 	ResetNeeded *bool `json:"reset_needed"`
-	// PendingNvconfigParameters may be an array of provisioningv1.PendingNVConfigEntry
+	// PendingNvconfigParameters may be an array of pendingEntry
 	// or a string (e.g. "N/A"); non-array value is parsed as an empty list.
 	PendingNvconfigParameters pendingParamList `json:"pending_nvconfig_parameters"`
 	CommandRequired           string           `json:"command_required"`
@@ -473,26 +482,6 @@ func rebootMethodFromMlxfwresetStatus(h *HandleReboot, device string, out *mlxfw
 	return provisioningv1.RebootMethodSystemLevelReset
 }
 
-func lastPendingState(dpu *provisioningv1.DPU) *provisioningv1.PendingNVConfigState {
-	if dpu == nil || dpu.Status.AgentStatus == nil {
-		return nil
-	}
-	return dpu.Status.AgentStatus.LastObservedPendingNVConfig
-}
-
-func recordPending(optCtx *operations.Context, device string, entries pendingParamList) {
-	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
-		if s.LastObservedPendingNVConfig == nil {
-			s.LastObservedPendingNVConfig = &provisioningv1.PendingNVConfigState{}
-		}
-		s.LastObservedPendingNVConfig.BootID = optCtx.CurrentBootID
-		s.LastObservedPendingNVConfig.Devices = append(s.LastObservedPendingNVConfig.Devices, provisioningv1.PendingNVConfigDevice{
-			Device:  device,
-			Entries: []provisioningv1.PendingNVConfigEntry(entries),
-		})
-	})
-}
-
 type desiredNVConfigParameters map[string][]string
 
 func (p desiredNVConfigParameters) contains(device, parameterName string) bool {
@@ -562,41 +551,36 @@ func getDesiredNVConfigParameters(
 // and pending_nvconfig_parameters are); extra strings such as "PCI rescan is
 // required" often appear alongside stuck NVConfig params and cannot be acted on
 // via host reboot anyway.
+// baseline is the observation of a previous boot, never of the current one, so a discovery
+// repeated on the same boot reaches the same result. The returned message is for the condition.
 // TODO: Remove this workaround once the MFT tool is fixed.
 func removeForeverPending(
-	optCtx *operations.Context,
+	baseline *pendingObservation,
 	desired desiredNVConfigParameters,
 	device string,
 	mlxfwresetOutput mlxfwresetStatusJSON,
-) (mlxfwresetStatusJSON, bool) {
+) (mlxfwresetStatusJSON, bool, string) {
 	curPending := mlxfwresetOutput.PendingNvconfigParameters
 	if len(curPending) == 0 {
-		return mlxfwresetOutput, false
+		return mlxfwresetOutput, false, ""
 	}
 
-	lastObserved := lastPendingState(optCtx.LatestDPU)
-	if lastObserved == nil {
-		return mlxfwresetOutput, false
+	if baseline == nil {
+		return mlxfwresetOutput, false, ""
 	}
-	// A process restart on the same boot must not turn a leftover reset_needed into
-	// another shutdown. In-place reconfig continues into the pending-parameter
-	// filter so a parameter the live flavor still requests can select a reboot.
-	if lastObserved.BootID == optCtx.CurrentBootID && !optCtx.ReapplyConfig {
-		return mlxfwresetOutput, true
-	}
-	lastPending := []provisioningv1.PendingNVConfigEntry{}
-	for _, d := range lastObserved.Devices {
+	lastPending := []pendingEntry{}
+	for _, d := range baseline.Devices {
 		if d.Device == device {
 			lastPending = d.Entries
 			break
 		}
 	}
 	if len(lastPending) == 0 {
-		return mlxfwresetOutput, false
+		return mlxfwresetOutput, false, ""
 	}
 
 	// filter out pending parameters that are the same as the last pending parameters
-	effectivePending := []provisioningv1.PendingNVConfigEntry{}
+	effectivePending := []pendingEntry{}
 	removed := []string{}
 	for _, cur := range curPending {
 		if desired.contains(device, cur.Name) {
@@ -637,8 +621,7 @@ func removeForeverPending(
 	if len(removed) > 0 {
 		klog.Info(msg)
 	}
-	optCtx.CondMessage += msg
-	return effective, shouldIgnore
+	return effective, shouldIgnore, msg
 }
 
 // agentAnnotationAllowsFirmwareResetReboot reports whether AgentAnnotationAllowFirmwareResetReboot is true on LatestDPU.
@@ -659,7 +642,8 @@ func agentAnnotationAllowsFirmwareResetReboot(optCtx *operations.Context) bool {
 }
 
 // getRebootMethodDeviceQuery is used when RebootMethodDiscovery is true (Device Query based).
-func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*provisioningv1.RebootMethodType, error) {
+// After every device is queried it saves this boot's pending NVConfig observation in state.
+func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context, state *rebootState) (*provisioningv1.RebootMethodType, error) {
 	// Mark device-query mode early so status reflects it even if listing devices or mlxfwreset fails later.
 	// Reason stays NoAction with empty Message until a device reports reset_needed, then we update to the derived method + JSON.
 	setRebootMethodDiscoveryCondition(optCtx, provisioningv1.RebootMethodNoAction, "")
@@ -686,6 +670,9 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 	if err != nil {
 		return nil, err
 	}
+
+	baseline := state.Pending.fromPreviousBoot(optCtx.CurrentBootID)
+	observed := pendingObservation{BootID: optCtx.CurrentBootID, Devices: []pendingDevice{}}
 
 	finalRebootMethod := provisioningv1.RebootMethodNoAction
 	rawParts := make([]string, 0, len(nicPorts))
@@ -739,7 +726,10 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 		if err := json.Unmarshal([]byte(raw), &out); err != nil {
 			return nil, fmt.Errorf("mlxfwreset status for %s: parse JSON: %w", pciAddress, err)
 		}
-		recordPending(optCtx, pciAddress, out.PendingNvconfigParameters)
+		observed.Devices = append(observed.Devices, pendingDevice{
+			Device:  pciAddress,
+			Entries: append([]pendingEntry{}, out.PendingNvconfigParameters...),
+		})
 		if !ptr.Deref(out.ResetNeeded, false) {
 			continue
 		}
@@ -749,7 +739,8 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 		// workaround, removeForeverPending filters parameters that remained
 		// unchanged across boots. Provisioning continues when every pending entry
 		// is filtered; mlxfwreset reasons[] is not consulted (see removeForeverPending).
-		effective, shouldIgnore := removeForeverPending(optCtx, desired, pciAddress, out)
+		effective, shouldIgnore, message := removeForeverPending(baseline, desired, pciAddress, out)
+		optCtx.CondMessage += message
 		if shouldIgnore {
 			klog.Infof("PCI device %s: ignoring repeated pending NVCONFIG parameters after boot change", pciAddress)
 			continue
@@ -760,6 +751,14 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 			finalRebootMethod = m
 		}
 		klog.Infof("PCI device %s requires reboot method %s, (current selected method: %s)", pciAddress, m, finalRebootMethod)
+	}
+
+	// Commit only after every device was queried, so a failed query leaves the saved observation
+	// unchanged.
+	observed.ObservedAt = time.Now().UTC()
+	state.Pending = state.Pending.commit(observed)
+	if err := saveState(optCtx.StateStore, *state); err != nil {
+		return nil, err
 	}
 
 	// If a higher-priority method wins (e.g. PowerCycle), drop those cmds—they only apply when finalRebootMethod is FirmwareReset.
@@ -789,47 +788,29 @@ func (h *HandleReboot) getRebootMethodDeviceQuery(optCtx *operations.Context) (*
 	return ptr.To(provisioningv1.RebootMethodNoAction), nil
 }
 
-// checkRebootSequenceCount enforces maxRebootSequenceCount for non-NoAction RebootMethod
-func checkRebootSequenceCount(optCtx *operations.Context, method *provisioningv1.RebootMethodType) error {
-	var prev int32
-	if optCtx.LatestDPU != nil && optCtx.LatestDPU.Status.AgentStatus != nil &&
-		optCtx.LatestDPU.Status.AgentStatus.RebootSequenceCount != nil {
-		prev = *optCtx.LatestDPU.Status.AgentStatus.RebootSequenceCount
-	}
-	if *method == provisioningv1.RebootMethodNoAction {
-		optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
-			s.RebootSequenceCount = ptr.To(int32(0))
-		})
+// checkRebootSequenceCount enforces maxRebootSequenceCount for non-NoAction RebootMethod. count
+// already includes this boot's request.
+func checkRebootSequenceCount(optCtx *operations.Context, count int32, method *provisioningv1.RebootMethodType) error {
+	if *method == provisioningv1.RebootMethodNoAction || count <= maxRebootSequenceCount {
 		return nil
 	}
-	if prev >= maxRebootSequenceCount {
-		return errors.Join(
-			fmt.Errorf("rebootSequenceCount limit exceeded (%d >= %d) without an intervening NoAction RebootMethod; refusing further host reboot",
-				prev, maxRebootSequenceCount),
-			deferredNVConfigWithoutRebootError(optCtx),
-		)
-	}
-	optCtx.Status.UpdateLocal(func(s *provisioningv1.AgentStatus) {
-		s.RebootSequenceCount = ptr.To(prev + 1)
-	})
-	return nil
+	return errors.Join(
+		fmt.Errorf("rebootSequenceCount limit exceeded (%d >= %d) without an intervening NoAction RebootMethod; refusing further host reboot",
+			count-1, maxRebootSequenceCount),
+		deferredNVConfigWithoutRebootError(optCtx),
+	)
 }
 
 // shouldDowngradeNoResetLevelPowerCycleToNoAction is WORKAROUND(mlxfwreset-no-reset-level):
 // hostless-only (h.noResetLevelPowerCycle is set only for hostless discovery). Only PowerCycle
-// caused by noResetLevelSupportedText may become NoAction once RebootSequenceCount has already
-// hit the limit. PowerCycle from other mlxfwreset signals still refuses further reboot via
-// checkRebootSequenceCount.
-func shouldDowngradeNoResetLevelPowerCycleToNoAction(optCtx *operations.Context, method *provisioningv1.RebootMethodType, h *HandleReboot) bool {
+// caused by noResetLevelSupportedText may become NoAction once this request would exceed the
+// limit; count already includes it. PowerCycle from other mlxfwreset signals still refuses
+// further reboot via checkRebootSequenceCount.
+func shouldDowngradeNoResetLevelPowerCycleToNoAction(count int32, method *provisioningv1.RebootMethodType, h *HandleReboot) bool {
 	if h == nil || !h.noResetLevelPowerCycle || method == nil || *method != provisioningv1.RebootMethodPowerCycle {
 		return false
 	}
-	var prev int32
-	if optCtx != nil && optCtx.LatestDPU != nil && optCtx.LatestDPU.Status.AgentStatus != nil &&
-		optCtx.LatestDPU.Status.AgentStatus.RebootSequenceCount != nil {
-		prev = *optCtx.LatestDPU.Status.AgentStatus.RebootSequenceCount
-	}
-	return prev >= maxRebootSequenceCount
+	return count > maxRebootSequenceCount
 }
 
 // setRebootMethodDiscoveryCondition sets or updates the device-query discovery condition.
@@ -854,12 +835,9 @@ func getCurrentRebootID() (string, error) {
 	return strings.TrimSpace(string(currentRebootID)), nil
 }
 
-func hasBeenBooted(dpu *provisioningv1.DPU, currentRebootID string) bool {
-	// Legacy flow: compare stored InitialBootID to current host boot_id.
-	return dpu != nil &&
-		dpu.Status.AgentStatus != nil &&
-		dpu.Status.AgentStatus.InitialBootID != nil &&
-		*dpu.Status.AgentStatus.InitialBootID != currentRebootID
+func hasBeenBooted(state *rebootState, currentRebootID string) bool {
+	// Legacy flow: the one reboot happened once the boot ID differs from the initial boot.
+	return state.InitialBootID != currentRebootID
 }
 
 // ResolveRebootMethodDiscovery runs mlxfwreset and mlxconfig version checks.

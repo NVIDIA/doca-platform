@@ -1971,10 +1971,10 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `lastStartupTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.34/#time-v1-meta)_ | LastStartupTime is the time when the DPU was last started |  | Optional: \{\} <br /> |
-| `initialBootID` _string_ | InitialBootID is the boot ID of the DPU OS during the first boot |  |  |
+| `initialBootID` _string_ | InitialBootID is the boot ID of the DPU OS during the first boot<br />Deprecated: the DPU agent keeps this on the DPU and no longer<br />reports it. Kept only for older agents. |  |  |
 | `rebootMethod` _[RebootMethodType](#rebootmethodtype)_ | RebootMethod is the type of reset/reboot set by the DPU agent<br />See enum values in RebootMethodType.<br />No default is set intentionally: nil means "check not run or not<br />applicable" (e.g. legacy flow, or agent has not run the check yet); a<br />non-nil value means the check ran and this is the result. |  | Enum: [Unknown NoAction PowerCycle SystemReboot SystemLevelReset FirmwareReset DPUWarmReboot] <br />Optional: \{\} <br /> |
-| `lastObservedPendingNvconfig` _[PendingNVConfigState](#pendingnvconfigstate)_ | LastObservedPendingNVConfig stores the last pending NVConfig parameters<br />seen during reboot-method discovery on this boot. It is used on the next<br />boot to ignore repeated parameters that remained unchanged across boots. |  | Optional: \{\} <br /> |
-| `rebootSequenceCount` _integer_ | RebootSequenceCount is the length of the current non-NoAction<br />RebootMethod sequence: it increments on each agent run that reports a<br />RebootMethod other than NoAction and resets to 0 when the agent reports<br />NoAction. Used with RebootMethod to bound host reboot loops. |  | Minimum: 0 <br />Optional: \{\} <br /> |
+| `lastObservedPendingNvconfig` _[PendingNVConfigState](#pendingnvconfigstate)_ | LastObservedPendingNVConfig stores the last pending NVConfig parameters<br />seen during reboot-method discovery on this boot. It is used on the next<br />boot to ignore repeated parameters that remained unchanged across boots.<br />Deprecated: the DPU agent keeps this on the DPU and no longer<br />reports it. Kept only for older agents. |  | Optional: \{\} <br /> |
+| `rebootSequenceCount` _integer_ | RebootSequenceCount is the length of the current non-NoAction<br />RebootMethod sequence: it counts the consecutive DPU boots on which the<br />agent concluded a RebootMethod other than NoAction, and resets to 0 when<br />the agent concludes NoAction. Repeated agent runs in the same boot do<br />not increment it. Used with RebootMethod to bound host reboot loops. |  | Minimum: 0 <br />Optional: \{\} <br /> |
 | `kubeletVersion` _string_ | KubeletVersion represents the kubelet version running on the DPU. |  |  |
 | `version` _string_ | Version is set by an agent that can GET the live DPUFlavor and start a<br />second Run(). Empty means an old agent; do not start in-place reconfig<br />for this DPU. |  | MinLength: 1 <br />Optional: \{\} <br /> |
 | `appliedFlavorGeneration` _integer_ | AppliedFlavorGeneration is the metadata.generation of the DPUFlavor this<br />Run() applied. Generation advances only with the spec, so it identifies<br />the applied spec, not metadata-only writes. Debug only. It is not used to<br />decide whether to start in-place reconfig. Zero means the agent has not<br />reported an applied flavor yet. |  | Minimum: 1 <br />Optional: \{\} <br /> |
@@ -4046,7 +4046,9 @@ _Appears in:_
 
 
 
+PendingNVConfigDevice is one device of PendingNVConfigState.
 
+Deprecated: the DPU agent no longer reports it. Kept only for older agents.
 
 
 
@@ -4063,7 +4065,9 @@ _Appears in:_
 
 
 
+PendingNVConfigEntry is one pending parameter of PendingNVConfigDevice.
 
+Deprecated: the DPU agent no longer reports it. Kept only for older agents.
 
 
 
@@ -4082,7 +4086,9 @@ _Appears in:_
 
 
 
+PendingNVConfigState is the type of AgentStatus.LastObservedPendingNVConfig.
 
+Deprecated: the DPU agent no longer reports it. Kept only for older agents.
 
 
 
