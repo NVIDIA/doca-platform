@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/bfbregistry"
@@ -633,7 +634,36 @@ func SetDPUDeviceCondition(dpuDevice *provisioningv1.DPUDevice, condition *metav
 	return !isEqual
 }
 
+// maxDPUConditionMessageLen bounds DPU condition messages. Errors are copied into them verbatim, and a
+// raw response body or tool output would otherwise grow the DPU object, which is a single etcd object.
+const maxDPUConditionMessageLen = 4096
+
+// truncateDPUConditionMessage trims msg to maxDPUConditionMessageLen bytes by keeping its start and its end
+// with "…" between them, since a wrapped error carries its context first and its cause last. It never splits
+// a UTF-8 character. Invalid UTF-8 is replaced with U+FFFD per byte, as JSON encoding does, so the message
+// compares equal to the one read back from the API server.
+func truncateDPUConditionMessage(msg string) string {
+	const ellipsis = "…"
+	if !utf8.ValidString(msg) {
+		msg = string([]rune(msg))
+	}
+	if len(msg) <= maxDPUConditionMessageLen {
+		return msg
+	}
+	keep := maxDPUConditionMessageLen - len(ellipsis)
+	head := keep / 2
+	for head > 0 && !utf8.RuneStart(msg[head]) {
+		head--
+	}
+	tail := len(msg) - (keep - keep/2)
+	for tail < len(msg) && !utf8.RuneStart(msg[tail]) {
+		tail++
+	}
+	return msg[:head] + ellipsis + msg[tail:]
+}
+
 func SetDPUCondition(status *provisioningv1.DPUStatus, condition *metav1.Condition) bool {
+	condition.Message = truncateDPUConditionMessage(condition.Message)
 	condition.LastTransitionTime = metav1.Now()
 	// Try to find this condition.
 	conditionIndex, oldCondition := GetDPUCondition(status, condition.Type)

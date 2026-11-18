@@ -18,8 +18,12 @@ package util
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/provisioning/bfbregistry"
@@ -930,6 +934,73 @@ var _ = Describe("ConfirmDPUCondition", func() {
 		ConfirmDPUCondition(status, provisioningv1.DPUCondBFBPrepared)
 
 		Expect(status.Conditions).To(BeEmpty())
+	})
+})
+
+var _ = Describe("SetDPUCondition message length", func() {
+	condType := provisioningv1.DPUCondBFBPrepared.String()
+
+	It("keeps a message within the limit unchanged", func() {
+		status := &provisioningv1.DPUStatus{}
+		msg := strings.Repeat("x", maxDPUConditionMessageLen)
+
+		SetDPUCondition(status, NewCondition(condType, errors.New(msg), "", ""))
+
+		_, condition := GetDPUCondition(status, condType)
+		Expect(condition.Message).To(Equal(msg))
+	})
+
+	It("truncates a longer message to the limit, keeping its start and its end", func() {
+		status := &provisioningv1.DPUStatus{}
+		msg := "failed to fetch: " + strings.Repeat("x", 100*maxDPUConditionMessageLen) + ": fatal: denied"
+
+		SetDPUCondition(status, NewCondition(condType, errors.New(msg), "", ""))
+
+		_, condition := GetDPUCondition(status, condType)
+		Expect(condition.Message).To(HaveLen(maxDPUConditionMessageLen))
+		Expect(condition.Message).To(HavePrefix("failed to fetch: "))
+		Expect(condition.Message).To(HaveSuffix(": fatal: denied"))
+		Expect(condition.Message).To(ContainSubstring("x…x"))
+	})
+
+	// With two-byte characters, one of the two layouts puts the start cut and the other the end cut
+	// inside a character.
+	DescribeTable("does not split a multi-byte character",
+		func(prefix string) {
+			status := &provisioningv1.DPUStatus{}
+			msg := prefix + strings.Repeat("é", maxDPUConditionMessageLen)
+
+			SetDPUCondition(status, NewCondition(condType, errors.New(msg), "", ""))
+
+			_, condition := GetDPUCondition(status, condType)
+			Expect(len(condition.Message)).To(BeNumerically("<=", maxDPUConditionMessageLen))
+			Expect(utf8.ValidString(condition.Message)).To(BeTrue())
+		},
+		Entry("characters start at even offsets", ""),
+		Entry("characters start at odd offsets", "x"),
+	)
+
+	It("replaces invalid UTF-8 as JSON encoding does", func() {
+		status := &provisioningv1.DPUStatus{}
+		msg := "bad \xff\xfe bytes"
+
+		SetDPUCondition(status, NewCondition(condType, errors.New(msg), "", ""))
+
+		_, condition := GetDPUCondition(status, condType)
+		Expect(condition.Message).To(Equal("bad \uFFFD\uFFFD bytes"))
+		raw, err := json.Marshal(condition)
+		Expect(err).NotTo(HaveOccurred())
+		var roundTripped metav1.Condition
+		Expect(json.Unmarshal(raw, &roundTripped)).To(Succeed())
+		Expect(roundTripped.Message).To(Equal(condition.Message))
+	})
+
+	It("reports no change when the same long message is set again", func() {
+		status := &provisioningv1.DPUStatus{}
+		msg := strings.Repeat("x", 2*maxDPUConditionMessageLen)
+		SetDPUCondition(status, NewCondition(condType, errors.New(msg), "", ""))
+
+		Expect(SetDPUCondition(status, NewCondition(condType, errors.New(msg), "", ""))).To(BeFalse())
 	})
 })
 
