@@ -4,6 +4,8 @@ metadata:
   name: dummydpuservice
   namespace: dummydpuservice
 spec:
+  security:
+    privileged: false
   helmChart:
     source:
       repoURL: https://$DPUSERVICE_HELM_REGISTRY/dpf

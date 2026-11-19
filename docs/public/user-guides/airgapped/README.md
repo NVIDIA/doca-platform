@@ -451,6 +451,8 @@ metadata:
   name: dummydpuservice
   namespace: dummydpuservice
 spec:
+  security:
+    privileged: false
   helmChart:
     source:
       # ... repoURL, chart and version stay as they are

@@ -139,6 +139,8 @@ metadata:
   name: example-service
   namespace: dpf-operator-system
 spec:
+  security:
+    privileged: false
   serviceID: example-service
   interfaces:
     - eth1
