@@ -73,11 +73,11 @@ NVIDIA BlueField-4 DPUs are supported in Zero Trust mode only. See the
 
 ## BlueField OS, Firmware and Services Support Matrix
 
-DPF v26.8 supports the following BFB versions for NVIDIA BlueField-3 DPUs, with the coupled DOCA Services matching each BFB's train:
+DPF v30.0 supports the following BFB versions for NVIDIA BlueField-3 DPUs, with the coupled DOCA Services matching each BFB's train:
 
+* **3.6 (current LTS)** — fully supported
 * **3.2 (LTS-1)** — fully supported
-* **3.5 (current GA)** — fully supported
-* **3.4 (previous GA)** — rollout only; reprovision to 3.5 before the next DPF release
+* **3.5 (previous GA)** — rollout only; reprovision to 3.6 before the next DPF release
 
 See the [DPF Compatibility Policy](operational-readiness/upgrades/compatibility-policy.md) for the full annual
 support matrix and rollout-only definition.

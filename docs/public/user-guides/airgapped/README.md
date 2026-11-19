@@ -174,7 +174,7 @@ services:                       # optional DPF charts: mirror only those you dep
     images:
       - name: storage-system
         scope: [dpu, host]
-      - ref: nvcr.io/nvidia/doca/doca_vfs:1.8.0-doca3.5.0
+      - ref: nvcr.io/nvidia/doca/doca_vfs:1.9.0-doca3.6.0
         scope: [dpu]
 charts:                         # the helm charts, which the host cluster pulls from upstream
   - name: dpf-operator
@@ -205,7 +205,7 @@ mirror instead, see [Where a copy goes](../../operational-readiness/troubleshoot
 
 ```shell
 dpfctl airgap images \
-  --chart https://helm.ngc.nvidia.com/nvidia/doca/dpf-operator --version v26.10.0 \
+  --chart https://helm.ngc.nvidia.com/nvidia/doca/dpf-operator --version v30.0.0 \
   --mirror mirror.example.com/dpf \
   --scope dpu \
   -f my-dpuservices/
@@ -230,7 +230,7 @@ Copy the images with `skopeo` while you still have internet access:
 (
   set -o pipefail
   dpfctl airgap images \
-    --chart https://helm.ngc.nvidia.com/nvidia/doca/dpf-operator --version v26.10.0 \
+    --chart https://helm.ngc.nvidia.com/nvidia/doca/dpf-operator --version v30.0.0 \
     --mirror mirror.example.com/dpf --scope dpu -f my-dpuservices/ |
     while read -r src dst; do
       skopeo copy --all --preserve-digests "docker://$src" "docker://$dst" ||
@@ -287,7 +287,7 @@ Keep all the manifests of a service together. `dpfctl` merges the values of a
 
 ```shell
 dpfctl airgap images \
-  --chart https://helm.ngc.nvidia.com/nvidia/doca/dpf-operator --version v26.10.0 \
+  --chart https://helm.ngc.nvidia.com/nvidia/doca/dpf-operator --version v30.0.0 \
   --mirror mirror.example.com/dpf --scope dpu -f my-dpuservices/
 ```
 
@@ -310,7 +310,7 @@ services is below the mirror, this command prints nothing:
 
 ```shell
 dpfctl airgap images \
-  --chart https://helm.ngc.nvidia.com/nvidia/doca/dpf-operator --version v26.10.0 \
+  --chart https://helm.ngc.nvidia.com/nvidia/doca/dpf-operator --version v30.0.0 \
   --mirror mirror.example.com/dpf --scope dpu -f my-dpuservices/ -o json |
   jq -r '.[] | select(any(.origins[]; startswith("service "))) | .source' |
   grep -v '^mirror.example.com/dpf/'
@@ -470,7 +470,7 @@ DPUServiceTemplate, or in `spec.serviceConfiguration.helmChart.values` of a
 DPUServiceConfiguration. Each chart has its own keys, which `helm show values` lists:
 
 * `doca-hbn` in the HBN and OVN-Kubernetes use case takes the same keys. Its manifest sets the tag
-  `3.5.0-doca3.5.0`.
+  `3.6.0-doca3.6.0`.
 * A chart whose manifests set no image pulls the images of its defaults, for example
   `doca-telemetry` and `ovn-kubernetes-chart` in that use case. Add the image keys that
   `helm show values` lists to the values.

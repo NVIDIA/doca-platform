@@ -244,7 +244,7 @@ helm upgrade --install -n dpf-operator-system dpf-operator \
   dpf-repository/dpf-operator --version=$TAG --reset-then-reuse-values
 ```
 
-Replace `$TAG` with the target DPF Operator version (e.g. `v26.8.0`).
+Replace `$TAG` with the target DPF Operator version (e.g. `v30.0.0`).
 
 Alternatively, re-apply the original values file explicitly with `-f values.yaml`. If the file is no longer
 available, the currently deployed values can be retrieved from the release:

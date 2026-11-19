@@ -113,7 +113,7 @@ pulls.
 | Flag               | Default                                | Description                                                                                                                                          |
 |--------------------|----------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `--chart`          |                                        | The `dpf-operator` chart of the release: `<repository URL>/dpf-operator` (an http(s) or `oci://` repository), or a local chart archive or directory. |
-| `--version`        |                                        | Version of the chart in a repository, for example `v26.10.0`.                                                                                        |
+| `--version`        |                                        | Version of the chart in a repository, for example `v30.0.0`.                                                                                        |
 | `--bom`            |                                        | A BOM file, instead of `--chart`. Needs `--dpf-registry` and `--dpf-version`.                                                                        |
 | `--dpf-registry`   | registry of the chart's operator image | Registry of the DPF images, for example `nvcr.io/nvidia/doca`.                                                                                       |
 | `--dpf-version`    | version of the chart's operator image  | DPF release version: the tag of the DPF images and the version of the DPF charts.                                                                    |
@@ -136,7 +136,7 @@ that list it.
 Copy the images of a release, with those of your DPUServices, with skopeo:
 
 ```shell
-dpfctl airgap images --chart https://helm.ngc.nvidia.com/nvidia/doca/dpf-operator --version v26.10.0 \
+dpfctl airgap images --chart https://helm.ngc.nvidia.com/nvidia/doca/dpf-operator --version v30.0.0 \
   --mirror mirror.example.com:5000 -f my-dpuservices/ |
   while read -r src dst; do
     skopeo copy --all --preserve-digests "docker://$src" "docker://$dst"
@@ -146,7 +146,7 @@ dpfctl airgap images --chart https://helm.ngc.nvidia.com/nvidia/doca/dpf-operato
 Or with crane:
 
 ```shell
-dpfctl airgap images --chart https://helm.ngc.nvidia.com/nvidia/doca/dpf-operator --version v26.10.0 \
+dpfctl airgap images --chart https://helm.ngc.nvidia.com/nvidia/doca/dpf-operator --version v30.0.0 \
   --mirror mirror.example.com:5000 -f my-dpuservices/ |
   while read -r src dst; do crane copy "$src" "$dst"; done
 ```
@@ -157,7 +157,7 @@ dpfctl airgap images --chart https://helm.ngc.nvidia.com/nvidia/doca/dpf-operato
 with helm:
 
 ```shell
-dpfctl airgap charts --chart https://helm.ngc.nvidia.com/nvidia/doca/dpf-operator --version v26.10.0 \
+dpfctl airgap charts --chart https://helm.ngc.nvidia.com/nvidia/doca/dpf-operator --version v30.0.0 \
   --mirror mirror.example.com:5000 -f my-dpuservices/ |
   while read -r repo name version dst; do
     case "$repo" in
