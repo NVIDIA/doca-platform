@@ -230,8 +230,8 @@ If any validation fails:
 ## Performing the Upgrade
 
 Upgrade the DPF Operator using Helm. This assumes the DPF Helm repository is already configured as described in the
-[Getting Started Guide](../../getting-started/dpf-host-trusted.md#deploy-the-dpf-operator) (repo setup, OCI registry
-variants, and Helm prerequisites are covered there).
+[Getting Started Guide](../../getting-started/dpf-host-trusted.md#deploy-the-dpf-operator) (repo setup and Helm
+prerequisites are covered there).
 
 > [!IMPORTANT]
 > Any custom values applied to the existing release must be preserved during the upgrade, or they will be reverted to

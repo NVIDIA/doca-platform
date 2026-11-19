@@ -9,7 +9,16 @@ title: "Platform Support"
 | Component  | Version   | Notes                                                                                                            |
 |------------|-----------|------------------------------------------------------------------------------------------------------------------|
 | Kubernetes | 1.33-1.36 | All currently supported upstream Kubernetes releases are supported                                               |
-| Helm       | v3.5+     | For information and methods of Helm installation, please refer to the official [Helm Website](https://helm.sh/). |
+| Helm       | v3.14+    | For information and methods of Helm installation, please refer to the official [Helm Website](https://helm.sh/). |
+
+> [!NOTE]
+> DPF CI runs Helm 3. Helm 4 can be used with these points in mind:
+>
+> * `helmfile apply` needs helm-diff 3.15.1 or later on Helm 4. See
+>   [Helm Prerequisites](getting-started/helm-prerequisites.md#option-1-using-helmfile).
+> * `dpfctl airgap` needs a Helm 3 binary. See [dpfctl airgap](operational-readiness/troubleshooting/dpfctl/airgap.md).
+> * Helm supports a Kubernetes version only within its version skew policy. For Kubernetes 1.36, use Helm 3.21 or
+>   later, or Helm 4.2 or later.
 
 ## DPF Component Matrix
 
