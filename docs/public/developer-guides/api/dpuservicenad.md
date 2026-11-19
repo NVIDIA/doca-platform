@@ -44,7 +44,7 @@ metadata:
 spec:
   resourceType: "sf"           # Resource type (sf, vf, or veth)
   bridge: "test-ovsbridge"     # OVS bridge name
-  mtu: 1500                    # MTU size
+  serviceMTU: 1500             # MTU size
   ipam: true                   # Enable IPAM
 ```
 
@@ -160,7 +160,7 @@ metadata:
 spec:
   resourceType: "sf"
   bridge: "test-ovsbridge"
-  mtu: 1500
+  serviceMTU: 1500
   chainedCNIs:
   - type: rdma
 ```
