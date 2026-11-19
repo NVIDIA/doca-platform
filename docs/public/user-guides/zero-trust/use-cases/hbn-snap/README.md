@@ -103,10 +103,10 @@ export SNAP_NGC_IMAGE_URL=nvcr.io/nvidia/doca/doca_vfs
 export REGISTRY=https://helm.ngc.nvidia.com/nvidia/doca
 
 ## The DPF TAG is the version of the DPF components which will be deployed in this guide.
-export TAG=v26.8.0
+export TAG=v30.0.0
 
 ## URL to the BFB used in the `bfb.yaml` and linked by the DPUSet.
-export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.5.0-89_26.07_ubuntu-24.04_64k_prod.bfb"
+export BFB_URL="https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.6.0-86_26.10_ubuntu-24.04_64k_prod.bfb"
 
 ## IP_RANGE_START and IP_RANGE_END
 ## These define the IP range for DPU discovery via Redfish/BMC interfaces
@@ -906,12 +906,12 @@ spec:
   helmChart:
     source:
       repoURL: $HELM_REGISTRY_REPO_URL
-      version: 3.5.0
+      version: 3.6.0
       chart: doca-hbn
     values:
       image:
         repository: $HBN_NGC_IMAGE_URL
-        tag: 3.5.0-doca3.5.0
+        tag: 3.6.0-doca3.6.0
       resources:
         memory: 6Gi
         nvidia.com/bf_sf: 5
@@ -1101,7 +1101,7 @@ spec:
             enabled: true
             image:
               repository: $SNAP_NGC_IMAGE_URL
-              tag: 1.8.0-doca3.5.0
+              tag: 1.9.0-doca3.6.0
             snapRpcInitConf: |
               nvme_subsystem_create --nqn nqn.2022-10.io.nvda.nvme:0
   interfaces:
@@ -2343,12 +2343,12 @@ spec:
   helmChart:
     source:
       repoURL: $HELM_REGISTRY_REPO_URL
-      version: 3.5.0
+      version: 3.6.0
       chart: doca-hbn
     values:
       image:
         repository: $HBN_NGC_IMAGE_URL
-        tag: 3.5.0-doca3.5.0
+        tag: 3.6.0-doca3.6.0
       resources:
         memory: 6Gi
         nvidia.com/bf_sf: 5
@@ -2394,7 +2394,7 @@ spec:
               XLIO_ENABLED: "0"
             image:
               repository: $SNAP_NGC_IMAGE_URL
-              tag: 1.8.0-doca3.5.0
+              tag: 1.9.0-doca3.6.0
   interfaces:
   - name: app_sf
     network: mybrsfc-storage

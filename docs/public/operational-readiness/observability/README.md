@@ -30,7 +30,7 @@ The architecture centralizes monitoring and logging on the Host Cluster:
 * **Prometheus**: Scrapes and stores metrics from all clusters
 * **Grafana**: Visualizes metrics with pre-configured DPF dashboards
 * **Loki**: Aggregates and stores logs from Host and DPU clusters
-* **OpenTelemetry Collector**: Receives logs from DPU clusters via OTLP
+* **OpenTelemetry Collector**: Receives logs, metrics and traces from DPU clusters via OTLP
 * **Kube-State-Metrics**: Exposes DPF custom resource metrics for the host cluster
 
 **DPU Health Monitoring** (DPF-operator-managed) - Runtime operational status:
@@ -42,7 +42,8 @@ The architecture centralizes monitoring and logging on the Host Cluster:
 
 * **Kube-State-Metrics**: Exposes DPF Custom Resource metrics on the host cluster for objects deployed in the DPUCluster
 * **Node-Problem-Detector**: Monitors node health and reports conditions
-* **OpenTelemetry Collector**: Collects and forwards logs to Host Cluster
+* **OpenTelemetry Collector**: Collects pod logs and kubelet metrics, receives traces locally over OTLP and forwards
+  them to the Host Cluster. Each signal is forwarded only when its endpoint is configured.
 
 
 ## Documentation
