@@ -128,6 +128,21 @@ The helmfiles are located at `deploy/helmfiles/` in the [DPF repository].
 
 This approach ensures consistent deployment across different environments and simplifies the installation process.
 
+The helmfile configuration is tested with Helm v3.18.3, helmfile v1.4.1 and the Helm plugins helm-diff 3.12.2 and
+helm-git 1.4.0. The plugins are required: `helmfile apply` uses helm-diff, and the `local-path-provisioner` chart is
+pulled through helm-git. Install them and run the helmfile from `deploy/helmfiles/`:
+
+```bash
+helm plugin install https://github.com/databus23/helm-diff --version 3.12.2
+helm plugin install https://github.com/aslafy-z/helm-git --version 1.4.0
+helmfile apply
+```
+
+> [!NOTE]
+> On Helm 4, use helm-diff 3.15.1 or later, as older versions make `helmfile apply` fail.
+> Helm 4 verifies plugin signatures on install, so add `--verify=false` for plugins that are not signed, such as
+> helm-git. `helmfile sync` is an alternative to `helmfile apply` that does not need helm-diff.
+
 > [!NOTE]
 > The default Helmfile installs both `kamaji` and `local-path-provisioner`. Apply the required changes to files in
 > `deploy/helmfiles/` if you do not want to install these components, or if you want to replace the default `local-path`

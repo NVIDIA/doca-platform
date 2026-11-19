@@ -124,7 +124,7 @@ pulls.
 | `--service`        |                                        | Optional service of the BOM you deploy, for example `dpf-storage` (repeatable).                                                                      |
 | `--all-services`   | `false`                                | Include all the optional services of the BOM.                                                                                                        |
 | `-f`, `--filename` |                                        | File or directory of DPUService manifests you deploy, or `-` for standard input (repeatable).                                                        |
-| `--helm`           | `$HELM`, then `helm` in `$PATH`        | The helm v3 binary.                                                                                                                                  |
+| `--helm`           | `$HELM`, then `helm` in `$PATH`        | The helm v3 binary. A Helm 4 binary is rejected, so point this at a Helm 3 binary if Helm 4 is first in `$PATH`.                                     |
 | `-o`, `--output`   | `pairs`                                | Output format, `pairs` or `json`.                                                                                                                    |
 
 ## images

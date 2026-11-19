@@ -35,7 +35,8 @@ affected either.
 5. [Check the result](#5-check-the-result).
 
 You need [`dpfctl`](../../operational-readiness/troubleshooting/dpfctl/airgap.md) and
-[helm](https://helm.sh) v3 on a machine with internet access and access to the mirror.
+[helm](https://helm.sh) v3 on a machine with internet access and access to the mirror. `dpfctl` does not accept
+a Helm 4 binary, so keep a Helm 3 binary available even if you use Helm 4 elsewhere.
 
 ## 1. Prepare a mirror registry
 
