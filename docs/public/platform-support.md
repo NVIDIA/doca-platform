@@ -33,7 +33,7 @@ DPF uses the following components:
 | Etcd Defrag                 | Community (OSS) | ghcr.io/ahrtr                         | etcd-defrag                     | v0.22.0            | Optional    |
 | External Secrets            | Community (OSS) | ghcr.io/external-secrets              | external-secrets                | v2.8.0             | Optional    |
 | Grafana                     | Community (OSS) | docker.io/grafana                     | grafana                         | 13.1.1             | Optional    |
-| Kata Containers             | Community (OSS) | quay.io/kata-containers               | kata-deploy                     | 4.0.0              | Optional    |
+| Kata Containers             | Community (OSS) | quay.io/kata-containers               | kata-deploy                     | 3.32.0             | Optional    |
 | Kube State Metrics          | Community (OSS) | registry.k8s.io/kube-state-metrics    | kube-state-metrics              | v2.19.1            | Optional    |
 | Loki                        | Community (OSS) | docker.io/grafana                     | loki                            | 3.7.4              | Optional    |
 | Node Problem Detector       | Community (OSS) | registry.k8s.io/node-problem-detector | node-problem-detector           | v1.36.0            | Optional    |
