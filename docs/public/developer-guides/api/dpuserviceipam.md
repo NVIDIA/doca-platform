@@ -278,6 +278,8 @@ kind: DPUService
 metadata:
   name: producer
 spec:
+  security:
+    privileged: false
   serviceID: producer
   helmChart:
     source:
@@ -318,6 +320,8 @@ kind: DPUService
 metadata:
   name: consumer
 spec:
+  security:
+    privileged: false
   serviceID: consumer
   helmChart:
     source:

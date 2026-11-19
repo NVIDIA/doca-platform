@@ -1001,6 +1001,8 @@ metadata:
   name: my-service
   namespace: my-namespace
 spec:
+  security:
+    privileged: false
   helmChart:
     source:
       ...
@@ -1070,6 +1072,8 @@ metadata:
   name: my-service
   namespace: my-namespace
 spec:
+  security:
+    privileged: false
   helmChart:
     source:
       ...

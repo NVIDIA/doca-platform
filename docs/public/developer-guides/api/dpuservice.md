@@ -18,6 +18,8 @@ metadata:
   name: doca-telemetry-service
   namespace: dpf-operator-system
 spec:
+  security:
+    privileged: false
   helmChart:
     source:
       repoURL: https://helm.ngc.nvidia.com/nvidia/doca
@@ -593,6 +595,8 @@ metadata:
   name: doca-hbn-dk
   namespace: dpf-operator-system
 spec:
+  security:
+    privileged: false
   serviceID: doca-hbn
   interfaces:
   - p0-sf-dk
