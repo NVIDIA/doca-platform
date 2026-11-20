@@ -23,7 +23,7 @@ spec:
   helmChart:
     source:
       repoURL: https://helm.ngc.nvidia.com/nvidia/doca
-      version: 1.27.7
+      version: 1.27.8
       chart: doca-telemetry
   serviceDaemonSet:
     updateStrategy:
@@ -39,7 +39,7 @@ spec:
 In the above example:
 
 * A `DPUService` named `doca-telemetry-service` is created in the `dpf-operator-system` namespace.
-* A HelmChart located at `https://helm.ngc.nvidia.com/nvidia/doca` with version `1.27.7`
+* A HelmChart located at `https://helm.ngc.nvidia.com/nvidia/doca` with version `1.27.8`
   and chart `doca-telemetry` is used to deploy the `DPUService`.
 * A `DaemonSet` is deployed on target DPU nodes. We specify the update strategy,
   labels, and annotations for the `DaemonSet`.
@@ -64,7 +64,7 @@ spec:
   helmChart:
     source:
       repoURL: https://helm.ngc.nvidia.com/nvidia/doca
-      version: 1.27.7
+      version: 1.27.8
       chart: doca-telemetry
 ```
 The following fields are used to specify the Helm chart:

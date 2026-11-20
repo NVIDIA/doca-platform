@@ -9,7 +9,7 @@ spec:
   helmChart:
     source:
       repoURL: https://helm.ngc.nvidia.com/nvidia/doca
-      version: 1.27.7
+      version: 1.27.8
       chart: doca-telemetry
     values:
       configMapData:
