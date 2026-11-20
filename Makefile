@@ -1322,6 +1322,8 @@ ifeq ($(DPFCTL_NGC_ENABLED),true)
 	$(NGC) registry resource info --org $(DPFCTL_NGC_ORG) $(DPFCTL_NGC_ORG)/doca/dpfctl:$(TAG) &>/dev/null \
 	&& echo "dpfctl $(TAG) already exists in nvstaging" \
 	|| $(NGC) registry resource upload-version --org $(DPFCTL_NGC_ORG) $(DPFCTL_NGC_ORG)/doca/dpfctl:$(TAG) --source $(LOCALBIN)/dpfctl-$(TAG)-release/
+
+	@$(call record_release_artifact,binary,dpfctl,$(DPFCTL_NGC_ORG)/doca/dpfctl:$(TAG),release)
 endif
 
 BUILD_VPC ?= false
