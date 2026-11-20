@@ -235,7 +235,9 @@ webhook:
 > Applying the values below is not sufficient to bootstrap a usable OpenBao instance. A few extra bootstrap actions are
 > required: create the static seal key before installation, initialize OpenBao after installation, and configure the
 > Kubernetes auth mount. Refer to the Helmfile hooks in the DPF repository for an example of this flow.
->
+
+<!-- separates the two alerts so they render as two panels -->
+
 > [!WARNING]
 > In the provided bootstrap flow, the static seal key is stored in the `openbao/openbao-static-seal` Kubernetes Secret to
 > support automatic unseal, and the generated root token is stored in the `openbao/openbao-root-token` Kubernetes Secret.

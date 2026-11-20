@@ -1,4 +1,6 @@
-# Tracing
+---
+title: "Tracing"
+---
 
 DPF controllers can export OpenTelemetry trace spans for their reconcile
 loops. The shared helpers live in `internal/utils/tracing` and are used by

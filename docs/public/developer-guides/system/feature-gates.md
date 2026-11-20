@@ -1,4 +1,6 @@
-# Feature Gates
+---
+title: "Feature Gates"
+---
 
 DPF uses Kubernetes-style feature gates to guard functionality that is
 experimental, changes security posture, or needs an operator-controlled
