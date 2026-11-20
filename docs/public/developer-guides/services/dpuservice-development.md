@@ -155,7 +155,7 @@ COPY ./ ./
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o dummydpuservice cmd/dummydpuservice/main.go
 
 # Copy the binary to a clean base image.
-FROM nvcr.io/nvidia/doca/dpf_containers:1.0.2-ubuntu22.04-distroless
+FROM nvcr.io/nvidia/doca/distroless_containers:1.1.0-ubuntu24.04
 WORKDIR /
 COPY --from=builder /workspace/manager .
 USER 65532:65532

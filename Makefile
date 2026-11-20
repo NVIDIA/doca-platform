@@ -1460,8 +1460,7 @@ HOST_ARCH = amd64
 DPU_ARCH = arm64
 
 # Use distroless as minimal base image to package the manager binary.
-# CI overrides this in .gitlab/ci/common-variables.yml.
-BASE_IMAGE ?= nvcr.io/nvidia/doca/dpf_containers:1.0.2-ubuntu22.04-distroless
+BASE_IMAGE ?= nvcr.io/nvidia/doca/distroless_containers:1.1.0-ubuntu24.04
 ALPINE_IMAGE = alpine:3.19
 # Base image for hostdriver (DOCA full runtime host image)
 HOSTDRIVER_BASE_IMAGE ?= nvcr.io/nvidia/doca/doca:full-rt-3.6.0-host
