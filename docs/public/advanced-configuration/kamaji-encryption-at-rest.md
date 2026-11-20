@@ -84,11 +84,11 @@ Secret. For more information about this workflow, see [Encrypted Secrets](encryp
 To use the `staticKey` provider:
 
 1. [Prepare the static key](#prepare-the-static-key):
-   * [Configure OpenBao access](#configure-openbao-access) by creating the service accounts, policies, and Kubernetes
-     auth roles needed to write and read the key.
-   * [Generate and store the static key](#generate-and-store-the-static-key) in OpenBao.
-   * [Replicate the static key](#replicate-the-static-key) as a Secret in the `DPFOperatorConfig` namespace with
-     External Secrets Operator.
+    * [Configure OpenBao access](#configure-openbao-access) by creating the service accounts, policies, and Kubernetes
+      auth roles needed to write and read the key.
+    * [Generate and store the static key](#generate-and-store-the-static-key) in OpenBao.
+    * [Replicate the static key](#replicate-the-static-key) as a Secret in the `DPFOperatorConfig` namespace with
+      External Secrets Operator.
 2. [Enable static key encryption for new DPU clusters](#enable-static-key-encryption-for-new-dpu-clusters). Configure
    the `DPFOperatorConfig` to select the `staticKey` provider and reference the replicated Secret.
 

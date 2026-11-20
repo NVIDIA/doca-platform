@@ -71,17 +71,17 @@ If a `ServiceChain` or `ServiceChainSet` is stuck at `Ready=False` or flapping b
 If you cannot resolve the issue using the guides above:
 
 1. **Collect Diagnostic Information**
-   * Collect a [sosreport](dpfctl/sosreport.md) for your environment
-   * Collect a [diagnostic dump](dpfctl/dump.md) when BMC-side information is needed
+    * Collect a [sosreport](dpfctl/sosreport.md) for your environment
+    * Collect a [diagnostic dump](dpfctl/dump.md) when BMC-side information is needed
 
 2. **Check Known Issues**
-   * Review [Release Notes](../../release-notes/README.md) for known issues
-   * Search the [GitHub repository](https://github.com/NVIDIA/doca-platform/issues) for similar problems
+    * Review [Release Notes](../../release-notes/README.md) for known issues
+    * Search the [GitHub repository](https://github.com/NVIDIA/doca-platform/issues) for similar problems
 
 3. **Contact Support**
-   * Open an issue on the [GitHub repository](https://github.com/NVIDIA/doca-platform/issues)
-   * Include diagnostic information and steps to reproduce
-   * For enterprise customers, contact NVIDIA support with your diagnostic package
+    * Open an issue on the [GitHub repository](https://github.com/NVIDIA/doca-platform/issues)
+    * Include diagnostic information and steps to reproduce
+    * For enterprise customers, contact NVIDIA support with your diagnostic package
 
 ## Additional Resources
 

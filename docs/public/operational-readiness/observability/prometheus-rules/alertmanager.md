@@ -12,8 +12,8 @@ provides a reference Alertmanager configuration tuned for the DPF alert taxonomy
 `service: doca-platform-framework` and `severity: critical|warning`. The component-health and lifecycle alerts identify
 their subject through the `namespace` and `name` labels, while the aggregate alerts carry other identities (`cluster`
 for the DPU-cluster control-plane alerts, `controller` for the reconcile alerts, `cluster`/`service_id` for replica
-health, `pod` for the operator self-health alerts). The reference DPF install ships with Alertmanager disabled (
-`alertmanager.enabled: false` in `deploy/helmfiles/values/kube-prometheus-stack.yaml`), so routing is an explicit
+health, `pod` for the operator self-health alerts). The reference DPF install ships with Alertmanager disabled
+(`alertmanager.enabled: false` in `deploy/helmfiles/values/kube-prometheus-stack.yaml`), so routing is an explicit
 opt-in.
 
 > [!NOTE]
@@ -144,8 +144,8 @@ alertmanager:
           # ... receiver and child routes as above
 ```
 
-For ad-hoc windows, prefer a silence (
-`amtool silence add service=doca-platform-framework --duration 2h --comment "BFB upgrade wave"`) over editing the
+For ad-hoc windows, prefer a silence
+(`amtool silence add service=doca-platform-framework --duration 2h --comment "BFB upgrade wave"`) over editing the
 configuration.
 
 ## AlertmanagerConfig CRD alternative

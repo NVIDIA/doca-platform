@@ -13,7 +13,7 @@ The DOCA VPC OVN Service provides accelerated Virtual Private Cloud (VPC) networ
 
 ### Key Features
 
-* **Multi-tenant Network Isolation**: Create isolated VPCs for different tenants with guaranteed network separationSingle VPC with a single DPUVirtualNetwork and a DPUServiceInterface targeting all DPU Nodes
+* **Multi-tenant Network Isolation**: Create isolated VPCs for different tenants with guaranteed network separation
 * **Virtual Network Management**: Support the creation of virtual networks with DHCP and custom IP addressing
 * **External Connectivity**: Configurable external routing with NAT/masquerading capabilities
 * **Hardware Acceleration**: Leverages DPU hardware acceleration for high-performance networking

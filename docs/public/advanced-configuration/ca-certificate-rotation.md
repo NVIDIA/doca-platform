@@ -102,7 +102,7 @@ kubectl -n dpf-operator-system get dpfoperatorconfig dpfoperatorconfig \
 
 # Manual CA rotation
 
-## 1) Record the certificates being retired
+## 1. Record the certificates being retired
 
 Step 5 prunes the retired authority from the trust bundle, and the root recorded here is what it
 prunes by: everything that root signed goes with it. Record it before anything changes, because step
@@ -147,7 +147,7 @@ rm -rf "$CA_BACKUP_DIR"
 
 Proceed only when `dpf-ca-rotation-backup` exists.
 
-## 2) Re-key the self-signed root
+## 2. Re-key the self-signed root
 
 > Skip this step in external CA deployments. Rotate your own root instead, and add its new
 > certificate to `dpf-ca-trust-bundle` alongside the old one before continuing with step 3.
@@ -177,7 +177,7 @@ kubectl -n dpf-operator-system get secret dpf-global-root-ca \
 Proceed only when the Certificate is `True/Ready` and the fingerprint differs from
 `$OLD_ROOT_FINGERPRINT`.
 
-## 3) Re-sign the intermediates and converge dual trust
+## 3. Re-sign the intermediates and converge dual trust
 
 This step re-signs the intermediates under the authority now in effect. Each keeps its key and its
 subject DN, which is why nothing has to be pinned: the certificates they have already signed are
@@ -256,7 +256,7 @@ Proceed to the next step only when:
   `CATrustBundleReady=True` for all target `DPUDevice`.
 * `status.agentStatus.trustBundleHash == $BUNDLE_HASH` for all target `DPU`.
 
-## 4) Renew leaf certificates and rotate certificates
+## 4. Renew leaf certificates and rotate certificates
 
 The leaf certificates are valid either way, since the intermediate kept the key that signed them.
 This step is about the copy of the chain each leaf Secret carries: renewing them means no peer is
@@ -318,7 +318,7 @@ kubectl -n dpf-operator-system get dpudevice -o jsonpath='
 Proceed only when all target devices show `BMCServerCertificateReady=True` and
 `observedManualTrigger == $ROTATION_TOKEN`.
 
-## 5) Close the dual-trust window by pruning the retired authority
+## 5. Close the dual-trust window by pruning the retired authority
 
 > Skip this step in external CA deployments and prune your own bundle instead.
 
@@ -384,7 +384,7 @@ echo "$BUNDLE_HASH"
 
 Then repeat the convergence checks from step 3 against this new `bundle-hash`.
 
-## 6) Delete the backup
+## 6. Delete the backup
 
 This is a cleanup step. Delete the backup only after step 5 convergence is complete and the retired
 authority has been pruned from `dpf-ca-trust-bundle`.

@@ -34,11 +34,11 @@ You must set **both** of the following kernel parameters on the **host**:
 You have **two valid options**:
 
 1. **Disable IOMMU completely**  
-   - `intel_iommu=off` **or** `amd_iommu=off`
+    - `intel_iommu=off` **or** `amd_iommu=off`
 
 2. **Enable IOMMU with passthrough**  
-   - `intel_iommu=on` **or** `amd_iommu=on`  
-   - `iommu=pt`
+    - `intel_iommu=on` **or** `amd_iommu=on`  
+    - `iommu=pt`
 
 For more details, refer to the [official NVIDIA DOCA Argus documentation](https://docs.nvidia.com/doca/sdk/doca+argus+service+guide/index.html).
 

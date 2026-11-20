@@ -26,8 +26,8 @@ The target can be configured in the following ways (in order of precedence):
 1. **Command-line flag**: `--target=unix:///path/to/socket` or `--target=tcp://host:port`
 2. **Environment variable**: `VPCCTL_TARGET=unix:///path/to/socket`
 3. **Default**:
-   - NetworkIsolation commands: `unix:///var/run/dpf/weave/grpc/flow-controller.sock`
-   - DHCP commands: `unix:///var/run/dpf/weave/grpc/dhcp.sock`, falling back to `tcp://127.0.0.1:50222` when that socket does not exist on disk
+    - NetworkIsolation commands: `unix:///var/run/dpf/weave/grpc/flow-controller.sock`
+    - DHCP commands: `unix:///var/run/dpf/weave/grpc/dhcp.sock`, falling back to `tcp://127.0.0.1:50222` when that socket does not exist on disk
 
 ### DHCP Auth Token File
 
