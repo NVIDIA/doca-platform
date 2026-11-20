@@ -1,11 +1,11 @@
 ---
-title: "DPF Containers and Helm Charts"
+title: "DPF Containers, Helm Charts and Binaries"
 ---
 
-# DPF Containers and Helm Charts
+# DPF Containers, Helm Charts and Binaries
 
-This page lists the NVIDIA NGC containers and Helm charts published for
-DOCA Platform Framework **v30.0.0**.
+This page lists the NVIDIA NGC containers, Helm charts and binaries published
+for DOCA Platform Framework **v30.0.0**.
 
 Helm charts are available from `https://helm.ngc.nvidia.com/nvidia/doca`.
 
@@ -35,3 +35,8 @@ Helm charts are available from `https://helm.ngc.nvidia.com/nvidia/doca`.
 | dpu-networking | `dpu-networking` `v30.0.0` | [catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/doca/helm-charts/dpu-networking) |
 | ovn-chart | `ovn-chart` `v30.0.0` | [catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/doca/helm-charts/ovn-chart) |
 
+## Binaries
+
+| Name | Version | NGC catalog |
+|------|---------|-------------|
+| dpfctl | `v30.0.0` | [catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/doca/resources/dpfctl) |
