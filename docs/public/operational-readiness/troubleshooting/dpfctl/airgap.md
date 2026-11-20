@@ -5,7 +5,7 @@ title: "dpfctl airgap"
 [[_TOC_]]
 
 The `dpfctl airgap` command lists what to copy into a mirror registry for an
-[air-gapped DPF installation](../../../user-guides/airgapped/README.md): the container images and
+[air-gapped DPF installation](../../../advanced-configuration/airgapped/deployment.md): the container images and
 helm charts of the air-gap bill of materials (BOM) that a DPF release ships in its `dpf-operator`
 chart (`airgap/airgapped.yaml`), and those of the DPUServices you deploy.
 

@@ -151,7 +151,7 @@ containerd and the DPU cluster pull some images without credentials:
 
 The mirror must allow anonymous pulls of these images. The DPF components on the DPU get the image
 pull secrets of `spec.imagePullSecrets` of the `DPFOperatorConfig`, and DPUServices get those
-described in [Using Private Registries](../../advanced-configuration/using-private-registries.md).
+described in [Using Private Registries](../using-private-registries.md).
 Anonymous pulls of all DPU images is the simpler setup.
 
 ## 2. Copy the images into the mirror
@@ -255,7 +255,7 @@ DPUService you deploy, for example the services of a use-case guide. It renders 
 service with the values of your manifests.
 
 The steps below use the manifests of the
-[HBN and OVN-Kubernetes use case](../host-trusted/use-cases/hbn-ovnk/README.md). They apply the
+[HBN and OVN-Kubernetes use case](../../user-guides/host-trusted/use-cases/hbn-ovnk/README.md). They apply the
 same way to the manifests of any other use case or of your own services.
 
 **1.** Set the environment variables that the manifests use. The use-case guides keep them in

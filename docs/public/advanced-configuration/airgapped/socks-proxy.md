@@ -224,7 +224,7 @@ Replace:
   components such as Multus fail to reach the API server.
 
 If you render the flavor per DPU, the same `configFiles` entry can be used in a `DPUFlavorTemplate`, see
-[DPUFlavorTemplate: Per-DPU Flavor Rendering](dpuflavortemplate-per-dpu-config.md).
+[DPUFlavorTemplate: Per-DPU Flavor Rendering](../dpuflavortemplate-per-dpu-config.md).
 
 ## Verify
 
