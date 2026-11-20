@@ -34,4 +34,4 @@ The DOCA Platform Framework (DPF) documentation is organized into the following 
 * [User Guides](user-guides/README.md) - Documentation for DPF users
 * [Release Notes](release-notes/README.md) - Release notes and version history
 * [Platform Support](platform-support.md) - Hardware requirements and supported platforms
-* [Containers and Helm Charts](user-guides/ngc-containers.md) - NGC container images and Helm charts published for this release
+* [Containers and Helm Charts](getting-started/ngc-containers.md) - NGC container images and Helm charts published for this release
