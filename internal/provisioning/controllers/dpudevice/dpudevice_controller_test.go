@@ -86,6 +86,113 @@ func caTrustBundleWithClientCA(serverCertPEM []byte) string {
 	return string(bundle)
 }
 
+// TestBackfillCMXDevice checks that an already identified CMX device gains the
+// hostless label and loses NIC identity, and that another DPU type is unchanged.
+func TestBackfillCMXDevice(t *testing.T) {
+	serial := "MT25066004C7"
+	opn := "900-9D3B6-00CV-AA0"
+	mac := "00:1B:21:C0:8F:32"
+	cmx := &provisioningv1.DPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				cutil.DPUDeviceOPNLabel: opn,
+			},
+		},
+		Status: provisioningv1.DPUDeviceStatus{
+			DPUType:      provisioningv1.DPUTypeBlueField4CMX,
+			SerialNumber: &serial,
+			OPN:          &opn,
+			PF0MAC:       &mac,
+		},
+	}
+	backfillCMXDevice(cmx)
+	if cmx.Labels[cutil.DPUDeviceHostlessLabel] != labelValueTrue {
+		t.Fatalf("hostless label = %q", cmx.Labels[cutil.DPUDeviceHostlessLabel])
+	}
+	if cmx.Status.SerialNumber != nil || cmx.Status.OPN != nil || cmx.Status.PF0MAC != nil {
+		t.Fatalf("NIC identity still set: serial=%v opn=%v mac=%v", cmx.Status.SerialNumber, cmx.Status.OPN, cmx.Status.PF0MAC)
+	}
+	if _, ok := cmx.Labels[cutil.DPUDeviceOPNLabel]; ok {
+		t.Fatal("OPN label still set")
+	}
+
+	bf := &provisioningv1.DPUDevice{
+		Status: provisioningv1.DPUDeviceStatus{
+			DPUType:      provisioningv1.DPUTypeBlueField4,
+			SerialNumber: &serial,
+		},
+	}
+	backfillCMXDevice(bf)
+	if bf.Status.SerialNumber == nil || *bf.Status.SerialNumber != serial {
+		t.Fatalf("BlueField serial = %v", bf.Status.SerialNumber)
+	}
+
+	attached := &provisioningv1.DPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				provisioningv1.DPUNodeNameLabel: "external-node",
+			},
+		},
+		Status: provisioningv1.DPUDeviceStatus{
+			DPUType: provisioningv1.DPUTypeBlueField4CMX,
+			Conditions: []metav1.Condition{{
+				Type:   string(provisioningv1.ConditionDpuDeviceNodeAttached),
+				Status: metav1.ConditionTrue,
+			}},
+		},
+	}
+	backfillCMXDevice(attached)
+	if attached.Labels[cutil.DPUDeviceHostlessLabel] == labelValueTrue {
+		t.Fatal("hostless label set on a CMX device already attached to a DPUNode")
+	}
+}
+
+// TestEnsureDPUDeviceInitializedRejectsAttachedCMX checks that a CMX device
+// which is already initialized and attached to an external DPUNode still fails
+// the hostless check, and is no longer ready.
+func TestEnsureDPUDeviceInitializedRejectsAttachedCMX(t *testing.T) {
+	device := &provisioningv1.DPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "cmx-1",
+			Labels: map[string]string{
+				provisioningv1.DPUNodeNameLabel: "external-node",
+			},
+		},
+		Status: provisioningv1.DPUDeviceStatus{
+			DPUType: provisioningv1.DPUTypeBlueField4CMX,
+			Conditions: []metav1.Condition{
+				{
+					Type:   string(provisioningv1.ConditionDpuDeviceInitialized),
+					Status: metav1.ConditionTrue,
+					Reason: "Initialized",
+				},
+				{
+					Type:   string(provisioningv1.ConditionDpuDeviceNodeAttached),
+					Status: metav1.ConditionTrue,
+				},
+				{
+					Type:   string(provisioningv1.ConditionDpuDeviceReady),
+					Status: metav1.ConditionTrue,
+					Reason: "Ready",
+				},
+			},
+		},
+	}
+	reconciler := &DPUDeviceReconciler{}
+	_, stop, err := reconciler.ensureDPUDeviceInitialized(context.Background(), device, false, nil)
+	if err == nil || !stop {
+		t.Fatalf("stop=%v err=%v", stop, err)
+	}
+	initialized := findCondition(device, string(provisioningv1.ConditionDpuDeviceInitialized))
+	if initialized == nil || initialized.Status != metav1.ConditionFalse || initialized.Reason != "CMXRequiresHostless" {
+		t.Fatalf("Initialized = %+v", initialized)
+	}
+	ready := findCondition(device, string(provisioningv1.ConditionDpuDeviceReady))
+	if ready == nil || ready.Status != metav1.ConditionFalse {
+		t.Fatalf("Ready = %+v", ready)
+	}
+}
+
 func TestDPUDeviceController(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "DPUDevice Controller Non exported Suite")
@@ -992,6 +1099,48 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(dpuDevice.Labels).NotTo(HaveKey("provisioning.dpu.nvidia.com/dpudevice-psid"))
 		})
 
+		It("clears a stored serial number, OPN, and PF0 MAC on a CMX node", func() {
+			ctx := context.Background()
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			mockServer.SetDpuVersion(mock.CMX)
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-cmx-stale-nic")
+			staleSerial := "MT25066004C7"
+			staleOPN := "900-9D3B6-00CV-AA0"
+			staleMAC := "00:1B:21:C0:8F:32"
+			dpuDevice.Status.SerialNumber = &staleSerial
+			dpuDevice.Status.OPN = &staleOPN
+			dpuDevice.Status.PF0MAC = &staleMAC
+			dpuDevice.Labels = map[string]string{cutil.DPUDeviceOPNLabel: staleOPN}
+
+			Expect(reconciler.discoverDPUDevice(ctx, dpuDevice)).To(Succeed())
+			Expect(dpuDevice.Status.DPUType).To(Equal(provisioningv1.DPUTypeBlueField4CMX))
+			Expect(dpuDevice.Status.SerialNumber).To(BeNil())
+			Expect(dpuDevice.Status.OPN).To(BeNil())
+			Expect(dpuDevice.Status.PF0MAC).To(BeNil())
+			Expect(dpuDevice.Labels).NotTo(HaveKey(cutil.DPUDeviceOPNLabel))
+		})
+
+		It("should discover a BF4-CMX node without serial number, OPN, PSID or PF0 MAC", func() {
+			ctx := context.Background()
+			mockServer, reconciler := setupDiscoveryTest()
+			defer mockServer.Stop()
+
+			mockServer.SetDpuVersion(mock.CMX)
+			dpuDevice := createTestDPUDevice(mockServer, "test-dpudevice-cmx")
+			dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField4CMX
+
+			Expect(reconciler.discoverDPUDevice(ctx, dpuDevice)).To(Succeed())
+			Expect(dpuDevice.Status.DPUType).To(Equal(provisioningv1.DPUTypeBlueField4CMX))
+			Expect(dpuDevice.Status.SerialNumber).To(BeNil())
+			Expect(dpuDevice.Status.OPN).To(BeNil())
+			Expect(dpuDevice.Status.PSID).To(BeNil())
+			Expect(dpuDevice.Status.PF0MAC).To(BeNil())
+			Expect(dpuDevice.Labels).NotTo(HaveKey("provisioning.dpu.nvidia.com/dpudevice-psid"))
+			Expect(dpuDevice.Labels).NotTo(HaveKey("provisioning.dpu.nvidia.com/dpudevice-opn"))
+		})
+
 		It("should detect Secure Boot disabled state", func() {
 			ctx := context.Background()
 			mockServer, reconciler := setupDiscoveryTest()
@@ -1317,6 +1466,7 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 		It("records a CMX device and skips the BF3 BMC firmware update", func() {
 			setupBMCUpdateTest("BF-24.04-1")
 			mockServer.SetDpuVersion(mock.CMX)
+			dpuDevice.Labels = map[string]string{cutil.DPUDeviceHostlessLabel: labelValueTrue}
 
 			err := reconciler.initializeDPUDevice(ctx, dpuDevice)
 
@@ -1348,6 +1498,76 @@ var _ = Describe("DPUDeviceController Non exported", func() {
 			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
 			Expect(condition.Reason).To(Equal("Pending"))
 			Expect(condition.Message).To(Equal("BMC firmware update completed, resetting BMC"))
+		})
+	})
+
+	Context("initializeDPUDevice on a BF4-CMX node", func() {
+		var (
+			mockServer *mock.RedfishMockServer
+			reconciler *DPUDeviceReconciler
+			dpuDevice  *provisioningv1.DPUDevice
+		)
+
+		BeforeEach(func() {
+			scheme := runtime.NewScheme()
+			_ = provisioningv1.AddToScheme(scheme)
+			_ = corev1.AddToScheme(scheme)
+
+			mockServer = mock.NewRedfishMockServer("BF-26.04", "testpassword")
+			mockServer.SetDpuVersion(mock.CMX)
+			mockServer.Start()
+
+			bmcIP := mockServer.GetIPAddress()
+			bmcPort := uint32(mockServer.GetPort())
+			dpuDevice = &provisioningv1.DPUDevice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-dpudevice-cmx-init",
+					Namespace: testNamespace,
+				},
+				Spec: provisioningv1.DPUDeviceSpec{
+					BMCFactoryResetPolicy: provisioningv1.BMCFactoryResetPolicyNever,
+				},
+				Status: provisioningv1.DPUDeviceStatus{
+					BMCIP:   &bmcIP,
+					BMCPort: &bmcPort,
+				},
+			}
+			passwdSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "bmc-shared-password",
+					Namespace: testNamespace,
+				},
+				Data: map[string][]byte{"password": []byte("testpassword")},
+			}
+			k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(passwdSecret).Build()
+			reconciler = &DPUDeviceReconciler{Client: k8sClient, RedfishClients: rfclient.NewProvider(k8sClient)}
+		})
+
+		AfterEach(func() {
+			mockServer.Stop()
+		})
+
+		It("should reject a CMX DPUDevice that is not hostless", func() {
+			err := reconciler.initializeDPUDevice(context.Background(), dpuDevice)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("must be hostless"))
+			condition := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceInitialized))
+			Expect(condition).NotTo(BeNil())
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).To(Equal("CMXRequiresHostless"))
+		})
+
+		It("should set the BlueField4CMX type for a hostless CMX DPUDevice without a BMC update", func() {
+			dpuDevice.Labels = map[string]string{cutil.DPUDeviceHostlessLabel: labelValueTrue}
+			// Initialization continues to mTLS bootstrap, which the fake client cannot complete.
+			_ = reconciler.initializeDPUDevice(context.Background(), dpuDevice)
+			Expect(dpuDevice.Status.DPUType).To(Equal(provisioningv1.DPUTypeBlueField4CMX))
+			Expect(mockServer.GetLastResetType()).To(BeEmpty())
+			condition := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceInitialized))
+			if condition != nil {
+				Expect(condition.Reason).NotTo(Equal("CMXRequiresHostless"))
+				Expect(condition.Message).NotTo(ContainSubstring("BMC firmware update"))
+			}
 		})
 	})
 

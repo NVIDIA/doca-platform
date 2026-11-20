@@ -265,6 +265,35 @@ var _ = Describe("reconcileBMCFactoryReset", func() {
 	})
 
 	Context("submitting the reset", func() {
+		It("does not reset a CMX BMC when the DPUDevice is not hostless", func() {
+			mockServer, reconciler := setupFactoryResetTest(factoryResetTestPassword, factoryResetTestPassword)
+			defer mockServer.Stop()
+			mockServer.SetDpuVersion(mock.CMX)
+			dpuDevice := newDevice(reconciler, mockServer, "reset-cmx-not-hostless")
+
+			stop, err := reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeTrue())
+			Expect(mockServer.GetFactoryResetRequests()).To(BeZero())
+			Expect(dpuDevice.Status.BMCFactoryResetRequestTime).To(BeNil())
+			condition := findCondition(dpuDevice, string(provisioningv1.ConditionDpuDeviceInitialized))
+			Expect(condition).NotTo(BeNil())
+			Expect(condition.Reason).To(Equal("CMXRequiresHostless"))
+		})
+
+		It("resets a hostless CMX BMC", func() {
+			mockServer, reconciler := setupFactoryResetTest(factoryResetTestPassword, factoryResetTestPassword)
+			defer mockServer.Stop()
+			mockServer.SetDpuVersion(mock.CMX)
+			dpuDevice := newDevice(reconciler, mockServer, "reset-cmx-hostless")
+			dpuDevice.Labels = map[string]string{cutil.DPUDeviceHostlessLabel: labelValueTrue}
+
+			stop, err := reconciler.reconcileBMCFactoryReset(ctx, dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stop).To(BeTrue())
+			Expect(mockServer.GetFactoryResetRequests()).To(Equal(1))
+		})
+
 		It("submits over the Secret password without writing a password first", func() {
 			mockServer, reconciler := setupFactoryResetTest(factoryResetTestPassword, factoryResetTestPassword)
 			defer mockServer.Stop()

@@ -27,6 +27,7 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
+	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	corev1 "k8s.io/api/core/v1"
@@ -128,6 +129,15 @@ func (r *DPUDeviceReconciler) submitBMCFactoryReset(ctx context.Context, dpuDevi
 	}
 
 	defer privilegedClient.CloseIdleConnections()
+	// Initialization learns the product only after this reset. A CMX node that
+	// is not hostless must not lose its BMC state on the way to that check.
+	if privilegedClient.IsCMX() {
+		if err := nonHostlessCMXError(dpuDevice); err != nil {
+			cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(
+				string(provisioningv1.ConditionDpuDeviceInitialized), err, "CMXRequiresHostless", err.Error()))
+			return true, nil
+		}
+	}
 	log.Info("Resetting BMC to factory defaults")
 	resp, _, err := privilegedClient.FactoryResetBMC(ctx)
 	if err != nil {

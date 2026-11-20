@@ -57,6 +57,8 @@ type CrawlResult struct {
 	Error        error
 	SerialNumber string
 	OPN          string
+	// CMX is set when the root service identifies a CMX BMC, which manages a node with no external host.
+	CMX bool
 }
 
 // NewCrawlerService creates a new instance of CrawlerService
@@ -198,7 +200,7 @@ func (c *CrawlerService) worker(ctx context.Context, wg *sync.WaitGroup, jobs <-
 		}
 
 		// Check if it's a DPU BMC by making a Redfish request
-		_, _, err = client.GetRootService(ctx)
+		_, rootServiceInfo, err := client.GetRootService(ctx)
 		client.CloseIdleConnections()
 		if err != nil {
 			logger.Error(err, "Failed to get root service", "address", address)
@@ -246,6 +248,7 @@ func (c *CrawlerService) worker(ctx context.Context, wg *sync.WaitGroup, jobs <-
 		}
 
 		result.OPN = strings.Trim(chassisInfo.PartNumber, " ")
+		result.CMX = rootServiceInfo.IsCMX()
 		result.Found = true
 		logger.Info("Found DPU BMC", "address", address)
 
@@ -269,9 +272,16 @@ func (c *CrawlerService) createDPUDeviceAndNode(ctx context.Context, result Craw
 			BMCIP:                 &result.IPAddress,
 			BMCPort:               &result.Port,
 			SerialNumber:          result.SerialNumber,
-			OPN:                   &result.OPN,
 			BMCFactoryResetPolicy: resetPolicy,
 		},
+	}
+	if result.CMX {
+		// The DPUDevice controller creates the synthetic hostless DPUNode for a CMX node.
+		dpudevice.Labels = map[string]string{util.DPUDeviceHostlessLabel: "true"}
+	} else {
+		// The CMX chassis part number is the node's, not a NIC OPN, and spec.opn is published
+		// as the DPUDevice OPN label that DPUSet selectors match, so a CMX device leaves it unset.
+		dpudevice.Spec.OPN = &result.OPN
 	}
 	tracing.InjectIntoObject(ctx, dpudevice)
 
@@ -284,7 +294,7 @@ func (c *CrawlerService) createDPUDeviceAndNode(ctx context.Context, result Craw
 		return err
 	}
 
-	if !c.skipDpuNodeDiscovery {
+	if !c.skipDpuNodeDiscovery && !result.CMX {
 		return c.createDPUNode(ctx, dpudevice, result)
 	}
 

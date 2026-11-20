@@ -308,6 +308,11 @@ func (r *DPUDeviceReconciler) reconcile(ctx context.Context, dpuDevice *provisio
 		dpuDevice.Labels = make(map[string]string)
 	}
 
+	// Discovery does not run again once the device is Discovered, so a CMX
+	// device found before the hostless label existed is corrected here, before
+	// node attachment creates the synthetic DPUNode.
+	backfillCMXDevice(dpuDevice)
+
 	// 1. Check if the DPUDevice is attached to a DpuNode
 	shouldContinue, result, err := r.checkDPUNodeAttachment(ctx, dpuDevice)
 	if !shouldContinue {
@@ -476,10 +481,28 @@ func reconcileNonRedfish(dpuDevice *provisioningv1.DPUDevice) {
 	setDPUDeviceLabels(dpuDevice)
 }
 
-// ensureDPUDeviceInitialized initializes the BMC, or only recovers its IP-bound certificate when an
-// already-initialized device changes address. stop tells the caller to return the supplied result.
+// ensureDPUDeviceInitialized initializes the BMC, or only recovers its
+// IP-bound certificate when an already-initialized device changes address.
+// A CMX device is checked for the hostless label on every reconcile,
+// including when Initialized is already true, so an upgraded device attached
+// to an external node does not stay ready. stop tells the caller to return
+// the supplied result.
 func (r *DPUDeviceReconciler) ensureDPUDeviceInitialized(ctx context.Context, dpuDevice *provisioningv1.DPUDevice, bmcCertAddressStale bool, dpfOperatorConfig *operatorv1.DPFOperatorConfig) (ctrl.Result, bool, error) {
 	log := log.FromContext(ctx)
+	// initializeDPUDevice is skipped once Initialized is true, so the
+	// CMX hostless check has to run here. backfillCMXDevice leaves the
+	// label unset while an external DPUNode is attached.
+	if dpuDevice.Status.DPUType == provisioningv1.DPUTypeBlueField4CMX {
+		if err := nonHostlessCMXError(dpuDevice); err != nil {
+			log.Error(err, "CMX DPUDevice is not hostless")
+			cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(
+				string(provisioningv1.ConditionDpuDeviceInitialized), err, "CMXRequiresHostless", err.Error()))
+			conditions.AddFalse(dpuDevice, provisioningv1.ConditionDpuDeviceReady,
+				conditions.ConditionReason("CMXRequiresHostless"),
+				conditions.ConditionMessage(err.Error()))
+			return ctrl.Result{}, true, err
+		}
+	}
 	condition := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceInitialized)
 
 	// If DPUDevice is already initialized and BMC cert is stale, only rotate cert
@@ -754,6 +777,52 @@ func isHostlessDPUDevice(dpuDevice *provisioningv1.DPUDevice) bool {
 	return dpuDevice.Labels[cutil.DPUDeviceHostlessLabel] == labelValueTrue
 }
 
+// backfillCMXDevice drops NIC identity recorded for an already identified CMX
+// device. It sets the hostless label only when the device is not already
+// attached to a DPUNode, so an existing attachment is not replaced by the
+// synthetic hostless node. A device whose type is not yet BlueField4CMX is
+// left alone.
+func backfillCMXDevice(dpuDevice *provisioningv1.DPUDevice) {
+	if dpuDevice.Status.DPUType != provisioningv1.DPUTypeBlueField4CMX {
+		return
+	}
+	clearCMXNICIdentity(dpuDevice)
+	if cmxAttachedToExternalNode(dpuDevice) {
+		return
+	}
+	dpuDevice.Labels[cutil.DPUDeviceHostlessLabel] = labelValueTrue
+}
+
+// cmxAttachedToExternalNode reports whether dpuDevice is already attached to a
+// DPUNode other than the synthetic hostless node this controller would create.
+func cmxAttachedToExternalNode(dpuDevice *provisioningv1.DPUDevice) bool {
+	condition := conditions.Get(dpuDevice, provisioningv1.ConditionDpuDeviceNodeAttached)
+	if condition == nil || condition.Status != metav1.ConditionTrue {
+		return false
+	}
+	return dpuDevice.Labels[provisioningv1.DPUNodeNameLabel] != hostlessDPUNodeName(dpuDevice.Name)
+}
+
+// clearCMXNICIdentity drops the NIC serial, OPN and PF0 MAC. On a CMX node
+// those values belong to the chassis, and the OPN label selects DPUSets.
+func clearCMXNICIdentity(dpuDevice *provisioningv1.DPUDevice) {
+	dpuDevice.Status.SerialNumber = nil
+	dpuDevice.Status.OPN = nil
+	dpuDevice.Status.PF0MAC = nil
+	delete(dpuDevice.Labels, cutil.DPUDeviceOPNLabel)
+}
+
+// nonHostlessCMXError reports that dpuDevice is a CMX node without the
+// hostless label. It returns nil when the device is hostless. Callers set
+// the Initialized condition.
+func nonHostlessCMXError(dpuDevice *provisioningv1.DPUDevice) error {
+	if isHostlessDPUDevice(dpuDevice) {
+		return nil
+	}
+	return fmt.Errorf("a %s DPUDevice must be hostless: set label %s=%s",
+		provisioningv1.DPUTypeBlueField4CMX, cutil.DPUDeviceHostlessLabel, labelValueTrue)
+}
+
 func (r *DPUDeviceReconciler) ensureHostlessDPUNode(ctx context.Context, dpuDevice *provisioningv1.DPUDevice) (string, error) {
 	name := hostlessDPUNodeName(dpuDevice.Name)
 	dpuNode := &provisioningv1.DPUNode{
@@ -813,8 +882,11 @@ func setDPUDeviceLabels(dpuDevice *provisioningv1.DPUDevice) {
 	if dpuDevice.Spec.PSID != nil {
 		dpuDevice.Labels[cutil.DPUDevicePSIDLabel] = *dpuDevice.Spec.PSID
 	}
-	//nolint:staticcheck
-	if dpuDevice.Spec.OPN != nil {
+	// A CMX chassis part number is not a NIC OPN. Drop the label here as well as
+	// in discovery, because this runs again on the non-Redfish path.
+	if dpuDevice.Status.DPUType == provisioningv1.DPUTypeBlueField4CMX {
+		delete(dpuDevice.Labels, cutil.DPUDeviceOPNLabel)
+	} else if dpuDevice.Spec.OPN != nil { //nolint:staticcheck
 		dpuDevice.Labels[cutil.DPUDeviceOPNLabel] = *dpuDevice.Spec.OPN
 	}
 	if dpuDevice.Spec.NumberOfPFs != nil {
@@ -866,6 +938,12 @@ func (r *DPUDeviceReconciler) initializeDPUDevice(ctx context.Context, dpuDevice
 	defer basicAuthClient.CloseIdleConnections()
 	switch {
 	case basicAuthClient.IsCMX():
+		// A CMX node has no external host, so only the synthetic hostless DPUNode can reboot it.
+		if err := nonHostlessCMXError(dpuDevice); err != nil {
+			cutil.SetDPUDeviceCondition(dpuDevice, cutil.NewCondition(
+				string(provisioningv1.ConditionDpuDeviceInitialized), err, "CMXRequiresHostless", err.Error()))
+			return err
+		}
 		// CMX has no BF3 BMC firmware bundle. Recording BF3 here would make later
 		// reconciles select the BF3 client certificate and resource ids.
 		dpuDevice.Status.DPUType = provisioningv1.DPUTypeBlueField4CMX
@@ -1201,6 +1279,11 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 		err = fmt.Errorf("serial number mismatch, expected: %s, actual: %s", dpuDevice.Spec.SerialNumber, chassisInfo.SerialNumber)
 		log.Error(err, "Serial number mismatch", "expected", dpuDevice.Spec.SerialNumber, "actual", chassisInfo.SerialNumber)
 		return err
+	}
+	if client.IsCMX() {
+		// The CMX chassis serial is the node's, not a NIC serial, so a
+		// value recorded earlier is dropped.
+		clearCMXNICIdentity(dpuDevice)
 	} else {
 		dpuDevice.Status.SerialNumber = ptr.To(chassisInfo.SerialNumber)
 	}
@@ -1236,10 +1319,16 @@ func (r *DPUDeviceReconciler) discoverDPUDevice(ctx context.Context, dpuDevice *
 		log.Error(err, "Failed to get PSID", "address", bmcAddress)
 	}
 
-	dpuDevice.Status.OPN = ptr.To(chassisInfo.PartNumber)
+	// The CMX node chassis is not a NIC: its part number is the node's, and it reports no PF0 MAC.
+	// Clear identity recorded on an earlier pass so it is not republished.
+	if client.IsCMX() {
+		clearCMXNICIdentity(dpuDevice)
+	} else {
+		dpuDevice.Status.OPN = ptr.To(chassisInfo.PartNumber)
 
-	if err := r.discoverPF0MAC(ctx, dpuDevice, client); err != nil {
-		return err
+		if err := r.discoverPF0MAC(ctx, dpuDevice, client); err != nil {
+			return err
+		}
 	}
 
 	// TODO: Get the PCI address once it will be available in the Redfish API
