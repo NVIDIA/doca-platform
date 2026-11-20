@@ -37,7 +37,7 @@ spec:
   helmChart:
     source:
       repoURL: https://helm.ngc.nvidia.com/nvidia/doca
-      version: 1.27.7
+      version: 1.27.8
       chart: doca-telemetry
     values:
       configMapData:
@@ -211,7 +211,7 @@ spec:
   helmChart:
     source:
       repoURL: https://helm.ngc.nvidia.com/nvidia/doca
-      version: 1.25.42
+      version: 1.25.43
       chart: doca-telemetry
     values:
       dtsConfigDir: "astra_spectrum_x"
