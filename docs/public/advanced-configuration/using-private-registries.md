@@ -107,4 +107,4 @@ stringData:
 ## Air-gapped deployments
 
 To run the DPUs without internet access, copy the images DPF needs into a mirror registry inside your network and
-point DPF at it. See the [Air-Gapped Deployment Guide](../user-guides/airgapped/README.md).
+point DPF at it. See the [Air-Gapped Deployment Guide](airgapped/deployment.md).
