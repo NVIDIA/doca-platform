@@ -352,6 +352,16 @@ type RegistryConfiguration struct {
 	// +kubebuilder:validation:Pattern="^https?://"
 	// +optional
 	LoadBalancerAddress *string `json:"loadBalancerAddress,omitempty"`
+
+	// Replicas is the number of bfb-registry Pods. It only applies when
+	// bfbPVCName is a ReadWriteMany PVC: the Operator then runs bfb-registry
+	// as a Deployment, 1 replica when unset. Otherwise (hostPath or another
+	// access mode) the provisioning controller runs a single Pod and this
+	// value is ignored. Zero is not a valid replica count; omit the field to
+	// get the default.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	Replicas int32 `json:"replicas,omitempty"`
 }
 
 // SPIFFETrustBundleFormat is a SPIRE Agent initial trust bundle format.

@@ -405,6 +405,12 @@ var _ = Describe("Operator API Validation", func() {
 				Entry("valid - loadBalancerAddress http", &operatorv1.RegistryConfiguration{
 					LoadBalancerAddress: ptr.To("http://10.0.110.2:31272"),
 				}, false, ""),
+				Entry("valid - replicas 1", &operatorv1.RegistryConfiguration{
+					Replicas: 1,
+				}, false, ""),
+				Entry("valid - replicas 3", &operatorv1.RegistryConfiguration{
+					Replicas: 3,
+				}, false, ""),
 				Entry("invalid - address missing scheme", &operatorv1.RegistryConfiguration{
 					Address: ptr.To("10.0.110.2:31272"),
 				}, true, "should match '^https?://'"),
@@ -412,6 +418,31 @@ var _ = Describe("Operator API Validation", func() {
 					LoadBalancerAddress: ptr.To("10.0.110.2:31272"),
 				}, true, "should match '^https?://'"),
 			)
+
+			It("rejects an explicit replicas 0", func() {
+				config := &unstructured.Unstructured{
+					Object: map[string]interface{}{
+						"apiVersion": operatorv1.GroupVersion.String(),
+						"kind":       operatorv1.DPFOperatorConfigKind,
+						"metadata": map[string]interface{}{
+							"name":      "test-config",
+							"namespace": testNs.Name,
+						},
+						"spec": map[string]interface{}{
+							"deploymentMode": "host-trusted",
+							"provisioningController": map[string]interface{}{
+								"bfbPVCName": "test-bfb-pvc",
+								"registry": map[string]interface{}{
+									"replicas": int64(0),
+								},
+							},
+						},
+					},
+				}
+				err := testClient.Create(ctx, config)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("should be greater than or equal to 1"))
+			})
 		})
 
 		Context("Validate tracing settings", func() {

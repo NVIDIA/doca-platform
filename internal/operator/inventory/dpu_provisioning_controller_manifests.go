@@ -19,7 +19,9 @@ package inventory
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"strings"
 
@@ -32,6 +34,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
@@ -187,7 +190,7 @@ func (p *provisioningControllerObjects) GenerateManifests(_ context.Context, var
 		applysetPartOfLabel:             ApplySetID(vars.Namespace, p),
 	}
 
-	bfbRegistryObjects, err := p.editRegistryObjs(vars, labelsToAdd)
+	bfbRegistryObjects, err := p.editRegistryObjs(vars, maps.Clone(labelsToAdd))
 	if err != nil {
 		return nil, err
 	}
@@ -333,7 +336,7 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 
 		mods := []func(*appsv1.Deployment, Variables) error{
 			p.setBFBPersistentVolumeClaim,
-			p.setNodeNameAndIPEnv,
+			p.setNodeAndPodEnv,
 			p.setBFBRegistryImageEnv,
 			p.setImagePullSecrets,
 			p.setComponentLabel,
@@ -358,6 +361,7 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 			p.setHostAgentDNSPolicy,
 			p.setResources,
 			p.setBFBRegistryLoadBalancerAddress,
+			p.setBFBRegistryManagedByOperator,
 			p.setReplicas,
 			p.setCAIssuer,
 			p.setCATrustBundleConfigMapName,
@@ -370,18 +374,6 @@ func (p *provisioningControllerObjects) dpfProvisioningDeploymentEdit(vars Varia
 		}
 		return nil
 	}
-}
-
-func (p *provisioningControllerObjects) editRegistryObjs(vars Variables, labelsToAdd map[string]string) ([]*unstructured.Unstructured, error) {
-	objs := make([]*unstructured.Unstructured, 0, len(p.bfbRegistryObjects))
-	for i := range p.bfbRegistryObjects {
-		objs = append(objs, p.bfbRegistryObjects[i].DeepCopy())
-	}
-	edit := NewEdits().AddForAll(NamespaceEdit(vars.Namespace), LabelsEdit(labelsToAdd))
-	if err := edit.Apply(objs); err != nil {
-		return nil, err
-	}
-	return objs, nil
 }
 
 // Set the component label for the deployment.
@@ -564,7 +556,7 @@ func filterOutInitContainer(containers []corev1.Container, name string) []corev1
 	return out
 }
 
-func (p *provisioningControllerObjects) setNodeNameAndIPEnv(deploy *appsv1.Deployment, _ Variables) error {
+func (p *provisioningControllerObjects) setNodeAndPodEnv(deploy *appsv1.Deployment, _ Variables) error {
 	c := getManagerContainer(deploy)
 	if c == nil {
 		return fmt.Errorf("container %q not found in Provisioning Controller deployment", managerContainerName)
@@ -574,12 +566,6 @@ func (p *provisioningControllerObjects) setNodeNameAndIPEnv(deploy *appsv1.Deplo
 			Name: "NODE_NAME",
 			ValueFrom: &corev1.EnvVarSource{
 				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"},
-			},
-		},
-		{
-			Name: "NODE_IP",
-			ValueFrom: &corev1.EnvVarSource{
-				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "status.hostIP"},
 			},
 		},
 		{
@@ -743,6 +729,22 @@ func (p *provisioningControllerObjects) setBFBRegistryLoadBalancerAddress(deploy
 	return setFlags(c, "--bfb-registry-load-balancer-address=")
 }
 
+// setBFBRegistryManagedByOperator tells the controller that the Operator runs the registry Pods as
+// a Deployment (ReadWriteMany BFB PVC), so it must not create the registry Pod itself. The Service
+// and the server Certificate are the Operator's in every case and are not affected by the flag.
+// The flag is left out otherwise, so the Deployment of everyone who does not use it is unchanged
+// and does not roll on upgrade.
+func (p *provisioningControllerObjects) setBFBRegistryManagedByOperator(deploy *appsv1.Deployment, vars Variables) error {
+	if !BFBRegistryManagedByOperator(vars) {
+		return nil
+	}
+	c := getManagerContainer(deploy)
+	if c == nil {
+		return fmt.Errorf(errManagerContainerNotFoundFmt, managerContainerName)
+	}
+	return setFlags(c, "--bfb-registry-managed-by-operator=true")
+}
+
 func (p *provisioningControllerObjects) setDMSTimeout(deploy *appsv1.Deployment, vars Variables) error {
 	t := vars.DPFProvisioningController.DMSTimeout
 	if t == nil {
@@ -870,8 +872,9 @@ func (p *provisioningControllerObjects) setNodeEffectRemovalTimeout(deploy *apps
 }
 
 // setCAIssuer tells the controller which issuer to sign the certificates it mints at runtime with:
-// the DPU BMC server certificate and the bfb-registry server certificate. Both are created outside
-// the manifest, so the issuer reaches them here rather than through a leaf Certificate object.
+// the DPU BMC server certificate. It is created outside the manifest, so the issuer reaches it here
+// rather than through a leaf Certificate object. The bfb-registry server certificate is a manifest
+// object of the Operator, which gives it the same issuer.
 //
 // The value is the platform issuer in both CA modes, since only the anchor above the intermediate CA
 // differs between them. It is templated all the same so that renaming the issuer rolls the
@@ -918,13 +921,38 @@ func (p *provisioningControllerObjects) setHostAgentDNSPolicy(deploy *appsv1.Dep
 }
 
 // IsReadyForUpgrade reports the readiness of the provisioning controller objects. It returns an error when the number of Replicas in
-// the single provisioning controller deployment is true.
+// the single provisioning controller deployment is true, or when the bfb-registry Deployment of the Operator is not ready.
 func (p *provisioningControllerObjects) IsReadyForUpgrade(ctx context.Context, c client.Client, config *operatorv1.DPFOperatorConfig) error {
-	return deploymentReadyCheck(ctx, c, config.GetNamespace(), p.objects, false)
+	return errors.Join(
+		deploymentReadyCheck(ctx, c, config.GetNamespace(), p.objects, false),
+		p.bfbRegistryReadyCheck(ctx, c, config.GetNamespace(), false))
 }
 
 // IsReady reports the readiness of the provisioning controller objects as well as the version state.
-// It returns an error when the number of Replicas in the single provisioning controller deployment is true.
+// It returns an error when the number of Replicas in the single provisioning controller deployment is true,
+// or when the bfb-registry Deployment of the Operator is not ready.
 func (p *provisioningControllerObjects) IsReady(ctx context.Context, c client.Client, namespace string) error {
-	return deploymentReadyCheck(ctx, c, namespace, p.objects, true)
+	return errors.Join(
+		deploymentReadyCheck(ctx, c, namespace, p.objects, true),
+		p.bfbRegistryReadyCheck(ctx, c, namespace, true))
+}
+
+// bfbRegistryReadyCheck reports the readiness of the bfb-registry Deployment. The Operator only
+// creates it when the BFB PVC is ReadWriteMany; otherwise the provisioning controller runs the
+// registry as a single Pod and there is no Deployment. So it is checked when it exists, and skipped
+// on NotFound. Without it a registry that never comes up (the PVC is not
+// bound, the server certificate Secret is missing, the image cannot be pulled) would not show in the
+// status of the DPFOperatorConfig.
+func (p *provisioningControllerObjects) bfbRegistryReadyCheck(ctx context.Context, c client.Client, namespace string, versionValidation bool) error {
+	for _, obj := range p.bfbRegistryObjects {
+		if obj.GetKind() != string(DeploymentKind) {
+			continue
+		}
+		err := deploymentReadyCheck(ctx, c, namespace, []*unstructured.Unstructured{obj}, versionValidation)
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }

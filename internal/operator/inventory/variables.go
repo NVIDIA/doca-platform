@@ -237,6 +237,13 @@ type DPFProvisioningVariables struct {
 	NodeEffectRemovalTimeout           *metav1.Duration
 	HostAgentDNSPolicy                 *corev1.DNSPolicy
 	DeploymentMode                     operatorv1.DeploymentMode
+	BFBRegistryLayout                  BFBRegistryLayout
+	BFBRegistryVolumeClaim             string
+	// BFBRegistryNodePort is the NodePort a previous release allocated for the bfb-registry
+	// Service, read from the bfb-registry-nodeport ConfigMap. The Service is set to it so that a
+	// Service the garbage collector deleted along with the previous leader comes back on the port
+	// already written into DPU cloud-init. Zero leaves the port to the API server.
+	BFBRegistryNodePort int32
 }
 
 type SFCControllerVariables struct {

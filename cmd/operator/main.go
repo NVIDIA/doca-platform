@@ -199,6 +199,15 @@ func main() {
 						},
 					},
 				},
+				// Scope the PersistentVolumeClaim informer to the operator namespace. The
+				// controller reads and watches the BFB PVC there only: its access modes pick
+				// who runs bfb-registry. Without this entry the informer would hold every
+				// PVC in the cluster.
+				&corev1.PersistentVolumeClaim{}: {
+					Namespaces: map[string]cache.Config{
+						configSingletonNamespace: {},
+					},
+				},
 			},
 		},
 		LeaderElection: enableLeaderElection,

@@ -93,3 +93,152 @@ metadata:
     app.kubernetes.io/part-of: bfb-registry
     dpu.nvidia.com/component: bfb-registry
   name: bfb-registry-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/part-of: bfb-registry
+    dpu.nvidia.com/component: bfb-registry
+  name: bfb-registry
+spec:
+  ports:
+  - name: https
+    port: 8443
+    targetPort: 8443
+  selector:
+    app.kubernetes.io/part-of: bfb-registry
+    dpu.nvidia.com/component: bfb-registry
+  type: NodePort
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/part-of: bfb-registry
+    dpu.nvidia.com/component: bfb-registry
+  name: bfb-registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: bfb-registry
+      dpu.nvidia.com/component: bfb-registry
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: bfb-registry
+        dpu.nvidia.com/component: bfb-registry
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/part-of: bfb-registry
+                  dpu.nvidia.com/component: bfb-registry
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+      containers:
+      - command:
+        - /bin/sh
+        - -c
+        - envsubst '${NGINX_HTTPS_PORT}' < /nginx/nginx.conf.template > /nginx/nginx.conf
+          && /usr/local/nginx/sbin/nginx -c /nginx/nginx.conf -g "daemon off;"
+        env:
+        - name: NGINX_HTTPS_PORT
+          value: "8443"
+        image: example.com/bfb-registry:v0.1.0
+        name: bfb-registry
+        ports:
+        - containerPort: 8443
+          name: https
+        securityContext:
+          privileged: true
+          runAsGroup: 65532
+          runAsUser: 65532
+        volumeMounts:
+        - mountPath: /bfb
+          name: bfb
+          readOnly: true
+        - mountPath: /nginx/nginx.conf.template
+          name: config
+          readOnly: true
+          subPath: nginx.conf
+        - mountPath: /nginx
+          name: nginx-tmp
+        - mountPath: /etc/bfb-registry/tls
+          name: server-cert
+          readOnly: true
+      - command:
+        - /usr/local/bin/certreloader
+        - -cert-dir
+        - /etc/bfb-registry/tls
+        - -nginx-bin
+        - /usr/local/nginx/sbin/nginx
+        - -nginx-conf
+        - /nginx/nginx.conf
+        image: example.com/bfb-registry:v0.1.0
+        name: cert-reloader
+        securityContext:
+          appArmorProfile:
+            type: Unconfined
+          runAsGroup: 65532
+          runAsUser: 65532
+        volumeMounts:
+        - mountPath: /nginx
+          name: nginx-tmp
+        - mountPath: /etc/bfb-registry/tls
+          name: server-cert
+          readOnly: true
+      securityContext:
+        fsGroup: 65532
+      shareProcessNamespace: true
+      terminationGracePeriodSeconds: 0
+      volumes:
+      - configMap:
+          name: bfb-registry-config
+        name: config
+      - emptyDir: {}
+        name: nginx-tmp
+      - name: server-cert
+        secret:
+          defaultMode: 288
+          optional: false
+          secretName: bfb-registry-server-cert
+      - name: bfb
+        persistentVolumeClaim:
+          claimName: bfb-pvc
+          readOnly: true
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app.kubernetes.io/part-of: bfb-registry
+    dpu.nvidia.com/component: bfb-registry
+  name: bfb-registry-server-cert
+spec:
+  commonName: bfb-registry
+  dnsNames:
+  - bfb-registry.dpf-operator-system.svc
+  duration: 2160h
+  issuerRef:
+    group: cert-manager.io
+    kind: Issuer
+    name: dpf-platform-issuer
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  renewBefore: 720h
+  secretName: bfb-registry-server-cert
+  usages:
+  - server auth
+  - digital signature
+  - key encipherment

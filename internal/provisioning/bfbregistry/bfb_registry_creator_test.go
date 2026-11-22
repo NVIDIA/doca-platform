@@ -18,26 +18,18 @@ package bfbregistry
 
 import (
 	"context"
-	"errors"
-	"sync/atomic"
 	"testing"
 	"time"
-
-	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
-	"github.com/nvidia/doca-platform/pkg/certmanager"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 func TestBFBRegistryCreator(t *testing.T) {
@@ -49,60 +41,54 @@ var _ = Describe("EnsureBFBRegistry", func() {
 	const testNamespace = "bfb-registry-test"
 
 	var (
-		ctx    context.Context
-		scheme *runtime.Scheme
+		ctx       context.Context
+		scheme    *runtime.Scheme
+		leaderPod *corev1.Pod
 	)
 
 	BeforeEach(func() {
 		ctx = context.Background()
 		scheme = runtime.NewScheme()
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())
-	})
-
-	It("returns error when leader pod does not exist", func() {
-		c := fake.NewClientBuilder().WithScheme(scheme).Build()
-		_, err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-pod", "node-1", "10.0.0.1", "img")
-		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("get leader pod"))
-	})
-
-	It("creates bfb-registry pod and service when both not exist", func() {
-		leaderPod := &corev1.Pod{
+		leaderPod = &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "leader-pod",
 				Namespace: testNamespace,
 				UID:       "leader-uid",
 			},
 		}
+	})
+
+	It("returns error when leader pod does not exist", func() {
+		c := fake.NewClientBuilder().WithScheme(scheme).Build()
+		_, err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-pod", "node-1", "img")
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("get leader pod"))
+	})
+
+	It("creates the bfb-registry pod, and neither a Service nor a Certificate", func() {
 		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(leaderPod).Build()
 
-		_, err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-pod", "node-1", "10.0.0.1", "registry:8082")
+		_, err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-pod", "node-1", "registry:8082")
 		Expect(err).NotTo(HaveOccurred())
 
 		pod := &corev1.Pod{}
 		Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: PodName}, pod)).To(Succeed())
 		Expect(pod.Spec.NodeName).To(Equal("node-1"))
 		Expect(pod.Labels[LabelDPUComponent]).To(Equal(LabelValue))
+		Expect(podOwnedByLeaderPod(pod, leaderPod)).To(BeTrue())
 
-		svc := &corev1.Service{}
-		Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: PodName}, svc)).To(Succeed())
-		Expect(svc.Spec.Type).To(Equal(corev1.ServiceTypeNodePort))
-		// HTTPS-only: exactly one port named "https" on the HTTPS container port.
-		Expect(svc.Spec.Ports).To(HaveLen(1))
-		Expect(svc.Spec.Ports[0].Name).To(Equal("https"))
-		Expect(svc.Spec.Ports[0].Port).To(Equal(int32(HTTPSContainerPort)))
-		Expect(svc.Spec.Ports[0].TargetPort.IntValue()).To(Equal(HTTPSContainerPort))
-		Expect(serviceOwnedByLeaderPod(svc, leaderPod)).To(BeTrue())
+		// The DPF Operator owns the Service and the server Certificate.
+		svcList := &corev1.ServiceList{}
+		Expect(c.List(ctx, svcList, client.InNamespace(testNamespace))).To(Succeed())
+		Expect(svcList.Items).To(BeEmpty())
+		certList := &unstructured.UnstructuredList{}
+		certList.SetGroupVersionKind(schema.GroupVersionKind{Group: "cert-manager.io", Version: "v1", Kind: "CertificateList"})
+		Expect(c.List(ctx, certList, client.InNamespace(testNamespace))).To(Succeed())
+		Expect(certList.Items).To(BeEmpty())
 	})
 
-	It("succeeds when pod and service already exist (no duplicate create)", func() {
-		leaderPod := &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "leader-pod",
-				Namespace: testNamespace,
-				UID:       "leader-uid",
-			},
-		}
+	It("succeeds when the pod already exists (no duplicate create)", func() {
 		ref := leaderControllerRef(leaderPod)
 		existingPod := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
@@ -117,32 +103,17 @@ var _ = Describe("EnsureBFBRegistry", func() {
 				},
 			},
 		}
-		existingSvc := &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:            PodName,
-				Namespace:       testNamespace,
-				OwnerReferences: []metav1.OwnerReference{*ref},
-			},
-			Spec: corev1.ServiceSpec{Type: corev1.ServiceTypeNodePort},
-		}
-		c := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(leaderPod, existingPod, existingSvc).
-			Build()
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(leaderPod, existingPod).Build()
 
-		_, err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-pod", "node-1", "10.0.0.1", "registry:8082")
+		_, err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-pod", "node-1", "registry:8082")
 		Expect(err).NotTo(HaveOccurred())
 
-		// Should still have exactly one pod and one service (no duplicates)
 		podList := &corev1.PodList{}
 		Expect(c.List(ctx, podList, client.InNamespace(testNamespace))).To(Succeed())
 		Expect(podList.Items).To(HaveLen(2)) // leader + bfb-registry
-		svcList := &corev1.ServiceList{}
-		Expect(c.List(ctx, svcList, client.InNamespace(testNamespace))).To(Succeed())
-		Expect(svcList.Items).To(HaveLen(1))
 	})
 
-	It("replaces bfb-registry pod and re-parents service when owned by a different leader", func() {
-		const allocatedNodePort int32 = 31213
+	It("replaces the bfb-registry pod when owned by a different leader", func() {
 		oldLeader := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "leader-old",
@@ -150,222 +121,30 @@ var _ = Describe("EnsureBFBRegistry", func() {
 				UID:       "old-uid",
 			},
 		}
-		newLeader := &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "leader-new",
-				Namespace: testNamespace,
-				UID:       "new-uid",
-			},
-		}
-		refOld := leaderControllerRef(oldLeader)
 		existingPod := &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:            PodName,
-				Namespace:       testNamespace,
-				OwnerReferences: []metav1.OwnerReference{*refOld},
-			},
-			Spec: corev1.PodSpec{
-				NodeName: "node-1",
-				Containers: []corev1.Container{
-					{Name: "bfb-registry", Image: "registry:8082"},
-				},
-			},
-		}
-		existingSvc := &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:            PodName,
-				Namespace:       testNamespace,
-				OwnerReferences: []metav1.OwnerReference{*refOld},
-			},
-			Spec: corev1.ServiceSpec{
-				Type: corev1.ServiceTypeNodePort,
-				Ports: []corev1.ServicePort{{
-					Name:     "https",
-					Port:     int32(HTTPSContainerPort),
-					NodePort: allocatedNodePort,
-				}},
-			},
-		}
-		c := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(oldLeader, newLeader, existingPod, existingSvc).
-			Build()
-
-		_, err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-new", "node-2", "10.0.0.2", "registry:8082")
-		Expect(err).NotTo(HaveOccurred())
-
-		p := &corev1.Pod{}
-		Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: PodName}, p)).To(Succeed())
-		Expect(podOwnedByLeaderPod(p, newLeader)).To(BeTrue())
-		Expect(p.Spec.NodeName).To(Equal("node-2"))
-
-		svc := &corev1.Service{}
-		Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: PodName}, svc)).To(Succeed())
-		Expect(serviceOwnedByLeaderPod(svc, newLeader)).To(BeTrue())
-		Expect(svc.Spec.Ports[0].NodePort).To(Equal(allocatedNodePort))
-
-		cm := &corev1.ConfigMap{}
-		Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: NodePortConfigMapName}, cm)).To(Succeed())
-		Expect(cm.Data[nodePortConfigMapKey]).To(Equal("31213"))
-		Expect(cm.OwnerReferences).To(BeEmpty())
-	})
-
-	It("recreates the Service with the pinned NodePort after failover GC", func() {
-		const allocatedNodePort int32 = 30377
-		newLeader := &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "leader-new",
-				Namespace: testNamespace,
-				UID:       "new-uid",
-			},
-		}
-		pinned := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      NodePortConfigMapName,
-				Namespace: testNamespace,
-			},
-			Data: map[string]string{nodePortConfigMapKey: "30377"},
-		}
-		c := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(newLeader, pinned).
-			Build()
-
-		_, err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-new", "node-2", "10.0.0.2", "registry:8082")
-		Expect(err).NotTo(HaveOccurred())
-
-		svc := &corev1.Service{}
-		Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: PodName}, svc)).To(Succeed())
-		Expect(serviceOwnedByLeaderPod(svc, newLeader)).To(BeTrue())
-		Expect(svc.Spec.Ports[0].NodePort).To(Equal(allocatedNodePort))
-	})
-
-	It("does not fail when service create races with an existing service", func() {
-		leaderPod := &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "leader-pod",
-				Namespace: testNamespace,
-				UID:       "leader-uid",
-			},
-		}
-		ref := leaderControllerRef(leaderPod)
-		existingSvc := &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:            PodName,
-				Namespace:       testNamespace,
-				OwnerReferences: []metav1.OwnerReference{*ref},
-			},
-			Spec: corev1.ServiceSpec{Type: corev1.ServiceTypeNodePort},
-		}
-
-		var staleReadServed atomic.Bool
-		c := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(leaderPod, existingSvc).
-			WithInterceptorFuncs(interceptor.Funcs{
-				Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-					if _, ok := obj.(*corev1.Service); ok && key.Namespace == testNamespace && key.Name == PodName && !staleReadServed.Load() {
-						staleReadServed.Store(true)
-						return apierrors.NewNotFound(schema.GroupResource{Group: "", Resource: "services"}, key.Name)
-					}
-					return client.Get(ctx, key, obj, opts...)
-				},
-			}).Build()
-
-		run := &BFBRegistryRunnable{Client: c}
-		err := run.ensureService(ctx, testNamespace, leaderPod)
-		Expect(err).NotTo(HaveOccurred())
-	})
-
-	It("recreates the Service when the update races with leader-handover GC deletion", func() {
-		const pinnedNodePort int32 = 31213
-		oldLeader := &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{Name: "leader-old", Namespace: testNamespace, UID: "old-uid"},
-		}
-		newLeader := &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{Name: "leader-new", Namespace: testNamespace, UID: "new-uid"},
-		}
-		existingSvc := &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:            PodName,
 				Namespace:       testNamespace,
 				OwnerReferences: []metav1.OwnerReference{*leaderControllerRef(oldLeader)},
 			},
-			Spec: corev1.ServiceSpec{
-				Type: corev1.ServiceTypeNodePort,
-				Ports: []corev1.ServicePort{{
-					Name:     "https",
-					Port:     int32(HTTPSContainerPort),
-					NodePort: pinnedNodePort,
-				}},
+			Spec: corev1.PodSpec{
+				NodeName: "node-1",
+				Containers: []corev1.Container{
+					{Name: "bfb-registry", Image: "registry:old"},
+				},
 			},
 		}
-		pinned := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Name: NodePortConfigMapName, Namespace: testNamespace},
-			Data:       map[string]string{nodePortConfigMapKey: "31213"},
-		}
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(leaderPod, oldLeader, existingPod).Build()
 
-		var conflictInjected atomic.Bool
-		c := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(oldLeader, newLeader, existingSvc, pinned).
-			WithInterceptorFuncs(interceptor.Funcs{
-				Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-					svc, ok := obj.(*corev1.Service)
-					if !ok || svc.Namespace != testNamespace || svc.Name != PodName || conflictInjected.Load() {
-						return cl.Update(ctx, obj, opts...)
-					}
-					conflictInjected.Store(true)
-					// The GC deletes the old leader-owned Service between our Get and
-					// Update; the API server then rejects the Update with a
-					// UID-precondition Conflict (StorageError), as in the 27-Sep nightly.
-					Expect(cl.Delete(ctx, svc)).To(Succeed())
-					return apierrors.NewConflict(schema.GroupResource{Resource: "services"}, svc.Name,
-						errors.New("StorageError: invalid object, Code: 4, Precondition failed: UID in precondition: old-uid, UID in object meta: "))
-				},
-			}).Build()
+		_, err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-pod", "node-2", "registry:new")
+		Expect(err).NotTo(HaveOccurred())
 
-		run := &BFBRegistryRunnable{Client: c}
-		Expect(run.ensureService(ctx, testNamespace, newLeader)).To(Succeed())
-		Expect(conflictInjected.Load()).To(BeTrue())
-
-		svc := &corev1.Service{}
-		Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: PodName}, svc)).To(Succeed())
-		Expect(serviceOwnedByLeaderPod(svc, newLeader)).To(BeTrue())
-		Expect(svc.Spec.Ports[0].NodePort).To(Equal(pinnedNodePort))
+		pod := &corev1.Pod{}
+		Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: PodName}, pod)).To(Succeed())
+		Expect(podOwnedByLeaderPod(pod, leaderPod)).To(BeTrue())
+		Expect(pod.Spec.NodeName).To(Equal("node-2"))
+		Expect(pod.Spec.Containers[0].Image).To(Equal("registry:new"))
 	})
-
-	It("does not fail when the leader-handover GC race outlasts the retry window", func() {
-		leaderPod := &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{Name: "leader-pod", Namespace: testNamespace, UID: "leader-uid"},
-		}
-		existingSvc := &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:            PodName,
-				Namespace:       testNamespace,
-				OwnerReferences: []metav1.OwnerReference{*leaderControllerRef(leaderPod)},
-			},
-			Spec: corev1.ServiceSpec{Type: corev1.ServiceTypeNodePort},
-		}
-
-		c := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(leaderPod, existingSvc).
-			WithInterceptorFuncs(interceptor.Funcs{
-				Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-					if svc, ok := obj.(*corev1.Service); ok && svc.Namespace == testNamespace && svc.Name == PodName {
-						return apierrors.NewConflict(schema.GroupResource{Resource: "services"}, svc.Name,
-							errors.New("StorageError: invalid object, Code: 4, Precondition failed"))
-					}
-					return cl.Update(ctx, obj, opts...)
-				},
-			}).Build()
-
-		origBackoff := ensureGCRaceBackoff
-		ensureGCRaceBackoff = wait.Backoff{Duration: time.Millisecond, Steps: 2}
-		DeferCleanup(func() { ensureGCRaceBackoff = origBackoff })
-
-		run := &BFBRegistryRunnable{Client: c}
-		// The race is transient by definition, so exhausting the retry window must not
-		// fail the manager; the bfb-registry Service watch re-runs the ensure.
-		Expect(run.ensureService(ctx, testNamespace, leaderPod)).To(Succeed())
-	})
-
 })
 
 var _ = Describe("ensurePod with a terminated bfb-registry pod", func() {
@@ -429,7 +208,7 @@ var _ = Describe("ensurePod with a terminated bfb-registry pod", func() {
 		c := fake.NewClientBuilder().WithScheme(scheme).
 			WithObjects(leader, failedPod(leader, 10*time.Second)).Build()
 
-		requeueAfter, err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-pod", "node-1", "10.0.0.1", "img")
+		requeueAfter, err := EnsureBFBRegistry(ctx, EnsureBFBRegistryDeps{Client: c}, testNamespace, "leader-pod", "node-1", "img")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(requeueAfter).To(Equal(failedPodRecreateBackoff - 10*time.Second))
 		Expect(getRegistryPod(c).Status.Phase).To(Equal(corev1.PodFailed))
@@ -517,257 +296,6 @@ var _ = Describe("desiredPod HTTPS wiring", func() {
 		Expect(*vol.Secret.Optional).To(BeFalse())
 		Expect(vol.Secret.DefaultMode).NotTo(BeNil())
 		Expect(*vol.Secret.DefaultMode).To(Equal(int32(0o440)))
-	})
-})
-
-var _ = Describe("ensureServerCertificate", func() {
-	const ns = "dpf-provisioning"
-
-	var (
-		ctx    context.Context
-		scheme *runtime.Scheme
-		leader *corev1.Pod
-	)
-
-	BeforeEach(func() {
-		ctx = context.Background()
-		scheme = runtime.NewScheme()
-		Expect(corev1.AddToScheme(scheme)).To(Succeed())
-		leader = &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "leader", Namespace: ns, UID: "leader-uid"}}
-	})
-
-	getCert := func(c client.Client) *unstructured.Unstructured {
-		u := &unstructured.Unstructured{}
-		u.SetGroupVersionKind(certificateGVK)
-		Expect(c.Get(ctx, client.ObjectKey{Namespace: ns, Name: ServerCertSecretName}, u)).To(Succeed())
-		return u
-	}
-
-	It("creates a Certificate with the expected spec, SANs and owner", func() {
-		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(leader).Build()
-		r := &BFBRegistryRunnable{Client: c}
-		Expect(r.ensureServerCertificate(ctx, ns, "10.0.0.5", leader)).To(Succeed())
-
-		u := getCert(c)
-		Expect(u.GetOwnerReferences()).To(HaveLen(1))
-		Expect(u.GetOwnerReferences()[0].Name).To(Equal("leader"))
-
-		secretName, _, _ := unstructured.NestedString(u.Object, "spec", "secretName")
-		Expect(secretName).To(Equal(ServerCertSecretName))
-		cn, _, _ := unstructured.NestedString(u.Object, "spec", "commonName")
-		Expect(cn).To(Equal(PodName))
-		issuer, _, _ := unstructured.NestedString(u.Object, "spec", "issuerRef", "name")
-		Expect(issuer).To(Equal(operatorv1.PlatformIssuerName))
-		alg, _, _ := unstructured.NestedString(u.Object, "spec", "privateKey", "algorithm")
-		Expect(alg).To(Equal("ECDSA"))
-
-		dns, _, _ := unstructured.NestedStringSlice(u.Object, "spec", "dnsNames")
-		Expect(dns).To(ConsistOf(
-			"bfb-registry",
-			"bfb-registry."+ns,
-			"bfb-registry."+ns+".svc",
-			"bfb-registry."+ns+".svc.cluster.local",
-		))
-		ips, _, _ := unstructured.NestedStringSlice(u.Object, "spec", "ipAddresses")
-		Expect(ips).To(ConsistOf("10.0.0.5"))
-	})
-
-	It("signs with the configured issuer", func() {
-		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(leader).Build()
-		r := &BFBRegistryRunnable{Client: c, CAIssuerRef: certmanager.IssuerReference{
-			Name:  "external-issuer",
-			Kind:  operatorv1.CertManagerClusterIssuerKind,
-			Group: operatorv1.CertManagerGroup,
-		}}
-		Expect(r.ensureServerCertificate(ctx, ns, "10.0.0.5", leader)).To(Succeed())
-
-		issuerRef, _, _ := unstructured.NestedStringMap(getCert(c).Object, "spec", "issuerRef")
-		Expect(issuerRef).To(Equal(map[string]string{
-			"name":  "external-issuer",
-			"kind":  operatorv1.CertManagerClusterIssuerKind,
-			"group": operatorv1.CertManagerGroup,
-		}))
-	})
-
-	It("adds the load balancer hostname to the Certificate DNS names", func() {
-		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(leader).Build()
-		r := &BFBRegistryRunnable{
-			Client:              c,
-			LoadBalancerAddress: "https://bfb-registry-dpf-operator-system.apps.example.com",
-		}
-		Expect(r.ensureServerCertificate(ctx, ns, "10.0.0.5", leader)).To(Succeed())
-
-		dns, _, _ := unstructured.NestedStringSlice(getCert(c).Object, "spec", "dnsNames")
-		Expect(dns).To(ContainElement("bfb-registry-dpf-operator-system.apps.example.com"))
-	})
-
-	It("is idempotent and updates the IP SAN on node failover", func() {
-		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(leader).Build()
-		r := &BFBRegistryRunnable{Client: c}
-		Expect(r.ensureServerCertificate(ctx, ns, "10.0.0.5", leader)).To(Succeed())
-		Expect(r.ensureServerCertificate(ctx, ns, "10.0.0.5", leader)).To(Succeed())
-
-		// Leader fails over to a new node: the IP SAN must follow the new NODE_IP.
-		Expect(r.ensureServerCertificate(ctx, ns, "10.0.0.9", leader)).To(Succeed())
-		ips, _, _ := unstructured.NestedStringSlice(getCert(c).Object, "spec", "ipAddresses")
-		Expect(ips).To(ConsistOf("10.0.0.9"))
-	})
-
-	It("returns an error when NODE_IP is empty", func() {
-		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(leader).Build()
-		r := &BFBRegistryRunnable{Client: c}
-		err := r.ensureServerCertificate(ctx, ns, "", leader)
-		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("NODE_IP is empty"))
-	})
-
-	It("recreates the Certificate when the update races with leader-handover GC deletion", func() {
-		oldLeader := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "leader-old", Namespace: ns, UID: "old-uid"}}
-		existingCert := &unstructured.Unstructured{}
-		existingCert.SetGroupVersionKind(certificateGVK)
-		existingCert.SetNamespace(ns)
-		existingCert.SetName(ServerCertSecretName)
-		existingCert.SetOwnerReferences([]metav1.OwnerReference{*leaderControllerRef(oldLeader)})
-
-		var conflictInjected atomic.Bool
-		c := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(leader, oldLeader, existingCert).
-			WithInterceptorFuncs(interceptor.Funcs{
-				Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-					if obj.GetObjectKind().GroupVersionKind() != certificateGVK || conflictInjected.Load() {
-						return cl.Update(ctx, obj, opts...)
-					}
-					conflictInjected.Store(true)
-					// The GC deletes the old leader-owned Certificate between our Get
-					// and Update; the Update then fails with a UID-precondition Conflict.
-					Expect(cl.Delete(ctx, obj)).To(Succeed())
-					return apierrors.NewConflict(schema.GroupResource{Group: "cert-manager.io", Resource: "certificates"}, obj.GetName(),
-						errors.New("StorageError: invalid object, Code: 4, Precondition failed: UID in precondition: old-uid, UID in object meta: "))
-				},
-			}).Build()
-
-		r := &BFBRegistryRunnable{Client: c}
-		Expect(r.ensureServerCertificate(ctx, ns, "10.0.0.5", leader)).To(Succeed())
-		Expect(conflictInjected.Load()).To(BeTrue())
-
-		u := getCert(c)
-		Expect(u.GetOwnerReferences()).To(HaveLen(1))
-		Expect(u.GetOwnerReferences()[0].Name).To(Equal("leader"))
-	})
-})
-
-var _ = Describe("serverCertSANs", func() {
-	BeforeEach(func() {
-		// Ensure the controller env fallback does not leak in from the test runner.
-		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "")
-	})
-
-	It("includes the node IP and the service DNS names", func() {
-		dns, ips := serverCertSANs("dpf-provisioning", "192.168.1.10", "", "")
-		Expect(dns).To(ConsistOf(
-			"bfb-registry",
-			"bfb-registry.dpf-provisioning",
-			"bfb-registry.dpf-provisioning.svc",
-			"bfb-registry.dpf-provisioning.svc.cluster.local",
-		))
-		Expect(ips).To(ConsistOf("192.168.1.10"))
-	})
-
-	It("omits the IP SAN when the node IP is not a valid IP", func() {
-		_, ips := serverCertSANs("dpf-provisioning", "not-an-ip", "", "")
-		Expect(ips).To(BeEmpty())
-	})
-
-	It("includes the configured API server VIP when it differs from the node IP", func() {
-		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "10.0.0.10", "")
-		Expect(ips).To(ConsistOf("10.0.0.3", "10.0.0.10"))
-	})
-
-	It("includes both the configured VIP and the controller KUBERNETES_SERVICE_HOST env when they differ", func() {
-		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "10.96.0.1")
-		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "10.0.0.10", "")
-		Expect(ips).To(ConsistOf("10.0.0.3", "10.0.0.10", "10.96.0.1"))
-	})
-
-	It("does not duplicate the node IP when the configured VIP matches it", func() {
-		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "10.0.0.3", "")
-		Expect(ips).To(ConsistOf("10.0.0.3"))
-	})
-
-	It("does not duplicate an IP shared by the configured VIP and the env", func() {
-		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "10.0.0.10")
-		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "10.0.0.10", "")
-		Expect(ips).To(ConsistOf("10.0.0.3", "10.0.0.10"))
-	})
-
-	It("falls back to KUBERNETES_SERVICE_HOST env when no VIP is configured", func() {
-		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "10.0.0.10")
-		_, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "", "")
-		Expect(ips).To(ConsistOf("10.0.0.3", "10.0.0.10"))
-	})
-
-	It("adds a hostname VIP to the DNS SANs", func() {
-		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "172.30.0.1")
-		dns, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "api.ocp.example.com", "")
-		Expect(dns).To(ConsistOf(
-			"bfb-registry",
-			"bfb-registry.dpf-provisioning",
-			"bfb-registry.dpf-provisioning.svc",
-			"bfb-registry.dpf-provisioning.svc.cluster.local",
-			"api.ocp.example.com",
-		))
-		Expect(ips).To(ConsistOf("10.0.0.3", "172.30.0.1"))
-	})
-
-	It("does not duplicate a hostname shared by the configured VIP and the env", func() {
-		GinkgoT().Setenv("KUBERNETES_SERVICE_HOST", "api.ocp.example.com")
-		dns, _ := serverCertSANs("dpf-provisioning", "10.0.0.3", "api.ocp.example.com", "")
-		Expect(dns).To(HaveLen(5))
-		Expect(dns).To(ContainElement("api.ocp.example.com"))
-	})
-
-	It("skips a VIP that is neither an IP nor a valid DNS name", func() {
-		dns, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "not a host!", "")
-		Expect(dns).To(HaveLen(4))
-		Expect(ips).To(ConsistOf("10.0.0.3"))
-	})
-
-	It("adds the load balancer hostname as a DNS SAN", func() {
-		dns, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "", "https://bfb-registry-dpf-operator-system.apps.example.com")
-		Expect(dns).To(ConsistOf(
-			"bfb-registry",
-			"bfb-registry.dpf-provisioning",
-			"bfb-registry.dpf-provisioning.svc",
-			"bfb-registry.dpf-provisioning.svc.cluster.local",
-			"bfb-registry-dpf-operator-system.apps.example.com",
-		))
-		Expect(ips).To(ConsistOf("10.0.0.3"))
-	})
-
-	It("strips the port from a load balancer hostname", func() {
-		dns, _ := serverCertSANs("dpf-provisioning", "10.0.0.3", "", "https://bfb.example.com:30443")
-		Expect(dns).To(ContainElement("bfb.example.com"))
-	})
-
-	It("adds an IP load balancer address as an IP SAN", func() {
-		dns, ips := serverCertSANs("dpf-provisioning", "10.0.0.3", "", "https://10.0.110.2:31272")
-		Expect(dns).To(ConsistOf(
-			"bfb-registry",
-			"bfb-registry.dpf-provisioning",
-			"bfb-registry.dpf-provisioning.svc",
-			"bfb-registry.dpf-provisioning.svc.cluster.local",
-		))
-		Expect(ips).To(ConsistOf("10.0.0.3", "10.0.110.2"))
-	})
-
-	It("does not duplicate a load balancer host that is already a service DNS name", func() {
-		dns, _ := serverCertSANs("dpf-provisioning", "10.0.0.3", "", "https://bfb-registry:8443")
-		Expect(dns).To(ConsistOf(
-			"bfb-registry",
-			"bfb-registry.dpf-provisioning",
-			"bfb-registry.dpf-provisioning.svc",
-			"bfb-registry.dpf-provisioning.svc.cluster.local",
-		))
 	})
 })
 

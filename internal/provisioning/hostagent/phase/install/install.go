@@ -54,6 +54,10 @@ const (
 
 	bfbRegistryServiceHostEnv = "BFB_REGISTRY_SERVICE_HOST"
 	bfbRegistryServicePortEnv = "BFB_REGISTRY_SERVICE_PORT"
+	// bfbRegistryTLSServerName matches the DNS SAN on the bfb-registry server
+	// certificate. Workaround 1 dials the Service ClusterIP; TLS still verifies
+	// this name so the ClusterIP does not need to be an IP SAN.
+	bfbRegistryTLSServerName = "bfb-registry"
 )
 
 type Handler struct {
@@ -84,12 +88,16 @@ func NewHandler(client client.Client, bfbRegistryAddr string, getDevice func(str
 // against the dpf CA trust bundle. The bundle is re-read from the mounted volume on every call so
 // CA rotation (the operator appending a new CA into the bundle) takes effect without restarting
 // the HostAgent.
-func (h *Handler) downloadFile(ctx context.Context, url, dst string) error {
-	httpClient, err := utils.HTTPClientWithCABundle(h.caBundlePath)
+func (h *Handler) downloadFile(ctx context.Context, rawURL, dst string) error {
+	return h.downloadFileWithTLSServerName(ctx, rawURL, dst, "")
+}
+
+func (h *Handler) downloadFileWithTLSServerName(ctx context.Context, rawURL, dst, tlsServerName string) error {
+	httpClient, err := utils.HTTPClientWithCABundleAndServerName(h.caBundlePath, tlsServerName)
 	if err != nil {
 		return fmt.Errorf("failed to build HTTP client from CA trust bundle %q: %w", h.caBundlePath, err)
 	}
-	return utils.DownloadFileWithClient(ctx, httpClient, url, dst, 0644)
+	return utils.DownloadFileWithClient(ctx, httpClient, rawURL, dst, 0644)
 }
 
 func (h *Handler) Handle(ctx context.Context, dpu *provisioningv1.DPU) (provisioningv1.DPUStatus, ctrl.Result, error) {
@@ -215,9 +223,9 @@ func (h *Handler) installBFB(pciAddress, bfbFile, bfcfgFile string) error {
 	return nil
 }
 
-// downloadWithViaEnv is a helper function to download a file from a URL using the environment variables BFB_REGISTRY_SERVICE_HOST and BFB_REGISTRY_SERVICE_PORT
-// This is a workaround bypassing the issue that coredns in our CI env is sometimes inaccessible from worker nodes. Check the thread for more information.
-// TODO: remove this workaround when the CI issue is fixed
+// downloadWithBFBRegistryServiceEnv downloads via the kube-injected Service ClusterIP when
+// CoreDNS is unreachable. TLS still verifies the DNS name bfb-registry (a SAN on the
+// server certificate) so the ClusterIP does not need to be an IP SAN.
 func (h *Handler) downloadWithBFBRegistryServiceEnv(ctx context.Context, filename string, dst string) error {
 	logger := log.FromContext(ctx)
 	bfbRegistryServiceHost := os.Getenv(bfbRegistryServiceHostEnv)
@@ -232,8 +240,8 @@ func (h *Handler) downloadWithBFBRegistryServiceEnv(ctx context.Context, filenam
 		logger.Error(err, "failed to generate URL from BFB Registry Service host and port", bfbRegistryServiceHostEnv, bfbRegistryServiceHost, bfbRegistryServicePortEnv, bfbRegistryServicePort, "filename", filename)
 		return err
 	}
-	logger.Info("workaround 1: download with bfb-registry service address read from env", "url", httpURL, "dst", dst)
-	err = h.downloadFile(ctx, httpURL, dst)
+	logger.Info("workaround 1: download with bfb-registry ClusterIP from env, TLS ServerName bfb-registry", "url", httpURL, "tlsServerName", bfbRegistryTLSServerName, "dst", dst)
+	err = h.downloadFileWithTLSServerName(ctx, httpURL, dst, bfbRegistryTLSServerName)
 	if err != nil {
 		logger.Error(fmt.Errorf("workaround 1 failed to download file: %w", err), "url", httpURL, "dst", dst)
 	}

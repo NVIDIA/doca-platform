@@ -26,6 +26,7 @@ import (
 
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -42,7 +43,6 @@ func TestReconcileRequeuesForRecentlyFailedBFBRegistryPod(t *testing.T) {
 	const ns = "dpf-operator-system"
 	t.Setenv("POD_NAME", "leader-pod")
 	t.Setenv("NODE_NAME", "node-1")
-	t.Setenv("NODE_IP", "10.0.0.1")
 	t.Setenv("BFB_REGISTRY_IMAGE", "registry:test")
 
 	leader := &corev1.Pod{
@@ -82,4 +82,38 @@ func TestReconcileRequeuesForRecentlyFailedBFBRegistryPod(t *testing.T) {
 	got := &corev1.Pod{}
 	g.Expect(c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: bfbregistry.PodName}, got)).To(Succeed())
 	g.Expect(got.Status.Phase).To(Equal(corev1.PodFailed))
+}
+
+// TestReconcileSkipsBFBRegistryWhenManagedByOperator checks that the DPU reconciler leaves
+// the bfb-registry alone when the Operator owns it (ReadWriteMany BFB PVC): no Pod,
+// Service or Certificate is created and no retry is requested.
+func TestReconcileSkipsBFBRegistryWhenManagedByOperator(t *testing.T) {
+	g := NewWithT(t)
+	const ns = "dpf-operator-system"
+	t.Setenv("POD_NAME", "leader-pod")
+	t.Setenv("NODE_NAME", "node-1")
+	t.Setenv("BFB_REGISTRY_IMAGE", "registry:test")
+
+	leader := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "leader-pod", Namespace: ns, UID: "leader-uid"},
+	}
+	s := runtime.NewScheme()
+	g.Expect(corev1.AddToScheme(s)).To(Succeed())
+	c := fake.NewClientBuilder().WithScheme(s).WithObjects(leader).Build()
+	r := &DPUReconciler{ctrlCtx: &util.ControllerContext{
+		Client:  c,
+		Scheme:  s,
+		Options: util.DPUOptions{BFBRegistryManagedByOperator: true},
+	}}
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Namespace: ns, Name: bfbregistry.PodName},
+	})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(result).To(Equal(ctrl.Result{}))
+
+	err = c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: bfbregistry.PodName}, &corev1.Pod{})
+	g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "no bfb-registry Pod while the Operator owns the registry")
+	err = c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: bfbregistry.PodName}, &corev1.Service{})
+	g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "no bfb-registry Service while the Operator owns the registry")
 }

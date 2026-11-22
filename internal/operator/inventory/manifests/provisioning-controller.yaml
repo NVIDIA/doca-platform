@@ -157,6 +157,7 @@ rules:
   - ""
   resources:
   - configmaps
+  - services
   verbs:
   - get
   - list
@@ -199,19 +200,6 @@ rules:
   - get
   - list
   - patch
-- apiGroups:
-  - ""
-  resources:
-  - services
-  verbs:
-  - create
-  - delete
-  - deletecollection
-  - get
-  - list
-  - patch
-  - update
-  - watch
 - apiGroups:
   - apps
   resources:

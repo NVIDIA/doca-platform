@@ -1,0 +1,36 @@
+# The bfb-registry HTTPS server certificate, issued by the platform CA issuer. The DPF Operator owns
+# it in every mode.
+#
+# The DPF Operator replaces the DNS names and IP addresses with the ones the clients connect to (the
+# Service names in the namespace of the operator, the Kubernetes API server VIP and the host of
+# registry.loadBalancerAddress), and the issuer while the upgrade migration of the provisioning CA
+# holds the leaf certificates on the legacy issuer.
+#
+# The DNS name below is a placeholder in the ${SERVICE_NAME}.${SERVICE_NAMESPACE}.svc form: the
+# generic namespace edit of the Operator requires that shape for every Certificate.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bfb-registry-server-cert
+  labels:
+    app.kubernetes.io/part-of: bfb-registry
+    dpu.nvidia.com/component: bfb-registry
+spec:
+  secretName: bfb-registry-server-cert
+  commonName: bfb-registry
+  # 90 days, renewed 30 days early to trigger rotation well ahead of expiry.
+  duration: 2160h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  usages:
+  - server auth
+  - digital signature
+  - key encipherment
+  dnsNames:
+  - bfb-registry.dpf-operator-system.svc
+  issuerRef:
+    name: dpf-platform-issuer
+    kind: Issuer
+    group: cert-manager.io

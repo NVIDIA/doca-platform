@@ -176,7 +176,7 @@ func NewDPUReconciler(mgr manager.Manager, alloc allocator.Allocator, joinComman
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpuflavors,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpudevices,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=provisioning.dpu.nvidia.com,resources=dpudevices/finalizers,verbs=update
-// +kubebuilder:rbac:groups="",resources=pods;nodes;services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=pods;nodes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods/finalizers,verbs=update
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;create;delete;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;create;delete
@@ -569,9 +569,6 @@ func (r *DPUReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.Pod{},
 			handler.EnqueueRequestsFromMapFunc(r.bfbRegistryPodToRequest),
 			builder.WithPredicates(predicate.NewPredicateFuncs(r.isBFBRegistryPod))).
-		Watches(&corev1.Service{},
-			handler.EnqueueRequestsFromMapFunc(r.bfbRegistryServiceToRequest),
-			builder.WithPredicates(predicate.NewPredicateFuncs(r.isBFBRegistryService))).
 		WithOptions(controller.Options{MaxConcurrentReconciles: int(maxConcurrentReconciles)}).
 		Build(r)
 	if err != nil {
@@ -795,44 +792,26 @@ func (r *DPUReconciler) bfbRegistryPodToRequest(ctx context.Context, obj client.
 	}
 }
 
-func (r *DPUReconciler) isBFBRegistryService(obj client.Object) bool {
-	svc, ok := obj.(*corev1.Service)
-	if !ok {
-		return false
-	}
-	return svc.Name == bfbregistry.PodName
-}
-
-func (r *DPUReconciler) bfbRegistryServiceToRequest(ctx context.Context, obj client.Object) []reconcile.Request {
-	svc, ok := obj.(*corev1.Service)
-	if !ok {
-		return nil
-	}
-	log.FromContext(ctx).Info("Mapping bfb-registry Service to reconcile request", "service", svc.Name, "namespace", svc.Namespace)
-	return []reconcile.Request{
-		{NamespacedName: types.NamespacedName{Namespace: svc.Namespace, Name: bfbregistry.PodName}},
-	}
-}
-
-// reconcileBFBRegistry ensures the bfb-registry pod and service exist in the given namespace.
+// reconcileBFBRegistry ensures the bfb-registry pod exists in the given namespace. The Service and the
+// server Certificate belong to the DPF Operator.
 func (r *DPUReconciler) reconcileBFBRegistry(ctx context.Context, namespace string) (time.Duration, error) {
 	logger := log.FromContext(ctx)
+	if r.ctrlCtx.Options.BFBRegistryManagedByOperator {
+		logger.V(4).Info("bfb-registry reconcile skipping: the DPF Operator owns the bfb-registry")
+		return 0, nil
+	}
 	podName := os.Getenv("POD_NAME")
 	nodeName := os.Getenv("NODE_NAME")
-	nodeIP := os.Getenv("NODE_IP")
 	registryImage := os.Getenv("BFB_REGISTRY_IMAGE")
 	if podName == "" || nodeName == "" || registryImage == "" {
 		logger.V(4).Info("bfb-registry reconcile skipping: required env not set (POD_NAME, NODE_NAME, BFB_REGISTRY_IMAGE)")
 		return 0, nil
 	}
 	requeueAfter, err := bfbregistry.EnsureBFBRegistry(ctx, bfbregistry.EnsureBFBRegistryDeps{
-		Client:                 r.ctrlCtx.Client,
-		BFBPVC:                 r.ctrlCtx.Options.BFBPVC,
-		ImagePullSecrets:       r.ctrlCtx.Options.ImagePullSecrets,
-		KubernetesAPIServerVIP: r.ctrlCtx.Options.KubernetesAPIServerVIP,
-		CAIssuerRef:            r.ctrlCtx.Options.CAIssuerRef,
-		LoadBalancerAddress:    r.ctrlCtx.Options.BFBRegistryLoadBalancer,
-	}, namespace, podName, nodeName, nodeIP, registryImage)
+		Client:           r.ctrlCtx.Client,
+		BFBPVC:           r.ctrlCtx.Options.BFBPVC,
+		ImagePullSecrets: r.ctrlCtx.Options.ImagePullSecrets,
+	}, namespace, podName, nodeName, registryImage)
 	if err != nil {
 		return 0, fmt.Errorf("ensure bfb-registry: %w", err)
 	}

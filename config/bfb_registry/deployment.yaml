@@ -1,0 +1,135 @@
+# The bfb-registry Deployment used when the BFB PVC is ReadWriteMany. Without such a PVC the
+# provisioning controller creates a single bfb-registry Pod instead, and the DPF Operator does not
+# emit this object (see BFBRegistryManagedByOperator).
+#
+# The DPF Operator replaces the values marked below when the component is generated: the replica
+# count, the images, the BFB PVC name, the image pull secrets, the tolerations and the node affinity.
+# The labels, the ports, the volume names and the server certificate Secret name must match the
+# constants in internal/provisioning/bfbregistry, which the provisioning controller Pod uses as well.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bfb-registry
+  labels:
+    app.kubernetes.io/part-of: bfb-registry
+    dpu.nvidia.com/component: bfb-registry
+spec:
+  # Replaced with spec.provisioningController.registry.replicas.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: bfb-registry
+      dpu.nvidia.com/component: bfb-registry
+  # The PVC is ReadWriteMany, so the old and the new replicas can mount it at the same time.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: bfb-registry
+        dpu.nvidia.com/component: bfb-registry
+    spec:
+      terminationGracePeriodSeconds: 0
+      # Share the PID namespace so the cert-reloader can send SIGHUP (nginx -s reload) to the
+      # nginx master in the other container.
+      shareProcessNamespace: true
+      securityContext:
+        fsGroup: 65532
+      # Spread the replicas over the control plane nodes. The node affinity and the tolerations
+      # are added by the DPF Operator.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/part-of: bfb-registry
+      containers:
+      - name: bfb-registry
+        # Replaced with the bfb-registry image of the release.
+        image: bfb-registry
+        command:
+        - /bin/sh
+        - -c
+        - envsubst '${NGINX_HTTPS_PORT}' < /nginx/nginx.conf.template > /nginx/nginx.conf && /usr/local/nginx/sbin/nginx -c /nginx/nginx.conf -g "daemon off;"
+        env:
+        - name: NGINX_HTTPS_PORT
+          value: "8443"
+        ports:
+        - name: https
+          containerPort: 8443
+        securityContext:
+          runAsUser: 65532
+          runAsGroup: 65532
+          privileged: true
+        volumeMounts:
+        - name: bfb
+          mountPath: /bfb
+          readOnly: true
+        - name: config
+          mountPath: /nginx/nginx.conf.template
+          subPath: nginx.conf
+          readOnly: true
+        - name: nginx-tmp
+          mountPath: /nginx
+        # Mounted without a subPath so that the kubelet refreshes it in place when the
+        # certificate is renewed.
+        - name: server-cert
+          mountPath: /etc/bfb-registry/tls
+          readOnly: true
+      - name: cert-reloader
+        # Replaced with the bfb-registry image of the release.
+        image: bfb-registry
+        command:
+        - /usr/local/bin/certreloader
+        - -cert-dir
+        - /etc/bfb-registry/tls
+        - -nginx-bin
+        - /usr/local/nginx/sbin/nginx
+        - -nginx-conf
+        - /nginx/nginx.conf
+        securityContext:
+          runAsUser: 65532
+          runAsGroup: 65532
+          # The nginx container is privileged and therefore runs AppArmor "unconfined". AppArmor
+          # mediates signals by profile: a container under the default containerd profile may only
+          # signal peers in the same profile, so "nginx -s reload" (SIGHUP to the nginx master in
+          # the other container) is denied with EPERM. Run the reloader unconfined too so it shares
+          # the nginx AppArmor domain and the graceful reload succeeds.
+          #
+          # This workaround only exists because the nginx container is privileged (added in commit
+          # 0d51c1da6 "fix: add privilege for init-container and registry pod", to let the non-root
+          # uid 65532 nginx read the root-owned hostPath BFB directory). We should drop privileged
+          # from the nginx container (e.g. serve BFBs from a PVC, or fix the hostPath
+          # ownership/fsGroup) so both containers run under the same default AppArmor profile; then
+          # this explicit Unconfined override can be removed and the reload will be allowed as a
+          # same-profile signal.
+          appArmorProfile:
+            type: Unconfined
+        volumeMounts:
+        - name: nginx-tmp
+          mountPath: /nginx
+        - name: server-cert
+          mountPath: /etc/bfb-registry/tls
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: bfb-registry-config
+      - name: nginx-tmp
+        emptyDir: {}
+      - name: server-cert
+        secret:
+          secretName: bfb-registry-server-cert
+          defaultMode: 288 # 0440 in octal
+          optional: false
+      - name: bfb
+        persistentVolumeClaim:
+          # Replaced with spec.provisioningController.bfbPVCName.
+          claimName: bfb-pvc
+          readOnly: true

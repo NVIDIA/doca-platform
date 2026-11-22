@@ -18,10 +18,15 @@ package utils
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -428,6 +433,64 @@ func TestHTTPClientWithCABundle(t *testing.T) {
 		_ = resp.Body.Close()
 		g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
 	})
+
+	t.Run("verifies a DNS SAN when dialing an IP if ServerName is set", func(t *testing.T) {
+		g := NewWithT(t)
+		dir := t.TempDir()
+		server, caPath := tlsServerDNSOnly(t, g, dir, "bfb-registry", "ok")
+
+		plain, err := HTTPClientWithCABundle(caPath)
+		g.Expect(err).NotTo(HaveOccurred())
+		_, err = plain.Get(server.URL)
+		g.Expect(err).To(HaveOccurred())
+
+		named, err := HTTPClientWithCABundleAndServerName(caPath, "bfb-registry")
+		g.Expect(err).NotTo(HaveOccurred())
+		resp, err := named.Get(server.URL)
+		g.Expect(err).NotTo(HaveOccurred())
+		_ = resp.Body.Close()
+		g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+	})
+}
+
+// tlsServerDNSOnly starts an HTTPS server whose certificate has only dnsName in SAN
+// (no IP SANs). httptest serves it on 127.0.0.1, so clients must set TLS ServerName
+// to dnsName to pass hostname verification.
+func tlsServerDNSOnly(t *testing.T, g *WithT, dir, dnsName, body string) (*httptest.Server, string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	g.Expect(err).NotTo(HaveOccurred())
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: dnsName},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		DNSNames:              []string{dnsName},
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	g.Expect(err).NotTo(HaveOccurred())
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyBytes, err := x509.MarshalECPrivateKey(key)
+	g.Expect(err).NotTo(HaveOccurred())
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes})
+	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(body))
+	}))
+	server.TLS = &tls.Config{Certificates: []tls.Certificate{tlsCert}, MinVersion: tls.VersionTLS12}
+	server.StartTLS()
+	t.Cleanup(server.Close)
+
+	caPath := filepath.Join(dir, "ca.crt")
+	g.Expect(os.WriteFile(caPath, certPEM, 0o644)).To(Succeed())
+	return server, caPath
 }
 
 func TestDownloadFileWithClient_HTTPS(t *testing.T) {

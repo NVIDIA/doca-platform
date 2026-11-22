@@ -20,43 +20,36 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
-	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"time"
-
-	"github.com/nvidia/doca-platform/pkg/certmanager"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
 	PodName       = "bfb-registry"
 	ConfigMapName = "bfb-registry-config"
-	// NodePortConfigMapName stores the allocated NodePort so a leader failover can
-	// recreate the Service (which is owned by the leader Pod and therefore GC'd)
-	// with the same port that was baked into DPU OS cloud-init.
+	// NodePortConfigMapName is the ConfigMap in which earlier releases stored the NodePort of
+	// the bfb-registry Service. Their Service was owned by the leader Pod and therefore
+	// garbage collected when the leader changed, so the leader kept the port there to create
+	// it again with the port that is baked into DPU OS cloud-init. The Service is owned by
+	// the DPF Operator now, which only reads the ConfigMap, to carry the port over when it
+	// replaces the Service of such a release.
 	NodePortConfigMapName = "bfb-registry-nodeport"
-	nodePortConfigMapKey  = "https"
-	LabelPartOf           = "app.kubernetes.io/part-of"
-	LabelDPUComponent     = "dpu.nvidia.com/component"
-	LabelValue            = "bfb-registry"
-	ContainerPort         = 8082
+	// NodePortConfigMapKey is the key of NodePortConfigMapName holding the https NodePort.
+	NodePortConfigMapKey = "https"
+	LabelPartOf          = "app.kubernetes.io/part-of"
+	LabelDPUComponent    = "dpu.nvidia.com/component"
+	LabelValue           = "bfb-registry"
+	ContainerPort        = 8082
 	// HTTPSContainerPort is the only port the bfb-registry container exposes after the
 	// HTTPS migration; the plain-HTTP listener is removed (LLD task 4 §5).
 	HTTPSContainerPort = 8443
@@ -74,11 +67,6 @@ const (
 	// volumeNameServerCert is the volume backed by the HTTPS server certificate Secret.
 	volumeNameServerCert = "server-cert"
 
-	// serverCertDuration / serverCertRenewBefore follow the HLD's 30-90 day leaf certs:
-	// 90-day lifetime, renewed 30 days early to trigger rotation well ahead of expiry.
-	serverCertDuration    = 2160 * time.Hour
-	serverCertRenewBefore = 720 * time.Hour
-
 	// bfbRegistryPodDeleteMaxWait bounds how long we block waiting for the API server to
 	// finish deleting the bfb-registry Pod after we issue Delete. On deadline, we log and
 	// return without failing the manager so provisioning can start; EnsureBFBRegistry from
@@ -95,49 +83,14 @@ const (
 // now is overridden in tests.
 var now = time.Now
 
-// ensureGCRaceBackoff bounds how long ensure* retries transient API errors caused by
-// racing the garbage collector at leader handover. The bfb-registry Pod, Service and
-// server Certificate are owned by the leader Pod (leaderControllerRef), so when a
-// rolling update deletes the old leader, the GC deletes them while the new leader's
-// ensure* recreates them; CreateOrUpdate then fails with Conflict (UID precondition),
-// NotFound or AlreadyExists until the old object is gone. That GC window is typically
-// sub-second, and on exhaustion we defer to the bfb-registry watch anyway, so keep the
-// window short: 5 attempts (1 + 4 retries) with sleeps of 0.1s, 0.2s, 0.4s, 0.8s
-// (plus up to 10% jitter), ~1.5s in total. A longer window would stall the
-// single-worker (default MaxConcurrentReconciles=1) DPU reconciler when the race is
-// hit from reconcileBFBRegistry. Note: with k8s.io/apimachinery v0.35 a Cap would end
-// the backoff as soon as an interval exceeds it (delay() zeroes the remaining steps),
-// so no Cap is set.
-var ensureGCRaceBackoff = wait.Backoff{
-	Duration: 100 * time.Millisecond,
-	Factor:   2,
-	Jitter:   0.1,
-	Steps:    5,
-}
-
-// isTransientGCRaceError reports whether err is a transient API error from racing the
-// garbage collector's deletion of objects owned by the previous leader Pod.
-func isTransientGCRaceError(err error) bool {
-	return apierrors.IsConflict(err) || apierrors.IsNotFound(err) || apierrors.IsAlreadyExists(err)
-}
-
-// BFBRegistryRunnable creates the bfb-registry Pod and Service when the provisioning controller.
+// BFBRegistryRunnable creates the bfb-registry Pod when the Operator does not run the registry as a
+// Deployment, which is the case unless the BFB PVC is ReadWriteMany. The
+// Service and the server Certificate in front of it belong to the DPF Operator, and the Pod waits
+// for the Secret of the Certificate before it starts.
 type BFBRegistryRunnable struct {
 	Client           client.Client
 	BFBPVC           string
 	ImagePullSecrets []corev1.LocalObjectReference
-	// KubernetesAPIServerVIP is the Kubernetes API server VIP configured for the DMS/hostagent
-	// Pod (via DPFOperatorConfig KubernetesAPIServerVIP). When set it is added to the
-	// bfb-registry server certificate SANs so the hostagent's VIP-based NodePort BFB download
-	// passes TLS verification. Empty when no VIP override is configured.
-	KubernetesAPIServerVIP string
-	// CAIssuerRef is the cert-manager issuer that signs the server certificate, set from the
-	// controller's --ca-issuer-* flags. Empty fields fall back to the platform issuer.
-	CAIssuerRef certmanager.IssuerReference
-	// LoadBalancerAddress is DPFOperatorConfig registry.loadBalancerAddress. The host-agent
-	// downloads BFBs from this URL, so its host must be on the server certificate. Empty when
-	// unset.
-	LoadBalancerAddress string
 }
 
 func (r *BFBRegistryRunnable) Start(ctx context.Context) error {
@@ -145,7 +98,6 @@ func (r *BFBRegistryRunnable) Start(ctx context.Context) error {
 	namespace := os.Getenv("POD_NAMESPACE")
 	podName := os.Getenv("POD_NAME")
 	nodeName := os.Getenv("NODE_NAME")
-	nodeIP := os.Getenv("NODE_IP")
 	registryImage := os.Getenv("BFB_REGISTRY_IMAGE")
 	if namespace == "" || podName == "" || nodeName == "" || registryImage == "" {
 		logger.Info("bfb-registry leader runnable skipping: required env not set (POD_NAMESPACE, POD_NAME, NODE_NAME, BFB_REGISTRY_IMAGE)",
@@ -162,15 +114,9 @@ func (r *BFBRegistryRunnable) Start(ctx context.Context) error {
 	if err := r.removeLegacyDaemonSet(ctx, namespace); err != nil {
 		return err
 	}
-	// Ensure the server certificate before the Pod: the server-cert volume is
-	// optional: false, so the Pod stays in ContainerCreating until the Secret is ready.
-	if err := r.ensureServerCertificate(ctx, namespace, nodeIP, pod); err != nil {
-		return err
-	}
+	// The server-cert volume is optional: false, so the Pod stays in ContainerCreating until
+	// the DPF Operator's Certificate has produced the Secret.
 	if _, err := r.ensurePod(ctx, namespace, nodeName, registryImage, pod); err != nil {
-		return err
-	}
-	if err := r.ensureService(ctx, namespace, pod); err != nil {
 		return err
 	}
 	<-ctx.Done()
@@ -191,17 +137,6 @@ func (r *BFBRegistryRunnable) removeLegacyDaemonSet(ctx context.Context, namespa
 		return err
 	}
 	return nil
-}
-
-func serviceOwnedByLeaderPod(svc *corev1.Service, leaderPod *corev1.Pod) bool {
-	for i := range svc.OwnerReferences {
-		ref := &svc.OwnerReferences[i]
-		if ref.Kind == "Pod" && ref.Name == leaderPod.Name && ref.UID == leaderPod.UID &&
-			ref.Controller != nil && *ref.Controller {
-			return true
-		}
-	}
-	return false
 }
 
 func podOwnedByLeaderPod(pod *corev1.Pod, leaderPod *corev1.Pod) bool {
@@ -302,7 +237,7 @@ func (r *BFBRegistryRunnable) desiredPod(namespace, nodeName, image string, owne
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:       namespace,
 			Name:            PodName,
-			Labels:          bfbRegistryPodLabels(),
+			Labels:          RegistryPodLabels(),
 			OwnerReferences: []metav1.OwnerReference{*ownerRef},
 		},
 		Spec: corev1.PodSpec{
@@ -403,139 +338,21 @@ func (r *BFBRegistryRunnable) desiredPod(namespace, nodeName, image string, owne
 	}
 }
 
-func bfbRegistryPodLabels() map[string]string {
+// RegistryPodLabels are the labels of the registry Pods, whoever creates them. The bfb-registry
+// Service selects the Pods by them.
+func RegistryPodLabels() map[string]string {
 	return map[string]string{
 		LabelPartOf:       LabelValue,
 		LabelDPUComponent: LabelValue,
 	}
 }
 
-func (r *BFBRegistryRunnable) ensureService(ctx context.Context, namespace string, leaderPod *corev1.Pod) error {
-	pinnedNodePort, err := r.pinnedHTTPSNodePort(ctx, namespace)
-	if err != nil {
-		return err
-	}
-	var svc *corev1.Service
-	//nolint:unparam // CreateOrUpdate's MutateFn must return error; this mutation cannot fail.
-	mutateFn := func() error {
-		ownerRef := leaderControllerRef(leaderPod)
-		svc.OwnerReferences = []metav1.OwnerReference{*ownerRef}
-		svc.Labels = map[string]string{}
-		svc.Annotations = map[string]string{}
-
-		svc.Spec.Type = corev1.ServiceTypeNodePort
-		svc.Spec.Selector = bfbRegistryPodLabels()
-		nodePort := existingHTTPSNodePort(svc)
-		if nodePort == 0 {
-			nodePort = pinnedNodePort
-		}
-		svc.Spec.Ports = []corev1.ServicePort{
-			{
-				Name:       "https",
-				Port:       int32(HTTPSContainerPort),
-				TargetPort: intstr.FromInt(HTTPSContainerPort),
-				NodePort:   nodePort,
-			},
-		}
-		return nil
-	}
-	// The Service is owned by the leader Pod, so at leader handover the garbage
-	// collector deletes it while the new leader ensures it here. CreateOrUpdate then
-	// races the deletion and can fail with Conflict (UID precondition), NotFound or
-	// AlreadyExists until the old object is gone. These errors are transient: retry
-	// until the Service is recreated with the new leader as owner.
-	op := func() error {
-		// Start from a fresh object on every attempt: a failed try can leave a stale
-		// ResourceVersion/UID that would make the next Create invalid.
-		svc = &corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: PodName}}
-		if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, mutateFn); err != nil {
-			return err
-		}
-		// Read the Service back to learn the allocated NodePort and to verify it
-		// survived; the GC can still delete it right after our write if the delete
-		// was already in flight, in which case the NotFound triggers a retry.
-		return r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: PodName}, svc)
-	}
-	if err := retry.OnError(ensureGCRaceBackoff, isTransientGCRaceError, op); err != nil {
-		if isTransientGCRaceError(err) {
-			// Never fail the manager on this race: the DPU controller's bfb-registry
-			// Service watch re-runs EnsureBFBRegistry and converges.
-			log.FromContext(ctx).Info("bfb-registry service ensure still racing leader-handover GC; deferring to the Service watch",
-				"service", PodName, "error", err.Error())
-			return nil
-		}
-		return err
-	}
-	return r.persistHTTPSNodePort(ctx, namespace, existingHTTPSNodePort(svc))
-}
-
-// existingHTTPSNodePort returns the already-allocated NodePort for the https port, if any.
-func existingHTTPSNodePort(svc *corev1.Service) int32 {
-	for _, p := range svc.Spec.Ports {
-		if p.Name == "https" && p.NodePort != 0 {
-			return p.NodePort
-		}
-	}
-	return 0
-}
-
-func (r *BFBRegistryRunnable) pinnedHTTPSNodePort(ctx context.Context, namespace string) (int32, error) {
-	cm := &corev1.ConfigMap{}
-	err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: NodePortConfigMapName}, cm)
-	if apierrors.IsNotFound(err) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, fmt.Errorf("get %s ConfigMap: %w", NodePortConfigMapName, err)
-	}
-	raw := ""
-	if cm.Data != nil {
-		raw = cm.Data[nodePortConfigMapKey]
-	}
-	if raw == "" {
-		return 0, nil
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n < 1 || n > 65535 {
-		log.FromContext(ctx).Info("ignoring invalid pinned bfb-registry NodePort", "value", raw)
-		return 0, nil
-	}
-	return int32(n), nil
-}
-
-// persistHTTPSNodePort records the allocated NodePort in a ConfigMap that is not owned by
-// the leader Pod, so it survives failover GC of the Service.
-func (r *BFBRegistryRunnable) persistHTTPSNodePort(ctx context.Context, namespace string, nodePort int32) error {
-	if nodePort == 0 {
-		return nil
-	}
-	cm := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: namespace,
-			Name:      NodePortConfigMapName,
-		},
-	}
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, cm, func() error {
-		cm.Labels = bfbRegistryPodLabels()
-		if cm.Data == nil {
-			cm.Data = map[string]string{}
-		}
-		cm.Data[nodePortConfigMapKey] = strconv.Itoa(int(nodePort))
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("persist bfb-registry NodePort: %w", err)
-	}
-	return nil
-}
-
-var certificateGVK = schema.GroupVersionKind{Group: "cert-manager.io", Version: "v1", Kind: "Certificate"}
-
 // APIServerVIPFromDMSPodEnvs extracts the KUBERNETES_SERVICE_HOST value from the DMS Pod
 // environment strings ("KEY=VALUE", built from the provisioning controller's --dms-pod-envs
 // flag, which the operator populates from DPFOperatorConfig KubernetesAPIServerVIP). It returns
 // "" when the variable is not present. This is the VIP the hostagent/DMS Pod uses to reach the
-// bfb-registry NodePort, and therefore must be covered by the server certificate SANs.
+// bfb-registry NodePort, and the host of the registry address for the Redfish install. The DPF
+// Operator puts the same VIP in the SANs of the server certificate.
 func APIServerVIPFromDMSPodEnvs(envs []string) string {
 	const prefix = "KUBERNETES_SERVICE_HOST="
 	for _, e := range envs {
@@ -546,175 +363,25 @@ func APIServerVIPFromDMSPodEnvs(envs []string) string {
 	return ""
 }
 
-// serverCertSANs returns the DNS names and IP addresses the bfb-registry server
-// certificate must cover.
-func serverCertSANs(namespace, nodeIP, apiServerVIP, loadBalancerAddress string) (dnsNames, ipAddresses []string) {
-	dnsNames = []string{
-		PodName,
-		fmt.Sprintf("%s.%s", PodName, namespace),
-		fmt.Sprintf("%s.%s.svc", PodName, namespace),
-		fmt.Sprintf("%s.%s.svc.cluster.local", PodName, namespace),
-	}
-	// The hostagent BFB download falls back to reaching the bfb-registry NodePort via the
-	// Kubernetes API server VIP (KUBERNETES_SERVICE_HOST in the hostagent/DMS Pod). Include
-	// every address the hostagent may connect to so the fallback passes TLS verification:
-	//   - nodeIP: the node the registry Pod is scheduled on.
-	//   - apiServerVIP: the VIP the operator configured for the DMS Pod (threaded from
-	//     DPFOperatorConfig KubernetesAPIServerVIP via --dms-pod-envs); this is what the
-	//     hostagent uses when the override is set.
-	//   - KUBERNETES_SERVICE_HOST: the provisioning controller's own env (in-cluster ClusterIP,
-	//     or the shared value on setups without a separate VIP).
-	//   - loadBalancerAddress: the host of registry.loadBalancerAddress, the URL the host-agent
-	//     dials when set. The scheme and port are not part of the certificate identity.
-	// The VIP, the env and the load balancer host may be hostnames (e.g. the OpenShift API or
-	// route hostname), which go into the DNS SANs. Duplicates and empty/invalid values are skipped.
-	seen := map[string]struct{}{}
-	for _, name := range dnsNames {
-		seen[name] = struct{}{}
-	}
-	if net.ParseIP(nodeIP) != nil {
-		seen[nodeIP] = struct{}{}
-		ipAddresses = append(ipAddresses, nodeIP)
-	}
-	for _, addr := range []string{apiServerVIP, os.Getenv("KUBERNETES_SERVICE_HOST"), loadBalancerSANHost(loadBalancerAddress)} {
-		if _, ok := seen[addr]; ok {
-			continue
-		}
-		switch {
-		case net.ParseIP(addr) != nil:
-			ipAddresses = append(ipAddresses, addr)
-		case len(validation.IsDNS1123Subdomain(addr)) == 0:
-			dnsNames = append(dnsNames, addr)
-		default:
-			continue
-		}
-		seen[addr] = struct{}{}
-	}
-	return dnsNames, ipAddresses
-}
-
-// loadBalancerSANHost returns the host from registry.loadBalancerAddress for use as a
-// certificate SAN. The scheme and port are stripped. An empty or unparseable address
-// returns "".
-func loadBalancerSANHost(address string) string {
-	address = strings.TrimSpace(address)
-	if address == "" {
-		return ""
-	}
-	if !strings.Contains(address, "://") {
-		address = "https://" + address
-	}
-	u, err := url.Parse(address)
-	if err != nil {
-		return ""
-	}
-	return u.Hostname()
-}
-
-// ensureServerCertificate creates or updates the cert-manager Certificate that
-// produces the bfb-registry HTTPS server cert.
-func (r *BFBRegistryRunnable) ensureServerCertificate(ctx context.Context, namespace, nodeIP string, leaderPod *corev1.Pod) error {
-	if nodeIP == "" {
-		return fmt.Errorf("NODE_IP is empty, cannot build bfb-registry server certificate SANs")
-	}
-	dnsNames, ipAddresses := serverCertSANs(namespace, nodeIP, r.KubernetesAPIServerVIP, r.LoadBalancerAddress)
-	issuerRef := r.CAIssuerRef.WithPlatformLeafDefaults()
-
-	var cert *unstructured.Unstructured
-	mutateFn := func() error {
-		cert.SetOwnerReferences([]metav1.OwnerReference{*leaderControllerRef(leaderPod)})
-		spec := map[string]interface{}{
-			"secretName":  ServerCertSecretName,
-			"commonName":  PodName,
-			"duration":    metav1.Duration{Duration: serverCertDuration}.ToUnstructured(),
-			"renewBefore": metav1.Duration{Duration: serverCertRenewBefore}.ToUnstructured(),
-			"privateKey": map[string]interface{}{
-				"algorithm": "ECDSA",
-				"size":      int64(256),
-			},
-			"usages":      []interface{}{"server auth", "digital signature", "key encipherment"},
-			"dnsNames":    toInterfaceSlice(dnsNames),
-			"ipAddresses": toInterfaceSlice(ipAddresses),
-			"issuerRef": map[string]interface{}{
-				"name":  issuerRef.Name,
-				"kind":  issuerRef.Kind,
-				"group": issuerRef.Group,
-			},
-		}
-		return unstructured.SetNestedMap(cert.Object, spec, "spec")
-	}
-
-	// The Certificate is owned by the leader Pod, so it is exposed to the same
-	// leader-handover GC race as the Service; see ensureService.
-	op := func() error {
-		cert = &unstructured.Unstructured{}
-		cert.SetGroupVersionKind(certificateGVK)
-		cert.SetNamespace(namespace)
-		cert.SetName(ServerCertSecretName)
-		_, err := controllerutil.CreateOrUpdate(ctx, r.Client, cert, mutateFn)
-		return err
-	}
-	if err := retry.OnError(ensureGCRaceBackoff, isTransientGCRaceError, op); err != nil {
-		if isTransientGCRaceError(err) {
-			log.FromContext(ctx).Info("bfb-registry server certificate ensure still racing leader-handover GC; will be re-ensured from the bfb-registry reconcile",
-				"certificate", ServerCertSecretName, "error", err.Error())
-			return nil
-		}
-		return fmt.Errorf("ensure bfb-registry server certificate: %w", err)
-	}
-	return nil
-}
-
-func toInterfaceSlice(in []string) []interface{} {
-	out := make([]interface{}, len(in))
-	for i, v := range in {
-		out[i] = v
-	}
-	return out
-}
-
-// EnsureBFBRegistryDeps carries client and controller options used when ensuring bfb-registry objects.
+// EnsureBFBRegistryDeps carries client and controller options used when ensuring the bfb-registry Pod.
 type EnsureBFBRegistryDeps struct {
 	Client           client.Client
 	BFBPVC           string
 	ImagePullSecrets []corev1.LocalObjectReference
-	// KubernetesAPIServerVIP is the Kubernetes API server VIP configured for the DMS/hostagent
-	// Pod; when set it is added to the bfb-registry server certificate SANs. See
-	// BFBRegistryRunnable.KubernetesAPIServerVIP.
-	KubernetesAPIServerVIP string
-	// CAIssuerRef is the issuer that signs the server certificate. See
-	// BFBRegistryRunnable.CAIssuerRef.
-	CAIssuerRef certmanager.IssuerReference
-	// LoadBalancerAddress is registry.loadBalancerAddress. Its host is added to the
-	// bfb-registry server certificate SANs. See BFBRegistryRunnable.LoadBalancerAddress.
-	LoadBalancerAddress string
 }
 
-// EnsureBFBRegistry ensures the bfb-registry server Certificate, Pod and Service
-// exist in the given namespace. A non-zero duration is when to call it again.
-func EnsureBFBRegistry(ctx context.Context, deps EnsureBFBRegistryDeps, namespace, leaderPodName, nodeName, nodeIP, registryImage string) (time.Duration, error) {
+// EnsureBFBRegistry ensures the bfb-registry Pod exists in the given namespace. A non-zero
+// duration is when to call it again.
+func EnsureBFBRegistry(ctx context.Context, deps EnsureBFBRegistryDeps, namespace, leaderPodName, nodeName, registryImage string) (time.Duration, error) {
 	leaderPod := &corev1.Pod{}
 	if err := deps.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: leaderPodName}, leaderPod); err != nil {
 		return 0, fmt.Errorf("get leader pod %s/%s: %w", namespace, leaderPodName, err)
 	}
 
 	run := &BFBRegistryRunnable{
-		Client:                 deps.Client,
-		BFBPVC:                 deps.BFBPVC,
-		ImagePullSecrets:       deps.ImagePullSecrets,
-		KubernetesAPIServerVIP: deps.KubernetesAPIServerVIP,
-		CAIssuerRef:            deps.CAIssuerRef,
-		LoadBalancerAddress:    deps.LoadBalancerAddress,
+		Client:           deps.Client,
+		BFBPVC:           deps.BFBPVC,
+		ImagePullSecrets: deps.ImagePullSecrets,
 	}
-	if err := run.ensureServerCertificate(ctx, namespace, nodeIP, leaderPod); err != nil {
-		return 0, err
-	}
-	requeueAfter, err := run.ensurePod(ctx, namespace, nodeName, registryImage, leaderPod)
-	if err != nil {
-		return 0, err
-	}
-	if err := run.ensureService(ctx, namespace, leaderPod); err != nil {
-		return 0, err
-	}
-	return requeueAfter, nil
+	return run.ensurePod(ctx, namespace, nodeName, registryImage, leaderPod)
 }

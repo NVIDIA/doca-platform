@@ -112,10 +112,10 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 }
 
-// Add RBAC for the metrics endpoint and for BFBRegistry services.
+// Add RBAC for the metrics endpoint and to read the BFBRegistry service, which the DPF Operator owns.
 // +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
 // +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
-// +kubebuilder:rbac:groups="",resources=services,verbs=create;delete;deletecollection;get;list;patch;update;watch
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
 
 type cliFlags struct {
 	metricsAddr                        string
@@ -127,6 +127,7 @@ type cliFlags struct {
 	dmsImage                           string
 	imagePullSecrets                   string
 	bfbPVC                             string
+	bfbRegistryManagedByOperator       bool
 	dmsTimeout                         int
 	dmsPodTimeout                      time.Duration
 	syncPeriod                         time.Duration
@@ -185,6 +186,7 @@ func parseFlags() *cliFlags {
 	fs.StringVar(&flags.dmsImage, "dms-image", "", "The image for DMS pod.")
 	fs.StringVar(&flags.imagePullSecrets, "image-pull-secrets", "", "The image pull secrets for pods deployed by this controller.")
 	fs.StringVar(&flags.bfbPVC, "bfb-pvc", "", "The pvc to storage bfb.")
+	fs.BoolVar(&flags.bfbRegistryManagedByOperator, "bfb-registry-managed-by-operator", false, "The DPF Operator runs the bfb-registry Pods as a Deployment (set when the BFB PVC is ReadWriteMany), so this controller does not create the bfb-registry Pod. The Service and the server Certificate are the Operator's either way.")
 	fs.IntVar(&flags.dmsTimeout, "dms-timeout", 900, "The max timeout execution in seconds of a command if not responding, 0 is unlimited.")
 	fs.DurationVar(&flags.dmsPodTimeout, "dms-pod-timeout", 5*time.Minute, "Timeout for DMS pods")
 	fs.DurationVar(&flags.syncPeriod, "sync-period", 10*time.Minute, "The minimum interval at which watched resources are reconciled.")
@@ -318,10 +320,9 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, flags *cliFlags, bf
 		BFCFGTemplateFile:                  flags.bfCFGTemplateFile,
 		BFBRegistry:                        bfbRegistry,
 		BFBPVC:                             flags.bfbPVC,
+		BFBRegistryManagedByOperator:       flags.bfbRegistryManagedByOperator,
 		BFBRegistryLoadBalancer:            flags.bfbRegistryLoadBalancerAddress,
 		CustomCASecretName:                 flags.customCASecretName,
-		KubernetesAPIServerVIP:             bfbregistry.APIServerVIPFromDMSPodEnvs(flags.dmsPodEnvs),
-		CAIssuerRef:                        flags.caIssuerRef(),
 		CATrustBundleConfigMapName:         flags.caTrustBundleConfigMapName,
 		MaxDPUParallelInstallations:        flags.maxDPUParallelInstallations,
 		DPUMaxConcurrentReconciles:         flags.dpuMaxConcurrentReconciles,
@@ -607,13 +608,15 @@ func main() {
 	setupHealthChecks(mgr, ctx)
 	setupInitRunnable(mgr, dpuMap)
 
-	if err := mgr.Add(&bfbregistry.BFBRegistryRunnable{
-		Client:                 mgr.GetClient(),
-		BFBPVC:                 flags.bfbPVC,
-		ImagePullSecrets:       imagePullSecretsReferences,
-		KubernetesAPIServerVIP: bfbregistry.APIServerVIPFromDMSPodEnvs(flags.dmsPodEnvs),
-		CAIssuerRef:            flags.caIssuerRef(),
-		LoadBalancerAddress:    flags.bfbRegistryLoadBalancerAddress,
+	// With a ReadWriteMany BFB PVC the Operator runs the registry as a Deployment;
+	// otherwise the leader creates the registry Pod. The Service and the server
+	// Certificate belong to the Operator in either case.
+	if flags.bfbRegistryManagedByOperator {
+		setupLog.Info("bfb-registry is managed by the DPF Operator; not creating the bfb-registry Pod")
+	} else if err := mgr.Add(&bfbregistry.BFBRegistryRunnable{
+		Client:           mgr.GetClient(),
+		BFBPVC:           flags.bfbPVC,
+		ImagePullSecrets: imagePullSecretsReferences,
 	}); err != nil {
 		setupLog.Error(err, "unable to register bfb-registry runnable")
 		os.Exit(1)

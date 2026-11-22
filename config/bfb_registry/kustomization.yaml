@@ -4,6 +4,9 @@ kind: Kustomization
 # Include all necessary resources
 resources:
 - configmap.yaml
+- deployment.yaml
+- service.yaml
+- certificate.yaml
 
 # Image overrides
 images:

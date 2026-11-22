@@ -1,0 +1,21 @@
+# The bfb-registry Service. The DPF Operator owns it in every mode, so that it outlives any one
+# bfb-registry Pod, and with it the NodePort that is written into the DPU OS cloud-init.
+#
+# The NodePort is left to the API server. The DPF Operator sets it only to carry over the port a
+# previous release allocated (the bfb-registry-nodeport ConfigMap).
+apiVersion: v1
+kind: Service
+metadata:
+  name: bfb-registry
+  labels:
+    app.kubernetes.io/part-of: bfb-registry
+    dpu.nvidia.com/component: bfb-registry
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/part-of: bfb-registry
+    dpu.nvidia.com/component: bfb-registry
+  ports:
+  - name: https
+    port: 8443
+    targetPort: 8443

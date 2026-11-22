@@ -856,7 +856,7 @@ var _ = Describe("DPU", func() {
 				registryImage = "registry:8082"
 			)
 
-			It("Reconcile creates bfb-registry pod and service when request is for bfb-registry and env is set", func() {
+			It("Reconcile creates the bfb-registry pod, and leaves the service to the Operator, when request is for bfb-registry and env is set", func() {
 				ctx := context.Background()
 				restore := setEnvForBFBRegistry(leaderPodName, nodeName, registryImage)
 				defer restore()
@@ -894,13 +894,13 @@ var _ = Describe("DPU", func() {
 					g.Expect(err).NotTo(HaveOccurred())
 				}).WithTimeout(5 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
 
-				By("verifying bfb-registry pod and service exist")
+				By("verifying the bfb-registry pod exists and no service is created: the Operator owns it")
 				pod := &corev1.Pod{}
 				Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: bfbregistry.PodName}, pod)).To(Succeed())
 				Expect(pod.Labels[bfbregistry.LabelDPUComponent]).To(Equal(bfbregistry.LabelValue))
 				svc := &corev1.Service{}
-				Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: bfbregistry.PodName}, svc)).To(Succeed())
-				Expect(svc.Spec.Type).To(Equal(corev1.ServiceTypeNodePort))
+				err := k8sClient.Get(ctx, client.ObjectKey{Namespace: testNS.Name, Name: bfbregistry.PodName}, svc)
+				Expect(apierrors.IsNotFound(err)).To(BeTrue())
 
 				By("releasing bfb-registry resources for other tests")
 				DeferCleanup(func() {
@@ -1160,22 +1160,15 @@ func expectClusterConfigFromNode(obj *provisioningv1.DPU) {
 	}).WithTimeout(20 * time.Second).Should(Succeed())
 }
 
-// setEnvForBFBRegistry sets POD_NAME, NODE_NAME, NODE_IP, BFB_REGISTRY_IMAGE and returns a restore func.
+// setEnvForBFBRegistry sets POD_NAME, NODE_NAME, BFB_REGISTRY_IMAGE and returns a restore func.
 func setEnvForBFBRegistry(podName, nodeName, registryImage string) func() {
 	old := map[string]string{
 		"POD_NAME":           os.Getenv("POD_NAME"),
 		"NODE_NAME":          os.Getenv("NODE_NAME"),
-		"NODE_IP":            os.Getenv("NODE_IP"),
 		"BFB_REGISTRY_IMAGE": os.Getenv("BFB_REGISTRY_IMAGE"),
 	}
 	Expect(os.Setenv("POD_NAME", podName)).To(Succeed())
 	Expect(os.Setenv("NODE_NAME", nodeName)).To(Succeed())
-	// NODE_IP feeds the server certificate IP SAN; only set it when a leader is simulated.
-	if podName != "" {
-		Expect(os.Setenv("NODE_IP", "10.0.0.1")).To(Succeed())
-	} else {
-		Expect(os.Unsetenv("NODE_IP")).To(Succeed())
-	}
 	Expect(os.Setenv("BFB_REGISTRY_IMAGE", registryImage)).To(Succeed())
 	return func() {
 		for k, v := range old {

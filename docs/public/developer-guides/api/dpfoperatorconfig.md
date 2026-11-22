@@ -340,7 +340,7 @@ spec:
 
 #### Provisioning Controller Configuration Options
 
-* `spec.provisioningController.bfbPVCName`: **(Optional)** Name of the PVC containing the BFB (BF Bundle) for provisioning DPUs. If it is not set, node local storage via a hostPath volume is used by default.
+* `spec.provisioningController.bfbPVCName`: **(Optional)** Name of the PVC containing the BFB (BF Bundle) for provisioning DPUs. If it is not set, node local storage via a hostPath volume is used by default. If the PVC has the `ReadWriteMany` access mode, the DPF Operator runs bfb-registry as a Deployment (see `registry.replicas`) spread across control-plane nodes. Otherwise the provisioning controller runs a single bfb-registry Pod.
 
 * `spec.provisioningController.maxDPUParallelInstallations`: Controls the maximum number of DPUs that can be provisioned concurrently.
     The default value is 50. The value must be at least 1.
@@ -394,6 +394,7 @@ spec:
     * `address`: Registry address. **Deprecated** and will be removed in a future release; use `loadBalancerAddress` instead.
     * `port`: Registry port. **Deprecated** and will be removed in a future release; use `loadBalancerAddress` instead.
     * `loadBalancerAddress`: Load balancer address for the BFB Registry that the host agent/Redfish use to fetch the BFB and generated bf.cfg. This is the current, non-deprecated way to configure registry access. To use it, deploy your own load balancer controller pointed at the `bfb-registry` NodePort service. The value must start with `http://` or `https://`.
+    * `replicas`: Number of bfb-registry Pods. It only applies when `bfbPVCName` is a `ReadWriteMany` PVC, where the default is `1`. With hostPath or any other access mode the provisioning controller runs a single Pod and this value is ignored.
 
 * `spec.provisioningController.nodeEffectRemovalTimeout`: Maximum time allowed for the Node Effect Removal phase. If the `DPUNodeMaintenance` CR still has requestors after this timeout, the DPU transitions to Error state, which is terminal and requires reprovisioning (deleting and recreating the DPU). The default is `0s`, which disables the timeout entirely (no time limit is enforced). To enable, set to a non-zero duration (e.g. `30m`). Value must be in units accepted by Go `time.ParseDuration` (e.g. `30m`, `1h`, `45m30s`).
 

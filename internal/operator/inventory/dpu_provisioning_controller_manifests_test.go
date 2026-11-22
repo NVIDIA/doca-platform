@@ -26,6 +26,7 @@ import (
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/operator/utils"
+	"github.com/nvidia/doca-platform/internal/provisioning/bfbregistry"
 	"github.com/nvidia/doca-platform/internal/release"
 	"github.com/nvidia/doca-platform/pkg/bfcfg"
 	"github.com/nvidia/doca-platform/pkg/certmanager"
@@ -39,8 +40,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 const (
@@ -249,6 +252,11 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 				// dnsNames, so there is nothing to rewrite the namespace into.
 				certs, ok, _ := unstructured.NestedSlice(uns.UnstructuredContent(), "spec", "dnsNames")
 				g.Expect(ok || obj.GetName() == operatorv1.PlatformIntermediateCAName).To(BeTrue())
+				if obj.GetName() == "bfb-registry-server-cert" {
+					// The SANs are set from the variables, and include the short Service name.
+					g.Expect(certs).To(ContainElement("bfb-registry." + testNS + ".svc"))
+					continue
+				}
 				for i := range certs {
 					s, ok := certs[i].(string)
 					g.Expect(ok).To(BeTrue())
@@ -294,9 +302,11 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		// than read from the embedded manifest, so they are not part of the parsed originals. The
 		// legacy provisioning CA chain goes the other way: it is in the embedded manifest, and
 		// GenerateManifests drops it unless a migration still needs it.
+		// The registry Deployment is only emitted when the BFB PVC is ReadWriteMany, which these
+		// variables are not.
 		g.Expect(generatedObjs).To(HaveLen(
 			len(originalObjs) - legacyProvisioningCAObjectCount +
-				len(originalBFBRegistryObjs) + len(originalPlatformCAObjs)))
+				len(originalBFBRegistryObjs) - 1 + len(originalPlatformCAObjs)))
 
 		// Expect the namespaces for the namespace scoped objects to equal the namespace in variables.
 		for _, obj := range generatedObjs {
@@ -665,17 +675,15 @@ func TestProvisioningControllerObjects_GenerateManifests(t *testing.T) {
 		}
 		g.Expect(managerC).NotTo(BeNil())
 		g.Expect(managerC.Args).To(ContainElement("--bfb-pvc="), "hostPath mode must set --bfb-pvc= (empty)")
-		var hasNodeName, hasNodeIP bool
+		var hasNodeName bool
 		for _, e := range managerC.Env {
 			if e.Name == "NODE_NAME" && e.ValueFrom != nil {
 				hasNodeName = true
 			}
-			if e.Name == "NODE_IP" && e.ValueFrom != nil {
-				hasNodeIP = true
-			}
+			// Nothing reads the node IP since the Operator owns the server certificate.
+			g.Expect(e.Name).NotTo(Equal("NODE_IP"))
 		}
 		g.Expect(hasNodeName).To(BeTrue())
-		g.Expect(hasNodeIP).To(BeTrue())
 	})
 
 	t.Run("test adding a custom bfb cfg configmap", func(t *testing.T) {
@@ -1746,4 +1754,311 @@ func legacyProvisioningIssuerCASecret(g Gomega, objs []client.Object) string {
 	}
 	g.Expect(operatorv1.LegacyProvisioningIssuerName).To(BeEmpty(), "the generated manifests carry no such Issuer")
 	return ""
+}
+
+func TestDPFProvisioningControllerObjects_GenerateBFBRegistry(t *testing.T) {
+	g := NewGomegaWithT(t)
+
+	defaults := release.NewDefaults()
+	g.Expect(defaults.Parse()).NotTo(HaveOccurred())
+
+	provCtrl := &provisioningControllerObjects{
+		data:            provisioningControllerData,
+		bfbRegistryData: bfbRegistryData,
+		platformCAData:  platformCAData,
+	}
+	g.Expect(provCtrl.Parse()).NotTo(HaveOccurred())
+
+	newVars := func() Variables {
+		vars := newDefaultVariables(defaults)
+		vars.Namespace = "dpf-operator-system"
+		vars.KubernetesAPIServerVIP = ptr.To("192.0.2.10")
+		vars.Images[operatorv1.BFBRegistryName.String()] = "registry-image:latest"
+		vars.DPFProvisioningController = DPFProvisioningVariables{
+			BFBPersistentVolumeClaimName: ptr.To(TestPVC),
+			DeploymentMode:               operatorv1.DeploymentModeHostTrusted,
+			BFBRegistryLayout:            BFBRegistryLayoutSpread,
+			BFBRegistryVolumeClaim:       TestPVC,
+			Registry: &operatorv1.RegistryConfiguration{
+				LoadBalancerAddress: ptr.To("https://lb.example.com:8443"),
+			},
+		}
+		return vars
+	}
+
+	findByKindName := func(objs []client.Object, kind, name string) client.Object {
+		t.Helper()
+		for _, obj := range objs {
+			if obj.GetObjectKind().GroupVersionKind().Kind == kind && obj.GetName() == name {
+				return obj
+			}
+		}
+		return nil
+	}
+
+	t.Run("spread layout emits Deployment without nodeName", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := newVars()
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		deployUn := findByKindName(generatedObjs, string(DeploymentKind), "bfb-registry")
+		g.Expect(deployUn).NotTo(BeNil())
+		deploy := &appsv1.Deployment{}
+		g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(deployUn.(*unstructured.Unstructured).UnstructuredContent(), deploy)).To(Succeed())
+		g.Expect(deploy.Spec.Replicas).To(Equal(ptr.To(int32(1))))
+		g.Expect(deploy.Spec.Template.Spec.NodeName).To(BeEmpty())
+		g.Expect(*deploy.Spec.Template.Spec.Affinity.NodeAffinity).To(Equal(controlPlaneNodeAffinity))
+		g.Expect(deploy.Spec.Template.Spec.Affinity.PodAntiAffinity).NotTo(BeNil())
+		g.Expect(deploy.Spec.Template.Spec.Tolerations).To(Equal(controlPlaneTolerations))
+		var bfbVol *corev1.Volume
+		for i := range deploy.Spec.Template.Spec.Volumes {
+			if deploy.Spec.Template.Spec.Volumes[i].Name == "bfb" {
+				bfbVol = &deploy.Spec.Template.Spec.Volumes[i]
+			}
+		}
+		g.Expect(bfbVol).NotTo(BeNil())
+		g.Expect(bfbVol.PersistentVolumeClaim).NotTo(BeNil())
+		g.Expect(bfbVol.PersistentVolumeClaim.ClaimName).To(Equal(TestPVC))
+		g.Expect(bfbVol.PersistentVolumeClaim.ReadOnly).To(BeTrue())
+		nginx := deploy.Spec.Template.Spec.Containers[0]
+		g.Expect(nginx.Name).To(Equal("bfb-registry"))
+		var certMount *corev1.VolumeMount
+		for i := range nginx.VolumeMounts {
+			if nginx.VolumeMounts[i].Name == "server-cert" {
+				certMount = &nginx.VolumeMounts[i]
+			}
+		}
+		g.Expect(certMount).NotTo(BeNil())
+		g.Expect(certMount.SubPath).To(BeEmpty())
+
+		mgr := findProvisioningManager(t, generatedObjs)
+		g.Expect(mgr.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--bfb-registry-managed-by-operator=true"))
+		g.Expect(mgr.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--bfb-pvc=" + TestPVC))
+		g.Expect(deploy.Spec.Strategy.Type).To(Equal(appsv1.RollingUpdateDeploymentStrategyType))
+		g.Expect(deploy.Spec.Strategy.RollingUpdate.MaxSurge).To(Equal(ptr.To(intstr.FromString("25%"))))
+		g.Expect(deploy.Spec.Strategy.RollingUpdate.MaxUnavailable).To(Equal(ptr.To(intstr.FromString("25%"))))
+
+		certUn := findByKindName(generatedObjs, string(CertificateKind), "bfb-registry-server-cert")
+		g.Expect(certUn).NotTo(BeNil())
+		dns, found, err := unstructured.NestedStringSlice(certUn.(*unstructured.Unstructured).UnstructuredContent(), "spec", "dnsNames")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(found).To(BeTrue())
+		g.Expect(dns).To(ContainElements(
+			"bfb-registry",
+			"bfb-registry.dpf-operator-system.svc",
+			"bfb-registry.dpf-operator-system.svc.cluster.local",
+		))
+		g.Expect(dns).To(ContainElement("lb.example.com"))
+		ips, found, err := unstructured.NestedStringSlice(certUn.(*unstructured.Unstructured).UnstructuredContent(), "spec", "ipAddresses")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(found).To(BeTrue())
+		g.Expect(ips).To(ContainElement("192.0.2.10"))
+		g.Expect(ips).NotTo(ContainElement(""))
+
+		svcUn := findByKindName(generatedObjs, string(ServiceKind), "bfb-registry")
+		g.Expect(svcUn).NotTo(BeNil())
+		svc := &corev1.Service{}
+		g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(svcUn.(*unstructured.Unstructured).UnstructuredContent(), svc)).To(Succeed())
+		g.Expect(svc.Spec.Type).To(Equal(corev1.ServiceTypeNodePort))
+		g.Expect(svc.Spec.Selector).To(Equal(map[string]string{
+			"app.kubernetes.io/part-of": "bfb-registry",
+			"dpu.nvidia.com/component":  "bfb-registry",
+		}))
+		g.Expect(svc.Spec.Ports).To(HaveLen(1))
+		g.Expect(svc.Spec.Ports[0].NodePort).To(BeZero())
+
+		anti := deploy.Spec.Template.Spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution
+		g.Expect(anti).NotTo(BeEmpty())
+		g.Expect(anti[0].PodAffinityTerm.LabelSelector.MatchLabels).To(HaveKeyWithValue("app.kubernetes.io/part-of", "bfb-registry"))
+	})
+
+	t.Run("uses configured replicas", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := newVars()
+		vars.DPFProvisioningController.Registry.Replicas = 2
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+		deployUn := findByKindName(generatedObjs, string(DeploymentKind), "bfb-registry")
+		deploy := &appsv1.Deployment{}
+		g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(deployUn.(*unstructured.Unstructured).UnstructuredContent(), deploy)).To(Succeed())
+		g.Expect(deploy.Spec.Replicas).To(Equal(ptr.To(int32(2))))
+	})
+
+	t.Run("provisioning controller keeps the registry when layout is unset", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := newVars()
+		vars.DPFProvisioningController.BFBRegistryLayout = BFBRegistryLayoutProvisioningController
+		vars.DPFProvisioningController.BFBRegistryVolumeClaim = ""
+		vars.DPFProvisioningController.Registry = &operatorv1.RegistryConfiguration{Replicas: 3}
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(findByKindName(generatedObjs, string(DeploymentKind), "bfb-registry")).To(BeNil(),
+			"the provisioning controller creates the registry Pod")
+		g.Expect(findByKindName(generatedObjs, string(ServiceKind), "bfb-registry")).NotTo(BeNil(),
+			"the Operator owns the Service whoever runs the registry")
+		g.Expect(findByKindName(generatedObjs, string(CertificateKind), "bfb-registry-server-cert")).NotTo(BeNil(),
+			"the Operator owns the server certificate whoever runs the registry")
+		g.Expect(findByKindName(generatedObjs, "ConfigMap", "bfb-registry-config")).NotTo(BeNil(),
+			"the nginx config is shared by both owners")
+		mgr := findProvisioningManager(t, generatedObjs)
+		g.Expect(mgr.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--bfb-pvc=" + TestPVC))
+		for _, arg := range mgr.Spec.Template.Spec.Containers[0].Args {
+			g.Expect(arg).NotTo(HavePrefix("--bfb-registry-managed-by-operator"))
+		}
+	})
+
+	t.Run("pins the NodePort carried over from a previous release in every layout", func(t *testing.T) {
+		for _, layout := range []BFBRegistryLayout{BFBRegistryLayoutSpread, BFBRegistryLayoutProvisioningController} {
+			g := NewGomegaWithT(t)
+			vars := newVars()
+			vars.DPFProvisioningController.BFBRegistryLayout = layout
+			vars.DPFProvisioningController.BFBRegistryNodePort = 31443
+			generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
+			g.Expect(err).NotTo(HaveOccurred())
+
+			svc := &corev1.Service{}
+			g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(
+				findByKindName(generatedObjs, string(ServiceKind), "bfb-registry").(*unstructured.Unstructured).UnstructuredContent(), svc)).To(Succeed())
+			g.Expect(svc.Spec.Ports).To(HaveLen(1))
+			g.Expect(svc.Spec.Ports[0].Name).To(Equal("https"))
+			g.Expect(svc.Spec.Ports[0].NodePort).To(Equal(int32(31443)), "layout %q", layout)
+		}
+	})
+
+	t.Run("signs the server certificate with the legacy issuer while the CA migration holds the leaves", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := newVars()
+		vars.RetainLegacyProvisioningCA = true
+		vars.HoldLeavesOnLegacyProvisioningIssuer = true
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+		issuer, _, err := unstructured.NestedString(
+			findByKindName(generatedObjs, string(CertificateKind), "bfb-registry-server-cert").(*unstructured.Unstructured).UnstructuredContent(),
+			"spec", "issuerRef", "name")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(issuer).To(Equal(operatorv1.LegacyProvisioningIssuerName))
+
+		vars.HoldLeavesOnLegacyProvisioningIssuer = false
+		generatedObjs, err = provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+		issuer, _, err = unstructured.NestedString(
+			findByKindName(generatedObjs, string(CertificateKind), "bfb-registry-server-cert").(*unstructured.Unstructured).UnstructuredContent(),
+			"spec", "issuerRef", "name")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(issuer).To(Equal(operatorv1.PlatformIssuerName))
+	})
+
+	t.Run("manifest names match the names the provisioning controller and the registry use", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), newVars())
+		g.Expect(err).NotTo(HaveOccurred())
+
+		cert := findByKindName(generatedObjs, string(CertificateKind), bfbregistry.ServerCertSecretName)
+		g.Expect(cert).NotTo(BeNil())
+		secretName, _, err := unstructured.NestedString(cert.(*unstructured.Unstructured).UnstructuredContent(), "spec", "secretName")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(secretName).To(Equal(bfbregistry.ServerCertSecretName))
+
+		g.Expect(findByKindName(generatedObjs, string(ServiceKind), bfbregistry.PodName)).NotTo(BeNil())
+		deploy := &appsv1.Deployment{}
+		g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(
+			findByKindName(generatedObjs, string(DeploymentKind), bfbregistry.PodName).(*unstructured.Unstructured).UnstructuredContent(), deploy)).To(Succeed())
+		g.Expect(deploy.Spec.Selector.MatchLabels).To(Equal(bfbregistry.RegistryPodLabels()),
+			"the Service selects the Pods of both owners by these labels")
+		for k, v := range bfbregistry.RegistryPodLabels() {
+			g.Expect(deploy.Spec.Template.Labels).To(HaveKeyWithValue(k, v))
+		}
+	})
+
+	t.Run("disabled registry emits no Deployment but keeps the Service and Certificate", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		vars := newVars()
+		vars.DisableSystemComponents[operatorv1.BFBRegistryName] = true
+		generatedObjs, err := provCtrl.GenerateManifests(context.Background(), vars)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(findByKindName(generatedObjs, string(DeploymentKind), "bfb-registry")).To(BeNil())
+		// The provisioning controller still creates the registry Pod, which needs both.
+		g.Expect(findByKindName(generatedObjs, string(ServiceKind), "bfb-registry")).NotTo(BeNil())
+		g.Expect(findByKindName(generatedObjs, string(CertificateKind), "bfb-registry-server-cert")).NotTo(BeNil())
+		mgr := findProvisioningManager(t, generatedObjs)
+		for _, arg := range mgr.Spec.Template.Spec.Containers[0].Args {
+			g.Expect(arg).NotTo(HavePrefix("--bfb-registry-managed-by-operator"))
+		}
+	})
+}
+
+func findProvisioningManager(t *testing.T, objs []client.Object) *appsv1.Deployment {
+	t.Helper()
+	for _, obj := range objs {
+		if obj.GetObjectKind().GroupVersionKind().Kind != string(DeploymentKind) {
+			continue
+		}
+		if obj.GetName() != DPFProvisioningControllerName {
+			continue
+		}
+		deploy := &appsv1.Deployment{}
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).UnstructuredContent(), deploy); err != nil {
+			t.Fatalf("convert provisioning deployment: %v", err)
+		}
+		return deploy
+	}
+	t.Fatal("provisioning-controller deployment not found")
+	return nil
+}
+
+func TestDPFProvisioningControllerObjects_IsReadyChecksBFBRegistryDeployment(t *testing.T) {
+	g := NewGomegaWithT(t)
+	const ns = "dpf-operator-system"
+
+	provCtrl := &provisioningControllerObjects{
+		data:            provisioningControllerData,
+		bfbRegistryData: bfbRegistryData,
+		platformCAData:  platformCAData,
+	}
+	g.Expect(provCtrl.Parse()).NotTo(HaveOccurred())
+
+	scheme := runtime.NewScheme()
+	g.Expect(appsv1.AddToScheme(scheme)).To(Succeed())
+	deployment := func(name string, ready, replicas int32) *appsv1.Deployment {
+		return &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
+			Status:     appsv1.DeploymentStatus{Replicas: replicas, ReadyReplicas: ready},
+		}
+	}
+	controller := deployment(DPFProvisioningControllerName, 1, 1)
+	config := &operatorv1.DPFOperatorConfig{ObjectMeta: metav1.ObjectMeta{Namespace: ns}}
+
+	tests := []struct {
+		name    string
+		objs    []client.Object
+		wantErr string
+	}{
+		{name: "no registry Deployment, the provisioning controller runs the registry Pod", objs: []client.Object{controller}},
+		{name: "registry Deployment ready", objs: []client.Object{controller, deployment("bfb-registry", 2, 2)}},
+		{name: "registry Deployment not ready", objs: []client.Object{controller, deployment("bfb-registry", 0, 2)},
+			wantErr: "Deployment dpf-operator-system/bfb-registry has 0 readyReplicas, want 2"},
+		{name: "registry Deployment without replicas", objs: []client.Object{controller, deployment("bfb-registry", 0, 0)},
+			wantErr: "Deployment dpf-operator-system/bfb-registry has no replicas"},
+		{name: "provisioning controller not ready is still reported", objs: []client.Object{deployment(DPFProvisioningControllerName, 0, 1)},
+			wantErr: "has 0 readyReplicas, want 1"},
+		{name: "both are reported", objs: []client.Object{deployment(DPFProvisioningControllerName, 0, 1), deployment("bfb-registry", 0, 2)},
+			wantErr: "bfb-registry has 0 readyReplicas, want 2"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewGomegaWithT(t)
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tt.objs...).Build()
+			for name, err := range map[string]error{
+				"IsReady":           provCtrl.IsReady(context.Background(), c, ns),
+				"IsReadyForUpgrade": provCtrl.IsReadyForUpgrade(context.Background(), c, config),
+			} {
+				if tt.wantErr == "" {
+					g.Expect(err).NotTo(HaveOccurred(), name)
+					continue
+				}
+				g.Expect(err).To(MatchError(ContainSubstring(tt.wantErr)), name)
+			}
+		})
+	}
 }

@@ -108,6 +108,11 @@ type DPFOperatorConfigReconciler struct {
 	// object keyed by generation — see reconcileDeprecatedFieldsUsage/deprecatedFieldsForGVK in
 	// deprecated_fields.go. Same synchronization reasoning as lastDeprecatedFieldsScan above.
 	deprecatedFieldsCache map[schema.GroupVersionKind]map[types.NamespacedName]deprecatedFieldsCacheEntry
+
+	// bfbRegistryReplicasIgnoredLogged records that the "registry.replicas is
+	// ignored" message was already logged, so it is not repeated on every reconcile.
+	// Same synchronization reasoning as lastDeprecatedFieldsScan above.
+	bfbRegistryReplicasIgnoredLogged bool
 }
 
 // DPFOperatorConfigReconcilerSettings contains settings related to the DPFOperatorConfig.
@@ -199,6 +204,9 @@ func (r *DPFOperatorConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(anchorCertificate,
 			handler.EnqueueRequestsFromMapFunc(r.ResourceToDPFOperatorConfig),
 			builder.WithPredicates(isAnchorCertificate())).
+		Watches(&corev1.PersistentVolumeClaim{},
+			handler.EnqueueRequestsFromMapFunc(r.bfbPVCToDPFOperatorConfig),
+			builder.WithPredicates(bfbPVCPredicate())).
 		Complete(r)
 }
 
@@ -642,6 +650,10 @@ func (r *DPFOperatorConfigReconciler) reconcileSystemComponents(ctx context.Cont
 	vars.PlatformCACommonName = migration.CACommonName
 	vars.RetainLegacyProvisioningCA = migration.LegacyChainRetained
 	vars.HoldLeavesOnLegacyProvisioningIssuer = migration.LeavesHeldOnLegacyIssuer
+	registryErr := r.prepareBFBRegistry(ctx, config.Namespace, &vars)
+	if registryErr != nil {
+		errs = append(errs, registryErr)
+	}
 	caErr := r.resolveOpenTelemetryCollectorCACerts(ctx, config, &vars)
 	if caErr != nil {
 		errs = append(errs, caErr)
@@ -652,6 +664,12 @@ func (r *DPFOperatorConfigReconciler) reconcileSystemComponents(ctx context.Cont
 		// without the CA would change the deployed TLS configuration, and disabling it would
 		// prune the deployed objects. Leave the current state untouched and surface the error.
 		if caErr != nil && component.Name() == operatorv1.OpenTelemetryCollectorName {
+			continue
+		}
+		// On a transient PVC or NodePort ConfigMap read error, keep the currently
+		// applied provisioning-controller and registry objects instead of pruning
+		// or rolling them, or recreating the Service on a different NodePort.
+		if registryErr != nil && component.Name() == operatorv1.ProvisioningControllerName {
 			continue
 		}
 		if err := r.generateAndPatchObjects(ctx, component, vars); err != nil {

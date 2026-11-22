@@ -302,3 +302,23 @@ func HTTPClientWithCABundle(caBundlePath string) (*http.Client, error) {
 		},
 	}, nil
 }
+
+// HTTPClientWithCABundleAndServerName is HTTPClientWithCABundle with tls.Config.ServerName
+// set. Use it when the TCP address (for example a Service ClusterIP) differs from the
+// DNS name on the server certificate SAN. An empty serverName leaves verification to the
+// hostname in the request URL.
+func HTTPClientWithCABundleAndServerName(caBundlePath, serverName string) (*http.Client, error) {
+	client, err := HTTPClientWithCABundle(caBundlePath)
+	if err != nil {
+		return nil, err
+	}
+	if serverName == "" {
+		return client, nil
+	}
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok || transport.TLSClientConfig == nil {
+		return nil, fmt.Errorf("HTTP client transport is missing TLS config")
+	}
+	transport.TLSClientConfig.ServerName = serverName
+	return client, nil
+}
