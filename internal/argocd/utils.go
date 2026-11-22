@@ -85,10 +85,9 @@ func NewAppProject(namespace, name string, clusters []types.NamespacedName, sour
 				{Group: "*", Kind: "*"},
 			},
 			NamespaceResourceBlacklist: nil,
-			OrphanedResources: &argov1.OrphanedResourcesMonitorSettings{
-				Warn:   nil,
-				Ignore: nil,
-			},
+			// Orphaned resources monitoring is intentionally disabled (nil). A non-nil value, even an empty one,
+			// enables it in ArgoCD.
+			OrphanedResources:               nil,
 			SyncWindows:                     nil,
 			NamespaceResourceWhitelist:      nil,
 			SignatureKeys:                   nil,

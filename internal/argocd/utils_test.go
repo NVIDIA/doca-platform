@@ -17,6 +17,7 @@ limitations under the License.
 package argocd
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -56,5 +57,20 @@ func Test_GetApplicationName(t *testing.T) {
 
 		g.Expect(GetApplicationName(clusterName, "service-one")).
 			NotTo(Equal(GetApplicationName(clusterName, "service-two")))
+	})
+}
+
+func Test_NewAppProject(t *testing.T) {
+	// This causes scale issues in case other objects not managed by ArgoCD are constantly updated in the same namespace
+	t.Run("does not enable orphaned resources monitoring", func(t *testing.T) {
+		g := NewWithT(t)
+		project := NewAppProject("argocd", AppProjectNameDPU, nil, "dpf-operator-system")
+
+		// A non-nil value, even an empty one, enables monitoring in ArgoCD.
+		g.Expect(project.Spec.OrphanedResources).To(BeNil())
+
+		raw, err := json.Marshal(project)
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(string(raw)).ToNot(ContainSubstring("orphanedResources"))
 	})
 }
