@@ -51,6 +51,18 @@ func setFinalizers(obj client.Object, finalizers ...string) {
 // createEmptyNSI creates an NSI without entries for the node, and removes it with its finalizers when the spec ends.
 func createEmptyNSI(nodeName string, finalizers ...string) *dpuservicev1.NodeServiceInterfaces {
 	GinkgoHelper()
+	return createNSI(nodeName, nil, finalizers)
+}
+
+// createNSIWithEntries creates an NSI with the given entries for the node, and removes it when the spec ends.
+func createNSIWithEntries(nodeName string, entries ...dpuservicev1.InterfaceEntry) *dpuservicev1.NodeServiceInterfaces {
+	GinkgoHelper()
+	return createNSI(nodeName, entries, nil)
+}
+
+// createNSI creates an NSI with the given entries and finalizers, and removes its finalizers and the object when the spec ends.
+func createNSI(nodeName string, entries []dpuservicev1.InterfaceEntry, finalizers []string) *dpuservicev1.NodeServiceInterfaces {
+	GinkgoHelper()
 	nsi := &dpuservicev1.NodeServiceInterfaces{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:  utils.NSIObjectsNamespace,
@@ -58,8 +70,9 @@ func createEmptyNSI(nodeName string, finalizers ...string) *dpuservicev1.NodeSer
 			Finalizers: finalizers,
 		},
 		Spec: dpuservicev1.NodeServiceInterfacesSpec{
-			Node: nodeName,
-			Type: dpuservicev1.NSITypeSFC,
+			Node:       nodeName,
+			Type:       dpuservicev1.NSITypeSFC,
+			Interfaces: entries,
 		},
 	}
 	Expect(testClient.Create(ctx, nsi)).To(Succeed())
@@ -332,16 +345,22 @@ var _ = Describe("Cleanup of objects left behind by a node that no longer exists
 		})
 
 		It("doesn't delete an NSI that got a new entry after it was read as empty", func() {
-			nsi := createEmptyNSI("orphan-nsi-stale")
+			// The NSI is never empty in the cluster: running controllers delete empty NSIs of absent nodes, which would
+			// race with the spec. Only the copy read earlier is emptied, so that it looks like a stale empty read.
+			entry := func(name string) dpuservicev1.InterfaceEntry {
+				return dpuservicev1.InterfaceEntry{
+					Name:          name,
+					InterfaceType: dpuservicev1.InterfaceTypePhysical,
+					Physical:      &dpuservicev1.Physical{InterfaceName: "p0"},
+				}
+			}
+			nsi := createNSIWithEntries("orphan-nsi-stale", entry("first-entry"))
 			stale := nsi.DeepCopy()
+			stale.Spec.Interfaces = nil
 
 			By("Adding an entry after the empty NSI was read")
 			updated := nsi.DeepCopy()
-			updated.Spec.Interfaces = []dpuservicev1.InterfaceEntry{{
-				Name:          "late-entry",
-				InterfaceType: dpuservicev1.InterfaceTypePhysical,
-				Physical:      &dpuservicev1.Physical{InterfaceName: "p0"},
-			}}
+			updated.Spec.Interfaces = append(updated.Spec.Interfaces, entry("late-entry"))
 			Expect(testClient.Patch(ctx, updated, client.MergeFrom(nsi))).To(Succeed())
 
 			reconciler := &ServiceInterfaceSetReconciler{Client: testClient}
