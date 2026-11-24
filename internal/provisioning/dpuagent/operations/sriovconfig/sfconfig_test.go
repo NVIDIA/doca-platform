@@ -116,9 +116,7 @@ var _ = Describe("ReconcileSF", func() {
 				},
 			})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(cmds[:5]).To(Equal([]string{
-				"doca-hugepages config --app cmx_target --size 2048 --num 4096",
-				"doca-hugepages reload",
+			Expect(cmds[:3]).To(Equal([]string{
 				"devlink dev eswitch set pci/0000:03:00.0 mode switchdev",
 				"devlink dev eswitch set pci/0000:03:00.1 mode switchdev",
 				"/sbin/mlnx-sf --action create --device 0000:03:00.0 --sfnum 0",
@@ -167,7 +165,6 @@ var _ = Describe("ReconcileSF", func() {
 			Expect(err).NotTo(HaveOccurred())
 			for _, cmd := range cmds {
 				Expect(cmd).NotTo(ContainSubstring("devlink dev eswitch set"))
-				Expect(cmd).NotTo(ContainSubstring("doca-hugepages"))
 			}
 		})
 

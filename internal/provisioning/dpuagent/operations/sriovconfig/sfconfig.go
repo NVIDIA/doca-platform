@@ -212,25 +212,7 @@ func (s *ReconcileSF) runHostlessWorkarounds(optCtx *operations.Context) error {
 	if optCtx.LatestDPU == nil || !optCtx.LatestDPU.Status.Hostless {
 		return nil
 	}
-	s.ensureHostlessHugepages()
 	return s.ensureHostlessEswitchSwitchdev(optCtx)
-}
-
-// ensureHostlessHugepages configures cmx_target hugepages for hostless DPUs.
-// Failures are logged only: doca-hugepages is not yet reliably available on
-// all hostless images, and must not block SF creation.
-func (s *ReconcileSF) ensureHostlessHugepages() {
-	for _, cmd := range []string{
-		"doca-hugepages config --app cmx_target --size 2048 --num 4096",
-		"doca-hugepages reload",
-	} {
-		klog.Infof("hostless workaround: %s", cmd)
-		stdout, stderr, err := s.runBash(cmd)
-		if err != nil {
-			klog.Errorf("hugepages: %s: %v (stdout=%s stderr=%s)",
-				cmd, err, stdout.String(), stderr.String())
-		}
-	}
 }
 
 // ensureHostlessEswitchSwitchdev is a workaround for hostless DPUs where the
