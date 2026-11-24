@@ -47,8 +47,10 @@ spec:
           update: 1000
           sync-time-limit: 10000
           event-buffer-size: 65536
-          counter-buffer-size: 65536
-          nofile-limit: 2048
+          # 0 lets DTS size the counter buffers to fit each provider's counters.
+          # A fixed size that is too small stops that provider from collecting.
+          counter-buffer-size: 0
+          nofile-limit: 8192
           amber_mlxlink_as_service: 0
         fluent:
           forward:
@@ -223,8 +225,10 @@ spec:
           update: 1000
           sync-time-limit: 10
           event-buffer-size: 65536
-          counter-buffer-size: 65536
-          nofile-limit: 2048
+          # 0 lets DTS size the counter buffers to fit each provider's counters.
+          # A fixed size that is too small stops that provider from collecting.
+          counter-buffer-size: 0
+          nofile-limit: 8192
 
           diagnostic-data-yml-file: "/config/diagnostic_data_configs/all-single-port.yml"
           level-labels-file: "/config/level_labels.ini"
