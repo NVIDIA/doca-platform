@@ -54,7 +54,7 @@ var (
 		Version: "v1",
 		Kind:    operatorv1.CertManagerIssuerKind,
 	}
-	clusterIssuerGVK = schema.GroupVersionKind{
+	ClusterIssuerGVK = schema.GroupVersionKind{
 		Group:   operatorv1.CertManagerGroup,
 		Version: "v1",
 		Kind:    operatorv1.CertManagerClusterIssuerKind,
@@ -616,7 +616,7 @@ func getIssuer(ctx context.Context, c client.Client, namespace string, ref certm
 	issuer := &unstructured.Unstructured{}
 	key := client.ObjectKey{Name: ref.Name}
 	if ref.Kind == operatorv1.CertManagerClusterIssuerKind {
-		issuer.SetGroupVersionKind(clusterIssuerGVK)
+		issuer.SetGroupVersionKind(ClusterIssuerGVK)
 	} else {
 		issuer.SetGroupVersionKind(IssuerGVK)
 		key.Namespace = namespace

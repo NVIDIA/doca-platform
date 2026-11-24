@@ -46,7 +46,7 @@ func testScheme(t *testing.T) *runtime.Scheme {
 	NewWithT(t).Expect(operatorv1.AddToScheme(scheme)).To(Succeed())
 	NewWithT(t).Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
 	NewWithT(t).Expect(corev1.AddToScheme(scheme)).To(Succeed())
-	for _, gvk := range []schema.GroupVersionKind{CertificateGVK, IssuerGVK, clusterIssuerGVK} {
+	for _, gvk := range []schema.GroupVersionKind{CertificateGVK, IssuerGVK, ClusterIssuerGVK} {
 		scheme.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
 		scheme.AddKnownTypeWithName(gvk.GroupVersion().WithKind(gvk.Kind+"List"), &unstructured.UnstructuredList{})
 	}
@@ -228,7 +228,7 @@ func TestReconcile(t *testing.T) {
 			name:   "an external ClusterIssuer that is not ready is waited on",
 			anchor: clusterIssuerRef,
 			objs: []client.Object{
-				newIssuer(clusterIssuerGVK, clusterIssuerRef.Name, readyStatus(false, "Failed to initialize the Vault client")),
+				newIssuer(ClusterIssuerGVK, clusterIssuerRef.Name, readyStatus(false, "Failed to initialize the Vault client")),
 				newPlatformCACertificate(clusterIssuerRef, readyStatus(true, "")),
 			},
 			wantStatus:  metav1.ConditionFalse,
@@ -239,7 +239,7 @@ func TestReconcile(t *testing.T) {
 			name:   "an external ClusterIssuer with an issued intermediate CA is ready",
 			anchor: clusterIssuerRef,
 			objs: []client.Object{
-				newIssuer(clusterIssuerGVK, clusterIssuerRef.Name, readyStatus(true, "")),
+				newIssuer(ClusterIssuerGVK, clusterIssuerRef.Name, readyStatus(true, "")),
 				newPlatformCACertificate(clusterIssuerRef, readyStatus(true, "")),
 			},
 			wantStatus: metav1.ConditionTrue,
@@ -261,7 +261,7 @@ func TestReconcile(t *testing.T) {
 			name:   "an external issuer refusing to sign a CA certificate is surfaced",
 			anchor: clusterIssuerRef,
 			objs: []client.Object{
-				newIssuer(clusterIssuerGVK, clusterIssuerRef.Name, readyStatus(true, "")),
+				newIssuer(ClusterIssuerGVK, clusterIssuerRef.Name, readyStatus(true, "")),
 				newPlatformCACertificate(clusterIssuerRef, readyStatus(false, "not allowed to sign CA certificates")),
 			},
 			wantStatus:  metav1.ConditionFalse,
@@ -275,7 +275,7 @@ func TestReconcile(t *testing.T) {
 			name:   "a required CA rotation takes precedence over a chain that is still reissuing",
 			anchor: clusterIssuerRef,
 			objs: []client.Object{
-				newIssuer(clusterIssuerGVK, clusterIssuerRef.Name, readyStatus(true, "")),
+				newIssuer(ClusterIssuerGVK, clusterIssuerRef.Name, readyStatus(true, "")),
 				newPlatformCACertificate(clusterIssuerRef, readyStatus(false, "Issuing certificate as Secret was previously issued by another issuer")),
 			},
 			rotationRequired: true,
@@ -302,7 +302,7 @@ func TestReconcile(t *testing.T) {
 			name:   "an anchor that is not ready is reported even while a CA rotation is required",
 			anchor: clusterIssuerRef,
 			objs: []client.Object{
-				newIssuer(clusterIssuerGVK, clusterIssuerRef.Name, readyStatus(false, "Failed to initialize the Vault client")),
+				newIssuer(ClusterIssuerGVK, clusterIssuerRef.Name, readyStatus(false, "Failed to initialize the Vault client")),
 				newPlatformCACertificate(clusterIssuerRef, readyStatus(true, "")),
 			},
 			rotationRequired: true,

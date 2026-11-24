@@ -191,6 +191,10 @@ type DPFOperatorConfigReconcilerSettings struct {
 func (r *DPFOperatorConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	anchorCertificate := &unstructured.Unstructured{}
 	anchorCertificate.SetGroupVersionKind(certmanagement.CertificateGVK)
+	issuer := &unstructured.Unstructured{}
+	issuer.SetGroupVersionKind(certmanagement.IssuerGVK)
+	clusterIssuer := &unstructured.Unstructured{}
+	clusterIssuer.SetGroupVersionKind(certmanagement.ClusterIssuerGVK)
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&operatorv1.DPFOperatorConfig{}).
@@ -207,7 +211,46 @@ func (r *DPFOperatorConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.PersistentVolumeClaim{},
 			handler.EnqueueRequestsFromMapFunc(r.bfbPVCToDPFOperatorConfig),
 			builder.WithPredicates(bfbPVCPredicate())).
+		Watches(issuer,
+			handler.EnqueueRequestsFromMapFunc(r.AnchorIssuerToDPFOperatorConfig),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{})).
+		Watches(clusterIssuer,
+			handler.EnqueueRequestsFromMapFunc(r.AnchorIssuerToDPFOperatorConfig),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{})).
 		Complete(r)
+}
+
+// AnchorIssuerToDPFOperatorConfig enqueues a reconcile when the issuer anchoring the PKI changes.
+//
+// CertManagementReady reports on that issuer, and nothing else the controller watches changes while
+// it is missing or not ready: cert-manager cannot issue the anchor Certificate under it, so without
+// this watch the condition keeps reporting the issuer as missing after it has been created, until
+// the next cache resync. The anchor is named on the anchor Certificate and can change while the
+// operator runs, so it is resolved on every event rather than fixed when the watch is set up.
+func (r *DPFOperatorConfigReconciler) AnchorIssuerToDPFOperatorConfig(ctx context.Context, o client.Object) []ctrl.Request {
+	result := make([]ctrl.Request, 0, 1)
+	// Ignore this enqueue function if the singletonNamespaceName is not set. This is done to enable easier testing.
+	if r.Settings.ConfigSingletonNamespaceName == nil {
+		return result
+	}
+	request := ctrl.Request{NamespacedName: *r.Settings.ConfigSingletonNamespaceName}
+
+	anchor, err := certmanagement.ResolveAnchor(ctx, r.Client, request.Namespace)
+	if err != nil {
+		// No anchor Certificate yet is covered by the watch on that Certificate. Any other failure
+		// enqueues anyway, since the reconcile is what reports it.
+		if apierrors.IsNotFound(err) {
+			return result
+		}
+		return append(result, request)
+	}
+	if o.GetName() != anchor.Name || o.GetObjectKind().GroupVersionKind().Kind != anchor.Kind {
+		return result
+	}
+	if anchor.Kind != operatorv1.CertManagerClusterIssuerKind && o.GetNamespace() != request.Namespace {
+		return result
+	}
+	return append(result, request)
 }
 
 // isAnchorCertificate keeps the watch above to the one Certificate the authority anchoring the PKI

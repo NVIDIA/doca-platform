@@ -124,8 +124,10 @@ func main() {
 	}
 	ctrl.SetLogger(klog.Background())
 
-	anchorCertificate := &unstructured.Unstructured{}
-	anchorCertificate.SetGroupVersionKind(certmanagement.CertificateGVK)
+	certManagerCertificate := &unstructured.Unstructured{}
+	certManagerCertificate.SetGroupVersionKind(certmanagement.CertificateGVK)
+	certManagerIssuer := &unstructured.Unstructured{}
+	certManagerIssuer.SetGroupVersionKind(certmanagement.IssuerGVK)
 
 	metricsOpts := metricsserver.Options{
 		BindAddress:    metricsAddr,
@@ -187,23 +189,31 @@ func main() {
 						},
 					},
 				},
+				// Scope the PersistentVolumeClaim informer to the operator namespace. The
+				// controller reads and watches the BFB PVC there only: its access modes pick
+				// who runs bfb-registry. Without this entry the informer would hold every
+				// PVC in the cluster.
+				&corev1.PersistentVolumeClaim{}: {
+					Namespaces: map[string]cache.Config{
+						configSingletonNamespace: {},
+					},
+				},
 				// Scope the Certificate informer to the one the authority anchoring the PKI is read
 				// from, which is the only Certificate the DPFOperatorConfig controller watches.
 				// Narrowing it cannot affect reads: unstructured objects are not served from this
 				// cache at all (client.CacheOptions.Unstructured is left false), so every Certificate
 				// the operator reads is a live lookup.
-				anchorCertificate: {
+				certManagerCertificate: {
 					Namespaces: map[string]cache.Config{
 						configSingletonNamespace: {
 							FieldSelector: fields.OneTermEqualSelector("metadata.name", operatorv1.WebhookIntermediateCAName),
 						},
 					},
 				},
-				// Scope the PersistentVolumeClaim informer to the operator namespace. The
-				// controller reads and watches the BFB PVC there only: its access modes pick
-				// who runs bfb-registry. Without this entry the informer would hold every
-				// PVC in the cluster.
-				&corev1.PersistentVolumeClaim{}: {
+				// Scope the Issuer informer to the namespace of the DPFOperatorConfig, the only one a
+				// namespaced anchor is resolved in. It cannot be narrowed to a name: the anchor is read
+				// from the anchor Certificate and can change while the operator runs.
+				certManagerIssuer: {
 					Namespaces: map[string]cache.Config{
 						configSingletonNamespace: {},
 					},
