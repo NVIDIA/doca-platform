@@ -600,10 +600,9 @@ MIIBdummycertbase64contentline2
 		Expect(caFile.Permissions).To(Equal("0644"))
 		Expect(caFile.Content).To(Equal(caBundle + "\n"))
 
-		// update-ca-certificates must run before installing the agent
-		// (which fetches packages over HTTPS).
+		// CA trust refresh must run before installing the agent (which fetches packages over HTTPS).
 		Expect(parsed.RunCmd).To(Equal([][]string{
-			{"update-ca-certificates"},
+			{"bash", "-c", `if command -v update-ca-trust >/dev/null 2>&1; then mkdir -p /etc/pki/ca-trust/source/anchors && install -m 0644 /usr/local/share/ca-certificates/dpf-ca.crt /etc/pki/ca-trust/source/anchors/dpf-ca.crt && update-ca-trust extract; else update-ca-certificates; fi`},
 			{"/opt/dpf/install-dpu-agent.sh"},
 		}))
 	})
