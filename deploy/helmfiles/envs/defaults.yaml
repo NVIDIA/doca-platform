@@ -26,3 +26,7 @@ openbao:
 
 external-secrets:
   enabled: false
+
+# Grafana of kube-prometheus-stack in monitoring.yaml.
+grafana:
+  enabled: true

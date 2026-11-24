@@ -27,6 +27,7 @@ releases:
       type: monitoring
     values:
       - values/kube-prometheus-stack.yaml
+      - values/kube-prometheus-stack.yaml.gotmpl
     hooks:
       # Deploy the Grafana dashboards from ./dashboards as a sidecar-discovered
       # ConfigMap. These dashboards are monitoring-stack specific and therefore
