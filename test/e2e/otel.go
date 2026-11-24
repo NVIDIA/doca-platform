@@ -497,6 +497,8 @@ func createLogGeneratorPod(ctx context.Context, c client.Client, namespace, name
 				},
 			},
 			RestartPolicy: corev1.RestartPolicyAlways,
+			// The shell loop ignores SIGTERM, so stop it at once instead of waiting out the grace period.
+			TerminationGracePeriodSeconds: ptr.To[int64](0),
 			Tolerations: []corev1.Toleration{
 				{
 					Operator: corev1.TolerationOpExists,

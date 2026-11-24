@@ -60,6 +60,10 @@ nodes:
     nodeRegistration:
       kubeletExtraArgs:
         node-labels: "ingress-ready=true"
+  # Pull images in parallel, kubelet pulls one image at a time by default.
+  - |
+    kind: KubeletConfiguration
+    serializeImagePulls: false
   # Configure control plane components to expose metrics on all interfaces (0.0.0.0)
   # This is required for Prometheus to scrape metrics from outside the node
   # See docs/public/advanced-configuration/observability-guide.md for more details
@@ -128,14 +132,3 @@ kubectl delete ns local-path-storage || true
 kubectl delete sc standard || true
 
 echo "Kind cluster '${CLUSTER_NAME}' setup complete."
-
-echo "Prepull DPF host images."
-: ${REGISTRY?:env not set}
-: ${TAG?:env not set}
-docker pull "$REGISTRY/dpf-system:$TAG"
-docker pull "$REGISTRY/bfb-registry:$TAG"
-docker pull "$REGISTRY/dpf-keepalived:$TAG"
-$KIND_BIN load docker-image -n "$CLUSTER_NAME" \
-	"$REGISTRY/dpf-system:$TAG" \
-	"$REGISTRY/bfb-registry:$TAG" \
-	"$REGISTRY/dpf-keepalived:$TAG"

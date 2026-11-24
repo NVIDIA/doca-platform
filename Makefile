@@ -645,10 +645,17 @@ TEST_CLUSTER_NAME := dpf-test
 TEST_DPU_CLUSTER_NAME := dpf-test-dpu
 ADD_CONTROL_PLANE_TAINTS ?= true
 TEST_DEPLOY_PREREQS_NAMESPACE ?= dpf-operator-system
+DPF_HOST_IMAGES = $(DPF_SYSTEM_IMAGE):$(TAG) $(BFB_REGISTRY_IMAGE):$(TAG) $(KEEPALIVED_IMAGE):$(TAG)
 .PHONY: test-env-e2e
 test-env-e2e: kind helm ## Setup a Kind Kubernetes environment to run tests.
 	# Create a kind cluster to host the test.
 	CLUSTER_NAME=$(TEST_CLUSTER_NAME) KIND_BIN=$(KIND) ADD_CONTROL_PLANE_TAINTS=$(ADD_CONTROL_PLANE_TAINTS) $(CURDIR)/hack/scripts/kind-install.sh
+
+	# Pull the DPF host images in the background on the node. Best effort, kubelet pulls any missing image.
+	# Same credentials as dpf-pull-secret, crictl does not use the Kubernetes pull secret.
+	for img in $(DPF_HOST_IMAGES); do \
+		docker exec -d $(TEST_CLUSTER_NAME)-control-plane crictl pull $${IMAGE_PULL_KEY:+--creds "\$$oauthtoken:$$IMAGE_PULL_KEY"} $$img; \
+	done
 
 	$(KUBECTL) get namespace dpf-operator-system || $(KUBECTL) create namespace dpf-operator-system
 
