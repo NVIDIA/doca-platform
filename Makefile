@@ -45,6 +45,9 @@ export UPSTREAM_REGISTRY ?= $(REGISTRY)
 # If V is set to 1 the output will be verbose.
 Q = $(if $(filter 1,$V),,@)
 
+# --output-sync needs GNU make 4.0 or newer, macOS ships 3.81.
+OUTPUT_SYNC_TARGET := $(if $(filter output-sync,$(.FEATURES)),--output-sync=target)
+
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.32.0
 
@@ -609,11 +612,13 @@ test-benchmark: envtest ## Run the build-tagged gmeasure benchmarks only
 test-release-e2e-quick: # Build images required for the quick DPF e2e test.
 	# Only the local architecture is needed here, so override the image's
 	# architecture list to keep the build single-arch.
-	$(MAKE) docker-build-and-push-dpf-system DPF_SYSTEM_ARCH=$(ARCH)
-	$(MAKE) docker-build-and-push-dummydpuservice
-	$(MAKE) docker-build-and-push-mock-dms
-	$(MAKE) docker-build-and-push-bfb-registry DPF_SYSTEM_ARCH=$(ARCH)
-	$(MAKE) docker-build-and-push-keepalived DPF_SYSTEM_ARCH=$(ARCH)
+	# The images are built in parallel, each log is printed once its build finishes.
+	$(MAKE) -j $(OUTPUT_SYNC_TARGET) DPF_SYSTEM_ARCH=$(ARCH) \
+		docker-build-and-push-dpf-system \
+		docker-build-and-push-dummydpuservice \
+		docker-build-and-push-mock-dms \
+		docker-build-and-push-bfb-registry \
+		docker-build-and-push-keepalived
 	# Build and push all the helm charts
 	$(MAKE) helm-package-all helm-push-all
 	$(MAKE) helm-package-dummydpuservice helm-push-dummydpuservice
