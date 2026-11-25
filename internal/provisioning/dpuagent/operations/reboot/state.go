@@ -41,8 +41,9 @@ const (
 
 // rebootState is what HandleReboot keeps in its state file across agent restarts and reboots.
 type rebootState struct {
-	// InitialBootID is the boot ID when this file was created and never changes afterwards. The
-	// legacy boot-ID path reboots exactly once and uses it to tell whether that reboot happened.
+	// InitialBootID is the boot ID when this file was created or last reset by ResetState. The
+	// legacy boot-ID path reboots exactly once after that and uses it to tell whether that reboot
+	// happened.
 	InitialBootID string `json:"initialBootID"`
 	// Requests holds the conclusion of each boot, oldest first, at most maxRebootRequests entries.
 	// Running again in the same boot (a retry or an agent restart) replaces that boot's entry.
@@ -149,11 +150,25 @@ func saveState(store *statestore.Store, state rebootState) error {
 	return nil
 }
 
-// ResetState removes the state file, so an in-place reconfig for an updated DPUFlavor
-// starts over: the initial boot is recorded again, the sequence count restarts from zero and the
-// pending NVConfig observations of the old flavor no longer count.
-func ResetState(store *statestore.Store) error {
-	if err := store.Reset(stateFileName); err != nil {
+// ResetState starts the reboot bookkeeping over for an in-place reconfig with an updated
+// DPUFlavor: currentBootID becomes the initial boot and the sequence count restarts from zero.
+// The pending NVConfig observations are kept: they are the baseline that tells a parameter that
+// stays pending across boots from one that needs a reboot, and without them a reconfig that
+// changes no NVConfig would reboot the DPU for the stuck parameters.
+func ResetState(store *statestore.Store, currentBootID string) error {
+	var state rebootState
+	err := store.Load(stateFileName, &state)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reset reboot state: %w", err)
+	}
+	reset := rebootState{
+		InitialBootID: currentBootID,
+		Pending:       state.Pending,
+	}
+	if err := store.Save(stateFileName, reset); err != nil {
 		return fmt.Errorf("reset reboot state: %w", err)
 	}
 	return nil

@@ -18,7 +18,6 @@ package dpuagent
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1119,21 +1118,14 @@ var _ = Describe("DPUAgent", func() {
 		})
 
 		Context("reboot state", func() {
-			// saveRebootState writes a HandleReboot state file with one recorded request.
+			// saveRebootState writes a HandleReboot state file with one recorded request and
+			// one pending NVConfig observation.
 			saveRebootState := func(optCtx *operations.Context) {
 				Expect(optCtx.StateStore.Save("reboot", map[string]any{
 					"initialBootID": "boot-1",
 					"requests":      []map[string]any{{"bootID": "boot-1", "method": "PowerCycle"}},
+					"pending":       map[string]any{"latest": map[string]any{"bootID": "boot-1"}},
 				})).To(Succeed())
-			}
-			rebootStateExists := func(optCtx *operations.Context) bool {
-				var state map[string]any
-				err := optCtx.StateStore.Load("reboot", &state)
-				if errors.Is(err, os.ErrNotExist) {
-					return false
-				}
-				Expect(err).NotTo(HaveOccurred())
-				return true
 			}
 			newAgent := func(optCtx *operations.Context) *DPUAgent {
 				return &DPUAgent{
@@ -1148,7 +1140,7 @@ var _ = Describe("DPUAgent", func() {
 				}
 			}
 
-			It("removes the reboot state on an in-place reconfig Run", func() {
+			It("starts the initial boot and the requests over and keeps the pending NVConfig observations on an in-place reconfig Run", func() {
 				dpu := newTestDPU()
 				fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
 				optCtx := newTestOptCtx(fakeClient)
@@ -1156,24 +1148,32 @@ var _ = Describe("DPUAgent", func() {
 				saveRebootState(optCtx)
 
 				Expect(newAgent(optCtx).Run(ctx)).To(Succeed())
-				Expect(rebootStateExists(optCtx)).To(BeFalse())
+				var state map[string]any
+				Expect(optCtx.StateStore.Load("reboot", &state)).To(Succeed())
+				Expect(optCtx.CurrentBootID).NotTo(BeEmpty())
+				Expect(state).To(HaveKeyWithValue("initialBootID", optCtx.CurrentBootID))
+				Expect(state).NotTo(HaveKey("requests"))
+				Expect(state).To(HaveKeyWithValue("pending", HaveKeyWithValue("latest", HaveKeyWithValue("bootID", "boot-1"))))
 			})
 
-			It("keeps the reboot state on a Run that is not an in-place reconfig", func() {
+			It("does not reset the reboot state when the agent starts after a reboot or a restart", func() {
 				dpu := newTestDPU()
 				fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
 				optCtx := newTestOptCtx(fakeClient)
 				saveRebootState(optCtx)
 
 				Expect(newAgent(optCtx).Run(ctx)).To(Succeed())
-				Expect(rebootStateExists(optCtx)).To(BeTrue())
+				var state map[string]any
+				Expect(optCtx.StateStore.Load("reboot", &state)).To(Succeed())
+				Expect(state).To(HaveKeyWithValue("initialBootID", "boot-1"))
+				Expect(state).To(HaveKey("requests"))
 			})
 
-			It("fails an in-place reconfig Run when the reboot state cannot be removed", func() {
+			It("fails an in-place reconfig Run when the reboot state cannot be reset", func() {
 				dpu := newTestDPU()
 				fakeClient := fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(dpu).WithStatusSubresource(dpu).Build()
 				root := GinkgoT().TempDir()
-				// A non-empty directory in place of the file cannot be removed.
+				// A directory in place of the file cannot be read.
 				Expect(os.MkdirAll(filepath.Join(root, "test-uid", "reboot.json", "child"), 0o700)).To(Succeed())
 				optCtx := newTestOptCtx(fakeClient)
 				optCtx.StateStore = statestore.New(root, "test-uid")

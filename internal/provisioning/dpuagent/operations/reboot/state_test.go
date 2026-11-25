@@ -88,22 +88,36 @@ var _ = Describe("reboot state", func() {
 		Expect(err).To(MatchError(ContainSubstring("load reboot state")))
 	})
 
-	It("ResetState removes the file so the next run starts over", func() {
+	It("ResetState starts the initial boot and the requests over and keeps the pending observations", func() {
+		pending := pendingNVConfigState{
+			Previous: &pendingObservation{
+				BootID: "boot-2",
+				Devices: []pendingDevice{{
+					Device:  "d",
+					Entries: []pendingEntry{{Name: "PARAM_A", Current: "0", NextBoot: "1"}},
+				}},
+			},
+			Latest: &pendingObservation{
+				BootID:  "boot-3",
+				Devices: []pendingDevice{},
+			},
+		}
 		optCtx := &operations.Context{
 			StateStore: newTestStateStoreWith(rebootState{
 				InitialBootID: "boot-1",
 				Requests:      requestsOnBoots("boot", provisioningv1.RebootMethodPowerCycle, 3),
-				Pending:       pendingNVConfigState{Latest: &pendingObservation{BootID: "boot-3"}},
+				Pending:       pending,
 			}),
-			CurrentBootID: "boot-4",
+			CurrentBootID: "boot-3",
 		}
-		Expect(ResetState(optCtx.StateStore)).To(Succeed())
-		Expect(ResetState(optCtx.StateStore)).To(Succeed())
-		expectNoSavedState(optCtx)
+		Expect(ResetState(optCtx.StateStore, optCtx.CurrentBootID)).To(Succeed())
 		Expect(reportedSequenceCount(optCtx)).To(BeNil())
 		state, err := loadState(optCtx.StateStore, optCtx.CurrentBootID)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(state).To(Equal(rebootState{InitialBootID: "boot-4"}))
+		Expect(state).To(Equal(rebootState{
+			InitialBootID: "boot-3",
+			Pending:       pending,
+		}))
 	})
 
 	Describe("SequenceCountSource", func() {

@@ -192,15 +192,16 @@ func (d *DPUAgent) Run(ctx context.Context) error {
 	if err := removeMarker(d.runDir); err != nil {
 		return fmt.Errorf("failed to remove stale done marker: %w", err)
 	}
-	// Only an in-process reconfig deletes the OVS marker and the reboot state.
-	// A process restart in the same boot must keep the OVS marker so the script
-	// stays once-per-boot; the reboot bookkeeping of the old flavor no longer
-	// counts once the flavor changed.
+	// Only an in-process reconfig deletes the OVS marker and resets the reboot
+	// state. A process restart in the same boot must keep the OVS marker so the
+	// script stays once-per-boot; the initial boot and the reboot count of the
+	// old flavor no longer apply once the flavor changed, while the pending
+	// NVConfig observations are kept.
 	if d.optCtx.ReapplyConfig {
 		if err := removeOVSScriptMarker(d.runDir); err != nil {
 			return fmt.Errorf("failed to remove stale OVS script marker: %w", err)
 		}
-		if err := reboot.ResetState(d.optCtx.StateStore); err != nil {
+		if err := reboot.ResetState(d.optCtx.StateStore, d.optCtx.CurrentBootID); err != nil {
 			return err
 		}
 	}

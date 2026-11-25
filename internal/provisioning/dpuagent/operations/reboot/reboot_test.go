@@ -302,6 +302,40 @@ var _ = Describe("Reboot", func() {
 				Expect(reportedSequenceCount(optCtx)).To(Equal(ptr.To(int32(0))))
 			})
 
+			It("reboots once more on an in-place reconfig in the legacy flow", func() {
+				store := newTestStateStore()
+				run := func(bootID string) provisioningv1.RebootMethodType {
+					optCtx := &operations.Context{
+						Status:                newTestStatus(),
+						StateStore:            store,
+						LatestDPU:             &provisioningv1.DPU{},
+						RebootMethodDiscovery: false,
+						CurrentBootID:         bootID,
+					}
+					h := &HandleReboot{
+						skipBlock: true,
+						runBash: func(string) (bytes.Buffer, bytes.Buffer, error) {
+							return bytes.Buffer{}, bytes.Buffer{}, nil
+						},
+					}
+					Expect(h.Execute(context.Background(), optCtx)).To(Succeed())
+					return *optCtx.Status.GetLocal().RebootMethod
+				}
+
+				Expect(run("boot-1")).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+				Expect(run("boot-2")).To(Equal(provisioningv1.RebootMethodNoAction))
+
+				Expect(ResetState(store, "boot-2")).To(Succeed())
+				Expect(run("boot-2")).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+				Expect(run("boot-3")).To(Equal(provisioningv1.RebootMethodNoAction))
+
+				state := savedState(&operations.Context{StateStore: store})
+				Expect(state.InitialBootID).To(Equal("boot-2"))
+				Expect(methods(state)).To(Equal([]provisioningv1.RebootMethodType{
+					provisioningv1.RebootMethodSystemLevelReset, provisioningv1.RebootMethodNoAction,
+				}))
+			})
+
 			It("returns error when rebootSequenceCount limit is reached and records nothing", func() {
 				initial := rebootState{
 					InitialBootID: "boot-id",
@@ -1359,6 +1393,110 @@ var _ = Describe("Reboot", func() {
 				m, err := getRebootMethod(h, newCtx(store))
 				Expect(err).NotTo(HaveOccurred())
 				Expect(*m).To(Equal(provisioningv1.RebootMethodPowerCycle))
+			})
+
+			Context("in-place reconfig on a DPU that has a forever-pending NVConfig parameter", func() {
+				const device = testPCIAddress0
+				stuck := pendingEntry{Name: "VIRTIO_NET_EMULATION_NUM_MSIX", Default: "2", Current: "0", NextBoot: "2"}
+				var (
+					store *statestore.Store
+					// provisioning is the observation of boot-1, the baseline of a reconfig on boot-2.
+					provisioning *pendingObservation
+				)
+
+				// The DPU set PARAM_K1 from v0 to v1 on boot-1 and rebooted, then ignored the stuck
+				// parameter on boot-2 and became Ready. No flavor is set, so no parameter counts as
+				// desired and only the comparison against the baseline decides.
+				BeforeEach(func() {
+					provisioning = observation("boot-1", device, pendingEntry{Name: "PARAM_K1", Current: "v0", NextBoot: "v1"}, stuck)
+					store = newTestStateStoreWith(rebootState{
+						InitialBootID: "boot-1",
+						Requests: []rebootRequest{
+							{BootID: "boot-1", Method: provisioningv1.RebootMethodSystemLevelReset},
+							{BootID: "boot-2", Method: provisioningv1.RebootMethodNoAction},
+						},
+						Pending: pendingNVConfigState{
+							Previous: provisioning,
+							Latest:   observation("boot-2", device, stuck),
+						},
+					})
+				})
+
+				// handleReboot runs HandleReboot on bootID while mlxfwreset reports pending, and
+				// returns the reboot method it concluded.
+				handleReboot := func(bootID string, pending ...pendingEntry) (provisioningv1.RebootMethodType, *operations.Context) {
+					optCtx := &operations.Context{
+						Status:                newTestStatus(),
+						StateStore:            store,
+						RebootMethodDiscovery: true,
+						DiscoverPorts: func(_ pciutil.PortScope) ([]pciutil.NICPort, error) {
+							return []pciutil.NICPort{{Netdev: "p0", PCIAddress: device}}, nil
+						},
+						CurrentBootID: bootID,
+						LatestDPU:     &provisioningv1.DPU{},
+					}
+					h := &HandleReboot{
+						skipBlock: true,
+						runBash: func(string) (bytes.Buffer, bytes.Buffer, error) {
+							params, err := json.Marshal(pending)
+							Expect(err).NotTo(HaveOccurred())
+							var b bytes.Buffer
+							_, _ = fmt.Fprintf(&b, `{"reset_needed": true, "pending_nvconfig_parameters": %s, "command_required": %q}`,
+								params, systemLevelResetCommandRequiredText)
+							return b, bytes.Buffer{}, nil
+						},
+					}
+					Expect(h.Execute(context.Background(), optCtx)).To(Succeed())
+					return *optCtx.Status.GetLocal().RebootMethod, optCtx
+				}
+				// reconfig is the in-place reconfig Run on boot-2: it resets the state, then handles the reboot.
+				reconfig := func(pending ...pendingEntry) (provisioningv1.RebootMethodType, *operations.Context) {
+					Expect(ResetState(store, "boot-2")).To(Succeed())
+					return handleReboot("boot-2", pending...)
+				}
+				// expectRebootThenNoAction checks a reconfig that makes changed pending next to the
+				// stuck parameter: it reboots once, and the next boot reports NoAction.
+				expectRebootThenNoAction := func(changed pendingEntry) {
+					By("the reconfig on boot-2 keeps the changed parameter and filters only the stuck one")
+					method, optCtx := reconfig(changed, stuck)
+					Expect(method).To(Equal(provisioningv1.RebootMethodSystemLevelReset))
+					Expect(optCtx.CondMessage).To(ContainSubstring(
+						"[VIRTIO_NET_EMULATION_NUM_MSIX(default=2,current=0,next=2)]; reset still required"))
+					Expect(savedState(optCtx).Pending.Previous).To(Equal(provisioning))
+					Expect(latestObservation(optCtx)).To(Equal(observation("boot-2", device, changed, stuck)))
+
+					By("boot-3 compares against the reconfig observation and ignores the stuck parameter")
+					method, optCtx = handleReboot("boot-3", stuck)
+					Expect(method).To(Equal(provisioningv1.RebootMethodNoAction))
+					state := savedState(optCtx)
+					Expect(state.InitialBootID).To(Equal("boot-2"))
+					Expect(methods(state)).To(Equal([]provisioningv1.RebootMethodType{
+						provisioningv1.RebootMethodSystemLevelReset, provisioningv1.RebootMethodNoAction,
+					}))
+					Expect(state.Pending.Previous).NotTo(BeNil())
+					state.Pending.Previous.ObservedAt = time.Time{}
+					Expect(state.Pending.Previous).To(Equal(observation("boot-2", device, changed, stuck)))
+				}
+
+				It("does not reboot when the reconfig leaves NVConfig unchanged", func() {
+					method, optCtx := reconfig(stuck)
+					Expect(method).To(Equal(provisioningv1.RebootMethodNoAction))
+					Expect(optCtx.CondMessage).To(ContainSubstring(
+						"[VIRTIO_NET_EMULATION_NUM_MSIX(default=2,current=0,next=2)]; reset ignored"))
+					state := savedState(optCtx)
+					Expect(state.InitialBootID).To(Equal("boot-2"))
+					Expect(methods(state)).To(Equal([]provisioningv1.RebootMethodType{provisioningv1.RebootMethodNoAction}))
+					Expect(state.Pending.Previous).To(Equal(provisioning), "the baseline stays for the next reconfig on this boot")
+					Expect(latestObservation(optCtx)).To(Equal(observation("boot-2", device, stuck)))
+				})
+
+				It("reboots once when the reconfig changes the value of an NVConfig parameter that is already set", func() {
+					expectRebootThenNoAction(pendingEntry{Name: "PARAM_K1", Current: "v1", NextBoot: "v2"})
+				})
+
+				It("reboots once when the reconfig adds a new NVConfig parameter", func() {
+					expectRebootThenNoAction(pendingEntry{Name: "PARAM_K2", Current: "v0", NextBoot: "v2"})
+				})
 			})
 
 			It("keeps a stuck pending parameter that the live flavor still requests", func() {
