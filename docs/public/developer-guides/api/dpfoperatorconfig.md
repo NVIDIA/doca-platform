@@ -231,6 +231,7 @@ and `nodeSRIOVDevicePluginController`, are disabled by default and can be enable
 ```yaml
 spec:
   cniInstaller: { }
+  coreDNS: { }
   dpuDetector: { }
   dpuServiceController: { }
   flannel: { }
@@ -238,7 +239,6 @@ spec:
   multus: { }
   nodeSRIOVDevicePluginController: { }
   nvipam: { }
-  ovsCNI: { }
   provisioningController: { }
   serviceSetController: { }
   sfcController: { }
