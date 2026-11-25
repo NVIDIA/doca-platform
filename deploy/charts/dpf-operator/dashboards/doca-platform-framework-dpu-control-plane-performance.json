@@ -221,7 +221,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(dpf_apiserver_storage_size_bytes{cluster=\"$cluster\"})",
+          "expr": "max(dpf_apiserver_storage_size_bytes{cluster=\"$cluster\"})",
           "instant": false,
           "legendFormat": "Value",
           "range": true,
@@ -230,7 +230,7 @@
       ],
       "title": "etcd DB Size",
       "type": "stat",
-      "description": "dpf_apiserver_storage_size_bytes (etcd DB size proxy)"
+      "description": "Largest etcd DB file reported by the DPU cluster API servers (dpf_apiserver_storage_size_bytes). Every API server reports the size of the etcd member it is connected to, so the values are not summed."
     },
     {
       "datasource": {
@@ -1871,17 +1871,17 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (resource) (dpf_apiserver_storage_size_bytes{cluster=\"$cluster\"})",
+          "expr": "max by (pod) (dpf_apiserver_storage_size_bytes{cluster=\"$cluster\"})",
           "instant": false,
-          "legendFormat": "{{resource}}",
+          "legendFormat": "{{pod}}",
           "range": true,
           "refId": "A",
           "hide": false
         }
       ],
-      "title": "Storage Size by Resource (etcd DB proxy)",
+      "title": "etcd DB Size per API Server",
       "type": "timeseries",
-      "description": "dpf_apiserver_storage_size_bytes - proxy for etcd db size per resource"
+      "description": "Size of the etcd DB file of the member each DPU cluster API server is connected to (dpf_apiserver_storage_size_bytes). All members hold the same data, so a line above the others shows a member that is not defragmented yet."
     },
     {
       "datasource": {
