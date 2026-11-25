@@ -420,6 +420,33 @@ var _ = Describe("FirmwareUpdate", func() {
 		))
 	})
 
+	It("should not carry a left-over PLDM task id into PrepareBFB when FwBundleUpdated already landed", func() {
+		mockServer := createBF4MockRedfishServer()
+		defer mockServer.Stop()
+
+		createBMCAndMTLSSecretsForBF4(mockServer)
+		prepareBF4DPUDevice(mockServer)
+
+		pldmPath := createTempPldmFwBundle()
+		defer func() { _ = os.Remove(pldmPath) }()
+		createBlueFieldSoftware(pldmPath, true)
+
+		// FwBundleUpdated landed through the conditions write, but the status write that clears the
+		// task id and moves to PrepareBFB did not.
+		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.DPUDeviceName = defaultDPUDeviceName
+		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
+		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+		dpu.Status.RedfishTaskID = ptr.To("pldm-finished")
+		cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(provisioningv1.DPUCondFwBundleUpdated.String(), nil, "Updated", "PLDM Firmware Updated"))
+
+		status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUPrepareBFB))
+		Expect(status.RedfishTaskID).To(BeNil(), "OS install would poll the PLDM task as its own")
+	})
+
 	It("should return error when BlueFieldSoftware is not found", func() {
 		dpu := dpuObj(defaultDPUName)
 		dpu.Spec.BlueFieldSoftware = ptr.To("missing-bluefield-software")
@@ -494,6 +521,7 @@ var _ = Describe("FirmwareUpdate", func() {
 		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
 		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+		createDPUWithStatus(dpu)
 
 		status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
 		Expect(err).NotTo(HaveOccurred())
@@ -569,6 +597,7 @@ var _ = Describe("FirmwareUpdate", func() {
 		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
 		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+		createDPUWithStatus(dpu)
 
 		status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
 		Expect(err).NotTo(HaveOccurred())
@@ -600,6 +629,7 @@ var _ = Describe("FirmwareUpdate", func() {
 		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
 		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+		createDPUWithStatus(dpu)
 
 		status, err := FirmwareUpdate(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
 		Expect(err).NotTo(HaveOccurred())
@@ -624,6 +654,7 @@ var _ = Describe("FirmwareUpdate", func() {
 		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
 		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+		createDPUWithStatus(dpu)
 
 		ctrlCtx := &dutil.ControllerContext{Client: k8sClient}
 
@@ -670,6 +701,7 @@ var _ = Describe("FirmwareUpdate", func() {
 		dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
 		dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
 		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+		createDPUWithStatus(dpu)
 
 		ctrlCtx := &dutil.ControllerContext{Client: k8sClient}
 		reconcile := func() provisioningv1.DPUStatus {
@@ -987,6 +1019,8 @@ var _ = Describe("FirmwareUpdate", func() {
 		dpu.Status.RedfishTaskID = &taskID
 
 		ctrlCtx := &dutil.ControllerContext{Client: k8sClient}
+		// The release of the failed task is written to the API, so the DPU must be stored.
+		createDPUWithStatus(dpu)
 
 		By("Exception drops the finished BMC task so firmware update can be POSTed again")
 		status, err := FirmwareUpdate(ctx, dpu, ctrlCtx)
@@ -1012,6 +1046,7 @@ var _ = Describe("FirmwareUpdate", func() {
 		By("next reconcile submits a new PLDM update")
 		mockServer.SetTaskState("Completed")
 		dpu.Status = status
+		syncStatusToAPI(dpu)
 		status, err = FirmwareUpdate(ctx, dpu, ctrlCtx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(status.Phase).To(Equal(provisioningv1.DPUUpdateFirmware))
@@ -1077,6 +1112,8 @@ var _ = Describe("FirmwareUpdate", func() {
 			respondTaskNotFound(mockServer)
 
 			ctrlCtx := &dutil.ControllerContext{Client: k8sClient}
+			// The release of the lost task is written to the API, so the DPU must be stored.
+			createDPUWithStatus(dpu)
 			status, err := FirmwareUpdate(ctx, dpu, ctrlCtx)
 			Expect(err).To(MatchError(ContainSubstring("firmware update task lost-task was not found")))
 			Expect(err).To(MatchError(ContainSubstring("pending BMC firmware version old-bmc is not equal to " + targetBMCVersion)))
@@ -1092,6 +1129,7 @@ var _ = Describe("FirmwareUpdate", func() {
 			By("submitting a replacement task on the next reconcile")
 			mockServer.SetTaskHTTPResponse(0, "")
 			dpu.Status = status
+			syncStatusToAPI(dpu)
 			status, err = FirmwareUpdate(ctx, dpu, ctrlCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.RedfishTaskID).NotTo(BeNil())
@@ -1145,8 +1183,12 @@ var _ = Describe("FirmwareUpdate", func() {
 			pldmPath := createTempPldmFwBundle()
 			dpu := dpuObj(defaultDPUName)
 			dpu.Spec.DPUDeviceName = defaultDPUDeviceName
+			// updatePldmFwBundle does not need BlueFieldSoftware, but Create requires exactly one of
+			// bfb/blueFieldSoftware; clear BFB via createDPUWithStatus by setting a software ref.
+			dpu.Spec.BlueFieldSoftware = ptr.To(defaultBlueFieldSWName)
 			dpu.Status.Phase = provisioningv1.DPUUpdateFirmware
 			dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+			createDPUWithStatus(dpu)
 			return dpu, pldmPath
 		}
 
@@ -1179,6 +1221,33 @@ var _ = Describe("FirmwareUpdate", func() {
 				And(
 					HaveField("Type", provisioningv1.DPUCondFwBundleSubmitted.String()),
 					HaveField("Reason", "Submitting"),
+				),
+			))
+		})
+
+		It("should not resubmit when redfishTaskId is durable but FwBundleSubmitted is missing", func() {
+			// Simulates: BMC accepted multipart, immediate task-id persist succeeded, process
+			// crashed before deferred Submitted condition landed.
+			mockServer := createBF4MockRedfishServer()
+			defer mockServer.Stop()
+			mockServer.SetErotBackgroundCopyStatus("Completed")
+			mockServer.SetTaskState("Running")
+
+			dpu, pldmPath := preparePldmUpdate(mockServer)
+			defer func() { _ = os.Remove(pldmPath) }()
+			dpu.Status.RedfishTaskID = ptr.To("already-accepted")
+			// No FwBundleSubmitted condition — the old gate would POST again.
+
+			before := mockServer.GetPldmMultipartPOSTs()
+			status, err := updatePldmFwBundle(ctx, dpu, &dutil.ControllerContext{Client: k8sClient}, pldmPath, false)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mockServer.GetPldmMultipartPOSTs()).To(Equal(before), "must poll existing task, not multipart POST again")
+			Expect(status.RedfishTaskID).To(HaveValue(Equal("already-accepted")))
+			Expect(status.Conditions).To(ContainElement(
+				And(
+					HaveField("Type", provisioningv1.DPUCondFwBundleSubmitted.String()),
+					HaveField("Status", metav1.ConditionTrue),
+					HaveField("Message", ContainSubstring("already accepted")),
 				),
 			))
 		})

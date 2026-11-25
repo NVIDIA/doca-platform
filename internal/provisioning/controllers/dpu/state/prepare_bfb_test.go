@@ -479,7 +479,7 @@ var _ = Describe("DPU: PrepareBFB", func() {
 		))
 	})
 
-	It("should successfully prepare BFB and transition to DPUOSInstalling", func() {
+	It("should successfully prepare BFB and transition to DPUOSInstalling without a left-over Redfish task ID", func() {
 		createDPFOperatorConfig()
 
 		node := nodeObj(defaultNodeName)
@@ -509,6 +509,8 @@ var _ = Describe("DPU: PrepareBFB", func() {
 		dpu.Spec.DPUNodeName = dpuNode.Name
 		dpu.Spec.DPUDeviceName = defaultDeviceName
 		dpu.Status.Phase = provisioningv1.DPUPrepareBFB
+		// An earlier phase (e.g. PLDM firmware update) left its task id behind.
+		dpu.Status.RedfishTaskID = ptr.To("leftover-task")
 
 		tempDir, err := os.MkdirTemp("", "bfb-test")
 		Expect(err).NotTo(HaveOccurred())
@@ -535,6 +537,7 @@ var _ = Describe("DPU: PrepareBFB", func() {
 		)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
+		Expect(status.RedfishTaskID).To(BeNil(), "OS install would poll a left-over task id as its own install task")
 		Expect(status.BFCFGFile).NotTo(BeEmpty())
 		Expect(status.Conditions).Should(ContainElements(
 			And(

@@ -17,6 +17,7 @@ limitations under the License.
 package redfish
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -329,21 +330,19 @@ var _ = Describe("Installing", func() {
 		status, err := Installing(ctx, dpu, ctrlCtx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
+		Expect(status.RedfishTaskID).NotTo(BeNil())
 
-		// Update DPU status with the returned status
+		By("Step 2: Verify taskId was checkpointed on the API immediately after BMC accept")
+		// checkpointRedfishTaskID patches status.redfishTaskId before returning; do not require
+		// the caller to copy returned status first.
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
+		Expect(dpu.Status.RedfishTaskID).NotTo(BeNil(), "taskId should already be on the API after InstallBFB accept")
+		Expect(*dpu.Status.RedfishTaskID).To(Equal("0"))
+
+		// Keep local object aligned for the progress poll step.
 		patch = client.MergeFrom(dpu.DeepCopy())
 		dpu.Status = status
 		Expect(k8sClient.Status().Patch(ctx, dpu, patch)).To(Succeed())
-
-		By("Step 2: Verify taskId is stored in DPU Status")
-		Eventually(func() *string {
-			err := k8sClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)
-			if err != nil {
-				return nil
-			}
-			return dpu.Status.RedfishTaskID
-		}, "2s", "100ms").Should(Not(BeNil()), "taskId should be stored in DPU Status")
-		Expect(*dpu.Status.RedfishTaskID).To(Equal("0"))
 
 		By("Step 3: Call Installing again to check progress")
 		dpu.Status = status
@@ -470,6 +469,9 @@ var _ = Describe("Installing", func() {
 		By("Verify first failed install run stays in OS Installing for RequeueAfter")
 		Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
 		Expect(status.RedfishTaskID).To(BeNil())
+		stored := &provisioningv1.DPU{}
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpu), stored)).To(Succeed())
+		Expect(stored.Status.RedfishTaskID).To(BeNil(), "the failed task id must be released on the API right away, so the retry can submit")
 		_, cond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondBFBTransferred))
 		Expect(cond).NotTo(BeNil())
 		Expect(cond.Reason).To(Equal("FailToInstall"))
@@ -748,6 +750,7 @@ var _ = Describe("Installing", func() {
 
 			// Submit path: no Redfish task created yet.
 			env.dpu.Status.RedfishTaskID = nil
+			syncStatusToAPI(env.dpu)
 			// Use the load-balancer override so getBFBRegistryAddress returns
 			// directly, keeping this test focused on the submit failure path.
 			env.ctrlCtx.Options.BFBRegistryLoadBalancer = testBFBRegistry
@@ -798,6 +801,7 @@ var _ = Describe("Installing", func() {
 			defer env.teardown()
 
 			env.dpu.Status.RedfishTaskID = nil
+			syncStatusToAPI(env.dpu)
 			env.ctrlCtx.Options.BFBRegistryLoadBalancer = testBFBRegistry
 			seedInstallRetriesNearExhaustion(env.dpu.UID)
 
@@ -861,6 +865,42 @@ var _ = Describe("Installing", func() {
 			Expect(cond.Message).To(ContainSubstring("BMC failed to fetch the BFB image"))
 			Expect(cond.Message).To(ContainSubstring("MessageId=Update.1.0.TransferFailed"))
 			Expect(cond.Message).To(ContainSubstring("BMC Resolution: Check the network and retry."))
+		})
+
+		It("marks BFB transferred when the task finished after a client failure replaced the in-flight condition", func() {
+			env := setupInstallingEnv("dpu-bfb-client-failure-done")
+			defer env.teardown()
+
+			By("the API holds the running task, but its condition says the client could not be created")
+			cutil.SetDPUCondition(&env.dpu.Status, cutil.NewCondition(string(provisioningv1.DPUCondBFBTransferred),
+				errors.New("client failed"), "FailedToCreateClient", "client failed"))
+			syncStatusToAPI(env.dpu)
+
+			status, err := submitAndMonitorBfbInstallTask(ctx, env.dpu, env.ctrlCtx, env.dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			_, cond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondBFBTransferred))
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue), "a finished BFB task must not be treated as foreign")
+			Expect(status.RedfishTaskID).To(BeNil())
+		})
+
+		It("does not submit the BFB again when the cached DPU predates the recorded task", func() {
+			env := setupInstallingEnv("dpu-bfb-stale-cache")
+			defer env.teardown()
+			env.ctrlCtx.Options.BFBRegistryLoadBalancer = testBFBRegistry
+
+			By("the API holds the recorded task")
+			cutil.SetDPUCondition(&env.dpu.Status, inFlightCondition(provisioningv1.DPUCondBFBTransferred, "0"))
+			syncStatusToAPI(env.dpu)
+
+			By("the cached DPU still shows an empty slot")
+			cached := env.dpu.DeepCopy()
+			cached.Status.RedfishTaskID = nil
+			cached.Status.Conditions = nil
+			before := env.mockServer.GetSimpleUpdatePOSTs()
+			_, err := submitAndMonitorBfbInstallTask(ctx, cached, env.ctrlCtx, env.dpuDevice)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(env.mockServer.GetSimpleUpdatePOSTs()).To(Equal(before), "the BFB must not be submitted twice")
 		})
 
 		It("Exception state with unknown MessageId + SEL has 12V_PCIe low: raw body kept, rail hint appended", func() {
@@ -990,17 +1030,13 @@ var _ = Describe("Installing", func() {
 			Expect(k8sClient.Status().Patch(ctx, bfs, patch)).To(Succeed())
 		}
 
-		// installOsBf4 enters Rebooting only when FwBundleActivated is true (firmware was
-		// activated during FwUpdate). Otherwise it resets the chassis and stays in OS Installing.
-		runBF4VirtualMediaInstall := func(fwActivated bool) {
+		// prepareBF4Install creates a BF4 DPU in OS Installing with everything installOsBf4 needs.
+		// psid, when set, is recorded on the DPUDevice and used for the bundle versions. The returned
+		// cleanup stops the mock and restores POD_NAMESPACE.
+		prepareBF4Install := func(psid string) (*redfishmock.RedfishMockServer, *provisioningv1.DPU, *dutil.ControllerContext, func()) {
 			mockServer := createBF4InstallingMockServer()
-			defer mockServer.Stop()
 
 			createBF4InstallingSecrets(mockServer)
-			psid := ""
-			if fwActivated {
-				psid = redfishmock.DpuPSID74
-			}
 			createReadyBlueFieldSoftware(psid)
 
 			dpuDevice := dpuDeviceObj(bf4DPUDeviceName)
@@ -1032,7 +1068,6 @@ var _ = Describe("Installing", func() {
 
 			prevNS := os.Getenv("POD_NAMESPACE")
 			Expect(os.Setenv("POD_NAMESPACE", testNS.Name)).To(Succeed())
-			defer func() { _ = os.Setenv("POD_NAMESPACE", prevNS) }()
 			bfbRegistrySvc := &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{Name: bfbregistry.PodName, Namespace: testNS.Name},
 				Spec: corev1.ServiceSpec{
@@ -1047,6 +1082,22 @@ var _ = Describe("Installing", func() {
 				Options:              dutil.DPUOptions{BFBRegistry: "10.0.110.1"},
 				DPUInProvisioningMap: dutil.NewDPUInProvisioningMap(10),
 			}
+			cleanup := func() {
+				mockServer.Stop()
+				_ = os.Setenv("POD_NAMESPACE", prevNS)
+			}
+			return mockServer, dpu, ctrlCtx, cleanup
+		}
+
+		// installOsBf4 enters Rebooting only when FwBundleActivated is true (firmware was
+		// activated during FwUpdate). Otherwise it resets the chassis and stays in OS Installing.
+		runBF4VirtualMediaInstall := func(fwActivated bool) {
+			psid := ""
+			if fwActivated {
+				psid = redfishmock.DpuPSID74
+			}
+			_, dpu, ctrlCtx, cleanup := prepareBF4Install(psid)
+			defer cleanup()
 
 			By("Step 1: submit ISO install task")
 			status, err := Installing(ctx, dpu, ctrlCtx)
@@ -1059,18 +1110,33 @@ var _ = Describe("Installing", func() {
 				Expect(isoCond.Status).NotTo(Equal(metav1.ConditionTrue))
 			}
 
-			By("Step 2: complete ISO transfer and submit config install task")
+			By("Step 2: complete ISO transfer and submit config install task in the same reconcile")
+			var writes []provisioningv1.DPUStatus
+			recordingCtx := *ctrlCtx
+			recordingCtx.Client = statusWriteRecorder{Client: k8sClient, writes: &writes}
 			dpu.Status = status
-			status, err = Installing(ctx, dpu, ctrlCtx)
+			status, err = Installing(ctx, dpu, &recordingCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status.Phase).To(Equal(provisioningv1.DPUOSInstalling))
 			_, isoCond = cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondIsoTransferred))
 			Expect(isoCond).NotTo(BeNil())
 			Expect(isoCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(status.RedfishTaskID).NotTo(BeNil(), "the config task id must be tracked")
 			_, cfgCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondConfigTransferred))
 			if cfgCond != nil {
 				Expect(cfgCond.Status).NotTo(Equal(metav1.ConditionTrue))
 			}
+
+			By("Step 2a: IsoTransferred was persisted with the ISO task id cleared before the config task id was checkpointed")
+			Expect(writes).To(HaveLen(2), "expected the ISO completion write, then the config checkpoint")
+			_, firstIso := cutil.GetDPUCondition(&writes[0], string(provisioningv1.DPUCondIsoTransferred))
+			Expect(firstIso).NotTo(BeNil())
+			Expect(firstIso.Status).To(Equal(metav1.ConditionTrue))
+			Expect(writes[0].RedfishTaskID).To(BeNil(), "the ISO task id must be cleared in the same write as IsoTransferred")
+			_, secondIso := cutil.GetDPUCondition(&writes[1], string(provisioningv1.DPUCondIsoTransferred))
+			Expect(secondIso).NotTo(BeNil())
+			Expect(secondIso.Status).To(Equal(metav1.ConditionTrue))
+			Expect(writes[1].RedfishTaskID).NotTo(BeNil(), "the config checkpoint must follow the ISO completion")
 
 			dpu.Status = status
 			if fwActivated {
@@ -1139,6 +1205,96 @@ var _ = Describe("Installing", func() {
 
 		It("should move to Rebooting after virtual media when firmware was activated at FwUpdate", func() {
 			runBF4VirtualMediaInstall(true)
+		})
+
+		// isoDoneStatus returns status with IsoTransferred done and the given task id in the slot.
+		isoDoneStatus := func(status provisioningv1.DPUStatus, taskID *string) provisioningv1.DPUStatus {
+			out := *status.DeepCopy()
+			out.RedfishTaskID = taskID
+			done := cutil.NewCondition(string(provisioningv1.DPUCondIsoTransferred), nil, "", "")
+			done.Status = metav1.ConditionTrue
+			cutil.SetDPUCondition(&out, done)
+			return out
+		}
+
+		It("should not mark config transferred from a stale cached ISO task, and submit config from fresh data", func() {
+			mockServer, dpu, ctrlCtx, cleanup := prepareBF4Install("")
+			defer cleanup()
+
+			By("the API holds the real state: ISO done, slot empty")
+			dpu.Status = isoDoneStatus(dpu.Status, nil)
+			syncStatusToAPI(dpu)
+
+			By("the cached DPU still shows the finished ISO task in the slot (the CI failure)")
+			cached := dpu.DeepCopy()
+			cached.Status.RedfishTaskID = ptr.To("0")
+			before := mockServer.GetSimpleUpdatePOSTs()
+			status, err := Installing(ctx, cached, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			_, cfgCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondConfigTransferred))
+			if cfgCond != nil {
+				Expect(cfgCond.Status).NotTo(Equal(metav1.ConditionTrue), "the ISO task must not complete the config step")
+			}
+			_, vmCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondVirtualMediaInserted))
+			Expect(vmCond).To(BeNil(), "virtual media must not be inserted before config is transferred")
+
+			By("the next reconcile reads fresh data and submits config exactly once")
+			stored := &provisioningv1.DPU{}
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpu), stored)).To(Succeed())
+			status, err = Installing(ctx, stored, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mockServer.GetSimpleUpdatePOSTs()).To(Equal(before+1), "config must be submitted once")
+			Expect(status.RedfishTaskID).NotTo(BeNil())
+			Expect(ownsTask(&status, provisioningv1.DPUCondConfigTransferred)).To(BeTrue())
+		})
+
+		It("should not submit config again when the cached DPU predates the recorded config task", func() {
+			mockServer, dpu, ctrlCtx, cleanup := prepareBF4Install("")
+			defer cleanup()
+
+			By("the API holds the recorded config task")
+			cached := dpu.DeepCopy()
+			cached.Status = isoDoneStatus(cached.Status, nil)
+			dpu.Status = isoDoneStatus(dpu.Status, ptr.To("0"))
+			cutil.SetDPUCondition(&dpu.Status, inFlightCondition(provisioningv1.DPUCondConfigTransferred, "0"))
+			syncStatusToAPI(dpu)
+
+			By("the cached DPU still shows an empty slot and no config task")
+			before := mockServer.GetSimpleUpdatePOSTs()
+			status, err := Installing(ctx, cached, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mockServer.GetSimpleUpdatePOSTs()).To(Equal(before), "config must not be submitted twice")
+			_, cfgCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondConfigTransferred))
+			if cfgCond != nil {
+				Expect(cfgCond.Status).NotTo(Equal(metav1.ConditionTrue))
+			}
+		})
+
+		It("should not mark config transferred when the API kept the ISO task id after IsoTransferred landed", func() {
+			mockServer, dpu, ctrlCtx, cleanup := prepareBF4Install("")
+			defer cleanup()
+
+			By("the API holds a half-saved status: ISO done, ISO task id still in the slot, config never marked")
+			dpu.Status = isoDoneStatus(dpu.Status, ptr.To("0"))
+			syncStatusToAPI(dpu)
+
+			before := mockServer.GetSimpleUpdatePOSTs()
+			status, err := Installing(ctx, dpu, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			_, cfgCond := cutil.GetDPUCondition(&status, string(provisioningv1.DPUCondConfigTransferred))
+			if cfgCond != nil {
+				Expect(cfgCond.Status).NotTo(Equal(metav1.ConditionTrue), "the ISO task must not complete the config step")
+			}
+			Expect(status.RedfishTaskID).To(BeNil(), "the leftover ISO task id must be cleared")
+			stored := &provisioningv1.DPU{}
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpu), stored)).To(Succeed())
+			Expect(stored.Status.RedfishTaskID).To(BeNil(), "the leftover ISO task id must be cleared on the API")
+
+			By("the next reconcile submits config")
+			status, err = Installing(ctx, stored, ctrlCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mockServer.GetSimpleUpdatePOSTs()).To(Equal(before+1), "config must be submitted once")
+			Expect(ownsTask(&status, provisioningv1.DPUCondConfigTransferred)).To(BeTrue())
 		})
 
 		// Post-reboot firmware verification must run before the timeout and skip-hw-provisioning
@@ -1288,3 +1444,35 @@ var _ = Describe("Installing", func() {
 
 	})
 })
+
+// statusWriteRecorder wraps a client and records the stored DPU status after each status write, so
+// tests can assert the order in which status changes reach the API.
+type statusWriteRecorder struct {
+	client.Client
+	writes *[]provisioningv1.DPUStatus
+}
+
+// Status returns a status writer that records every successful patch.
+func (r statusWriteRecorder) Status() client.SubResourceWriter {
+	return recordingStatusWriter{SubResourceWriter: r.Client.Status(), reader: r.Client, writes: r.writes}
+}
+
+// recordingStatusWriter appends the stored DPU status after each successful status patch.
+type recordingStatusWriter struct {
+	client.SubResourceWriter
+	reader client.Reader
+	writes *[]provisioningv1.DPUStatus
+}
+
+// Patch applies the status patch and records the resulting stored DPU status.
+func (w recordingStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+	if err := w.SubResourceWriter.Patch(ctx, obj, patch, opts...); err != nil {
+		return err
+	}
+	stored := &provisioningv1.DPU{}
+	if err := w.reader.Get(ctx, client.ObjectKeyFromObject(obj), stored); err != nil {
+		return err
+	}
+	*w.writes = append(*w.writes, *stored.Status.DeepCopy())
+	return nil
+}

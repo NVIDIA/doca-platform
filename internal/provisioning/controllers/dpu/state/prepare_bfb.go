@@ -285,5 +285,8 @@ func PrepareBFB(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.Con
 	state.BFCFGFile = artifactPath
 	cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondBFBPrepared.String(), nil, "", ""))
 	state.Phase = provisioningv1.DPUOSInstalling
+	// OS install submits a new task whenever RedfishTaskID is empty; an ID left over from an
+	// earlier phase would be polled as the install task instead.
+	state.RedfishTaskID = nil
 	return *state, nil
 }

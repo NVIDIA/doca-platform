@@ -108,6 +108,14 @@ func ConfigFWParameters(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		logger.Info("successfully set host privilege to restricted via BMC")
 
 		state.Phase = provisioningv1.DPUUpdateFirmware
+		// The PLDM submit gate treats any RedfishTaskID as an accepted update; only IDs
+		// checkpointed inside DPUUpdateFirmware may count. Drop this run's per-update markers too,
+		// so a stale Submitted cannot skip the submit and a stale Activated cannot skip activating
+		// the new bundle.
+		state.RedfishTaskID = nil
+		removeCondition(state, provisioningv1.DPUCondFwBundleSubmitted)
+		removeCondition(state, provisioningv1.DPUCondFwBundleArmShutdown)
+		removeCondition(state, provisioningv1.DPUCondFwBundleActivated)
 		cutil.SetDPUCondition(state, cutil.DPUCondition(provisioningv1.DPUCondFWConfigured, "", ""))
 		return *state, nil
 	}

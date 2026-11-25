@@ -136,6 +136,32 @@ var _ = Describe("ConfigFWParameters", func() {
 		Expect(mockServer.GetHostPrivilegeMode()).To(Equal("Restricted"))
 	})
 
+	It("should clear a left-over Redfish task ID and PLDM update markers when advancing BF4 to Firmware Update", func() {
+		mockServer := createMockRedfishServer(redfishmock.BF4)
+		defer mockServer.Stop()
+		createBMCAndMTLSSecrets(mockServer, "dpf-provisioning-redfish-client-secret-bf4")
+		dpuDevice := prepareDPUDevice(mockServer, provisioningv1.DPUTypeBlueField4)
+
+		dpu := dpuObj(defaultDPUName)
+		dpu.Spec.DPUDeviceName = dpuDevice.Name
+		dpu.Status.Phase = provisioningv1.DPUConfigFWParameters
+		dpu.Status.DPUType = provisioningv1.DPUTypeBlueField4
+		dpu.Status.RedfishTaskID = ptr.To("stale-task")
+		cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(provisioningv1.DPUCondFwBundleSubmitted.String(), nil, "Submitting", "Submitting PLDM Firmware"))
+		cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(provisioningv1.DPUCondFwBundleArmShutdown.String(), nil, "ArmShutdown", "Arming DPU for shutdown"))
+		cutil.SetDPUCondition(&dpu.Status, cutil.NewCondition(provisioningv1.DPUCondFwBundleActivated.String(), nil, "Activated", "Activated Pending Bundle"))
+
+		status, err := ConfigFWParameters(ctx, dpu, &dutil.ControllerContext{Client: k8sClient})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.Phase).To(Equal(provisioningv1.DPUUpdateFirmware))
+		Expect(status.RedfishTaskID).To(BeNil(), "PLDM gate must not inherit a task ID from an earlier phase")
+		Expect(status.Conditions).NotTo(ContainElement(HaveField("Type", provisioningv1.DPUCondFwBundleSubmitted.String())),
+			"a stale Submitted would skip the PLDM submit")
+		Expect(status.Conditions).NotTo(ContainElement(HaveField("Type", provisioningv1.DPUCondFwBundleArmShutdown.String())))
+		Expect(status.Conditions).NotTo(ContainElement(HaveField("Type", provisioningv1.DPUCondFwBundleActivated.String())),
+			"a stale Activated would skip activating the new bundle")
+	})
+
 	It("should fail when BF4 host privilege endpoint returns error", func() {
 		mockServer := createMockRedfishServer(redfishmock.BF4)
 		defer mockServer.Stop()

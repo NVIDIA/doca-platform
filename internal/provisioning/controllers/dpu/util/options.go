@@ -102,6 +102,19 @@ type ControllerContext struct {
 	// startup; state handlers never close the clients they get from it. Read it through
 	// RedfishProvider, not directly.
 	RedfishClients rfclient.ClientProvider
+	// APIReader reads straight from the API server, bypassing the informer cache. Read it through
+	// UncachedReader, not directly.
+	APIReader client.Reader
+}
+
+// UncachedReader returns the reader used to re-check a DPU right before a Redfish task decision.
+// The informer cache can lag behind status writes made moments earlier, so these reads go to the
+// API server. Tests that build a ControllerContext directly fall back to Client.
+func (c *ControllerContext) UncachedReader() client.Reader {
+	if c.APIReader != nil {
+		return c.APIReader
+	}
+	return c.Client
 }
 
 // RedfishProvider returns the provider state handlers get BMC clients from.

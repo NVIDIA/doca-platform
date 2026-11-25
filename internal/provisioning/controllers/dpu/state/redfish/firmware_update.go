@@ -147,6 +147,9 @@ func FirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil
 		state.Phase = provisioningv1.DPUBMCForceRestart
 		return *state, nil
 	}
+	// FwBundleUpdated can land without the cleared task id (conditions and status are separate
+	// writes); never carry the PLDM task id into OS install, where the ISO step would poll it.
+	state.RedfishTaskID = nil
 	state.Phase = provisioningv1.DPUPrepareBFB
 	return *state, nil
 }
@@ -383,7 +386,7 @@ func checkStagedFirmwareVersions(ctx context.Context, ctrlCtx *dutil.ControllerC
 	return nil
 }
 
-func submitPldmFirmwareUpdate(ctx context.Context, state *provisioningv1.DPUStatus, client *rc.Client, pldmFwBundle string, force bool, cond *metav1.Condition) (provisioningv1.DPUStatus, error) {
+func submitPldmFirmwareUpdate(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, state *provisioningv1.DPUStatus, client *rc.Client, pldmFwBundle string, force bool, cond *metav1.Condition) (provisioningv1.DPUStatus, error) {
 	logger := log.FromContext(ctx)
 
 	_, erotChassis, err := client.GetErotChassis(ctx)
@@ -423,6 +426,10 @@ func submitPldmFirmwareUpdate(ctx context.Context, state *provisioningv1.DPUStat
 		return *state, nil
 	}
 
+	if free, err := isTaskSlotFree(ctx, ctrlCtx.UncachedReader(), dpu, conditionTrue(provisioningv1.DPUCondFwBundleSubmitted)); err != nil || !free {
+		return *state, err
+	}
+
 	fwFile, err := os.Open(pldmFwBundle)
 	if err != nil {
 		err = fmt.Errorf("failed to open %s: %w", pldmFwBundle, err)
@@ -442,10 +449,11 @@ func submitPldmFirmwareUpdate(ctx context.Context, state *provisioningv1.DPUStat
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToUpdateBMCFirmware", err.Error()))
 		return *state, err
 	}
-	state.RedfishTaskID = &taskInfo.ID
 	logger.Info(msgTaskSubmitted, taskSubmittedFields(opPLDMFirmware, taskInfo)...)
-	cutil.SetDPUCondition(state, cond)
-	return *state, nil
+	// Record the task id and FwBundleSubmitted in one write right away, so a crash or a failed
+	// deferred status patch cannot lose the accepted update and trigger a second multipart POST.
+	err = recordTaskSubmitted(ctx, ctrlCtx, dpu, state, cond, taskInfo.ID)
+	return *state, err
 }
 
 func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext, pldmFwBundle string, force bool) (provisioningv1.DPUStatus, error) {
@@ -473,8 +481,12 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 
 	cond := cutil.NewCondition(provisioningv1.DPUCondFwBundleSubmitted.String(), nil, "Submitting", "Submitting PLDM Firmware")
 	_, existingCond := cutil.GetDPUCondition(&dpu.Status, cond.Type)
-	if existingCond == nil || existingCond.Status != metav1.ConditionTrue {
-		return submitPldmFirmwareUpdate(ctx, state, client, pldmFwBundle, force, cond)
+	// Durable task identity is the gate for "already accepted," not FwBundleSubmitted alone.
+	if state.RedfishTaskID == nil && (existingCond == nil || existingCond.Status != metav1.ConditionTrue) {
+		return submitPldmFirmwareUpdate(ctx, dpu, ctrlCtx, state, client, pldmFwBundle, force, cond)
+	}
+	if state.RedfishTaskID != nil && (existingCond == nil || existingCond.Status != metav1.ConditionTrue) {
+		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleSubmitted.String(), nil, "Submitting", "PLDM firmware task already accepted; resuming progress"))
 	}
 
 	activatedCondition := cutil.NewCondition(provisioningv1.DPUCondFwBundleActivated.String(), nil, "Activated", "Activated Pending Bundle")
@@ -488,7 +500,8 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		return *state, nil
 	}
 
-	completed, err := monitorTask(readCtx, client, *state.RedfishTaskID)
+	taskID := *state.RedfishTaskID
+	completed, err := monitorTask(readCtx, client, taskID)
 	var lostTask pldmTaskNotFoundError
 	if errors.As(err, &lostTask) {
 		// A BMC restart drops task records even when the upload itself finished, so a task that
@@ -497,10 +510,12 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 		if stagedErr := checkStagedFirmwareVersions(ctx, ctrlCtx, client, dpu, dpuDevice); stagedErr != nil {
 			err = fmt.Errorf("%w: %w", lostTask, stagedErr)
 			if errors.Is(stagedErr, errVersionMismatch) {
-				// Staged firmware is not the submitted bundle. Mark submit incomplete so the
-				// next reconcile POSTs update-multipart again.
-				state.RedfishTaskID = nil
-				cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleSubmitted.String(), err, "FailedToUpdatePldmFwBundle", err.Error()))
+				// Staged firmware is not the submitted bundle. Release the task id and mark submit
+				// incomplete in one write, so the next reconcile POSTs update-multipart again.
+				if relErr := releaseTask(ctx, ctrlCtx, dpu, state, taskID, cutil.NewCondition(provisioningv1.DPUCondFwBundleSubmitted.String(), err, "FailedToUpdatePldmFwBundle", err.Error())); relErr != nil {
+					// state keeps the task id, so the next reconcile checks the staged firmware again.
+					logger.Error(relErr, "could not release the lost PLDM firmware task; will retry next reconcile", "taskID", taskID)
+				}
 			}
 		} else {
 			logger.Info("firmware update task is gone but the bundle is staged, continuing", "taskID", lostTask.taskID)
@@ -511,10 +526,9 @@ func updatePldmFwBundle(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *d
 	if err != nil {
 		var taskException pldmTaskExceptionError
 		if errors.As(err, &taskException) {
-			// BMC task got exception. Mark submit incomplete so the next reconcile
-			// POSTs update-multipart again.
-			state.RedfishTaskID = nil
-			cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFwBundleSubmitted.String(), err, "FailedToUpdatePldmFwBundle", err.Error()))
+			// BMC task got exception. Release the task id and mark submit incomplete in one
+			// write, so the next reconcile POSTs update-multipart again.
+			_ = releaseTask(ctx, ctrlCtx, dpu, state, taskID, cutil.NewCondition(provisioningv1.DPUCondFwBundleSubmitted.String(), err, "FailedToUpdatePldmFwBundle", err.Error()))
 		}
 		cutil.SetDPUCondition(state, cutil.NewCondition(provisioningv1.DPUCondFWConfigured.String(), err, "FailedToUpdatePldmFwBundle", err.Error()))
 		return *state, fmt.Errorf("failed to update PLDM firmware: %w", err)

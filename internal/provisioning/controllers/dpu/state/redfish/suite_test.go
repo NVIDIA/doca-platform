@@ -183,6 +183,32 @@ func createObject(obj client.Object) {
 	testObjects = append(testObjects, obj)
 }
 
+// createDPUWithStatus creates the DPU and applies its desired status (needed when handlers
+// immediately status-patch fields such as redfishTaskId).
+func createDPUWithStatus(dpu *provisioningv1.DPU) {
+	// dpuObj defaults BFB; firmware-update tests also set BlueFieldSoftware. Spec allows only one.
+	if dpu.Spec.BlueFieldSoftware != nil {
+		dpu.Spec.BFB = nil
+	}
+	desired := dpu.Status.DeepCopy()
+	createObject(dpu)
+	patch := client.MergeFrom(dpu.DeepCopy())
+	dpu.Status = *desired
+	Expect(k8sClient.Status().Patch(ctx, dpu, patch)).To(Succeed())
+	Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpu), dpu)).To(Succeed())
+}
+
+// syncStatusToAPI writes dpu.Status to the stored DPU, as the reconciler's deferred status patch
+// would between reconciles. Handlers re-read the DPU from the API before Redfish task decisions, so
+// tests that edit dpu.Status locally must keep the stored copy in step.
+func syncStatusToAPI(dpu *provisioningv1.DPU) {
+	stored := &provisioningv1.DPU{}
+	Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dpu), stored)).To(Succeed())
+	patch := client.MergeFrom(stored.DeepCopy())
+	stored.Status = *dpu.Status.DeepCopy()
+	Expect(k8sClient.Status().Patch(ctx, stored, patch)).To(Succeed())
+}
+
 func dpuFlavorObj(name string) *provisioningv1.DPUFlavor {
 	return &provisioningv1.DPUFlavor{
 		ObjectMeta: metav1.ObjectMeta{
