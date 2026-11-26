@@ -477,7 +477,7 @@ type DeployDPFSystemComponentsInput struct {
 	numberOfDPUNodes          int
 	// skipSystemComponentValidation skips the post-deploy system-component checks
 	// (the current-shape DPUService assertion and the DPFOperatorConfig ready
-	// wait). Set for previous-release installs (e.g. BFB LTS v25.10) whose
+	// wait). Set for previous-release installs whose
 	// component shape differs and whose servicechainset-controller stays
 	// not-ready under the current CRD schema.
 	skipSystemComponentValidation bool

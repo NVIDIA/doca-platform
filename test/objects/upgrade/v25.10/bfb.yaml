@@ -1,8 +1,0 @@
-apiVersion: provisioning.dpu.nvidia.com/v1alpha1
-kind: BFB
-metadata:
-  name: bf-bundle
-  namespace: dpf-operator-system
-spec:
-  # Placeholder: overridden by BFB_IMAGE_URL, which the test sets to the LTS BFB.
-  url: "BFB_IMAGE_URL"

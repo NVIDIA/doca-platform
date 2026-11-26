@@ -6,16 +6,18 @@ metadata:
   name: dpfoperatorconfig
   namespace: dpf-operator-system
 spec:
-  # Must only contain fields the v26.8 CRD schema accepts
-  deploymentMode: host-trusted
-  security:
-    kata:
-      disable: false
+  # Must only contain fields the v30.0 CRD schema accepts.
+  deploymentMode: zero-trust
   provisioningController:
     bfbPVCName: bfb-pvc
     # CI runs the host control-plane controllers at a single replica to save
     # resources on control-plane nodes and keep logs easy to read.
     replicas: 1
+    # ZeroTrust: use Redfish for BFB installation. SkipDPUNodeDiscovery=false
+    # so the provisioning controller uses DPUDiscovery to find DPU BMC IPs.
+    installInterface:
+      installViaRedfish:
+        skipDPUNodeDiscovery: false
   dpuServiceController:
     replicas: 1
   kamajiClusterManager:

@@ -19,6 +19,8 @@ package utils
 import (
 	"testing"
 
+	"github.com/nvidia/doca-platform/internal/release"
+
 	"github.com/Masterminds/semver/v3"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -32,6 +34,11 @@ func TestUtils(t *testing.T) {
 
 var _ = Describe("ValidateDPFVersion", func() {
 	var originalAllowSourceVersions []string
+
+	// Derived from release.LastReleasedDPFGAVersion so that bumping it does not require touching this test.
+	lastReleasedPatch := semver.MustParse(release.LastReleasedDPFGAVersion).IncPatch()
+	lastReleasedRC := release.LastReleasedDPFGAVersion + "-rc.2"
+	lastReleasedPatchRC := "v" + lastReleasedPatch.String() + "-rc.1"
 
 	BeforeEach(func() {
 		originalAllowSourceVersions = make([]string, len(allowSourceVersions))
@@ -64,8 +71,8 @@ var _ = Describe("ValidateDPFVersion", func() {
 		Entry("v25.4.0 previous version should fail with multiple allowed sources", ptr.To("v25.4.0"), []string{"v25.10.0", "v25.7.0"}, false, "only upgrades from v25.10.0, v25.7.0 are supported"),
 		Entry("v24.10.0 previous version should fail when not in allowed sources", ptr.To("v24.10.0"), []string{"v25.7.0"}, false, "is not compatible with current DPF version"),
 
-		Entry("last released source version should succeed by default", ptr.To("v26.8.0-rc.2"), nil, true, ""),
-		Entry("same minor line as last released source should succeed by default", ptr.To("v26.8.1-rc.1"), nil, true, ""),
+		Entry("last released source version should succeed by default", ptr.To(lastReleasedRC), nil, true, ""),
+		Entry("same minor line as last released source should succeed by default", ptr.To(lastReleasedPatchRC), nil, true, ""),
 		Entry("v25.7.0-beta.3 should succeed to upgrade from", ptr.To("v25.7.0-beta.3"), []string{"v25.7.0"}, true, ""),
 		Entry("v25.7.0 previous version should succeed when exact match", ptr.To("v25.7.0"), []string{"v25.7.0"}, true, ""),
 		Entry("v25.7.5 previous version should succeed when v25.7.0 is allowed", ptr.To("v25.7.5"), []string{"v25.7.0"}, true, ""),

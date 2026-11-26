@@ -31,9 +31,9 @@ var _ = Describe("DPF Upgrade", func() {
 		label:               Domain.DPFUpgrade,
 		artifactsKey:        "before",
 		expectedDPUServices: expectedDPUServicesCurrent,
-		// The previous GA (LAST_STABLE_DPF_VERSION, default v26.8.0-latest-stable) pins
+		// The previous GA (LAST_STABLE_DPF_VERSION, default v30.0.0-latest-stable) pins
 		// its own Kubernetes version, which differs from HEAD's util.KubernetesVersion.
-		expectedKubernetesVersion: "v1.35.6",
+		expectedKubernetesVersion: "v1.36.5",
 	})
 
 	validationPhase("current", validationPhaseInput{
@@ -61,9 +61,9 @@ var _ = Describe("DPF Upgrade Using LTS BFB", func() {
 		label:               Domain.DPFUpgradeUsingLTSBFB,
 		artifactsKey:        "before",
 		expectedDPUServices: expectedDPUServicesCurrent,
-		// The previous GA (LAST_STABLE_DPF_VERSION, default v26.8.0-latest-stable) pins
+		// The previous GA (LAST_STABLE_DPF_VERSION, default v30.0.0-latest-stable) pins
 		// its own Kubernetes version, which differs from HEAD's util.KubernetesVersion.
-		expectedKubernetesVersion: "v1.35.6",
+		expectedKubernetesVersion: "v1.36.5",
 	})
 
 	validationPhase("current-using-lts-bfb", validationPhaseInput{
@@ -90,12 +90,11 @@ var _ = Describe("DPF Upgrade ZT", func() {
 		// ZeroTrust hosts have no PCI visibility of the DPU (see the DPUDeployment
 		// creation step below), so the host-side component shape at this release
 		// (e.g. kata-containers, which requires PCI passthrough) can genuinely
-		// differ from host-trusted's. Skip the current-shape assertion here, same
-		// as the BFB LTS v25.10 install phase.
+		// differ from host-trusted's. Skip the current-shape assertion here.
 		skipSystemComponentValidation: true,
-		// The previous GA (LAST_STABLE_DPF_VERSION, default v26.8.0-latest-stable) pins
+		// The previous GA (LAST_STABLE_DPF_VERSION, default v30.0.0-latest-stable) pins
 		// its own Kubernetes version, which differs from HEAD's util.KubernetesVersion.
-		expectedKubernetesVersion: "v1.35.6",
+		expectedKubernetesVersion: "v1.36.5",
 		artifactsKey:              "before",
 		expectedDPUServices:       expectedDPUServicesCurrent,
 	})

@@ -17,56 +17,19 @@ limitations under the License.
 package e2e
 
 import (
-	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
-	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/test/e2e/upgrade/rollout"
 
 	. "github.com/onsi/ginkgo/v2"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-// expectedDPUServicesV2510 returns the pre-v26.04 DPUService shape: singleton
-// nvidia-k8s-ipam and servicechainset-controller services, no
-// kube-state-metrics on the DPU cluster, no per-cluster controller split.
-// Only the BFB LTS Phase 1 install runs against this shape; once the operator
-// is upgraded to v26.4 the controller reshapes DPUServices to the v26.04
-// layout (see expectedDPUServicesV2604) without needing a DPU reprovision.
-func expectedDPUServicesV2510(_ *systemTestInput) []string {
-	return []string{
-		operatorv1.FlannelName.String(),
-		operatorv1.MultusName.String(),
-		operatorv1.SRIOVDevicePluginName.String(),
-		operatorv1.OVSCNIName.String(),
-		operatorv1.SFCControllerName.String(),
-		operatorv1.ServiceChainSetCRDsName.String(),
-		operatorv1.CNIInstallerName.String(),
-		operatorv1.NVIPAMControllerName.String(),
-		operatorv1.ServiceSetControllerName.String(),
-	}
-}
-
-// expectedDPUServicesCurrent returns the DPUService shape at HEAD: the v26.04 shape plus
-// dpu-monitoring, node-problem-detector, and opentelemetry-collector.
-// Phases running v26.4 must use expectedDPUServicesV2604 instead.
-//
-// When the next release changes the shape, rename this to the version it describes and add a
-// new expectedDPUServicesCurrent on top of it, so that "Current" always tracks HEAD.
-func expectedDPUServicesCurrent(input *systemTestInput) []string {
-	return append(expectedDPUServicesV2604(input),
-		operatorv1.DPUMonitoringName.String(),
-		operatorv1.NodeProblemDetectorName.String(),
-		operatorv1.OpenTelemetryCollectorName.String(),
-	)
-}
-
-// expectedDPUServicesV2604 returns the v26.04 DPUService shape: nvidia-k8s-ipam,
+// expectedDPUServicesCurrent returns the DPUService shape at HEAD. nvidia-k8s-ipam,
 // servicechainset-controller and kube-state-metrics are each split into a per-cluster
 // controller service plus a node/RBAC companion service.
 //
-// Only phases installing or validating v26.4 use this shape.
-// expectedDPUServicesV268 and expectedDPUServicesCurrent build on it for later releases.
-func expectedDPUServicesV2604(input *systemTestInput) []string {
+// When a release changes the shape, rename this to the version it describes and add a
+// new expectedDPUServicesCurrent on top of it, so that "Current" always tracks HEAD.
+func expectedDPUServicesCurrent(input *systemTestInput) []string {
 	c := input.dpuClusters[0]
 	return []string{
 		operatorv1.FlannelName.String(),
@@ -80,112 +43,34 @@ func expectedDPUServicesV2604(input *systemTestInput) []string {
 		getPerClusterDPUServiceName(operatorv1.ServiceSetControllerName, c.Name, c.Namespace),
 		getPerClusterDPUServiceName(operatorv1.KubeStateMetricsName, c.Name, c.Namespace),
 		operatorv1.KubeStateMetricsRBACName.String(),
+		operatorv1.DPUMonitoringName.String(),
+		operatorv1.NodeProblemDetectorName.String(),
+		operatorv1.OpenTelemetryCollectorName.String(),
 	}
 }
 
-// stripDefaultedDPUServiceSecurity rewinds the v26.8 DPUService.spec.security
-// default so identity compare against v26.4 can ignore it, and bumps the
-// matching before generation for that one spec write.
-func stripDefaultedDPUServiceSecurity(before, after *[]map[string]interface{}) {
-	wantAPIVersion := dpuservicev1.GroupVersion.String()
-	for i, a := range *after {
-		apiVersion, _ := a["apiVersion"].(string)
-		kind, _ := a["kind"].(string)
-		if apiVersion != wantAPIVersion || kind != dpuservicev1.DPUServiceKind {
-			continue
-		}
-		unstructured.RemoveNestedField((*after)[i], "spec", "security")
-		bumpMatchingBeforeGeneration(*before, (*after)[i])
-	}
-}
-
-// The BFB LTS multi-hop upgrade path: install v25.10, validate the v26.4 hop
-// with a mandatory full DPU rollout (so DPUs start reporting KubeletVersion),
-// validate the v26.8 hop without reprovisioning, then validate HEAD by
-// concurrently reprovisioning one DPU with the current BFB and the other with
-// its existing BFB. Each phase is its own labeled Ginkgo container, selected by
-// CI via its label. Append a new validationPhase for each future hop.
+// The BFB LTS upgrade path: install v30.0 with DPUs on BFB LTS 3.6.0, then
+// validate HEAD by concurrently reprovisioning one DPU with the current BFB and
+// the other with its existing BFB. Each phase is its own labeled Ginkgo
+// container, selected by CI via its label. The path starts at the last released
+// GA because that is the only release HEAD accepts as an upgrade source. Insert a
+// validationPhase before "current" for each hop the path gains.
 var _ = Describe("DPF Upgrade LTS", func() {
-	installPhase("BFB LTS v25.10", installPhaseInput{
+	installPhase("BFB LTS v30.0", installPhaseInput{
 		label: Domain.DPFBFBLTSUpgrade,
 
-		// v25.10's servicechainset-controller creates a DPUServiceCredentialRequest with an
-		// empty spec.targetCluster.name that the current CRD rejects. Provisioning works
-		// without it being Ready, so skip the DPFOperatorConfig.Ready wait.
-		skipSystemComponentValidation: true,
-
-		expectedKubernetesVersion: "v1.34.0",
-		artifactsKey:              "v25.10",
-		expectedDPUServices:       expectedDPUServicesV2510,
-		dpuClusterRunsCoreDNS:     true,
-	})
-
-	validationPhase("v26.4", validationPhaseInput{
-		label: Domain.DPFBFBLTSUpgradeV264,
-
-		// Reprovision both DPUs once under v26.4 so they start reporting
-		// KubeletVersion (required for the v26.8 skew check). Move the first
-		// DPUDeployment to current dependencies while the second keeps its
-		// existing dependencies. DPUFlavorTemplate validation is skipped because
-		// the resource was introduced after v26.4.
-		rolloutAfterUpgrade: rolloutDependencies(
-			rollout.WithoutDPUFlavorTemplateValidation(),
-			rollout.ExpectDPFVersion(func() string { return dpfV264Version }),
-			rollout.ForDPUDeployment(0, rollout.ReprovisionWithCurrentDependencies()),
-			rollout.ForDPUDeployment(1, rollout.ReprovisionWithExistingDependencies(
-				// DPUSetStrategy was introduced in v26.4 as a required field.
-				func(spec *dpuservicev1.DPUDeploymentSpec) {
-					spec.DPUs.DPUSetStrategy.Type = provisioningv1.RollingUpdateStrategyType
-				},
-			)),
-		),
-		verifyKubeletVersion: true,
-
-		expectedDPFVersion:        func() string { return dpfV264Version },
-		expectedKubernetesVersion: "v1.34.0",
-		// Phase runs with -e2e.skip-cleanup, so clear the stale dpudevice-protection
-		// finalizers here rather than at teardown (#5048585).
-		removeStaleDPUDeviceFinalizers: true,
-
-		// v26.4 post-rollout artifacts become the v26.8 comparison baseline.
-		artifactsKey:                    "v26.4",
-		compareArtifactsToBeforeRollout: "v25.10",
-
-		expectedDPUServices:   expectedDPUServicesV2604,
-		dpuClusterRunsCoreDNS: true,
-	})
-
-	validationPhase("v26.8", validationPhaseInput{
-		label: Domain.DPFBFBLTSUpgradeV268,
-
-		// Keep the BFB on LTS 3.2.1 and exercise a dependency rollout on the
-		// first DPUDeployment. DPUs already report KubeletVersion after the
-		// mandatory v26.4 rollout.
-		rolloutAfterUpgrade: rolloutDependencies(
-			rollout.ExpectDPFVersion(func() string { return dpfV268Version }),
-			rollout.ForDPUDeployment(0, rollout.WithCurrentDependencies()),
-		),
-		verifyKubeletVersion:      true,
-		expectedDPFVersion:        func() string { return dpfV268Version },
-		expectedKubernetesVersion: "v1.35.6",
-
-		artifactsKey:                    "v26.8",
-		compareArtifactsToBeforeRollout: "v26.4",
-		artifactWaits:                   []artifactWait{waitForSFCInterfaceMigration},
-		artifactChecks:                  []artifactCheck{assertSFCInterfaceMigration},
-		artifactNormalizes: []artifactNormalize{
-			filterUpgradeInterfaceArtifacts,
-			stripDefaultedDPUServiceSecurity,
-		},
-
-		expectedDPUServices: expectedDPUServicesCurrent,
+		// v30.0 pins its own Kubernetes version, which can differ from HEAD's
+		// util.KubernetesVersion.
+		expectedKubernetesVersion: "v1.36.5",
+		artifactsKey:              "v30.0",
+		expectedDPUServices:       expectedDPUServicesCurrent,
 	})
 
 	validationPhase("current", validationPhaseInput{
 		label: Domain.DPFBFBLTSUpgradeCurrent,
 
 		// Reprovision both DPUs concurrently: the selected DPU moves to the
-		// current BFB while the other DPU keeps the existing BFB LTS 3.2.1.
+		// current BFB while the other DPU keeps the existing BFB LTS 3.6.0.
 		rolloutAfterUpgrade: rolloutDependencies(
 			rollout.ExpectDPFVersion(func() string { return tag }),
 			rollout.ForDPUDeployment(0, rollout.ReprovisionWithCurrentDependencies()),
@@ -195,7 +80,7 @@ var _ = Describe("DPF Upgrade LTS", func() {
 		expectedDPFVersion:   func() string { return tag },
 
 		artifactsKey:                    "current",
-		compareArtifactsToBeforeRollout: "v26.8",
+		compareArtifactsToBeforeRollout: "v30.0",
 
 		expectedDPUServices: expectedDPUServicesCurrent,
 	})

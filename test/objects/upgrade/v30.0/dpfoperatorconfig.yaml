@@ -6,8 +6,11 @@ metadata:
   name: dpfoperatorconfig
   namespace: dpf-operator-system
 spec:
-  # Must only contain fields the v26.4 CRD schema accepts. v26.4 predates
-  # deploymentMode and security.
+  # Must only contain fields the v30.0 CRD schema accepts
+  deploymentMode: host-trusted
+  security:
+    kata:
+      disable: false
   provisioningController:
     bfbPVCName: bfb-pvc
     # CI runs the host control-plane controllers at a single replica to save

@@ -105,10 +105,8 @@ type TestDomain struct {
 	DPFUpgradeValidation            string // Upgrade validation test suite
 	DPFUpgradeUsingLTSBFB           string // Upgrade-using-LTS-BFB test suite - install phase: provision against the LTS BFB
 	DPFUpgradeUsingLTSBFBValidation string // Upgrade-using-LTS-BFB test suite - validation phase: reprovision one DPUDeployment onto current BFB, the other in place on LTS BFB
-	DPFBFBLTSUpgrade                string // BFB LTS upgrade test suite - phase 1: install v25.10 with BFB LTS
-	DPFBFBLTSUpgradeV264            string // BFB LTS upgrade test suite - phase 2: validate v26.4 + DPU rollout
-	DPFBFBLTSUpgradeV268            string // BFB LTS upgrade test suite - phase 3: validate v26.8
-	DPFBFBLTSUpgradeCurrent         string // BFB LTS upgrade test suite - phase 4: validate HEAD with BFB LTS DPUs
+	DPFBFBLTSUpgrade                string // BFB LTS upgrade test suite - phase 1: install v30.0 with BFB LTS
+	DPFBFBLTSUpgradeCurrent         string // BFB LTS upgrade test suite - phase 2: validate HEAD with BFB LTS DPUs
 	ExternalTest                    string // External test scripts (DPF precondition setup)
 	TCP                             string // TCP external performance tests
 	UDP                             string // UDP external performance tests
@@ -140,8 +138,6 @@ var Domain = TestDomain{
 	DPFUpgradeUsingLTSBFB:           "DPFUpgradeUsingLTSBFB",
 	DPFUpgradeUsingLTSBFBValidation: "DPFUpgradeUsingLTSBFBValidation",
 	DPFBFBLTSUpgrade:                "DPFBFBLTSUpgrade",
-	DPFBFBLTSUpgradeV264:            "DPFBFBLTSUpgradeV264",
-	DPFBFBLTSUpgradeV268:            "DPFBFBLTSUpgradeV268",
 	DPFBFBLTSUpgradeCurrent:         "DPFBFBLTSUpgradeCurrent",
 	ExternalTest:                    "ExternalTest",
 	TCP:                             "TCP",
@@ -227,12 +223,6 @@ var (
 	// prereqsNamespace can be used to override the namespace where the prerequisites are deployed.
 	// This is useful to test scenarios where the prerequisites are deployed in a different namespace than the known default.
 	prereqsNamespace = ""
-	// dpfV264Version is the DPF v26.4 intermediate version used in the BFB LTS upgrade path.
-	// Required when running the DPFBFBLTSUpgradeV264 or later phases.
-	dpfV264Version = ""
-	// dpfV268Version is the DPF v26.8 intermediate version used in the BFB LTS upgrade path.
-	// Required when running the DPFBFBLTSUpgradeV268 or later phases.
-	dpfV268Version = ""
 	// Labels and resources targeted for cleanup before running our e2e tests.
 	// This cleanup is typically handled by cleanupObjs, but if an e2e test fails, the standard cleanup may not be executed.
 	// Note: order matters as some object deletion depends on controllers that may be deployed via dpuservices/dpudeployments

@@ -79,20 +79,15 @@ type installPhaseInput struct {
 	// variant while "DPFUpgrade && !ZeroTrust" selects only the HT one.
 	zeroTrust bool
 	// skipSystemComponentValidation skips the current-shape system-component
-	// checks during setup. Set for previous-release installs (e.g. BFB LTS
-	// v25.10) whose deployed component shape differs from the current release.
+	// checks during setup. Set for previous-release installs whose deployed
+	// component shape differs from the current release.
 	skipSystemComponentValidation bool
 	// expectedKubernetesVersion, if set, is the DPUCluster Status.Version this
 	// install should report instead of util.KubernetesVersion. Set for
-	// previous-release installs (e.g. BFB LTS v25.10) on an older Kubernetes
-	// version than HEAD.
+	// previous-release installs on another Kubernetes version than HEAD.
 	expectedKubernetesVersion string
 	// artifactsKey, if set, captures a snapshot to upgrade-artifacts-<key>.json.
 	artifactsKey string
-	// dpuClusterRunsCoreDNS marks releases that still run CoreDNS inside the DPU cluster via the
-	// Kamaji addon. From the release that serves DPU cluster DNS from the host cluster on, there is
-	// no CoreDNS Pod there to wait for.
-	dpuClusterRunsCoreDNS bool
 	// expectedDPUServices returns the DPUService names verifySystemReady expects
 	// on the DPU cluster at this phase's DPF release.
 	expectedDPUServices func(input *systemTestInput) []string
@@ -121,15 +116,7 @@ type validationPhaseInput struct {
 	// the upgraded system has been validated. A nil function means no rollout.
 	rolloutAfterUpgrade rolloutAfterUpgradeFunc
 	// verifyKubeletVersion asserts every DPU reports a non-empty KubeletVersion.
-	// Required after DPUs are reprovisioned with DPF v26.4+.
 	verifyKubeletVersion bool
-	// removeStaleDPUDeviceFinalizers, if true, clears the dpudevice-protection
-	// finalizer from unreferenced DPUDevices in an AfterAll. Set for phases that
-	// preserve the cluster with -e2e.skip-cleanup (so the AfterSuite teardown,
-	// which would otherwise clear them via DeleteDPFOperatorConfig, never runs):
-	// after a v25.10 → v26.4 upgrade non-selected DPUDevices can retain the legacy
-	// finalizer and stall the eventual teardown (#5048585).
-	removeStaleDPUDeviceFinalizers bool
 	// artifactsKey is required. It captures a post-rollout snapshot to
 	// upgrade-artifacts-<key>.json, and an unconditional pre-rollout snapshot to
 	// upgrade-artifacts-<key>-before-rollout.json.
@@ -152,18 +139,14 @@ type validationPhaseInput struct {
 	// comparison can run. Empty for hops that preserve everything, which
 	// then compare every captured kind.
 	artifactNormalizes []artifactNormalize
-	// dpuClusterRunsCoreDNS marks releases that still run CoreDNS inside the DPU cluster via the
-	// Kamaji addon. From the release that serves DPU cluster DNS from the host cluster on, there is
-	// no CoreDNS Pod there to wait for.
-	dpuClusterRunsCoreDNS bool
 	// expectedDPUServices returns the DPUService names verifySystemReady expects
 	// on the DPU cluster at this phase's DPF release. Required; the shape might
 	// differ between releases.
 	expectedDPUServices func(input *systemTestInput) []string
 	// expectedKubernetesVersion, if set, is the DPUCluster Status.Version this
-	// install should report instead of util.KubernetesVersion. Set for
-	// previous-release installs (e.g. BFB LTS v25.10) on an older Kubernetes
-	// version than HEAD.
+	// phase should report instead of util.KubernetesVersion. Set for
+	// intermediate hops validating a release on another Kubernetes version
+	// than HEAD.
 	expectedKubernetesVersion string
 }
 
@@ -177,7 +160,7 @@ var validationPhaseLabelSets []Labels
 // installPhaseLabelSets collects the full label set of every registered install
 // phase as a side effect of installPhase. BeforeSuite consults it via
 // isUpgradeInstallPhase. Using the full set avoids substring false-positives
-// (e.g. "DPFBFBLTSUpgrade" is a prefix of "DPFBFBLTSUpgradeV264").
+// (e.g. "DPFBFBLTSUpgrade" is a prefix of "DPFBFBLTSUpgradeCurrent").
 var installPhaseLabelSets []Labels
 
 // isUpgradeValidationPhase reports whether the active Ginkgo label filter
@@ -212,7 +195,7 @@ func isUpgradePhase() bool {
 // the active Ginkgo label filter. Uses Ginkgo's AST-based MatchesLabelFilter
 // so compound filters like "DPFUpgrade && ZeroTrust" are evaluated correctly
 // and prefix labels (e.g. "DPFBFBLTSUpgrade") do not false-match their
-// longer siblings ("DPFBFBLTSUpgradeV264").
+// longer siblings ("DPFBFBLTSUpgradeCurrent").
 func anyLabelSetMatchesFilter(labelSets []Labels) bool {
 	for _, ls := range labelSets {
 		if ls.MatchesLabelFilter(GinkgoLabelFilter()) {
@@ -266,7 +249,7 @@ func installPhase(description string, in installPhaseInput) {
 			By("Waiting for provisioning")
 			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
 			By("Waiting for system components to be ready")
-			verifySystemReady(in.expectedDPUServices(input), in.dpuClusterRunsCoreDNS)
+			verifySystemReady(in.expectedDPUServices(input))
 		})
 
 		// No settling wait needed: the preceding "wait for DPUs to be
@@ -382,17 +365,6 @@ func validationPhase(description string, in validationPhaseInput) {
 	}
 	Context("validation: "+description, phaseLabels, Serial, Ordered, func() {
 
-		if in.removeStaleDPUDeviceFinalizers {
-			// Runs even when this phase preserves the cluster (-e2e.skip-cleanup),
-			// so the stale dpudevice-protection finalizers from a v25.10 → v26.4
-			// upgrade are cleared before the cluster is eventually torn down
-			// (#5048585). DeleteDPFOperatorConfig clears them for non-skip-cleanup
-			// phases; this AfterAll covers the skip-cleanup ones.
-			AfterAll(func() {
-				removeStaleDPUDeviceProtectionFinalizers(ctx, input.client)
-			})
-		}
-
 		It("apply DPFOperatorConfig from phase manifest", func() {
 			applyDPFOperatorConfigFromPhaseConfig(ctx, input)
 		})
@@ -420,7 +392,7 @@ func validationPhase(description string, in validationPhaseInput) {
 		It("validate DPUCluster is healthy", func() {
 			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
 			By("Waiting for system components to be ready")
-			verifySystemReady(in.expectedDPUServices(input), in.dpuClusterRunsCoreDNS)
+			verifySystemReady(in.expectedDPUServices(input))
 		})
 		It("validate that DMS Pods are upgraded", func() {
 			VerifyHostAgentPodsImageTag(ctx, input)
@@ -450,7 +422,7 @@ func validationPhase(description string, in validationPhaseInput) {
 		It("wait for DPUs to be ready and system healthy after rollout", func() {
 			VerifyDPUClusterWithNodes(ctx, getProvisionDPUClustersInput())
 			By("Waiting for system components to be ready after rollout")
-			verifySystemReady(in.expectedDPUServices(input), in.dpuClusterRunsCoreDNS)
+			verifySystemReady(in.expectedDPUServices(input))
 			waitForDisruptiveRolloutToSettle(ctx)
 		})
 		It("validate DPFOperatorConfig ready after rollout", func() {
@@ -476,8 +448,8 @@ func registerArtifactCaptureStep(stepSuffix, artifactsKey string, capture artifa
 	}
 	itName := "capture DPU/DPUService artifacts"
 	if stepSuffix != "" {
-		// Disambiguate phases that capture more than one snapshot (e.g. the BFB
-		// LTS v26.4 hop captures pre- and post-rollout).
+		// Disambiguate phases that capture more than one snapshot (pre- and
+		// post-rollout).
 		itName += " " + stepSuffix
 	}
 	It(itName, func() {
@@ -500,8 +472,7 @@ func registerArtifactComparisonStep(phaseDescription, stepSuffix, artifactsKey, 
 	}
 	itName := "compare DPU/DPUService artifacts"
 	if stepSuffix != "" {
-		// Disambiguate phases that compare more than one snapshot pair (e.g. the
-		// BFB LTS v26.4 hop compares pre- and post-rollout).
+		// Disambiguate phases that compare more than one snapshot pair.
 		itName += " " + stepSuffix
 	}
 	It(itName, func() {
@@ -672,7 +643,7 @@ func VerifyHostAgentPodsImageTag(ctx context.Context, input *systemTestInput) {
 // the important ones. The expected DPUService names are supplied by the caller
 // (phase.expectedDPUServices) so each upgrade phase asserts the DPUService
 // shape that matches its DPF release.
-func verifySystemReady(dpuServiceNames []string, dpuClusterRunsCoreDNS bool) {
+func verifySystemReady(dpuServiceNames []string) {
 	pods := []string{
 		// Kubernetes system pods
 		"kube-flannel-ds", "kube-proxy",
@@ -680,9 +651,6 @@ func verifySystemReady(dpuServiceNames []string, dpuClusterRunsCoreDNS bool) {
 		"nvidia-k8s-ipam", "sfc-controller",
 		// DPUDeployment pods
 		"example",
-	}
-	if dpuClusterRunsCoreDNS {
-		pods = append(pods, "coredns")
 	}
 	VerifyClusterPods(ctx, dpuClusterClient[0], pods)
 
@@ -1019,8 +987,7 @@ func hasDPUDeploymentFinalizer(obj client.Object) bool {
 }
 
 // verifyDPUsHaveKubeletVersion asserts that every DPU in the system namespace
-// has a non-empty KubeletVersion in its AgentStatus. Required after DPUs are
-// reprovisioned with DPF v26.4+.
+// has a non-empty KubeletVersion in its AgentStatus.
 func verifyDPUsHaveKubeletVersion(ctx context.Context, input *systemTestInput) {
 	By("Verifying all DPUs report KubeletVersion")
 	Eventually(func(g Gomega) {
@@ -1033,48 +1000,4 @@ func verifyDPUsHaveKubeletVersion(ctx context.Context, input *systemTestInput) {
 			g.Expect(*dpu.Status.AgentStatus.KubeletVersion).NotTo(BeEmpty(), "DPU %s KubeletVersion should not be empty", dpu.Name)
 		}
 	}).WithTimeout(5 * time.Minute).WithPolling(time.Second).Should(Succeed())
-}
-
-// removeStaleDPUDeviceProtectionFinalizers clears provisioning.dpu.nvidia.com/dpudevice-protection
-// from DPUDevice objects that are not referenced by any active DPU.
-//
-// Workaround for v25.10 → v26.4 upgrade (#5048585): non-selected DPUDevices can retain the
-// legacy finalizer after upgrade, which blocks DPUDevice deletion and stalls DPFOperatorConfig
-// teardown. Only the finalizer is removed; DPUDevice objects are kept.
-func removeStaleDPUDeviceProtectionFinalizers(ctx context.Context, testClient client.Client) {
-	By("Removing stale dpudevice-protection finalizers from unreferenced DPUDevices (v25.10→v26.4 upgrade workaround)")
-
-	dpuList := &provisioningv1.DPUList{}
-	Expect(testClient.List(ctx, dpuList)).To(Succeed())
-
-	referencedDPUDevices := make(map[string]struct{}, len(dpuList.Items))
-	for i := range dpuList.Items {
-		dpu := &dpuList.Items[i]
-		if name := dpu.Spec.DPUDeviceName; name != "" {
-			referencedDPUDevices[name] = struct{}{}
-		}
-		if name := dpu.GetLabels()[util.DPUDeviceNameLabel]; name != "" {
-			referencedDPUDevices[name] = struct{}{}
-		}
-	}
-
-	dpuDeviceList := &provisioningv1.DPUDeviceList{}
-	Expect(testClient.List(ctx, dpuDeviceList)).To(Succeed())
-
-	for i := range dpuDeviceList.Items {
-		device := &dpuDeviceList.Items[i]
-		if _, referenced := referencedDPUDevices[device.Name]; referenced {
-			continue
-		}
-		if !slices.Contains(device.Finalizers, provisioningv1.DPUDeviceFinalizer) {
-			continue
-		}
-		By(fmt.Sprintf("Patching DPUDevice %s/%s: remove %s finalizer",
-			device.Namespace, device.Name, provisioningv1.DPUDeviceFinalizer))
-		original := device.DeepCopy()
-		device.Finalizers = slices.DeleteFunc(device.Finalizers, func(finalizer string) bool {
-			return finalizer == provisioningv1.DPUDeviceFinalizer
-		})
-		Expect(testClient.Patch(ctx, device, client.MergeFrom(original))).To(Succeed())
-	}
 }
