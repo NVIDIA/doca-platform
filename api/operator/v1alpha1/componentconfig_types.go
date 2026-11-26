@@ -1430,6 +1430,16 @@ type NodeProblemDetectorConfiguration struct {
 	// resource requirements.
 	// +optional
 	Daemon *DefaultOverridesConfiguration `json:"daemon,omitempty"`
+
+	// ExpectedHostPFs is the number of host PF representors that the
+	// PFRepresentorsHealthy check expects on each DPU. When unset, the check
+	// expects one representor per BlueField PF function found on the DPU.
+	// Set it to the DPUDevice numberOfPFs when the cards expose fewer host PFs
+	// than PF functions, for example 1 with NVCONFIG NUM_OF_PF=1 and
+	// HIDE_PORT2_PF=True (hardware LAG). It applies to every DPU.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	ExpectedHostPFs *int32 `json:"expectedHostPFs,omitempty"`
 }
 
 func (c *NodeProblemDetectorConfiguration) Name() string {

@@ -340,3 +340,29 @@ func Test_imageEditsForComponent_WithoutTag(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(edits).To(HaveLen(2))
 }
+
+func TestVariablesFromDPFOperatorConfig_NodeProblemDetectorExpectedHostPFs(t *testing.T) {
+	defaults := &release.Defaults{}
+	NewWithT(t).Expect(defaults.Parse()).To(Succeed())
+
+	t.Run("is unset by default", func(t *testing.T) {
+		g := NewWithT(t)
+		config := &operatorv1.DPFOperatorConfig{Spec: operatorv1.DPFOperatorConfigSpec{
+			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{},
+		}}
+		vars := VariablesFromDPFOperatorConfig(defaults, config, nil)
+		g.Expect(vars.NodeProblemDetector.ExpectedHostPFs).To(BeNil())
+	})
+
+	t.Run("is taken from the node-problem-detector configuration", func(t *testing.T) {
+		g := NewWithT(t)
+		config := &operatorv1.DPFOperatorConfig{Spec: operatorv1.DPFOperatorConfigSpec{
+			ProvisioningController: &operatorv1.ProvisioningControllerConfiguration{},
+			Monitoring: &operatorv1.MonitoringConfiguration{
+				NodeProblemDetector: &operatorv1.NodeProblemDetectorConfiguration{ExpectedHostPFs: ptr.To[int32](1)},
+			},
+		}}
+		vars := VariablesFromDPFOperatorConfig(defaults, config, nil)
+		g.Expect(vars.NodeProblemDetector.ExpectedHostPFs).To(HaveValue(Equal(int32(1))))
+	})
+}

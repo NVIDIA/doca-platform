@@ -1088,6 +1088,7 @@ _Appears in:_
 | `disable` _boolean_ | Disable ensures the component is not deployed when set to true. |  | Optional: \{\} <br /> |
 | `helmChart` _[HelmChart](#helmchart)_ | HelmChart overrides the helm chart used by the ServiceSet controller. The<br />URL must begin with either 'oci://' or 'https://', ensuring it points to<br />a valid OCI registry or a web-based repository. |  | Pattern: `^(oci://\|https://).+$` <br />Optional: \{\} <br /> |
 | `daemon` _[DefaultOverridesConfiguration](#defaultoverridesconfiguration)_ | Daemon contains the configuration for the node-problem-detector<br />component. It contains the image for node-problem-detector and its<br />resource requirements. |  | Optional: \{\} <br /> |
+| `expectedHostPFs` _integer_ | ExpectedHostPFs is the number of host PF representors that the<br />PFRepresentorsHealthy check expects on each DPU. When unset, the check<br />expects one representor per BlueField PF function found on the DPU.<br />Set it to the DPUDevice numberOfPFs when the cards expose fewer host PFs<br />than PF functions, for example 1 with NVCONFIG NUM_OF_PF=1 and<br />HIDE_PORT2_PF=True (hardware LAG). It applies to every DPU. |  | Minimum: 1 <br />Optional: \{\} <br /> |
 
 
 #### NodeSRIOVDevicePluginControllerConfiguration
