@@ -44,6 +44,8 @@ const (
 	// Anchored to ArmForceRestarted condition's LastTransitionTime, which is set
 	// when PerformArmForceRestart detects AllRestartsDone (regardless of OS state).
 	secureBootVerificationTimeout = 4 * time.Minute
+	// BF4 can take more than four minutes to report the applied setting.
+	bf4SecureBootVerificationTimeout = 12 * time.Minute
 )
 
 func InitializeInterface(ctx context.Context, dpu *provisioningv1.DPU, ctrlCtx *dutil.ControllerContext) (provisioningv1.DPUStatus, error) {
@@ -232,9 +234,13 @@ func verifySecureBootAfterRestarts(ctx context.Context, dpu *provisioningv1.DPU,
 	// Fallback: tracker.IsStale() guards against infinite retry if the condition
 	// is permanently absent (e.g., corrupted state after controller restart).
 	_, armCond := cutil.GetDPUCondition(state, provisioningv1.DPUCondArmForceRestarted.String())
+	timeout := secureBootVerificationTimeout
+	if tlsClient.IsBF4() {
+		timeout = bf4SecureBootVerificationTimeout
+	}
 	withinRetryWindow := false
 	if armCond != nil && armCond.Status == metav1.ConditionTrue {
-		withinRetryWindow = time.Since(armCond.LastTransitionTime.Time) < secureBootVerificationTimeout
+		withinRetryWindow = time.Since(armCond.LastTransitionTime.Time) < timeout
 	} else {
 		withinRetryWindow = !tracker.IsStale()
 	}
@@ -301,6 +307,10 @@ func detectAndStageSecureBoot(ctx context.Context, dpu *provisioningv1.DPU, stat
 	newTracker := &dutil.ArmRestartTracker{
 		InitialGeneration: dpu.Generation,
 		MaxAttempts:       secureBootRequiredRestarts,
+	}
+	// BF4 applies the setting in one restart; BF2/BF3 retain their two-restart policy.
+	if tlsClient.IsBF4() {
+		newTracker.MaxAttempts = 1
 	}
 	if err := dutil.SaveArmRestartTracker(dpu, newTracker); err != nil {
 		log.Error(err, "Failed to save ArmRestartTracker")
