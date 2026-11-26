@@ -235,7 +235,7 @@ func verifySecureBootAfterRestarts(ctx context.Context, dpu *provisioningv1.DPU,
 	// is permanently absent (e.g., corrupted state after controller restart).
 	_, armCond := cutil.GetDPUCondition(state, provisioningv1.DPUCondArmForceRestarted.String())
 	timeout := secureBootVerificationTimeout
-	if tlsClient.IsBF4() {
+	if tlsClient.IsBF4 {
 		timeout = bf4SecureBootVerificationTimeout
 	}
 	withinRetryWindow := false
@@ -309,7 +309,7 @@ func detectAndStageSecureBoot(ctx context.Context, dpu *provisioningv1.DPU, stat
 		MaxAttempts:       secureBootRequiredRestarts,
 	}
 	// BF4 applies the setting in one restart; BF2/BF3 retain their two-restart policy.
-	if tlsClient.IsBF4() {
+	if tlsClient.IsBF4 {
 		newTracker.MaxAttempts = 1
 	}
 	if err := dutil.SaveArmRestartTracker(dpu, newTracker); err != nil {
