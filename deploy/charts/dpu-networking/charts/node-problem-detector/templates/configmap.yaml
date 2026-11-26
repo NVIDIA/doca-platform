@@ -183,6 +183,10 @@ data:
         }
       ]
     }
+{{- with .Values.expectedHostPFs }}
+  # Read by check_pf_representors.sh; see expectedHostPFs in values.yaml.
+  expected_host_pfs: {{ . | int | quote }}
+{{- end }}
 {{- range $path, $file := $.Files.Glob "scripts/*.sh" }}
   {{ base $path }}: |
 {{ $file | toString | indent 4 }}

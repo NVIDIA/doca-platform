@@ -177,6 +177,7 @@ type Variables struct {
 	CoreDNS                                CoreDNSVariables
 	Networking                             Networking
 	KataContainers                         KataContainersVariables
+	NodeProblemDetector                    NodeProblemDetectorVariables
 	DisableSystemComponents                map[operatorv1.ComponentName]bool
 	DisableTracing                         map[operatorv1.ComponentName]bool
 	ImagePullSecrets                       []string
@@ -298,6 +299,13 @@ type OpenTelemetryCollectorVariables struct {
 	Metrics OpenTelemetryCollectorGenericVariables
 	Logging OpenTelemetryCollectorGenericVariables
 	Tracing OpenTelemetryCollectorGenericVariables
+}
+
+// NodeProblemDetectorVariables holds variables specific to the node-problem-detector component.
+type NodeProblemDetectorVariables struct {
+	// ExpectedHostPFs is the number of host PF representors each DPU is expected to have.
+	// Nil leaves the chart default, one per BlueField PF function.
+	ExpectedHostPFs *int32
 }
 
 // KataContainersVariables holds variables specific to the Kata Containers component.
@@ -616,6 +624,10 @@ func setAdditionalConfigs(variables Variables, config *operatorv1.DPFOperatorCon
 		if dp.DefaultResourcePrefix != nil {
 			variables.NodeSRIOVDevicePluginController.DefaultResourcePrefix = *dp.DefaultResourcePrefix
 		}
+	}
+
+	if config.Spec.Monitoring != nil && config.Spec.Monitoring.NodeProblemDetector != nil {
+		variables.NodeProblemDetector.ExpectedHostPFs = config.Spec.Monitoring.NodeProblemDetector.ExpectedHostPFs
 	}
 
 	if config.Spec.Security != nil && config.Spec.Security.Kata != nil {

@@ -991,3 +991,23 @@ func Test_sfcControllerEditsTracingValues(t *testing.T) {
 		}))
 	})
 }
+
+func Test_nodeProblemDetectorEdits(t *testing.T) {
+	t.Run("sets no values by default", func(t *testing.T) {
+		g := NewWithT(t)
+		edits, err := nodeProblemDetectorEdits(Variables{})
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(tracingValues(g, edits)).To(BeNil())
+	})
+
+	t.Run("passes the expected host PFs to the chart", func(t *testing.T) {
+		g := NewWithT(t)
+		vars := Variables{}
+		vars.NodeProblemDetector.ExpectedHostPFs = ptr.To[int32](1)
+		edits, err := nodeProblemDetectorEdits(vars)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(tracingValues(g, edits)).To(Equal(map[string]interface{}{
+			"node-problem-detector": map[string]interface{}{"expectedHostPFs": int64(1)},
+		}))
+	})
+}

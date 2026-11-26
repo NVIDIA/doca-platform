@@ -8,6 +8,14 @@ image:
 
 imagePullSecrets: []
 
+# -- expectedHostPFs is the number of host PF representors the PFRepresentorsHealthy check
+# expects on each DPU. 0 (default) expects one per BlueField PF function found on the DPU,
+# which is right for cards that expose every PF to the host. Set it to the DPUDevice
+# numberOfPFs when the cards are configured with fewer host PFs than PF functions, for
+# example 1 with NVCONFIG NUM_OF_PF=1 and HIDE_PORT2_PF=True (hardware LAG). It applies to
+# every DPU in the cluster.
+expectedHostPFs: 0
+
 resources:
   limits:
     cpu: 200m

@@ -268,6 +268,8 @@ func additionalValuesForComponent(name operatorv1.ComponentName, vars Variables)
 		return openTelemetryCollectorEdits(vars)
 	case operatorv1.KataContainersName:
 		return kataContainersEdits(vars)
+	case operatorv1.NodeProblemDetectorName:
+		return nodeProblemDetectorEdits(vars)
 	// Other DPUServices do not need additional values.
 	default:
 		return nil, nil
@@ -349,6 +351,15 @@ func sfcControllerEdits(vars Variables) ([]StructuredEdit, error) {
 func cniInstallerEdits(vars Variables) ([]StructuredEdit, error) {
 	edits := []StructuredEdit{
 		dpuServiceAddValueEdit(vars.DPUCNIBinPath, operatorv1.CNIInstallerName.String(), cniBinDirPathKey),
+	}
+	return edits, nil
+}
+
+func nodeProblemDetectorEdits(vars Variables) ([]StructuredEdit, error) {
+	var edits []StructuredEdit
+	if vars.NodeProblemDetector.ExpectedHostPFs != nil {
+		edits = append(edits, dpuServiceAddValueEdit(int64(*vars.NodeProblemDetector.ExpectedHostPFs),
+			operatorv1.NodeProblemDetectorName.String(), "expectedHostPFs"))
 	}
 	return edits, nil
 }
