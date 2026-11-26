@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"time"
@@ -134,22 +135,31 @@ var _ = Describe("InstallationService", func() {
 
 		installationService = NewInstallationService(k8sClient, nil, nil)
 		Expect(installationService.Start(false)).To(Succeed())
-		// Start() runs the server in a goroutine; wait until it is listening to avoid connection refused.
-		Eventually(func() error {
+		// Start() opens the port from a goroutine. Wait until this instance holds the listener and
+		// answers, so the spec talks to it and Stop() has a listener to close.
+		Eventually(func(g Gomega) {
+			installationService.mu.Lock()
+			_, listening := installationService.listeners[localhostIfaceName]
+			installationService.mu.Unlock()
+			g.Expect(listening).To(BeTrue(), "this instance has not opened %s yet", address)
+
 			resp, err := http.Get(fmt.Sprintf("http://%s/healthz", address))
-			if err != nil {
-				return err
-			}
+			g.Expect(err).To(Succeed())
 			_ = resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				return fmt.Errorf("healthz returned %d", resp.StatusCode)
-			}
-			return nil
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
 		}).WithTimeout(5 * time.Second).WithPolling(50 * time.Millisecond).Should(Succeed())
 	})
 
 	AfterEach(func() {
 		installationService.Stop()
+		// Drop kept-alive connections so the stopped instance cannot answer the next spec.
+		http.DefaultClient.CloseIdleConnections()
+		// The port must be free, or every later spec talks to this instance.
+		conn, err := net.DialTimeout("tcp", address, time.Second)
+		if err == nil {
+			_ = conn.Close()
+		}
+		Expect(err).To(HaveOccurred(), "%s is still open after Stop()", address)
 		Expect(k8sClient.Delete(ctx, testNS)).To(Succeed())
 	})
 
