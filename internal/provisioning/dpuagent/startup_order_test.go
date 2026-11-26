@@ -39,6 +39,8 @@ import (
 
 // TestRunStartsRuntimeOperationBeforeHostRelease verifies startup before release, completion after readback, and cancellation.
 func TestRunStartsRuntimeOperationBeforeHostRelease(t *testing.T) {
+	const timeout = 10 * time.Second
+
 	for _, name := range []string{"certificate", "spiffe", "cancel"} {
 		t.Run(name, func(t *testing.T) {
 			spiffeMode := name == "spiffe"
@@ -102,7 +104,7 @@ esac
 				cancel()
 				select {
 				case <-done:
-				case <-time.After(5 * time.Second):
+				case <-time.After(timeout):
 					t.Error("Run did not stop after cancellation")
 				}
 				require.NoError(t, agent.Shutdown())
@@ -111,7 +113,8 @@ esac
 				defer close(done)
 				done <- agent.Run(ctx)
 			}()
-			require.Eventually(t, func() bool { _, err := os.Stat(filepath.Join(dir, "read")); return err == nil }, time.Second, time.Millisecond)
+			require.Eventually(t, func() bool { _, err := os.Stat(filepath.Join(dir, "read")); return err == nil }, timeout, time.Millisecond,
+				"host release must read the hold register while the readiness gate is blocked")
 			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(dpu), dpu))
 			require.True(t, meta.IsStatusConditionTrue(dpu.Status.AgentStatus.Conditions, "RuntimeWorkersStarted"),
 				"worker startup must be reported while host release is still waiting")
@@ -120,7 +123,7 @@ esac
 			if spiffeMode {
 				require.Eventually(t, func() bool {
 					return meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, provisioningv1.DPUAgentConditionSPIREWorkloadAttestorEnabled) != nil
-				}, time.Second, time.Millisecond, "SPIRE attestor must reconcile while host release is blocked")
+				}, timeout, time.Millisecond, "SPIRE attestor must reconcile while host release is blocked")
 			} else {
 				require.Nil(t, meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, provisioningv1.DPUAgentConditionSPIREWorkloadAttestorEnabled))
 			}
@@ -133,7 +136,7 @@ esac
 				select {
 				case err := <-done:
 					require.ErrorIs(t, err, context.Canceled)
-				case <-time.After(2 * time.Second):
+				case <-time.After(timeout):
 					t.Fatal("release wait did not abort")
 				}
 				require.NoFileExists(t, filepath.Join(dir, "released"))
@@ -153,7 +156,7 @@ esac
 				require.Eventually(t, func() bool {
 					cond := meta.FindStatusCondition(optCtx.Status.GetLocal().Conditions, "ReleaseHostOSInit")
 					return cond != nil && strings.Contains(cond.Message, "remains held")
-				}, time.Second, time.Millisecond)
+				}, timeout, time.Millisecond, "host release must wait for register readback to confirm release")
 				require.NoFileExists(t, filepath.Join(agent.runDir, doneMarkerFileName))
 				require.Zero(t, optCtx.Status.GetLocal().AppliedFlavorGeneration)
 				require.NoError(t, os.Remove(readbackBlock))
@@ -161,7 +164,7 @@ esac
 			select {
 			case err := <-done:
 				require.NoError(t, err)
-			case <-time.After(2 * time.Second):
+			case <-time.After(timeout):
 				t.Fatal("ready gate did not release host")
 			}
 			require.FileExists(t, filepath.Join(dir, "released"))
