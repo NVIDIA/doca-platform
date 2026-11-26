@@ -38,11 +38,12 @@ import (
 
 // Constants for repeated strings
 const (
-	defaultBMCPassword = "0penBmc"
-	DpuSerialNumber    = "MT25066004C7"
-	DpuPSID74          = "MT_0000001774"
-	DpuPSID75          = "MT_0000001875"
-	DpuOPN             = "900-9D3B4-00SV-EA0"
+	forceRestartResetType = "ForceRestart"
+	defaultBMCPassword    = "0penBmc"
+	DpuSerialNumber       = "MT25066004C7"
+	DpuPSID74             = "MT_0000001774"
+	DpuPSID75             = "MT_0000001875"
+	DpuOPN                = "900-9D3B4-00SV-EA0"
 )
 
 // RedfishMockServer represents a mock Redfish server for testing
@@ -99,6 +100,7 @@ type RedfishMockServer struct {
 	bmcRShimGetError                bool                     // Simulate GET Oem/Nvidia error for testing
 	lastForceUpdate                 atomic.Bool              // ForceUpdate requested by the most recent PLDM multipart update, read from the test goroutine
 	armPoweredOff                   atomic.Bool              // DPU Arm reported as shut down by GET System, toggled by NvidiaChassis.Reset from another goroutine
+	armResetRequests                atomic.Int64             // Accepted ARM reset requests across BF3/BF4 endpoints
 	armShutdownRequests             atomic.Int64             // Number of NvidiaChassis.Reset ArmShutdown requests received
 	networkDeviceFunctionRequests   atomic.Int64             // Number of PF0 GET requests received
 	defaultPasswordAttempts         atomic.Int64             // Requests that presented the factory default password
@@ -1256,7 +1258,7 @@ func (r *RedfishMockServer) handleResetBMC(w http.ResponseWriter, req *http.Requ
 		return
 	}
 	switch body.ResetType {
-	case "ForceRestart", "GracefulRestart":
+	case forceRestartResetType, "GracefulRestart":
 	default:
 		writeRedfishError(w, http.StatusBadRequest, "Base.1.18.1.ActionParameterNotSupported", "Unsupported ResetType "+body.ResetType)
 		return
@@ -1914,6 +1916,7 @@ func (r *RedfishMockServer) handleChassisReset(w http.ResponseWriter, req *http.
 		r.armShutdownRequests.Add(1)
 		r.armPoweredOff.Store(true)
 	case "ArmReset":
+		r.armResetRequests.Add(1)
 		r.armPoweredOff.Store(false)
 	default:
 		http.Error(w, "Invalid reset type", http.StatusBadRequest)
@@ -2085,11 +2088,14 @@ func (r *RedfishMockServer) handleResetSystem(w http.ResponseWriter, req *http.R
 
 	// Validate reset type
 	resetType, ok := body["ResetType"].(string)
-	if !ok || (resetType != "ForceRestart" && resetType != "GracefulRestart" && resetType != "PowerCycle") {
+	if !ok || (resetType != forceRestartResetType && resetType != "GracefulRestart" && resetType != "PowerCycle") {
 		http.Error(w, "Invalid reset type", http.StatusBadRequest)
 		return
 	}
 	r.lastResetType = resetType
+	if resetType == forceRestartResetType {
+		r.armResetRequests.Add(1)
+	}
 
 	// Note: Secure Boot requires TWO reboots to take effect
 	// - First reboot: Apply BIOS configuration
@@ -2188,3 +2194,6 @@ func CreateMockRedfishServer(bmcVersion, password string) (*RedfishMockServer, e
 	klog.Infof("Mock Redfish server started at %s", server.URL())
 	return server, nil
 }
+
+// GetArmResetRequests returns the accepted ARM reset HTTP request count.
+func (r *RedfishMockServer) GetArmResetRequests() int { return int(r.armResetRequests.Load()) }
