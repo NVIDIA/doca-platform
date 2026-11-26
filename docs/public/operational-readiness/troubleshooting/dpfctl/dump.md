@@ -102,6 +102,48 @@ The Redfish username is detected from the BMC generation: `root` on BlueField-3 
 dpfctl dump bmc --username admin --output-dir /tmp/bmc-dumps
 ```
 
+## Collecting from One BMC without a Cluster
+
+With `--bmc-address` the command collects from that one BMC and does not contact the Kubernetes API. The password is
+read from `--password-file` and the CA from `--ca-cert-file`; both are required:
+
+```shell
+dpfctl dump bmc --bmc-address 10.0.110.122 --password-file ./bmc-password --ca-cert-file ./ca.crt \
+  --output-dir /tmp/bmc-dumps
+```
+
+In this mode the files are written directly into the output directory, with no subdirectory per BMC.
+
+`--stop-at` sets a time at which the command stops. Until then, read requests that fail are repeated, so a BMC that is
+unreachable for a while is still collected from. The request that creates a dump is never repeated, and the command
+stops at the first rejected login, because the BMC locks an account after repeated failures.
+
+`--archive-dir` replaces `--output-dir`: the dumps are stored in `<dir>/<serial>/<timestamp>-<dpu-uid>/`, and only
+the newest three directories of that serial are kept. Nothing is collected when the directory has less free space
+than `--archive-min-free` (2 GB by default).
+
+```shell
+dpfctl dump bmc --bmc-address 10.0.110.122 --password-file ./bmc-password --ca-cert-file ./ca.crt \
+  --archive-dir /var/lib/bmc-diagnostics --serial MT2616606M28
+```
+
+`--print-logs` prints the collection to standard output as JSON lines, one object per line, and prints nothing else.
+The first line is a header, with the serial and any `--header key=value` fields. The last line is the result: whether
+the collection succeeded, which dumps were collected, what became of the archive, and how many lines were printed and
+dropped. In between are the useful logs of the dumps:
+
+| `source`   | Content                                                                 |
+|------------|-------------------------------------------------------------------------|
+| `state`    | BMC, chassis and host state, failed services, firmware version, uptime  |
+| `journal`  | The BMC journal, with the BMC's time and the unit of each entry         |
+| `kernel`   | The BMC kernel log                                                      |
+| `console`  | The DPU console capture                                                 |
+| `postcode` | The POST codes (BlueField-4)                                            |
+| `eventlog` | The BMC event log                                                       |
+
+At most 4 MB is printed. If the logs are larger, the oldest event log lines are dropped first. With `--print-logs`, a
+collection that cannot store its archive still prints the logs, and the result line says why the archive is missing.
+
 ## Output
 
 If `--output-dir` is not provided, a timestamped directory such as `bmcdump-20260713-120000` is created in the
@@ -121,14 +163,14 @@ Each collected dump gets its own directory: `manager` for the Manager dump and `
     ├── manager/
     │   ├── create-dump-task.json
     │   ├── task-final.json
-    │   ├── dump-entries.json
     │   └── log_dump.tar.zst
     └── system/
         ├── create-dump-task.json
         ├── task-final.json
-        ├── dump-entries.json
         └── log_dump.tar.zst
 ```
+
+A dump larger than 64 MB is not downloaded, and an archive is stored under its name only once the download is complete.
 
 The `system` directory is absent on BlueField-3, which has no CPU diagnostics dump. A directory is created only once
 a dump writes into it, so a unit that fails before producing anything leaves nothing behind; the reason is recorded in
@@ -150,7 +192,7 @@ The files contain:
 | `metadata.txt`          | BMC endpoint, related `DPUDevice` names, credential Secret, and what the collector discovered, chose and skipped |
 | `create-dump-task.json` | Redfish response from dump task creation                                               |
 | `task-final.json`       | Final Redfish task status                                                              |
-| `dump-entries.json`     | Redfish dump entry list used to find the downloaded archive                            |
+| `dump-entries.json`     | Redfish dump entry list, written only when the task does not name its dump entry       |
 | `log_dump.tar.zst`      | Downloaded dump archive (zstd)                                                         |
 
 ## Running from the Operator Pod
@@ -185,6 +227,15 @@ kubectl -n dpf-operator-system cp \
 | `--output-dir`               | `bmcdump-<timestamp>` | Local directory for downloaded dumps                                  |
 | `--clear-existing`           | `false`               | Clear existing BMC dump entries before creating a new dump            |
 | `--ca-cert-file`             |                       | PEM file with the CA that signed the BMC server certificates          |
+| `--bmc-address`              |                       | Collect from this one BMC (host or host:port) without contacting the Kubernetes API |
+| `--password-file`            |                       | File holding the BMC password, used with `--bmc-address`              |
+| `--stop-at`                  |                       | Time (RFC 3339) at which to stop; until then, failed read requests are retried |
+| `--archive-dir`              |                       | Store the dumps per serial and keep the newest three; used instead of `--output-dir` |
+| `--archive-min-free`         | `2Gi`                 | Free space in `--archive-dir` below which nothing is collected        |
+| `--print-logs`               | `false`               | Print the collection as JSON lines and nothing else; used with `--bmc-address` |
+| `--header`                   |                       | Extra `key=value` fields for the header line, used with `--print-logs` |
+| `--serial`                   |                       | DPU serial number that names the archive directory                    |
+| `--dpu-uid`                  |                       | DPU UID appended to the archive directory name                        |
 
 `--insecure-skip-tls-verify` is deprecated and ignored. BMC server certificates are always verified.
 

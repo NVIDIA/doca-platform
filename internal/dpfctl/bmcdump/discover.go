@@ -18,7 +18,6 @@ package bmcdump
 
 import (
 	"fmt"
-	"net/http"
 
 	redfishclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 )
@@ -125,7 +124,7 @@ func (c *collector) discover() (*discovery, error) {
 }
 
 func (c *collector) rootServiceProduct() (string, error) {
-	response, err := c.requestJSON(http.MethodGet, rootServicePath, nil)
+	response, err := c.getJSON(rootServicePath)
 	if err != nil {
 		return "", fmt.Errorf("reading redfish root service: %w", err)
 	}

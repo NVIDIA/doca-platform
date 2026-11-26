@@ -17,14 +17,18 @@ limitations under the License.
 package cmd
 
 import (
+	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/internal/dpfctl/bmcdump"
 
 	"github.com/spf13/cobra"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -37,6 +41,15 @@ type dumpBMCFlags struct {
 	timeout        time.Duration
 	requestTimeout time.Duration
 	clearExisting  bool
+	bmcAddress     string
+	passwordFile   string
+	stopAt         string
+	archiveDir     string
+	archiveMinFree string
+	printLogs      bool
+	header         map[string]string
+	serial         string
+	dpuUID         string
 }
 
 var dumpBMCOpts dumpBMCFlags
@@ -62,7 +75,12 @@ Each BMC server certificate is verified against the CA that signed it and the
 BMC identity is pinned to the address being dialed. The CA is read from the
 trust bundle the DPF Operator publishes, found through the DPFOperatorConfig
 (--namespace is used only if it cannot be listed), so no certificate input is
-needed. Point --ca-cert-file at a PEM file when the cluster is anchored to a certificate authority of your own.`,
+needed. Point --ca-cert-file at a PEM file when the cluster is anchored to a certificate authority of your own.
+
+With --bmc-address the command collects from that one BMC and does not contact
+the Kubernetes API: the password is read from --password-file and the CA from
+--ca-cert-file. --archive-dir then stores the dumps per serial and keeps the
+newest three.`,
 	Example: `  # Collect dumps for all discovered DPUDevices
   dpfctl dump bmc --output-dir /tmp/bmc-dumps
 
@@ -73,7 +91,10 @@ needed. Point --ca-cert-file at a PEM file when the cluster is anchored to a cer
   dpfctl dump bmc --clear-existing
 
   # Verify against a certificate authority of your own
-  dpfctl dump bmc --ca-cert-file /etc/pki/my-bmc-ca.crt`,
+  dpfctl dump bmc --ca-cert-file /etc/pki/my-bmc-ca.crt
+
+  # Collect from one BMC without a Kubernetes cluster
+  dpfctl dump bmc --bmc-address 10.0.0.10 --password-file ./bmc-password --ca-cert-file ./ca.crt`,
 	Args: cobra.NoArgs,
 	// Don't print usage on runtime errors; it hides the actual error message.
 	SilenceUsage: true,
@@ -108,6 +129,15 @@ func addDumpBMCFlags(cmd *cobra.Command) {
 	must(cmd.RegisterFlagCompletionFunc("ca-cert-file", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return []string{"crt", "pem"}, cobra.ShellCompDirectiveFilterFileExt
 	}))
+	f.StringVar(&dumpBMCOpts.bmcAddress, "bmc-address", "", "Collect from this one BMC (host or host:port) without contacting the Kubernetes API; requires --password-file and --ca-cert-file")
+	f.StringVar(&dumpBMCOpts.passwordFile, "password-file", "", "File holding the BMC password, used with --bmc-address")
+	f.StringVar(&dumpBMCOpts.stopAt, "stop-at", "", "Time (RFC 3339) at which to stop; until then, failed read requests to the BMC are retried")
+	f.StringVar(&dumpBMCOpts.archiveDir, "archive-dir", "", "Store the dumps under <dir>/<serial>/<timestamp>-<dpu-uid>/ and keep the newest three per serial; used with --bmc-address and --serial instead of --output-dir")
+	f.StringVar(&dumpBMCOpts.archiveMinFree, "archive-min-free", "2Gi", "Free space in --archive-dir below which nothing is collected")
+	f.BoolVar(&dumpBMCOpts.printLogs, "print-logs", false, "Print the collection as JSON lines (a header, the useful logs of the dumps, a result) and nothing else; used with --bmc-address")
+	f.StringToStringVar(&dumpBMCOpts.header, "header", nil, "Extra key=value fields for the header line, used with --print-logs")
+	f.StringVar(&dumpBMCOpts.serial, "serial", "", "DPU serial number that names the archive directory")
+	f.StringVar(&dumpBMCOpts.dpuUID, "dpu-uid", "", "DPU UID appended to the archive directory name")
 	// Registered but never read, so invocations written against earlier releases keep working
 	// instead of failing on an unknown flag.
 	f.Bool("insecure-skip-tls-verify", false, "Skip BMC TLS certificate verification (insecure)")
@@ -115,28 +145,62 @@ func addDumpBMCFlags(cmd *cobra.Command) {
 }
 
 func runDumpBMC(cmd *cobra.Command) error {
-	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt)
+	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	c, err := newClient()
+	opts, err := dumpBMCCollectOptions()
 	if err != nil {
 		return err
 	}
 
-	return bmcdump.Collect(ctx, c, dumpBMCCollectOptions())
+	// A single BMC given by address needs nothing from the cluster, so no client is created and
+	// the command works without a kubeconfig.
+	var c client.Client
+	if opts.BMCAddress == "" {
+		if c, err = newClient(); err != nil {
+			return err
+		}
+	}
+
+	return bmcdump.Collect(ctx, c, opts)
 }
 
-func dumpBMCCollectOptions() bmcdump.CollectOptions {
-	return bmcdump.CollectOptions{
-		Namespace:      dumpBMCOpts.namespace,
-		OutputDir:      dumpBMCOpts.outputDir,
-		Devices:        dumpBMCOpts.devices,
-		Username:       dumpBMCOpts.username,
-		CACertFile:     dumpBMCOpts.caCertFile,
-		RequestTimeout: dumpBMCOpts.requestTimeout,
-		TaskTimeout:    dumpBMCOpts.timeout,
-		ClearExisting:  dumpBMCOpts.clearExisting,
+// dumpBMCCollectOptions builds the collection options from the command flags.
+func dumpBMCCollectOptions() (bmcdump.CollectOptions, error) {
+	minFree, err := resource.ParseQuantity(dumpBMCOpts.archiveMinFree)
+	if err != nil {
+		return bmcdump.CollectOptions{}, fmt.Errorf("parsing --archive-min-free: %w", err)
 	}
+	var stopAt time.Time
+	if dumpBMCOpts.stopAt != "" {
+		if stopAt, err = time.Parse(time.RFC3339, dumpBMCOpts.stopAt); err != nil {
+			return bmcdump.CollectOptions{}, fmt.Errorf("parsing --stop-at: %w", err)
+		}
+	}
+	// Assigned only when asked for: a nil *os.File stored in the interface would not be nil.
+	var printLogs io.Writer
+	if dumpBMCOpts.printLogs {
+		printLogs = os.Stdout
+	}
+	return bmcdump.CollectOptions{
+		PrintLogs:           printLogs,
+		Header:              dumpBMCOpts.header,
+		BMCAddress:          dumpBMCOpts.bmcAddress,
+		PasswordFile:        dumpBMCOpts.passwordFile,
+		StopAt:              stopAt,
+		ArchiveDir:          dumpBMCOpts.archiveDir,
+		ArchiveMinFreeBytes: minFree.Value(),
+		Serial:              dumpBMCOpts.serial,
+		DPUUID:              dumpBMCOpts.dpuUID,
+		Namespace:           dumpBMCOpts.namespace,
+		OutputDir:           dumpBMCOpts.outputDir,
+		Devices:             dumpBMCOpts.devices,
+		Username:            dumpBMCOpts.username,
+		CACertFile:          dumpBMCOpts.caCertFile,
+		RequestTimeout:      dumpBMCOpts.requestTimeout,
+		TaskTimeout:         dumpBMCOpts.timeout,
+		ClearExisting:       dumpBMCOpts.clearExisting,
+	}, nil
 }
 
 func completeDPUDevices(cmd *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {

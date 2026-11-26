@@ -18,9 +18,12 @@ package bmcdump
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,11 +41,11 @@ import (
 // what each test expects to find in the downloaded archive.
 const attachmentPayload = "dump-archive-bytes"
 
-// The collector picks the newest entry by Created, so the entry the task
-// produces is the newer of the two.
+// The entry the task produces is the older of the two by Created, as after a BMC clock that
+// moved backwards: the collector must still pick it.
 const (
-	staleEntryCreated = "2026-01-01T00:00:00Z"
-	freshEntryCreated = "2027-01-01T00:00:00Z"
+	staleEntryCreated = "2027-01-01T00:00:00Z"
+	freshEntryCreated = "2026-01-01T00:00:00Z"
 )
 
 type recordedRequest struct {
@@ -57,6 +60,9 @@ type bmcFixture struct {
 	product   string
 	managerID string
 	systemID  string
+
+	// attachments overrides attachmentPayload per dump service, for tests that unpack the dump.
+	attachments map[string][]byte
 
 	mu        sync.Mutex
 	requests  []recordedRequest
@@ -149,6 +155,9 @@ func (f *bmcFixture) respond(req *http.Request) (*http.Response, error) {
 	}
 
 	if strings.HasSuffix(path, "/attachment") {
+		if attachment, ok := f.attachments[service]; ok {
+			return httpResponse(req, http.StatusOK, string(attachment)), nil
+		}
 		return httpResponse(req, http.StatusOK, attachmentPayload), nil
 	}
 	return httpResponse(req, http.StatusNotFound, `{"error":"not found"}`), nil
@@ -302,39 +311,7 @@ func TestResolveUsername(t *testing.T) {
 	}
 }
 
-func TestWaitForDumpEntryPicksTheNewestByCreated(t *testing.T) {
-	g := NewWithT(t)
-
-	unit := dumpUnit{
-		name:        managerUnitName,
-		servicePath: "/redfish/v1/Managers/Bluefield_BMC" + dumpLogServicePath,
-	}
-	entries := `{"Members":[
-		{"Id":"older","Created":"2026-01-01T00:00:00Z"},
-		{"Id":"newest","Created":"2027-01-01T00:00:00Z"},
-		{"Id":"middle","Created":"2026-06-01T00:00:00Z"}
-	]}`
-	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		return httpResponse(req, http.StatusOK, entries), nil
-	})
-
-	targetDir := t.TempDir()
-	c := &collector{
-		target:         logTarget{IP: "10.0.0.10"},
-		targetDir:      targetDir,
-		ctx:            context.Background(),
-		client:         resty.New().SetBaseURL("https://10.0.0.10").SetTransport(transport),
-		entryRetry:     3,
-		entryRetryWait: time.Nanosecond,
-	}
-
-	entryID, err := c.waitForDumpEntry(unit, targetDir)
-
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(entryID).To(Equal("newest"))
-}
-
-func TestWaitForDumpEntryFailsWhenNoEntryEverAppears(t *testing.T) {
+func TestWaitForNewDumpEntryFailsWhenNoEntryEverAppears(t *testing.T) {
 	g := NewWithT(t)
 
 	unit := dumpUnit{
@@ -344,7 +321,7 @@ func TestWaitForDumpEntryFailsWhenNoEntryEverAppears(t *testing.T) {
 	var polls int32
 	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		atomic.AddInt32(&polls, 1)
-		return httpResponse(req, http.StatusOK, `{"Members":[]}`), nil
+		return httpResponse(req, http.StatusOK, `{"Members":[{"Id":"retained"}]}`), nil
 	})
 
 	targetDir := t.TempDir()
@@ -357,10 +334,10 @@ func TestWaitForDumpEntryFailsWhenNoEntryEverAppears(t *testing.T) {
 		entryRetryWait: time.Nanosecond,
 	}
 
-	_, err := c.waitForDumpEntry(unit, targetDir)
+	_, err := c.waitForNewDumpEntry(unit, sets.New("retained"), targetDir)
 
 	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("no manager dump entry was found"))
+	g.Expect(err.Error()).To(ContainSubstring("no new manager dump entry was found"))
 	g.Expect(atomic.LoadInt32(&polls)).To(Equal(int32(3)))
 }
 
@@ -444,4 +421,603 @@ func TestNewCollectorClosesTheConnectionAfterEveryRequest(t *testing.T) {
 
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(closeRequested).To(BeTrue())
+}
+
+func TestCollectTakesTheEntryTheTaskNames(t *testing.T) {
+	g := NewWithT(t)
+
+	fixture := bf3Fixture()
+	serve := fixture.transport()
+	c := newFixtureCollector(t, fixture, CollectOptions{TaskTimeout: time.Minute})
+	c.client.SetTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if strings.HasPrefix(req.URL.Path, "/redfish/v1/TaskService/Tasks/") {
+			return httpResponse(req, http.StatusOK, fmt.Sprintf(
+				`{"TaskState":"Completed","Payload":{"HttpHeaders":["Location: %s/Entries/stale"]}}`, fixture.managerDumpPath())), nil
+		}
+		return serve(req)
+	}))
+
+	g.Expect(c.collect()).To(Succeed())
+
+	g.Expect(fixture.requestsTo(fixture.managerDumpPath() + "/Entries/stale/attachment")).To(HaveLen(1))
+	// One listing before the request and none after: the task's answer needs no second look.
+	g.Expect(fixture.requestsTo(fixture.managerDumpPath() + "/Entries")).To(HaveLen(1))
+}
+
+func TestCollectStopsAtTheFirstRejectedLogin(t *testing.T) {
+	g := NewWithT(t)
+
+	fixture := bf4Fixture()
+	var authenticated int32
+	c := newFixtureCollector(t, fixture, CollectOptions{TaskTimeout: time.Minute, StopAt: time.Now().Add(time.Minute)})
+	c.retryReads = true
+	c.client.SetTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path == rootServicePath {
+			return httpResponse(req, http.StatusOK, `{"Product":"BlueField-4"}`), nil
+		}
+		atomic.AddInt32(&authenticated, 1)
+		return httpResponse(req, http.StatusUnauthorized, `{"error":"unauthorized"}`), nil
+	}))
+
+	err := c.collect()
+
+	g.Expect(errors.Is(err, errLoginRejected)).To(BeTrue())
+	// Neither a retry nor the System dump may spend a second login attempt.
+	g.Expect(atomic.LoadInt32(&authenticated)).To(Equal(int32(1)))
+}
+
+func TestCollectRetriesReadsButNeverTheDumpRequest(t *testing.T) {
+	g := NewWithT(t)
+
+	fixture := bf3Fixture()
+	serve := fixture.transport()
+	var taskPolls, posts int32
+	c := newFixtureCollector(t, fixture, CollectOptions{TaskTimeout: time.Minute})
+	c.retryReads = true
+	c.retryWait = time.Nanosecond
+	c.client.SetTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case strings.HasPrefix(req.URL.Path, "/redfish/v1/TaskService/Tasks/") && atomic.AddInt32(&taskPolls, 1) <= 2:
+			return nil, io.ErrUnexpectedEOF
+		case req.Method == http.MethodPost && atomic.AddInt32(&posts, 1) == 1:
+			return nil, io.ErrUnexpectedEOF
+		}
+		return serve(req)
+	}))
+
+	err := c.collect()
+
+	// The reads recover; the dump request got no answer and is reported, not repeated.
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("creating manager dump entry"))
+	g.Expect(atomic.LoadInt32(&posts)).To(Equal(int32(1)))
+
+	g.Expect(c.collect()).To(Succeed())
+	g.Expect(atomic.LoadInt32(&taskPolls)).To(Equal(int32(3)))
+}
+
+// A BMC that asks to be called again later is not a BMC that refused.
+func TestCollectRetriesAReadTheBMCAsksToRepeat(t *testing.T) {
+	for _, status := range []int{http.StatusRequestTimeout, http.StatusTooManyRequests} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			g := NewWithT(t)
+
+			fixture := bf3Fixture()
+			serve := fixture.transport()
+			var taskPolls int32
+			c := newFixtureCollector(t, fixture, CollectOptions{TaskTimeout: time.Minute})
+			c.retryReads = true
+			c.retryWait = time.Nanosecond
+			c.client.SetTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if strings.HasPrefix(req.URL.Path, "/redfish/v1/TaskService/Tasks/") && atomic.AddInt32(&taskPolls, 1) == 1 {
+					return &http.Response{
+						StatusCode: status,
+						Status:     http.StatusText(status),
+						Header:     http.Header{},
+						Body:       io.NopCloser(strings.NewReader("")),
+						Request:    req,
+					}, nil
+				}
+				return serve(req)
+			}))
+
+			g.Expect(c.collect()).To(Succeed())
+			g.Expect(atomic.LoadInt32(&taskPolls)).To(BeNumerically(">", 1))
+		})
+	}
+}
+
+// Repeating a read does not make a certificate trusted, and the Job would wait out its whole time.
+func TestRetryReadStopsOnAnUntrustedCertificate(t *testing.T) {
+	g := NewWithT(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	c := &collector{ctx: ctx, retryReads: true, retryWait: time.Nanosecond}
+	untrusted := fmt.Errorf("get: %w", &tls.CertificateVerificationError{Err: errors.New("unknown authority")})
+	reads := 0
+
+	err := c.retryRead(func() error {
+		reads++
+		return untrusted
+	})
+
+	g.Expect(err).To(MatchError(untrusted))
+	g.Expect(reads).To(Equal(1))
+}
+
+// A BMC that restarts forgets its tasks: the task then answers 404 (measured on BF3 and BF4).
+func TestCollectRequestsTheDumpAgainWhenItsTaskIsLost(t *testing.T) {
+	lostTaskCollector := func(t *testing.T, lost int32) (*collector, *int32) {
+		fixture := bf3Fixture()
+		serve := fixture.transport()
+		var taskPolls, posts int32
+		c := newFixtureCollector(t, fixture, CollectOptions{TaskTimeout: time.Minute})
+		c.retryWait = time.Nanosecond
+		c.client.SetTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			switch {
+			case strings.HasPrefix(req.URL.Path, "/redfish/v1/TaskService/Tasks/"):
+				if atomic.AddInt32(&taskPolls, 1) <= lost {
+					return httpResponse(req, http.StatusNotFound, `{"error":"not found"}`), nil
+				}
+				// The task names its entry, as a real BMC does.
+				return httpResponse(req, http.StatusOK, fmt.Sprintf(
+					`{"TaskState":"Completed","Payload":{"HttpHeaders":["Location: %s/Entries/fresh"]}}`, fixture.managerDumpPath())), nil
+			case req.Method == http.MethodPost:
+				atomic.AddInt32(&posts, 1)
+			}
+			return serve(req)
+		}))
+		return c, &posts
+	}
+
+	t.Run("until the stop time, when one is set", func(t *testing.T) {
+		g := NewWithT(t)
+		c, posts := lostTaskCollector(t, 2)
+		c.retryReads = true
+
+		g.Expect(c.collect()).To(Succeed())
+		g.Expect(atomic.LoadInt32(posts)).To(Equal(int32(3)))
+	})
+
+	t.Run("not without a stop time", func(t *testing.T) {
+		g := NewWithT(t)
+		c, posts := lostTaskCollector(t, 1)
+
+		err := c.collect()
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring("Not Found"))
+		g.Expect(atomic.LoadInt32(posts)).To(Equal(int32(1)))
+	})
+
+	t.Run("and stops when the time is over", func(t *testing.T) {
+		g := NewWithT(t)
+		c, _ := lostTaskCollector(t, 1<<30)
+		c.retryReads = true
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		c.ctx = ctx
+
+		err := c.collect()
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring("Not Found"))
+	})
+
+	t.Run("a limited number of times", func(t *testing.T) {
+		g := NewWithT(t)
+		c, posts := lostTaskCollector(t, 1<<30)
+		c.retryReads = true
+
+		err := c.collect()
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring("Not Found"))
+		// Every request leaves a dump entry on the BMC, so a BMC that never serves its tasks is not asked forever.
+		g.Expect(atomic.LoadInt32(posts)).To(Equal(int32(maxDumpRequests)))
+	})
+}
+
+func TestRedfishClientBoundsAJSONResponse(t *testing.T) {
+	g := NewWithT(t)
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"a":"` + strings.Repeat("x", maxJSONResponseBytes) + `"}`))
+	}))
+	defer server.Close()
+	client, err := newRedfishClient(server.URL, "", CollectOptions{RequestTimeout: time.Minute, TLSConfig: insecureTLS()})
+	g.Expect(err).NotTo(HaveOccurred())
+	c := &collector{ctx: context.Background(), client: client}
+
+	_, err = c.getJSON(rootServicePath)
+
+	g.Expect(err).To(HaveOccurred())
+}
+
+func TestDownloadNeverLeavesAnOversizedOrCutOffArchive(t *testing.T) {
+	unit := dumpUnit{name: managerUnitName, servicePath: "/redfish/v1/Managers/Bluefield_BMC" + dumpLogServicePath}
+
+	t.Run("oversized", func(t *testing.T) {
+		g := NewWithT(t)
+		c := newFixtureCollector(t, bf3Fixture(), CollectOptions{})
+		c.maxArchiveBytes = int64(len(attachmentPayload)) - 1
+		c.retryReads = true
+
+		err := c.downloadDumpEntry(unit, c.targetDir, "fresh")
+
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring("larger than"))
+		g.Expect(os.ReadDir(c.targetDir)).To(BeEmpty())
+	})
+
+	t.Run("cut off, then complete", func(t *testing.T) {
+		g := NewWithT(t)
+		fixture := bf3Fixture()
+		serve := fixture.transport()
+		var downloads int32
+		c := newFixtureCollector(t, fixture, CollectOptions{})
+		c.retryReads = true
+		c.retryWait = time.Nanosecond
+		c.client.SetTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if atomic.AddInt32(&downloads, 1) == 1 {
+				resp := httpResponse(req, http.StatusOK, "")
+				resp.Body = io.NopCloser(io.MultiReader(strings.NewReader("dump-"), errReader{}))
+				return resp, nil
+			}
+			return serve(req)
+		}))
+
+		g.Expect(c.downloadDumpEntry(unit, c.targetDir, "fresh")).To(Succeed())
+
+		entries, err := os.ReadDir(c.targetDir)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(entries).To(HaveLen(1))
+		archive, err := os.ReadFile(filepath.Join(c.targetDir, dumpArchiveName))
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(string(archive)).To(Equal(attachmentPayload))
+	})
+}
+
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
+
+// fixtureServer serves the fixture over TLS, for tests that go through the real client.
+func fixtureServer(t *testing.T, fixture *bmcFixture) *httptest.Server {
+	t.Helper()
+	serve := fixture.transport()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp, err := serve(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func insecureTLS() *tls.Config {
+	return &tls.Config{InsecureSkipVerify: true} //nolint:gosec // test server with a throwaway certificate
+}
+
+func TestRedfishClientDoesNotFollowRedirects(t *testing.T) {
+	g := NewWithT(t)
+
+	var followed int32
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/elsewhere" {
+			atomic.AddInt32(&followed, 1)
+			return
+		}
+		http.Redirect(w, r, "/elsewhere", http.StatusFound)
+	}))
+	defer server.Close()
+
+	client, err := newRedfishClient(server.URL, "", CollectOptions{RequestTimeout: time.Minute, TLSConfig: insecureTLS()})
+	g.Expect(err).NotTo(HaveOccurred())
+	c := &collector{ctx: context.Background(), client: client, retryReads: true, retryWait: time.Nanosecond}
+
+	_, err = c.getJSON(rootServicePath)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("redirect"))
+	g.Expect(atomic.LoadInt32(&followed)).To(BeZero())
+}
+
+func TestCollectFromOneBMCAddressArchivesWithoutAKubernetesClient(t *testing.T) {
+	g := NewWithT(t)
+
+	stubFreeBytes(t, minArchiveFreeBytes)
+	server := fixtureServer(t, bf4Fixture())
+	passwordFile := filepath.Join(t.TempDir(), "password")
+	g.Expect(os.WriteFile(passwordFile, []byte("password\n"), 0600)).To(Succeed())
+	archiveDir := t.TempDir()
+	serialDir := filepath.Join(archiveDir, "MT2616606M28")
+	for _, old := range []string{"20260101T000000Z-a", "20260102T000000Z-b", "20260103T000000Z-c"} {
+		runDirWithDump(t, serialDir, old)
+	}
+
+	err := Collect(context.Background(), nil, CollectOptions{
+		BMCAddress:   strings.TrimPrefix(server.URL, "https://"),
+		PasswordFile: passwordFile,
+		TLSConfig:    insecureTLS(),
+		ArchiveDir:   archiveDir,
+		Serial:       "MT2616606M28",
+		DPUUID:       "uid-1",
+		StopAt:       time.Now().Add(time.Minute),
+		Quiet:        true,
+	})
+
+	g.Expect(err).NotTo(HaveOccurred())
+	runs, err := os.ReadDir(serialDir)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(runs).To(HaveLen(3))
+	g.Expect(runs[0].Name()).To(Equal("20260102T000000Z-b"))
+	g.Expect(runs[2].Name()).To(HaveSuffix("-uid-1"))
+	for _, unit := range []string{managerUnitName, systemUnitName} {
+		g.Expect(filepath.Join(serialDir, runs[2].Name(), unit, dumpArchiveName)).To(BeARegularFile())
+	}
+}
+
+func TestCollectArchiveLeavesNothingWhenNoDumpWasStored(t *testing.T) {
+	g := NewWithT(t)
+
+	stubFreeBytes(t, minArchiveFreeBytes)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+	passwordFile := filepath.Join(t.TempDir(), "password")
+	g.Expect(os.WriteFile(passwordFile, []byte("password"), 0600)).To(Succeed())
+	archiveDir := t.TempDir()
+
+	err := Collect(context.Background(), nil, CollectOptions{
+		BMCAddress:   strings.TrimPrefix(server.URL, "https://"),
+		PasswordFile: passwordFile,
+		TLSConfig:    insecureTLS(),
+		ArchiveDir:   archiveDir,
+		Serial:       "MT2616606M28",
+		Quiet:        true,
+	})
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(os.ReadDir(filepath.Join(archiveDir, "MT2616606M28"))).To(BeEmpty())
+}
+
+func TestCollectOptionsValidate(t *testing.T) {
+	direct := CollectOptions{BMCAddress: "10.0.0.10", PasswordFile: "p", CACertFile: "ca"}
+	archived := direct
+	archived.ArchiveDir, archived.Serial = "/archive", "MT2616606M28"
+	with := func(o CollectOptions, change func(*CollectOptions)) CollectOptions {
+		change(&o)
+		return o
+	}
+	tests := []struct {
+		name    string
+		opts    CollectOptions
+		wantErr string
+	}{
+		{
+			name: "discovery",
+			opts: CollectOptions{},
+		},
+		{
+			name: "one bmc",
+			opts: direct,
+		},
+		{
+			name: "one bmc, archived",
+			opts: archived,
+		},
+		{
+			name:    "no password file",
+			opts:    with(direct, func(o *CollectOptions) { o.PasswordFile = "" }),
+			wantErr: "password file",
+		},
+		{
+			name:    "no ca file",
+			opts:    with(direct, func(o *CollectOptions) { o.CACertFile = "" }),
+			wantErr: "CA certificate file",
+		},
+		{
+			name:    "password file without an address",
+			opts:    CollectOptions{PasswordFile: "p"},
+			wantErr: "a password file requires a bmc address",
+		},
+		{
+			name:    "serial without an address",
+			opts:    CollectOptions{Serial: "s"},
+			wantErr: "a serial requires a bmc address",
+		},
+		{
+			name:    "header without printing the logs",
+			opts:    with(direct, func(o *CollectOptions) { o.Header = map[string]string{"dpu": "dpu-1"} }),
+			wantErr: "header fields require printing the logs",
+		},
+		{
+			name:    "dpu uid without an archive directory",
+			opts:    with(direct, func(o *CollectOptions) { o.DPUUID = "uid-1" }),
+			wantErr: "a DPU UID requires an archive directory",
+		},
+		{
+			name:    "archive without an address",
+			opts:    CollectOptions{ArchiveDir: "/archive", Serial: "s"},
+			wantErr: "requires a bmc address",
+		},
+		{
+			name:    "archive without a serial",
+			opts:    with(archived, func(o *CollectOptions) { o.Serial = "" }),
+			wantErr: "requires a serial",
+		},
+		{
+			name:    "serial that leaves the directory",
+			opts:    with(archived, func(o *CollectOptions) { o.Serial = "../bfb" }),
+			wantErr: "cannot be used in an archive path",
+		},
+		{
+			name:    "dpu uid with a separator",
+			opts:    with(archived, func(o *CollectOptions) { o.DPUUID = "a/b" }),
+			wantErr: "cannot be used in an archive path",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+
+			err := tt.opts.validate()
+
+			if tt.wantErr == "" {
+				g.Expect(err).NotTo(HaveOccurred())
+				return
+			}
+			g.Expect(err).To(MatchError(ContainSubstring(tt.wantErr)))
+		})
+	}
+}
+
+// stubFreeBytes keeps archive tests independent of the disk they run on.
+func stubFreeBytes(t *testing.T, free uint64) {
+	t.Helper()
+	original := freeBytes
+	t.Cleanup(func() { freeBytes = original })
+	freeBytes = func(string) (uint64, error) { return free, nil }
+}
+
+func TestNewArchiveRunDirRefusesALowVolume(t *testing.T) {
+	g := NewWithT(t)
+
+	stubFreeBytes(t, minArchiveFreeBytes-1)
+
+	_, err := newArchiveRunDir(CollectOptions{ArchiveDir: t.TempDir(), Serial: "s"})
+
+	g.Expect(err).To(MatchError(ContainSubstring("below the")))
+}
+
+func TestDownloadThatStaysCutOffLeavesNothing(t *testing.T) {
+	g := NewWithT(t)
+
+	unit := dumpUnit{name: managerUnitName, servicePath: "/redfish/v1/Managers/Bluefield_BMC" + dumpLogServicePath}
+	c := newFixtureCollector(t, bf3Fixture(), CollectOptions{})
+	c.client.SetTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		resp := httpResponse(req, http.StatusOK, "")
+		resp.Body = io.NopCloser(io.MultiReader(strings.NewReader("dump-"), errReader{}))
+		return resp, nil
+	}))
+
+	g.Expect(c.downloadDumpEntry(unit, c.targetDir, "fresh")).NotTo(Succeed())
+
+	g.Expect(os.ReadDir(c.targetDir)).To(BeEmpty())
+}
+
+func TestCollectEndsAtTheStopTime(t *testing.T) {
+	g := NewWithT(t)
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	passwordFile := filepath.Join(t.TempDir(), "password")
+	g.Expect(os.WriteFile(passwordFile, []byte("password"), 0600)).To(Succeed())
+
+	started := time.Now()
+	err := Collect(context.Background(), nil, CollectOptions{
+		BMCAddress:   strings.TrimPrefix(server.URL, "https://"),
+		PasswordFile: passwordFile,
+		TLSConfig:    insecureTLS(),
+		OutputDir:    t.TempDir(),
+		StopAt:       time.Now().Add(200 * time.Millisecond),
+		Quiet:        true,
+	})
+
+	// The BMC never recovers: the reads are retried, and the stop time is what ends the run.
+	g.Expect(err).To(MatchError(ContainSubstring("Service Unavailable")))
+	g.Expect(time.Since(started)).To(BeNumerically("<", 5*time.Second))
+}
+
+func TestResolveTargetsReadsThePasswordFileWithoutItsNewline(t *testing.T) {
+	g := NewWithT(t)
+
+	passwordFile := filepath.Join(t.TempDir(), "password")
+	g.Expect(os.WriteFile(passwordFile, []byte("pass word\n"), 0600)).To(Succeed())
+
+	targets, err := resolveTargets(context.Background(), nil, CollectOptions{BMCAddress: "10.0.0.10:8443", PasswordFile: passwordFile})
+
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(targets).To(HaveLen(1))
+	// The address and the port are kept apart, as for a discovered BMC, so what is saved about the
+	// run names the port that was used.
+	g.Expect(targets[0].IP).To(Equal("10.0.0.10"))
+	g.Expect(targets[0].Port).To(Equal(uint32(8443)))
+	g.Expect(baseURL(targets[0])).To(Equal("https://10.0.0.10:8443"))
+	g.Expect(targets[0].Password).To(Equal("pass word"))
+}
+
+// readerFunc lets a test look at the disk while a download is still streaming.
+type readerFunc func([]byte) (int, error)
+
+func (f readerFunc) Read(p []byte) (int, error) { return f(p) }
+
+func TestDownloadHasNoArchiveUnderItsFinalNameUntilComplete(t *testing.T) {
+	g := NewWithT(t)
+
+	unit := dumpUnit{name: managerUnitName, servicePath: "/redfish/v1/Managers/Bluefield_BMC" + dumpLogServicePath}
+	c := newFixtureCollector(t, bf3Fixture(), CollectOptions{})
+	final := filepath.Join(c.targetDir, dumpArchiveName)
+	// A Job killed at this point runs no cleanup, so what is on disk now is what would stay.
+	var finalExistedMidDownload bool
+	c.client.SetTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		resp := httpResponse(req, http.StatusOK, "")
+		resp.Body = io.NopCloser(io.MultiReader(strings.NewReader("dump-"), readerFunc(func([]byte) (int, error) {
+			_, err := os.Stat(final)
+			finalExistedMidDownload = err == nil
+			return 0, io.EOF
+		})))
+		return resp, nil
+	}))
+
+	g.Expect(c.downloadDumpEntry(unit, c.targetDir, "fresh")).To(Succeed())
+
+	g.Expect(finalExistedMidDownload).To(BeFalse())
+	g.Expect(final).To(BeARegularFile())
+}
+
+func TestNewArchiveRunDirUsesTheConfiguredMinimum(t *testing.T) {
+	g := NewWithT(t)
+
+	stubFreeBytes(t, 300<<20)
+	opts := CollectOptions{ArchiveDir: t.TempDir(), Serial: "s"}
+
+	_, err := newArchiveRunDir(opts)
+	g.Expect(err).To(MatchError(ContainSubstring("below the")), "the default minimum is 2 GB")
+
+	opts.ArchiveMinFreeBytes = 200 << 20
+	_, err = newArchiveRunDir(opts)
+	g.Expect(err).NotTo(HaveOccurred())
+}
+
+// With a stop time the reads are repeated until then, so the budget of one target must not end them sooner.
+func TestNewCollectorKeepsTheStopTimeAsItsDeadline(t *testing.T) {
+	g := NewWithT(t)
+
+	stopAt := time.Now().Add(6 * time.Hour)
+	ctx, cancel := context.WithDeadline(context.Background(), stopAt)
+	defer cancel()
+	target := logTarget{IP: "10.0.0.10", Port: defaultPort, Password: "password"}
+	opts := CollectOptions{Namespace: DefaultNamespace, TaskTimeout: time.Minute}.withDefaults()
+	opts.caPool = testCAPool(t)
+
+	c, cancelTarget, err := newCollector(ctx, target, t.TempDir(), opts)
+	g.Expect(err).NotTo(HaveOccurred())
+	deadline, _ := c.ctx.Deadline()
+	cancelTarget()
+	g.Expect(deadline).To(BeTemporally("<", time.Now().Add(time.Hour)), "without a stop time the target has its budget")
+
+	opts.StopAt = stopAt
+	c, cancelTarget, err = newCollector(ctx, target, t.TempDir(), opts)
+	g.Expect(err).NotTo(HaveOccurred())
+	defer cancelTarget()
+	deadline, _ = c.ctx.Deadline()
+	g.Expect(deadline).To(BeTemporally("~", stopAt, time.Second))
 }

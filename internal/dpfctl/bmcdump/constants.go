@@ -36,6 +36,7 @@ const (
 	defaultTaskPollInterval   = 5 * time.Second
 	defaultEntryRetryCount    = 15
 	defaultEntryRetryInterval = 2 * time.Second
+	defaultReadRetryInterval  = 5 * time.Second
 	defaultPort               = 443
 	urlScheme                 = "https://"
 
@@ -57,6 +58,10 @@ const (
 	// dumpArchiveName assumes zstd, which is what both dump types compress to on
 	// current BF3 and BF4 firmware.
 	dumpArchiveName = "log_dump.tar.zst"
+
+	// maxDumpArchiveBytes bounds one download. Measured archives are under 1 MB; the limit keeps a
+	// faulty BMC from filling the disk.
+	maxDumpArchiveBytes = 64 << 20
 
 	managerUnitName = "manager"
 	systemUnitName  = "system"

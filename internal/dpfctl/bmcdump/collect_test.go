@@ -36,77 +36,54 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func TestLatestDumpEntryID(t *testing.T) {
+func TestTaskDumpEntryID(t *testing.T) {
+	unit := dumpUnit{servicePath: "/redfish/v1/Systems/BlueField_0" + dumpLogServicePath}
+	task := func(headers ...interface{}) map[string]interface{} {
+		return map[string]interface{}{"Payload": map[string]interface{}{"HttpHeaders": headers}}
+	}
 	tests := []struct {
-		name    string
-		entries map[string]interface{}
-		want    string
+		name string
+		task map[string]interface{}
+		want string
 	}{
 		{
-			name:    "missing members",
-			entries: map[string]interface{}{},
-			want:    "",
-		},
-		{
-			name: "empty members",
-			entries: map[string]interface{}{
-				"Members": []interface{}{},
-			},
+			name: "no payload",
+			task: map[string]interface{}{},
 			want: "",
 		},
 		{
-			name: "selects newest created entry",
-			entries: map[string]interface{}{
-				"Members": []interface{}{
-					map[string]interface{}{"Id": "old", "Created": "2026-07-13T10:00:00Z"},
-					map[string]interface{}{"Id": "new", "Created": "2026-07-13T11:00:00Z"},
-				},
-			},
-			want: "new",
+			name: "location among the request headers",
+			task: task("Host: 10.0.110.126", "Connection: close", "Location: /redfish/v1/Systems/BlueField_0/LogServices/Dump/Entries/4"),
+			want: "4",
 		},
 		{
-			name: "skips entries without an id",
-			entries: map[string]interface{}{
-				"Members": []interface{}{
-					"not-an-entry",
-					map[string]interface{}{"Created": "2026-07-13T12:00:00Z"},
-					map[string]interface{}{"Id": "", "Created": "2026-07-13T13:00:00Z"},
-					map[string]interface{}{"Id": "valid", "Created": "2026-07-13T09:00:00Z"},
-				},
-			},
-			want: "valid",
+			name: "location under another dump service",
+			task: task("Location: /redfish/v1/Managers/BlueField_BMC_0/LogServices/Dump/Entries/4"),
+			want: "",
 		},
 		{
-			name: "keeps first entry when created fields are empty",
-			entries: map[string]interface{}{
-				"Members": []interface{}{
-					map[string]interface{}{"Id": "first"},
-					map[string]interface{}{"Id": "second"},
-				},
-			},
-			want: "first",
+			name: "location on another host",
+			task: task("Location: https://example.com/redfish/v1/Systems/BlueField_0/LogServices/Dump/Entries/4"),
+			want: "",
 		},
 		{
-			name: "keeps first entry when created fields are equal",
-			entries: map[string]interface{}{
-				"Members": []interface{}{
-					map[string]interface{}{"Id": "first", "Created": "2026-07-13T10:00:00Z"},
-					map[string]interface{}{"Id": "second", "Created": "2026-07-13T10:00:00Z"},
-				},
-			},
-			want: "first",
+			name: "location with more than one segment",
+			task: task("Location: /redfish/v1/Systems/BlueField_0/LogServices/Dump/Entries/4/../../x"),
+			want: "",
 		},
 		{
-			name: "supports numeric ids decoded by json decoder",
-			entries: map[string]interface{}{
-				"Members": []interface{}{
-					map[string]interface{}{"Id": json.Number("42"), "Created": "2026-07-13T10:00:00Z"},
-				},
-			},
-			want: "42",
+			name: "location naming the parent directory",
+			task: task("Location: /redfish/v1/Systems/BlueField_0/LogServices/Dump/Entries/.."),
+			want: "",
+		},
+		{
+			name: "header that is not a string",
+			task: task(json.Number("4")),
+			want: "",
 		},
 	}
 
@@ -114,9 +91,26 @@ func TestLatestDumpEntryID(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
 
-			g.Expect(latestDumpEntryID(tt.entries)).To(Equal(tt.want))
+			g.Expect(taskDumpEntryID(unit, tt.task)).To(Equal(tt.want))
 		})
 	}
+}
+
+func TestDumpEntryIDsSkipsEntriesWithoutAUsableID(t *testing.T) {
+	g := NewWithT(t)
+
+	ids := dumpEntryIDs(map[string]interface{}{
+		"Members": []interface{}{
+			"not-an-entry",
+			map[string]interface{}{"Created": "2026-07-13T12:00:00Z"},
+			map[string]interface{}{"Id": ""},
+			map[string]interface{}{"Id": "../etc"},
+			map[string]interface{}{"Id": "valid"},
+			map[string]interface{}{"Id": json.Number("42")},
+		},
+	})
+
+	g.Expect(sets.List(ids)).To(Equal([]string{"42", "valid"}))
 }
 
 func TestDPUDeviceBMCCredentialSecret(t *testing.T) {
@@ -276,7 +270,7 @@ func TestGetLogTargetsKeepsResolvedExplicitDevicesWhenOneIsMissing(t *testing.T)
 	g.Expect(targets[0].DPUDevices).To(Equal([]string{"device-a"}))
 }
 
-func TestWaitForDumpEntryRetriesUntilEntryIsVisible(t *testing.T) {
+func TestWaitForNewDumpEntryRetriesUntilEntryIsVisible(t *testing.T) {
 	g := NewWithT(t)
 
 	unit := dumpUnit{
@@ -305,7 +299,7 @@ func TestWaitForDumpEntryRetriesUntilEntryIsVisible(t *testing.T) {
 		entryRetryWait: time.Nanosecond,
 	}
 
-	entryID, err := c.waitForDumpEntry(unit, targetDir)
+	entryID, err := c.waitForNewDumpEntry(unit, sets.New[string](), targetDir)
 
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(entryID).To(Equal("entry-1"))

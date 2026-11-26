@@ -32,6 +32,7 @@ require (
 	github.com/j-keck/arping v1.0.3
 	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.7.5
 	github.com/k8snetworkplumbingwg/sriovnet v1.3.0
+	github.com/klauspost/compress v1.20.3
 	github.com/kubernetes-csi/csi-lib-utils v0.22.0
 	github.com/mcuadros/go-version v0.0.0-20190830083331-035f6764e8d2
 	github.com/olekukonko/tablewriter v0.0.5
@@ -104,7 +105,6 @@ require (
 	github.com/hashicorp/yamux v0.0.0-20180604194846-3520598351bb // indirect
 	github.com/jaypipes/ghw v0.25.0 // indirect
 	github.com/jaypipes/pcidb v1.1.1 // indirect
-	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/mitchellh/go-testing-interface v0.0.0-20171004221916-a61a99592b77 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect

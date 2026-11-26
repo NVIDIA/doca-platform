@@ -38,6 +38,15 @@ func artifactTargetName(target logTarget) string {
 	return strings.NewReplacer("/", "_", ":", "_").Replace(name)
 }
 
+// targetDirFor is where one target's artifacts go. A run against a single BMC address has no
+// other target to keep apart, so it writes straight into the output directory.
+func targetDirFor(outputDir string, target logTarget, opts CollectOptions) string {
+	if opts.BMCAddress != "" {
+		return outputDir
+	}
+	return filepath.Join(outputDir, artifactTargetName(target))
+}
+
 func baseURL(target logTarget) string {
 	host := strings.TrimPrefix(target.IP, urlScheme)
 
@@ -61,16 +70,12 @@ func baseURL(target logTarget) string {
 }
 
 func writeMetadata(target logTarget, targetDir string, namespace string) error {
-	metadata := fmt.Sprintf("BMC IP: %s\n"+
-		"BMC Port: %d\n"+
-		"DPU Devices: %s\n"+
-		"Credential Secret: %s/%s\n",
-		target.IP,
-		target.Port,
-		strings.Join(target.DPUDevices, ", "),
-		namespace,
-		target.CredentialSecret,
-	)
+	metadata := fmt.Sprintf("BMC IP: %s\nBMC Port: %d\n", target.IP, target.Port)
+	// A target given by address has no DPUDevice or Secret behind it.
+	if target.CredentialSecret != "" {
+		metadata += fmt.Sprintf("DPU Devices: %s\nCredential Secret: %s/%s\n",
+			strings.Join(target.DPUDevices, ", "), namespace, target.CredentialSecret)
+	}
 	if err := os.WriteFile(filepath.Join(targetDir, "metadata.txt"), []byte(metadata), 0600); err != nil {
 		return fmt.Errorf("writing bmc target metadata for %s: %w", target.IP, err)
 	}
