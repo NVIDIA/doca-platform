@@ -83,11 +83,25 @@ if [ "$pf_reps" -eq 0 ]; then
 	exit 1
 fi
 
-# On a recognized BlueField card, expect one host PF representor per PF function; fewer
-# means a host controller's representor is missing. More is tolerated: it never indicates
-# a missing representor.
-if [ "$bf_pfs" -gt 0 ] && [ "$pf_reps" -lt "$bf_pfs" ]; then
-	echo "Host PF representors ($pf_reps) fewer than BlueField PFs ($bf_pfs)"
+# Expected number of host PF representors. By default one per BlueField PF function.
+# A card can be configured to expose fewer host PFs than it has PF functions (NVCONFIG
+# NUM_OF_PF=1 with HIDE_PORT2_PF=True, which hardware LAG requires: two PF functions, one
+# host PF and one representor). sysfs on the DPU cannot tell a hidden host PF from a missing
+# one, so the expected count can be supplied from the device configuration (the
+# DPUDevice.spec.numberOfPFs of the DPUs in this cluster) through the chart value
+# expectedHostPFs, which is rendered as the file expected_host_pfs next to this script.
+# Ignored unless it is a positive integer.
+expected=$bf_pfs
+read_attr "$(dirname "$0")/expected_host_pfs"
+if [[ "$REPLY" =~ ^[1-9][0-9]*$ ]]; then
+	expected=$REPLY
+fi
+
+# On a recognized BlueField card, fewer host PF representors than expected means a host
+# controller's representor is missing. More is tolerated: it never indicates a missing
+# representor.
+if [ "$bf_pfs" -gt 0 ] && [ "$pf_reps" -lt "$expected" ]; then
+	echo "Host PF representors ($pf_reps) fewer than expected ($expected)"
 	exit 1
 fi
 exit 0
