@@ -89,10 +89,10 @@ func TestBlueFieldSoftwareErrorState_RetriesRecoverableError(t *testing.T) {
 
 	assert.Equal(t, provisioningv1.BlueFieldSoftwareDownloading, bfs.Status.Phase)
 
-	errCond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondError)
-	require.NotNil(t, errCond)
-	assert.Equal(t, metav1.ConditionFalse, errCond.Status)
-	assert.Equal(t, string(conditions.ReasonPending), errCond.Reason)
+	downloaded := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondDownloaded)
+	require.NotNil(t, downloaded)
+	assert.Equal(t, metav1.ConditionFalse, downloaded.Status)
+	assert.Equal(t, string(conditions.ReasonPending), downloaded.Reason)
 }
 
 func TestBlueFieldSoftwareErrorState_NoRetryOnTerminalFailure(t *testing.T) {
@@ -105,9 +105,83 @@ func TestBlueFieldSoftwareErrorState_NoRetryOnTerminalFailure(t *testing.T) {
 
 	assert.Equal(t, provisioningv1.BlueFieldSoftwareError, bfs.Status.Phase)
 
-	errCond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondError)
-	require.NotNil(t, errCond)
-	assert.Equal(t, metav1.ConditionTrue, errCond.Status)
+	downloaded := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondDownloaded)
+	require.NotNil(t, downloaded)
+	assert.Equal(t, string(conditions.ReasonFailure), downloaded.Reason, "the terminal failure stays on the milestone")
+}
+
+// TestBlueFieldSoftwareErrorState_ExtractFailureIsTerminal checks that the unpack tool's
+// rejection of a bundle (Extracted Failure) is terminal even though the download succeeded and
+// the retry interval has passed: re-downloading the same bundle cannot help, so the Error state
+// stays put and reclaims the files.
+func TestBlueFieldSoftwareErrorState_ExtractFailureIsTerminal(t *testing.T) {
+	t.Cleanup(withTestBFBBaseDir(t))
+
+	bfs := bfsInErrorWithDownloadedCondition(conditions.ReasonSuccess, time.Now().Add(-(RetryInterval + time.Minute)))
+	bfs.Status.Conditions[0].Status = metav1.ConditionTrue
+	conditions.AddFalse(bfs, provisioningv1.BlueFieldSoftwareCondExtracted,
+		conditions.ReasonFailure, "Extract PLDM firmware bundle failed: bad package")
+	bfs.Spec.PldmFwBundle = map[string]string{testPldmFwBundlePSID: testPldmFwBundleURL}
+	completedPath := writeCompletedFwBundle(t, bfs)
+
+	st := &blueFieldSoftwareErrorState{bfs: bfs}
+	require.NoError(t, st.Handle(context.Background(), nil))
+
+	assert.Equal(t, provisioningv1.BlueFieldSoftwareError, bfs.Status.Phase)
+	_, err := os.Stat(completedPath)
+	assert.True(t, os.IsNotExist(err), "terminal error reclaims the downloaded bundle")
+	extracted := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondExtracted)
+	require.NotNil(t, extracted)
+	assert.Equal(t, string(conditions.ReasonFailure), extracted.Reason, "the failure stays visible")
+}
+
+// TestBlueFieldSoftwareErrorState_ExtractErrorRetriesFromCachedFiles checks that a recoverable
+// extraction error (unpack sidecar unreachable) is retried after the interval through the
+// Downloading phase, which keeps the cached bundle and leads back to Extracting.
+func TestBlueFieldSoftwareErrorState_ExtractErrorRetriesFromCachedFiles(t *testing.T) {
+	t.Cleanup(withTestBFBBaseDir(t))
+
+	bfs := bfsInErrorWithDownloadedCondition(conditions.ReasonSuccess, time.Now().Add(-(RetryInterval + time.Minute)))
+	bfs.Status.Conditions[0].Status = metav1.ConditionTrue
+	conditions.AddFalse(bfs, provisioningv1.BlueFieldSoftwareCondExtracted,
+		conditions.ReasonError, "call unpack service: dial unix: connection refused")
+	bfs.Spec.PldmFwBundle = map[string]string{testPldmFwBundlePSID: testPldmFwBundleURL}
+	completedPath := writeCompletedFwBundle(t, bfs)
+
+	st := &blueFieldSoftwareErrorState{bfs: bfs}
+	require.NoError(t, st.Handle(context.Background(), nil))
+
+	assert.Equal(t, provisioningv1.BlueFieldSoftwareDownloading, bfs.Status.Phase)
+	_, err := os.Stat(completedPath)
+	require.NoError(t, err, "the cached bundle is kept for re-extraction")
+	downloaded := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondDownloaded)
+	require.NotNil(t, downloaded)
+	assert.Equal(t, string(conditions.ReasonPending), downloaded.Reason, "the retry goes back through Downloading")
+}
+
+// TestBlueFieldSoftwareErrorState_DeletionReopensMilestones checks that a deletion seen in the
+// Error phase moves to Deleting and reports Downloaded and Extracted as AwaitingDeletion.
+func TestBlueFieldSoftwareErrorState_DeletionReopensMilestones(t *testing.T) {
+	t.Cleanup(withTestBFBBaseDir(t))
+
+	bfs := bfsInErrorWithDownloadedCondition(conditions.ReasonError, time.Now())
+	now := metav1.Now()
+	bfs.DeletionTimestamp = &now
+	bfs.Finalizers = []string{provisioningv1.BlueFieldSoftwareFinalizer}
+
+	st := &blueFieldSoftwareErrorState{bfs: bfs}
+	require.NoError(t, st.Handle(context.Background(), nil))
+
+	assert.Equal(t, provisioningv1.BlueFieldSoftwareDeleting, bfs.Status.Phase)
+	for _, typ := range []conditions.ConditionType{
+		provisioningv1.BlueFieldSoftwareCondDownloaded,
+		provisioningv1.BlueFieldSoftwareCondExtracted,
+	} {
+		cond := conditions.Get(bfs, typ)
+		require.NotNil(t, cond, typ)
+		assert.Equal(t, metav1.ConditionFalse, cond.Status, typ)
+		assert.Equal(t, string(conditions.ReasonAwaitingDeletion), cond.Reason, typ)
+	}
 }
 
 func TestBlueFieldSoftwareErrorState_NoRetryWithinInterval(t *testing.T) {
@@ -119,9 +193,9 @@ func TestBlueFieldSoftwareErrorState_NoRetryWithinInterval(t *testing.T) {
 	require.NoError(t, st.Handle(context.Background(), nil))
 
 	assert.Equal(t, provisioningv1.BlueFieldSoftwareError, bfs.Status.Phase)
-	errCond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondError)
-	require.NotNil(t, errCond)
-	assert.Equal(t, metav1.ConditionTrue, errCond.Status)
+	downloaded := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondDownloaded)
+	require.NotNil(t, downloaded)
+	assert.Equal(t, string(conditions.ReasonError), downloaded.Reason, "the recoverable error stays until the next retry")
 }
 
 func TestBlueFieldSoftwareErrorState_NoRetryAfterWindow(t *testing.T) {
@@ -133,9 +207,38 @@ func TestBlueFieldSoftwareErrorState_NoRetryAfterWindow(t *testing.T) {
 	require.NoError(t, st.Handle(context.Background(), nil))
 
 	assert.Equal(t, provisioningv1.BlueFieldSoftwareError, bfs.Status.Phase)
-	errCond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondError)
-	require.NotNil(t, errCond)
-	assert.Equal(t, metav1.ConditionTrue, errCond.Status)
+	downloaded := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondDownloaded)
+	require.NotNil(t, downloaded)
+	assert.Equal(t, metav1.ConditionFalse, downloaded.Status)
+	assert.Equal(t, string(conditions.ReasonFailure), downloaded.Reason,
+		"the controller gave up, so the recoverable Error becomes Failure")
+	assert.Contains(t, downloaded.Message, "Retry window")
+}
+
+// TestBlueFieldSoftwareErrorState_ExtractErrorIsRetriedAfterRetryWindow checks that a recoverable
+// extraction error is not given up on when the download finished longer ago than RetryWindow, as
+// after a controller outage: it is retried, the cached bundle is kept and Extracted stays Error.
+func TestBlueFieldSoftwareErrorState_ExtractErrorIsRetriedAfterRetryWindow(t *testing.T) {
+	t.Cleanup(withTestBFBBaseDir(t))
+
+	bfs := bfsInErrorWithDownloadedCondition(conditions.ReasonSuccess, time.Now().Add(-(RetryWindow + time.Hour)))
+	bfs.Status.Conditions[0].Status = metav1.ConditionTrue
+	conditions.AddFalse(bfs, provisioningv1.BlueFieldSoftwareCondExtracted,
+		conditions.ReasonError, "unpack sidecar unreachable")
+	bfs.Spec.PldmFwBundle = map[string]string{testPldmFwBundlePSID: testPldmFwBundleURL}
+	completedPath := writeCompletedFwBundle(t, bfs)
+
+	st := &blueFieldSoftwareErrorState{
+		bfs: bfs,
+	}
+	require.NoError(t, st.Handle(context.Background(), nil))
+
+	assert.Equal(t, provisioningv1.BlueFieldSoftwareDownloading, bfs.Status.Phase, "the retry goes back through Downloading")
+	assert.FileExists(t, completedPath, "the cached bundle is kept for re-extraction")
+	extracted := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondExtracted)
+	require.NotNil(t, extracted)
+	assert.Equal(t, string(conditions.ReasonError), extracted.Reason, "a recoverable extraction error never becomes Failure")
+	assert.Contains(t, extracted.Message, "unpack sidecar unreachable", "the original error stays visible")
 }
 
 func TestBlueFieldSoftwareErrorState_TerminalFailureRemovesCompletedSibling(t *testing.T) {
@@ -204,7 +307,5 @@ func TestBlueFieldSoftwareErrorState_NoRetryWithoutDownloadedCondition(t *testin
 	require.NoError(t, st.Handle(context.Background(), nil))
 
 	assert.Equal(t, provisioningv1.BlueFieldSoftwareError, bfs.Status.Phase)
-	errCond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondError)
-	require.NotNil(t, errCond)
-	assert.Equal(t, metav1.ConditionTrue, errCond.Status)
+	assert.Empty(t, bfs.Status.Conditions, "nothing is written without a Downloaded condition to act on")
 }

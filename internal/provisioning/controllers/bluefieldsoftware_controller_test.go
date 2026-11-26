@@ -19,8 +19,11 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
@@ -37,6 +40,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -49,6 +53,8 @@ var _ = Describe("BlueFieldSoftware", func() {
 	const (
 		testPSID  = "MT_0000001665"
 		testPSID2 = "MT_0000001774"
+		// legacyErrorCondition is the condition type earlier releases set in the Error phase.
+		legacyErrorCondition = "Error"
 	)
 
 	var getObjKey = func(obj *provisioningv1.BlueFieldSoftware) types.NamespacedName {
@@ -155,9 +161,18 @@ var _ = Describe("BlueFieldSoftware", func() {
 			Expect(downloadedCond.Status).To(Equal(metav1.ConditionTrue))
 			Expect(downloadedCond.Reason).To(Equal(string(conditions.ReasonSuccess)))
 
+			extractedCond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BlueFieldSoftwareCondExtracted))
+			Expect(extractedCond).NotTo(BeNil())
+			Expect(extractedCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(extractedCond.Reason).To(Equal(string(conditions.ReasonSuccess)))
+
 			readyCond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BlueFieldSoftwareCondReady))
 			Expect(readyCond).NotTo(BeNil())
 			Expect(readyCond.Reason).To(Equal(string(conditions.ReasonSuccess)))
+			Expect(readyCond.Message).To(BeEmpty())
+
+			By("verifying the abnormal-true Deleted condition is not seeded on a healthy BlueFieldSoftware")
+			Expect(meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BlueFieldSoftwareCondDeleted))).To(BeNil())
 
 			By("verifying downloaded component status")
 			Expect(objFetched.Status.DownloadedComponents.PldmFwBundle[testPSID]).To(Equal(getPldmComponentFilePath(objFetched, testPSID)))
@@ -169,6 +184,40 @@ var _ = Describe("BlueFieldSoftware", func() {
 
 			// Verify ObservedGeneration is tracked correctly
 			Expect(objFetched.Status.ObservedGeneration).To(Equal(objFetched.Generation))
+		})
+
+		It("BlueFieldSoftware: drops the Error condition written by an earlier release", func() {
+			By("creating the BlueFieldSoftware")
+			obj := createObj("bfs-legacy-error")
+			obj.Spec.PldmFwBundle = defaultPldmBundle(bfbServerURL + BFB512KBPath)
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+			DeferCleanup(k8sClient.Delete, ctx, obj)
+
+			objFetched := &provisioningv1.BlueFieldSoftware{}
+			By("expecting the Status (Ready)")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				g.Expect(conditions.IsTrue(objFetched, provisioningv1.BlueFieldSoftwareCondReady)).To(BeTrue())
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+
+			By("adding the Error condition as an earlier release left it in the Error phase")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				orig := objFetched.DeepCopy()
+				meta.SetStatusCondition(&objFetched.Status.Conditions, metav1.Condition{
+					Type:   legacyErrorCondition,
+					Status: metav1.ConditionTrue,
+					Reason: string(conditions.ReasonSuccess),
+				})
+				g.Expect(k8sClient.Status().Patch(ctx, objFetched, client.MergeFrom(orig))).To(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("expecting the controller to drop it and keep the BlueFieldSoftware Ready")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				g.Expect(meta.FindStatusCondition(objFetched.Status.Conditions, legacyErrorCondition)).To(BeNil())
+				g.Expect(conditions.IsTrue(objFetched, provisioningv1.BlueFieldSoftwareCondReady)).To(BeTrue())
+			}).WithTimeout(30 * time.Second).Should(Succeed())
 		})
 
 		It("BlueFieldSoftware: download multiple URL components", func() {
@@ -312,6 +361,71 @@ var _ = Describe("BlueFieldSoftware", func() {
 			Expect(err).To(HaveOccurred())
 		})
 
+		It("BlueFieldSoftware: seeds Ready and the milestones before the download completes", func() {
+			isoPath := "/bf4-os-slow.iso"
+			By("creating a server that holds the download until released")
+			release := make(chan struct{})
+			var releaseOnce sync.Once
+			mux := http.NewServeMux()
+			mux.HandleFunc(isoPath, func(w http.ResponseWriter, r *http.Request) {
+				<-release
+				body := []byte("iso")
+				w.Header().Set("Content-Type", "application/octet-stream")
+				w.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
+				w.WriteHeader(http.StatusOK)
+				if r.Method == http.MethodGet {
+					_, _ = w.Write(body)
+				}
+			})
+			server := httptest.NewServer(mux)
+			DeferCleanup(func() {
+				releaseOnce.Do(func() { close(release) })
+				server.Close()
+			})
+
+			By("creating the BlueFieldSoftware")
+			obj := createObj("bfs-seeded")
+			obj.Spec.OsIso = server.URL + isoPath
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+			DeferCleanup(k8sClient.Delete, ctx, obj)
+
+			objFetched := &provisioningv1.BlueFieldSoftware{}
+			By("expecting Ready False/Pending and the seeded milestones while the download is blocked")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.BlueFieldSoftwareDownloading))
+				readyCond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BlueFieldSoftwareCondReady))
+				g.Expect(readyCond).NotTo(BeNil())
+				g.Expect(readyCond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(readyCond.Reason).To(Equal(string(conditions.ReasonPending)))
+				g.Expect(readyCond.Message).To(ContainSubstring(string(provisioningv1.BlueFieldSoftwareCondDownloaded)))
+				g.Expect(readyCond.Message).To(ContainSubstring(string(provisioningv1.BlueFieldSoftwareCondExtracted)))
+				g.Expect(readyCond.ObservedGeneration).To(Equal(objFetched.Generation))
+				g.Expect(conditions.IsTrue(objFetched, provisioningv1.BlueFieldSoftwareCondInitialized)).To(BeTrue())
+				for _, typ := range []conditions.ConditionType{
+					provisioningv1.BlueFieldSoftwareCondDownloaded,
+					provisioningv1.BlueFieldSoftwareCondExtracted,
+				} {
+					cond := meta.FindStatusCondition(objFetched.Status.Conditions, string(typ))
+					g.Expect(cond).NotTo(BeNil(), string(typ))
+					g.Expect(cond.Status).To(Equal(metav1.ConditionUnknown), string(typ))
+					g.Expect(cond.Reason).To(Equal(string(conditions.ReasonPending)), string(typ))
+					g.Expect(cond.ObservedGeneration).To(Equal(objFetched.Generation), string(typ))
+				}
+				g.Expect(meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BlueFieldSoftwareCondDeleted))).To(BeNil())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+
+			By("releasing the download and expecting Ready True once the phase is Ready")
+			releaseOnce.Do(func() { close(release) })
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, getObjKey(obj), objFetched)).To(Succeed())
+				g.Expect(objFetched.Status.Phase).To(Equal(provisioningv1.BlueFieldSoftwareReady))
+				g.Expect(conditions.IsTrue(objFetched, provisioningv1.BlueFieldSoftwareCondReady)).To(BeTrue())
+				g.Expect(conditions.IsTrue(objFetched, provisioningv1.BlueFieldSoftwareCondDownloaded)).To(BeTrue())
+				g.Expect(conditions.IsTrue(objFetched, provisioningv1.BlueFieldSoftwareCondExtracted)).To(BeTrue())
+			}).WithTimeout(30 * time.Second).Should(Succeed())
+		})
+
 		It("BlueFieldSoftware: remove cached component file from Status (Ready)", func() {
 			By("creating the BlueFieldSoftware")
 			obj := createObj("bfs-remove-file")
@@ -342,7 +456,14 @@ var _ = Describe("BlueFieldSoftware", func() {
 				readyCond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BlueFieldSoftwareCondReady))
 				g.Expect(readyCond).NotTo(BeNil())
 				g.Expect(readyCond.Status).To(Equal(metav1.ConditionFalse))
-				g.Expect(readyCond.Reason).To(Equal(string(conditions.ReasonError)))
+				// Ready summarizes the milestones: the re-download is in progress, the detail is on Downloaded.
+				g.Expect(readyCond.Reason).To(Equal(string(conditions.ReasonPending)))
+				g.Expect(readyCond.Message).To(ContainSubstring(string(provisioningv1.BlueFieldSoftwareCondDownloaded)))
+				downloadedCond := meta.FindStatusCondition(objFetched.Status.Conditions, string(provisioningv1.BlueFieldSoftwareCondDownloaded))
+				g.Expect(downloadedCond).NotTo(BeNil())
+				g.Expect(downloadedCond.Status).To(Equal(metav1.ConditionUnknown))
+				g.Expect(downloadedCond.Reason).To(Equal(string(conditions.ReasonPending)))
+				g.Expect(downloadedCond.Message).To(ContainSubstring("missing"))
 			}).WithTimeout(30 * time.Second).WithPolling(10 * time.Millisecond).Should(Succeed())
 
 			By("expecting the Status (Ready) after re-download")

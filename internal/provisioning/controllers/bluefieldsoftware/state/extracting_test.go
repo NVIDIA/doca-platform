@@ -354,9 +354,71 @@ func TestHandle_ExtractSuccess(t *testing.T) {
 	assert.Equal(t, "82.48.0906", bfs.Status.Versions.EWNicFwVersion)
 	// The DPU bundle supplies the per-PSID versions checked before a firmware update.
 	assert.Equal(t, completeDeviceVersions(), bfs.Status.Versions.BluefieldSoftwareVersions[psid])
-	cond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondReady)
+	// The handler closes its own milestone and re-asserts the earlier ones; Ready is left to the
+	// controller's summary.
+	assert.True(t, conditions.IsTrue(bfs, provisioningv1.BlueFieldSoftwareCondExtracted))
+	assert.True(t, conditions.IsTrue(bfs, provisioningv1.BlueFieldSoftwareCondInitialized))
+	assert.True(t, conditions.IsTrue(bfs, provisioningv1.BlueFieldSoftwareCondDownloaded))
+	assert.Nil(t, conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondReady))
+}
+
+// TestHandle_NoExtractTargetsCompletesExtracted checks that an OS ISO only spec, which has
+// nothing to unpack, still records the Extracted milestone so the Ready summary can turn True.
+func TestHandle_NoExtractTargetsCompletesExtracted(t *testing.T) {
+	bfs := &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns1",
+			Name:      "bfs-iso-only",
+		},
+		Spec: provisioningv1.BlueFieldSpec{
+			OsIso: testBF4OsIsoURL,
+		},
+		Status: provisioningv1.BlueFieldSoftwareStatus{
+			Phase: provisioningv1.BlueFieldSoftwareExtracting,
+		},
+	}
+	st := &blueFieldSoftwareExtractingState{
+		bfs:      bfs,
+		recorder: record.NewFakeRecorder(5),
+	}
+	require.NoError(t, st.Handle(context.Background(), nil))
+
+	assert.Equal(t, provisioningv1.BlueFieldSoftwareReady, bfs.Status.Phase)
+	assert.True(t, conditions.IsTrue(bfs, provisioningv1.BlueFieldSoftwareCondExtracted))
+	assert.Nil(t, conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondReady))
+}
+
+// TestHandle_DeletionReopensExtracted checks that a deletion seen in the Extracting phase moves
+// to Deleting and reports the Extracted milestone as AwaitingDeletion, keeping Downloaded True.
+func TestHandle_DeletionReopensExtracted(t *testing.T) {
+	now := metav1.Now()
+	bfs := &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:         "ns1",
+			Name:              "bfs-deleting",
+			DeletionTimestamp: &now,
+			Finalizers:        []string{provisioningv1.BlueFieldSoftwareFinalizer},
+		},
+		Spec: provisioningv1.BlueFieldSpec{
+			PldmFwBundle: map[string]string{"MT_0000001775": "/tmp/fw.fwpkg"},
+		},
+		Status: provisioningv1.BlueFieldSoftwareStatus{
+			Phase: provisioningv1.BlueFieldSoftwareExtracting,
+		},
+	}
+	st := &blueFieldSoftwareExtractingState{
+		bfs:      bfs,
+		recorder: record.NewFakeRecorder(5),
+	}
+	require.NoError(t, st.Handle(context.Background(), nil))
+
+	assert.Equal(t, provisioningv1.BlueFieldSoftwareDeleting, bfs.Status.Phase)
+	cond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondExtracted)
 	require.NotNil(t, cond)
-	assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, string(conditions.ReasonAwaitingDeletion), cond.Reason)
+	// The earlier milestones stay True: the download did complete.
+	assert.True(t, conditions.IsTrue(bfs, provisioningv1.BlueFieldSoftwareCondDownloaded))
 }
 
 // newLeftoverExtractBFS builds a BlueFieldSoftware whose extract output directory
@@ -567,9 +629,48 @@ func TestHandle_ExtractFailure(t *testing.T) {
 	err := st.Handle(context.Background(), nil)
 	require.Error(t, err)
 	assert.Equal(t, provisioningv1.BlueFieldSoftwareError, bfs.Status.Phase)
-	cond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondReady)
+	// The failure lands on the Extracted milestone with the terminal reason, which is what the
+	// Error state's classifier reads. Ready is left to the controller's summary.
+	cond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondExtracted)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, string(conditions.ReasonFailure), cond.Reason)
+	assert.Contains(t, cond.Message, "Extract PLDM firmware bundle")
+	assert.Nil(t, conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondReady))
+}
+
+// TestHandle_ExtractTransportErrorIsRecoverable checks that an unreachable unpack sidecar is
+// reported on Extracted with the recoverable Error reason, not the terminal Failure, so the
+// Error state retries once the sidecar is back instead of discarding the downloaded files.
+func TestHandle_ExtractTransportErrorIsRecoverable(t *testing.T) {
+	setEnvForUnpackServer(t, filepath.Join(t.TempDir(), "nobody-listens.sock"))
+
+	const psid = "MT_0000001775"
+	bfs := &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns1",
+			Name:      "bfs-unpack-down",
+		},
+		Spec: provisioningv1.BlueFieldSpec{
+			PldmFwBundle: map[string]string{psid: "/tmp/fw.fwpkg"},
+		},
+		Status: provisioningv1.BlueFieldSoftwareStatus{
+			Phase: provisioningv1.BlueFieldSoftwareExtracting,
+		},
+	}
+	require.NoError(t, os.RemoveAll(extractOutputDirForBFS(bfs, butil.ComponentTypeFwBundle, psid)))
+
+	st := &blueFieldSoftwareExtractingState{
+		bfs:      bfs,
+		recorder: record.NewFakeRecorder(5),
+	}
+	err := st.Handle(context.Background(), nil)
+	require.Error(t, err)
+	assert.Equal(t, provisioningv1.BlueFieldSoftwareError, bfs.Status.Phase)
+	cond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondExtracted)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, string(conditions.ReasonError), cond.Reason)
 }
 
 func startUnixHTTPServer(t *testing.T, handler http.HandlerFunc) (string, func()) {

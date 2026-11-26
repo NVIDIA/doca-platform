@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"slices"
+
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -63,33 +65,47 @@ const (
 )
 
 const (
-	// BlueFieldSoftwareCondInitialized indicates the BlueFieldSoftware has
-	// been initialized
-	BlueFieldSoftwareCondInitialized conditions.ConditionType = "Initialized"
-	// BlueFieldSoftwareCondDownloaded indicates the BlueFieldSoftware
-	// components have been downloaded
-	BlueFieldSoftwareCondDownloaded conditions.ConditionType = "Downloaded"
-	// BlueFieldSoftwareCondReady indicates the BlueFieldSoftware is ready for
-	// use
+	// BlueFieldSoftwareCondReady is the summary condition (family Ready): the
+	// overall status of the BlueFieldSoftware, computed from
+	// BlueFieldSoftwareConditions on every reconcile and never set by hand.
+	// Possible reasons: Success, Pending, Retrying, Error, Failure,
+	// AwaitingDeletion.
 	BlueFieldSoftwareCondReady conditions.ConditionType = conditions.TypeReady
-	// BlueFieldSoftwareCondError indicates the BlueFieldSoftware is in error
-	// state
-	BlueFieldSoftwareCondError conditions.ConditionType = "Error"
-	// BlueFieldSoftwareCondDeleted indicates the BlueFieldSoftware has been
-	// deleted
+	// BlueFieldSoftwareCondInitialized (family step complete): True once the
+	// object has been seen and the download can start. Re-asserted by the
+	// later phases. Possible reasons: Success, Pending, AwaitingDeletion.
+	BlueFieldSoftwareCondInitialized conditions.ConditionType = "Initialized"
+	// BlueFieldSoftwareCondDownloaded (family step complete): True once every
+	// component file is in the local cache. Possible reasons: Success,
+	// Pending, Retrying, Error, Failure, AwaitingDeletion.
+	BlueFieldSoftwareCondDownloaded conditions.ConditionType = "Downloaded"
+	// BlueFieldSoftwareCondExtracted (family step complete): True once the
+	// PLDM bundles are unpacked and their versions recorded in status. A
+	// Failure here is terminal and is never retried. Possible reasons:
+	// Success, Pending, Failure, AwaitingDeletion.
+	BlueFieldSoftwareCondExtracted conditions.ConditionType = "Extracted"
+	// BlueFieldSoftwareCondDeleted is abnormal-true: True once the cached
+	// files are removed and the finalizer can go. Set on demand, not seeded,
+	// and kept out of the Ready summary.
 	BlueFieldSoftwareCondDeleted conditions.ConditionType = "Deleted"
 )
 
 var (
-	// BlueFieldSoftwareConditions are conditions that can be set on a
-	// BlueFieldSoftware object.
+	// BlueFieldSoftwareConditions are seeded on every BlueFieldSoftware and
+	// summarized into Ready.
 	BlueFieldSoftwareConditions = []conditions.ConditionType{
+		BlueFieldSoftwareCondReady,
 		BlueFieldSoftwareCondInitialized,
 		BlueFieldSoftwareCondDownloaded,
-		BlueFieldSoftwareCondReady,
-		BlueFieldSoftwareCondError,
-		BlueFieldSoftwareCondDeleted,
+		BlueFieldSoftwareCondExtracted,
 	}
+
+	// BlueFieldSoftwareOwnedConditions are all conditions the
+	// BlueFieldSoftware controller is authoritative for. Deleted is owned but
+	// not seeded: it is abnormal-true and appears only during deletion.
+	BlueFieldSoftwareOwnedConditions = append(slices.Clone(BlueFieldSoftwareConditions),
+		BlueFieldSoftwareCondDeleted,
+	)
 )
 
 // BlueFieldSpec defines the desired state of BlueFieldSoftware.

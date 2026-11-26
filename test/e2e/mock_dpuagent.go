@@ -596,6 +596,8 @@ func createMockBlueFieldSoftware(ctx context.Context, env *mockDPUEnv) *provisio
 		g.Expect(env.client.Get(ctx, client.ObjectKeyFromObject(bfs), bfs)).To(Succeed())
 		tracker.By(string(bfs.Status.Phase), "BlueFieldSoftware %s phase %s", bfs.Name, bfs.Status.Phase)
 		g.Expect(bfs.Status.Phase).To(Equal(provisioningv1.BlueFieldSoftwareReady))
+		g.Expect(conditions.IsTrue(bfs, provisioningv1.BlueFieldSoftwareCondReady)).To(BeTrue(),
+			"BlueFieldSoftware Ready condition should be True for the current generation")
 	}).WithTimeout(10 * time.Minute).WithPolling(mockPollInterval).Should(Succeed())
 	Expect(bfs.Status.Versions).NotTo(BeNil())
 	versions := bfs.Status.Versions.BluefieldSoftwareVersions[mockconfig.DefaultPSID]

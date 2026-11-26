@@ -38,7 +38,9 @@ type blueFieldSoftwareReadyState struct {
 func (st *blueFieldSoftwareReadyState) Handle(context.Context, client.Client) error {
 	if isDeleting(st.bfs) {
 		st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareDeleting
-		conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondReady,
+		conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded,
+			conditions.ReasonAwaitingDeletion, "BlueFieldSoftware is being deleted")
+		conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondExtracted,
 			conditions.ReasonAwaitingDeletion, "BlueFieldSoftware is being deleted")
 		return nil
 	}
@@ -49,9 +51,13 @@ func (st *blueFieldSoftwareReadyState) Handle(context.Context, client.Client) er
 		st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareDownloading
 		msg := fmt.Sprintf("Component files missing: %v, triggering re-download", missingComponents)
 		st.recorder.Eventf(st.bfs, corev1.EventTypeWarning, events.EventBFBFileNotFoundReason, msg)
-		conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondReady,
-			conditions.ReasonError,
-			conditions.ConditionMessage(msg))
+		// The object goes back through Downloading and Extracting, so both milestones are reopened.
+		// Downloaded returns to its seeded state, Unknown: the retry window is measured from the
+		// moment it turns False, so it must not start before a download attempt has failed.
+		conditions.AddUnknown(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded,
+			conditions.ReasonPending, conditions.ConditionMessage(msg))
+		conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondExtracted,
+			conditions.ReasonPending, "Waiting for re-download")
 
 		// Clear the missing components from status to trigger re-download
 		for _, unit := range missingComponents {
@@ -60,7 +66,12 @@ func (st *blueFieldSoftwareReadyState) Handle(context.Context, client.Client) er
 		return nil
 	}
 
-	conditions.AddTrue(st.bfs, provisioningv1.BlueFieldSoftwareCondReady)
+	// The files are still cached. Re-asserting the milestones this phase implies lets a conditions
+	// patch that was lost to a conflict heal on the next pass; Ready itself is computed by the
+	// controller's summary.
+	conditions.AddTrue(st.bfs, provisioningv1.BlueFieldSoftwareCondInitialized)
+	conditions.AddTrue(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded)
+	conditions.AddTrue(st.bfs, provisioningv1.BlueFieldSoftwareCondExtracted)
 	return nil
 }
 

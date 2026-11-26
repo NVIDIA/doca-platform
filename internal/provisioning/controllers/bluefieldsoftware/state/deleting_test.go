@@ -123,3 +123,59 @@ func TestDeletingBlockedByDPUReference(t *testing.T) {
 		})
 	}
 }
+
+// TestDeletingReassertsAwaitingDeletionWhileBlocked checks that the Deleting phase restores
+// AwaitingDeletion on both milestones on every pass. A conditions patch lost on the way into
+// Deleting would otherwise leave Ready True for as long as the deletion is blocked.
+func TestDeletingReassertsAwaitingDeletionWhileBlocked(t *testing.T) {
+	const (
+		namespace = "test-ns"
+		bfsName   = "old-bfs"
+	)
+	scheme := runtime.NewScheme()
+	require.NoError(t, provisioningv1.AddToScheme(scheme))
+
+	bfs := &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       bfsName,
+			Namespace:  namespace,
+			Finalizers: []string{provisioningv1.BlueFieldSoftwareFinalizer},
+		},
+		Status: provisioningv1.BlueFieldSoftwareStatus{
+			Phase: provisioningv1.BlueFieldSoftwareDeleting,
+		},
+	}
+	// The milestones still say True: the patch that reopened them was lost.
+	conditions.AddTrue(bfs, provisioningv1.BlueFieldSoftwareCondDownloaded)
+	conditions.AddTrue(bfs, provisioningv1.BlueFieldSoftwareCondExtracted)
+	dpu := &provisioningv1.DPU{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "dpu-live",
+			Namespace: namespace,
+		},
+		Spec: provisioningv1.DPUSpec{
+			DPUNodeName:       "worker1",
+			DPUDeviceName:     "device-dpu-live",
+			SerialNumber:      "SN-dpu-live",
+			BlueFieldSoftware: ptr.To(bfsName),
+		},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dpu).Build()
+
+	st := &blueFieldSoftwareDeletingState{
+		bfs:      bfs,
+		recorder: record.NewFakeRecorder(10),
+	}
+	require.Error(t, st.Handle(context.Background(), cl), "the DPU still names the software")
+
+	assert.Contains(t, bfs.Finalizers, provisioningv1.BlueFieldSoftwareFinalizer)
+	for _, milestone := range []conditions.ConditionType{
+		provisioningv1.BlueFieldSoftwareCondDownloaded,
+		provisioningv1.BlueFieldSoftwareCondExtracted,
+	} {
+		cond := conditions.Get(bfs, milestone)
+		require.NotNil(t, cond)
+		assert.Equal(t, metav1.ConditionFalse, cond.Status, "%s", milestone)
+		assert.Equal(t, string(conditions.ReasonAwaitingDeletion), cond.Reason, "%s", milestone)
+	}
+}

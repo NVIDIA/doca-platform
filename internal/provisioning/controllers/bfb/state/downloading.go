@@ -165,7 +165,7 @@ func (st *bfbDownloadingState) handleDownloadError(err error, taskName string) e
 
 	st.clearRetryCounter(taskName)
 	reason := conditions.ReasonFailure
-	if cutil.IsRecoverableDownloadError(err) {
+	if cutil.IsRecoverableIOError(err) {
 		reason = conditions.ReasonError
 	}
 	msg := fmt.Sprintf("Download BFB: (%s/%s) failed after %d retries with error: %s",

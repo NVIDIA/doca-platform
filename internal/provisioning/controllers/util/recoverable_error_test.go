@@ -27,10 +27,10 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("download error classification", func() {
+var _ = Describe("recoverable I/O error classification", func() {
 	DescribeTable("classifies recoverable errors",
 		func(err error, recoverable bool) {
-			Expect(IsRecoverableDownloadError(err)).To(Equal(recoverable))
+			Expect(IsRecoverableIOError(err)).To(Equal(recoverable))
 		},
 		Entry("nil", nil, false),
 		Entry("HTTP status error", errors.New("failed to get: http://x/y status: 404"), false),

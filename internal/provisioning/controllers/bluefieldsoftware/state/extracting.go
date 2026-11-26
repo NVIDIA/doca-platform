@@ -83,9 +83,14 @@ type unpackComponentPayload struct {
 }
 
 func (st *blueFieldSoftwareExtractingState) Handle(ctx context.Context, _ client.Client) error {
+	// Both milestones are implied by this phase; re-asserting them heals a lost conditions patch.
+	// Ready itself is computed by the controller's summary.
+	conditions.AddTrue(st.bfs, provisioningv1.BlueFieldSoftwareCondInitialized)
+	conditions.AddTrue(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded)
+
 	if isDeleting(st.bfs) {
 		st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareDeleting
-		conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondReady,
+		conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondExtracted,
 			conditions.ReasonAwaitingDeletion, "BlueFieldSoftware is being deleted")
 		return nil
 	}
@@ -93,7 +98,7 @@ func (st *blueFieldSoftwareExtractingState) Handle(ctx context.Context, _ client
 	targets := st.resolveExtractTargets()
 	if len(targets) == 0 {
 		st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareReady
-		conditions.AddTrue(st.bfs, provisioningv1.BlueFieldSoftwareCondReady)
+		conditions.AddTrue(st.bfs, provisioningv1.BlueFieldSoftwareCondExtracted)
 		return nil
 	}
 
@@ -106,7 +111,7 @@ func (st *blueFieldSoftwareExtractingState) Handle(ctx context.Context, _ client
 	st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareReady
 	st.recorder.Eventf(st.bfs, corev1.EventTypeNormal, events.EventSuccessfulExtractBFBReason,
 		"Extract PLDM firmware bundle successful")
-	conditions.AddTrue(st.bfs, provisioningv1.BlueFieldSoftwareCondReady)
+	conditions.AddTrue(st.bfs, provisioningv1.BlueFieldSoftwareCondExtracted)
 	return nil
 }
 
@@ -144,13 +149,20 @@ func (st *blueFieldSoftwareExtractingState) unpackTargetIfNeeded(ctx context.Con
 }
 
 // failExtract moves the object to Error with the formatted message and returns err
-// unchanged so callers can propagate it.
+// unchanged so callers can propagate it. Transport and storage errors (unpack socket,
+// timeout, filesystem) are recoverable: the Error state retries from the cached files.
+// Anything else is the unpack tool's verdict on the bundle and is terminal, since the same
+// bundle would fail the same way again.
 func (st *blueFieldSoftwareExtractingState) failExtract(err error, format string, args ...any) error {
 	msg := fmt.Sprintf(format, args...)
 	st.recorder.Eventf(st.bfs, corev1.EventTypeWarning, events.EventFailedExtractBFBReason, msg)
 	st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareError
-	conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondReady,
-		conditions.ReasonFailure, conditions.ConditionMessage(msg))
+	reason := conditions.ReasonFailure
+	if cutil.IsRecoverableIOError(err) {
+		reason = conditions.ReasonError
+	}
+	conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondExtracted,
+		reason, conditions.ConditionMessage(msg))
 	return err
 }
 

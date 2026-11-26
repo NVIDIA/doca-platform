@@ -49,6 +49,38 @@ import (
 // exercise the per-component retry/status helpers (which now key off componentInfo).
 func ci(ct butil.ComponentType) componentInfo { return componentInfo{ComponentType: ct} }
 
+// TestHandle_ReassertsInitializedBeforeDeletion checks that the Downloading phase re-asserts the
+// Initialized milestone it implies, even on the deletion path, since the Initializing handler
+// never runs again for the object.
+func TestHandle_ReassertsInitializedBeforeDeletion(t *testing.T) {
+	now := metav1.Now()
+	bfs := &provisioningv1.BlueFieldSoftware{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "bf4-software",
+			Namespace:         "dpf-operator-system",
+			DeletionTimestamp: &now,
+			Finalizers:        []string{provisioningv1.BlueFieldSoftwareFinalizer},
+		},
+		Spec: provisioningv1.BlueFieldSpec{
+			OsIso: testBF4OsIsoURL,
+		},
+		Status: provisioningv1.BlueFieldSoftwareStatus{
+			Phase: provisioningv1.BlueFieldSoftwareDownloading,
+		},
+	}
+	st := &blueFieldSoftwareDownloadingState{
+		bfs:      bfs,
+		recorder: record.NewFakeRecorder(5),
+	}
+	require.NoError(t, st.Handle(context.Background(), nil))
+
+	assert.Equal(t, provisioningv1.BlueFieldSoftwareDeleting, bfs.Status.Phase)
+	assert.True(t, conditions.IsTrue(bfs, provisioningv1.BlueFieldSoftwareCondInitialized))
+	downloaded := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondDownloaded)
+	require.NotNil(t, downloaded)
+	assert.Equal(t, string(conditions.ReasonAwaitingDeletion), downloaded.Reason)
+}
+
 func TestHandleDownloadError_ContextCanceled(t *testing.T) {
 	bfs := &provisioningv1.BlueFieldSoftware{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1093,7 +1125,7 @@ func TestBlueFieldSoftwareErrorState_CleansPartialFiles(t *testing.T) {
 	assert.True(t, os.IsNotExist(err))
 }
 
-func TestBlueFieldSoftwareErrorState_SetsErrorConditionWhenCleanupFails(t *testing.T) {
+func TestBlueFieldSoftwareErrorState_StaysInErrorWhenCleanupFails(t *testing.T) {
 	defer withTestBFBBaseDir(t)()
 
 	osIsoURL := testBF4OsIsoURL
@@ -1124,9 +1156,7 @@ func TestBlueFieldSoftwareErrorState_SetsErrorConditionWhenCleanupFails(t *testi
 	err := st.Handle(context.Background(), nil)
 	require.Error(t, err)
 
-	cond := conditions.Get(bfs, provisioningv1.BlueFieldSoftwareCondError)
-	require.NotNil(t, cond)
-	assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	assert.Equal(t, provisioningv1.BlueFieldSoftwareError, bfs.Status.Phase)
 }
 
 func TestBlueFieldSoftwareErrorState_CancelsDownloadsOnDelete(t *testing.T) {

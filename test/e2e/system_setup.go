@@ -881,6 +881,8 @@ func ProvisionBlueFieldSoftware(ctx context.Context, input ProvisionDPUClustersI
 			Namespace: input.blueFieldSoftware.Namespace,
 		}, bfs)).To(Succeed())
 		g.Expect(bfs.Status.Phase).To(Equal(provisioningv1.BlueFieldSoftwareReady))
+		g.Expect(conditions.IsTrue(bfs, provisioningv1.BlueFieldSoftwareCondReady)).To(BeTrue(),
+			"BlueFieldSoftware Ready condition should be True for the current generation")
 		g.Expect(bfs.Status.Versions).NotTo(BeNil(), "BlueFieldSoftware versions should be set when Ready")
 		g.Expect(bfs.Status.Versions.DOCA).NotTo(BeEmpty(), "BlueFieldSoftware should have status.versions.doca when Ready")
 		g.Expect(bfs.Status.Versions.OSISOVersion).NotTo(BeEmpty(), "BlueFieldSoftware should have status.versions.osISOVersion when Ready")

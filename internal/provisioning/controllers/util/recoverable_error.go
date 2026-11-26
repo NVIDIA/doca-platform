@@ -23,10 +23,11 @@ import (
 	"os"
 )
 
-// IsRecoverableDownloadError reports whether a download failure is caused by
-// a filesystem/storage or network error worth retrying. Unknown errors are
-// treated as terminal to avoid retrying genuine misconfiguration indefinitely.
-func IsRecoverableDownloadError(err error) bool {
+// IsRecoverableIOError reports whether err is a filesystem, storage or network
+// error worth retrying, as opposed to a verdict on the data itself. Unknown
+// errors are treated as terminal to avoid retrying genuine misconfiguration
+// indefinitely.
+func IsRecoverableIOError(err error) bool {
 	if err == nil {
 		return false
 	}

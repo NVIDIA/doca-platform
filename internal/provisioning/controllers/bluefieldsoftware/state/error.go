@@ -25,13 +25,15 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
-	// RetryWindow is the maximum time to keep retrying after the first error.
-	// After this window expires, the BlueFieldSoftware stays in permanent Error state.
+	// RetryWindow is the maximum time to keep retrying a download after its first error.
+	// After this window expires, the BlueFieldSoftware stays in permanent Error state and
+	// Downloaded is marked Failure. A recoverable extraction error is not bound by it.
 	RetryWindow = 30 * time.Minute
 	// RetryInterval is the minimum time to wait before retrying a failed download.
 	RetryInterval = time.Minute
@@ -48,7 +50,9 @@ func (st *blueFieldSoftwareErrorState) Handle(ctx context.Context, _ client.Clie
 			log.FromContext(ctx).Error(cleanupErr, "failed to cleanup in-flight component artifacts during deletion")
 		}
 		st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareDeleting
-		conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondError,
+		conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded,
+			conditions.ReasonAwaitingDeletion, "BlueFieldSoftware is being deleted")
+		conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondExtracted,
 			conditions.ReasonAwaitingDeletion, "BlueFieldSoftware is being deleted")
 		return nil
 	}
@@ -59,11 +63,16 @@ func (st *blueFieldSoftwareErrorState) Handle(ctx context.Context, _ client.Clie
 			st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareDownloading
 			conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded,
 				conditions.ReasonPending, "Retrying download after transient error")
-			conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondError,
-				conditions.ReasonPending, "Retry initiated")
 			return nil
 		}
 	case terminal:
+		// The controller has given up on the download, so Downloaded is marked Failure and the
+		// Ready summary reports Failure instead of Pending. An extraction Failure is already on
+		// Extracted.
+		if msg, expired := st.expiredDownloadMessage(); expired {
+			conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded,
+				conditions.ReasonFailure, msg)
+		}
 		// In the terminal state a re-download cannot be forced without deleting the
 		// object, so nothing will reuse the downloaded components. Reclaim storage by
 		// removing all of them.
@@ -71,11 +80,25 @@ func (st *blueFieldSoftwareErrorState) Handle(ctx context.Context, _ client.Clie
 	case retryLater:
 	}
 
-	conditions.AddTrue(st.bfs, provisioningv1.BlueFieldSoftwareCondError)
 	if cleanupErr != nil {
 		return fmt.Errorf("cleanup component artifacts on error: %w", cleanupErr)
 	}
 	return nil
+}
+
+// expiredDownloadMessage returns the Failure message for a download whose retry window has
+// expired. It reports false when Downloaded is True or already carries Failure, which need no
+// write.
+func (st *blueFieldSoftwareErrorState) expiredDownloadMessage() (conditions.ConditionMessage, bool) {
+	cond := conditions.Get(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded)
+	if cond == nil || cond.Status == metav1.ConditionTrue || cond.Reason == string(conditions.ReasonFailure) {
+		return "", false
+	}
+	msg := fmt.Sprintf("Retry window of %s expired", RetryWindow)
+	if cond.Message != "" {
+		msg = fmt.Sprintf("%s: %s", msg, cond.Message)
+	}
+	return conditions.ConditionMessage(msg), true
 }
 
 // errorOutcome classifies an Error-phase BlueFieldSoftware into mutually exclusive,
@@ -86,17 +109,26 @@ const (
 	// retryLater: recoverable error, but the retry interval has not elapsed yet. Not
 	// retried this reconcile and not terminal - preserve completed downloads and requeue.
 	retryLater errorOutcome = iota
-	// retryNow: recoverable error, past RetryInterval and still within RetryWindow.
+	// retryNow: recoverable error, past RetryInterval and, for a download, still within
+	// RetryWindow.
 	retryNow
-	// terminal: never retried - a hard failure (ReasonFailure) or a recoverable error
+	// terminal: never retried - a hard failure (ReasonFailure) or a recoverable download error
 	// whose RetryWindow has fully elapsed.
 	terminal
 )
 
 // classifyError decides how the current Error should be handled, based on:
-//   - the failure kind: recoverable (ReasonError) vs terminal (ReasonFailure),
-//   - time since the error: RetryInterval (earliest retry) and RetryWindow (giving up).
+//   - an extraction Failure, which is terminal: the unpack tool rejected the bundle and a
+//     re-download cannot fix it,
+//   - a recoverable extraction error, which is retried every RetryInterval through Downloading,
+//     which finds the cached files and re-extracts,
+//   - a download failure: recoverable (ReasonError) vs terminal (ReasonFailure), with
+//     RetryInterval as the earliest retry and RetryWindow as the point of giving up.
 func (st *blueFieldSoftwareErrorState) classifyError() errorOutcome {
+	if extractCond := conditions.Get(st.bfs, provisioningv1.BlueFieldSoftwareCondExtracted); extractCond != nil &&
+		extractCond.Reason == string(conditions.ReasonFailure) {
+		return terminal
+	}
 	downloadCond := conditions.Get(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded)
 	if downloadCond == nil {
 		return retryLater
@@ -106,8 +138,14 @@ func (st *blueFieldSoftwareErrorState) classifyError() errorOutcome {
 		return terminal
 	}
 	timeSinceError := time.Since(downloadCond.LastTransitionTime.Time)
+	// With the download complete, what failed is the extraction, and only a recoverable error
+	// gets this far. It is retried for as long as it lasts: the files are cached, so a retry
+	// costs one unpack call. RetryWindow does not apply, because Downloaded turns True on every
+	// attempt, so its transition time says when the download finished and not when the
+	// extraction first failed.
+	downloadComplete := downloadCond.Status == metav1.ConditionTrue
 	switch {
-	case timeSinceError >= RetryWindow:
+	case !downloadComplete && timeSinceError >= RetryWindow:
 		return terminal
 	case timeSinceError >= RetryInterval:
 		return retryNow

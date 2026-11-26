@@ -58,6 +58,10 @@ type blueFieldSoftwareDownloadingState struct {
 }
 
 func (st *blueFieldSoftwareDownloadingState) Handle(ctx context.Context, _ client.Client) error {
+	// Initialized is implied by this phase. Re-asserting it lets a conditions patch that was lost
+	// to a conflict heal here, since the Initializing handler never runs again for this object.
+	conditions.AddTrue(st.bfs, provisioningv1.BlueFieldSoftwareCondInitialized)
+
 	if isDeleting(st.bfs) {
 		st.cancelAllDownloads()
 		st.bfs.Status.Phase = provisioningv1.BlueFieldSoftwareDeleting
@@ -172,7 +176,7 @@ func (st *blueFieldSoftwareDownloadingState) handleDownloadError(err error, comp
 	// and terminal (ReasonFailure) for issues that need user intervention.
 	st.clearRetryCounter(component)
 	reason := conditions.ReasonFailure
-	if cutil.IsRecoverableDownloadError(err) {
+	if cutil.IsRecoverableIOError(err) {
 		reason = conditions.ReasonError
 	}
 	msg := fmt.Sprintf("Download component %s: (%s/%s) failed after %d attempts with error: %s",

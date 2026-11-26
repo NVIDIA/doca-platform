@@ -28,6 +28,7 @@ import (
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/tools/record"
@@ -40,6 +41,10 @@ import (
 const (
 	// controller name that will be used when reporting events
 	BlueFieldSoftwareControllerName = "bluefieldsoftware"
+
+	// legacyErrorCondition is the condition type earlier releases set while a BlueFieldSoftware
+	// was in the Error phase. The failure is reported on the failing milestone instead.
+	legacyErrorCondition = "Error"
 )
 
 // BlueFieldSoftwareReconciler reconciles a BlueFieldSoftware object
@@ -71,14 +76,20 @@ func (r *BlueFieldSoftwareReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	patcher := patch.NewSerialPatcher(bfs, r.Client)
 	defer func() {
 		logger.Info("Patching")
+		// Ready is derived from the seeded conditions on every exit path. Deleted is
+		// abnormal-true and stays out of the summary.
+		conditions.SetSummary(bfs, conditions.ExcludeFromSummary(provisioningv1.BlueFieldSoftwareCondDeleted))
 		if err := patcher.Patch(ctx, bfs,
 			patch.WithFieldOwner(BlueFieldSoftwareControllerName),
 			patch.WithStatusObservedGeneration{},
-			patch.WithOwnedConditions{Conditions: conditions.TypesAsStrings(provisioningv1.BlueFieldSoftwareConditions)},
+			patch.WithOwnedConditions{Conditions: conditions.TypesAsStrings(provisioningv1.BlueFieldSoftwareOwnedConditions)},
 		); err != nil {
 			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
 	}()
+	conditions.EnsureConditions(bfs, provisioningv1.BlueFieldSoftwareConditions)
+	// Drop the entry an upgrade leaves behind, so it cannot read True beside a True Ready.
+	meta.RemoveStatusCondition(&bfs.Status.Conditions, legacyErrorCondition)
 
 	// Add cleanup finalizer if not set and BlueFieldSoftware is not currently deleting.
 	// Per-DPUSet protection finalizers (bfs-dpuset-*) are owned by the DPUSet controller.

@@ -95,6 +95,13 @@ func (st *blueFieldSoftwareDeletingState) blockedByDPU(ctx context.Context, c cl
 }
 
 func (st *blueFieldSoftwareDeletingState) Handle(ctx context.Context, c client.Client) error {
+	// AwaitingDeletion is implied by this phase. Re-asserting it lets a conditions patch that was
+	// lost on the way into Deleting heal here, so Ready cannot stay True while the deletion waits.
+	conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondDownloaded,
+		conditions.ReasonAwaitingDeletion, "BlueFieldSoftware is being deleted")
+	conditions.AddFalse(st.bfs, provisioningv1.BlueFieldSoftwareCondExtracted,
+		conditions.ReasonAwaitingDeletion, "BlueFieldSoftware is being deleted")
+
 	if err := st.blockedByDPUSet(ctx, c); err != nil {
 		return err
 	}
