@@ -55,6 +55,9 @@ type bfbDownloadingState struct {
 
 func (st *bfbDownloadingState) Handle(ctx context.Context, _ client.Client) error {
 	bfbTaskName := cutil.GenerateBFBTaskName(*st.bfb)
+	// Initialized is implied by this phase. Re-asserting it lets a conditions patch that was lost
+	// to a conflict heal here, since the Initializing handler never runs again for this object.
+	conditions.AddTrue(st.bfb, provisioningv1.BFBCondInitialized)
 
 	if isDeleting(st.bfb) {
 		// Retrieve and call the cancel function to stop the download

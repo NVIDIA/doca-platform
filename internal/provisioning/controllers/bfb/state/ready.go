@@ -39,7 +39,7 @@ type bfbReadyState struct {
 func (st *bfbReadyState) Handle(context.Context, client.Client) error {
 	if isDeleting(st.bfb) {
 		st.bfb.Status.Phase = provisioningv1.BFBDeleting
-		conditions.AddFalse(st.bfb, provisioningv1.BFBCondReady,
+		conditions.AddFalse(st.bfb, provisioningv1.BFBCondDownloaded,
 			conditions.ReasonAwaitingDeletion, "BFB is being deleted")
 		return nil
 	}
@@ -48,13 +48,16 @@ func (st *bfbReadyState) Handle(context.Context, client.Client) error {
 		st.bfb.Status.Phase = provisioningv1.BFBDownloading
 		msg := fmt.Sprintf("BFB file %s not found, triggering re-download", st.bfb.Status.FileName)
 		st.recorder.Eventf(st.bfb, corev1.EventTypeWarning, events.EventBFBFileNotFoundReason, msg)
-		conditions.AddFalse(st.bfb, provisioningv1.BFBCondReady,
-			conditions.ReasonError,
-			conditions.ConditionMessage(fmt.Sprintf("BFB file %s not found", st.bfb.Status.FileName)))
+		conditions.AddFalse(st.bfb, provisioningv1.BFBCondDownloaded,
+			conditions.ReasonError, conditions.ConditionMessage(msg))
 		return err
 	}
 
-	conditions.AddTrue(st.bfb, provisioningv1.BFBCondReady)
+	// The file is still cached. Re-asserting the milestones this phase implies lets a conditions
+	// patch that was lost to a conflict heal on the next pass; Ready itself is computed by the
+	// controller's summary.
+	conditions.AddTrue(st.bfb, provisioningv1.BFBCondInitialized)
+	conditions.AddTrue(st.bfb, provisioningv1.BFBCondDownloaded)
 	return nil
 }
 

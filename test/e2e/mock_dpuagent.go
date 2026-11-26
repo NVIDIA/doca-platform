@@ -35,6 +35,7 @@ import (
 	rfclient "github.com/nvidia/doca-platform/internal/provisioning/controllers/dpu/state/redfish/client"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
 	providentity "github.com/nvidia/doca-platform/internal/provisioning/utils/certificate/identity"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 	mockconfig "github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/config"
 	mocknode "github.com/nvidia/doca-platform/test/mock/dpuagent/pkg/node"
 
@@ -571,6 +572,8 @@ func createMockBFB(ctx context.Context, env *mockDPUEnv) *provisioningv1.BFB {
 		g.Expect(env.client.Get(ctx, client.ObjectKeyFromObject(bfb), bfb)).To(Succeed())
 		tracker.By(string(bfb.Status.Phase), "BFB %s phase %s", bfb.Name, bfb.Status.Phase)
 		g.Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBReady))
+		g.Expect(conditions.IsTrue(bfb, provisioningv1.BFBCondReady)).To(BeTrue(),
+			"BFB Ready condition should be True for the current generation")
 	}).WithTimeout(10 * time.Minute).WithPolling(mockPollInterval).Should(Succeed())
 	Expect(bfb.Status.Versions.UEFI).To(Equal("4.15.0-19-g37c6f5adb2"))
 	Expect(bfb.Status.Versions.BSP).To(Equal("4.15.0.13977"))

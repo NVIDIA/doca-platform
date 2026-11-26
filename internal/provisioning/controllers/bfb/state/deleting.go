@@ -39,6 +39,11 @@ type bfbDeletingState struct {
 }
 
 func (st *bfbDeletingState) Handle(ctx context.Context, client ctrlclient.Client) error {
+	// AwaitingDeletion is implied by this phase. Re-asserting it lets a conditions patch that was
+	// lost on the way into Deleting heal here, so Ready cannot stay True while the deletion waits.
+	conditions.AddFalse(st.bfb, provisioningv1.BFBCondDownloaded,
+		conditions.ReasonAwaitingDeletion, "BFB is being deleted")
+
 	// Ensure any in-flight download task is canceled/cleaned up during deletion.
 	taskName := cutil.GenerateBFBTaskName(*st.bfb)
 	if cancelFunc, ok := butil.DownloadingTaskMap.Load(taskName + "cancel"); ok {

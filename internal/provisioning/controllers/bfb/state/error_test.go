@@ -175,15 +175,11 @@ var _ = Describe("BFB Error State Retry Logic", func() {
 				Expect(downloadedCond.Status).To(Equal(metav1.ConditionFalse))
 				Expect(downloadedCond.Reason).To(Equal(string(conditions.ReasonPending)))
 				Expect(downloadedCond.Message).To(ContainSubstring("Retrying"))
-
-				errorCond := conditions.Get(bfb, provisioningv1.BFBCondError)
-				Expect(errorCond.Status).To(Equal(metav1.ConditionFalse))
-				Expect(errorCond.Reason).To(Equal(string(conditions.ReasonPending)))
 			})
 		})
 
 		Context("when retry conditions are NOT met", func() {
-			It("should stay in Error state with Error condition True", func() {
+			It("should stay in Error state on a terminal failure", func() {
 				bfb.Status.Phase = provisioningv1.BFBError
 				setConditionWithTime(bfb,
 					conditions.ReasonFailure, "invalid BFB file", time.Now().Add(-15*time.Minute))
@@ -195,9 +191,10 @@ var _ = Describe("BFB Error State Retry Logic", func() {
 				Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBError),
 					"should remain in Error phase for terminal failures")
 
-				errorCond := conditions.Get(bfb, provisioningv1.BFBCondError)
-				Expect(errorCond.Status).To(Equal(metav1.ConditionTrue),
-					"Error condition should be True for permanent error")
+				downloadedCond := conditions.Get(bfb, provisioningv1.BFBCondDownloaded)
+				Expect(downloadedCond.Status).To(Equal(metav1.ConditionFalse))
+				Expect(downloadedCond.Reason).To(Equal(string(conditions.ReasonFailure)),
+					"the terminal failure stays on the Downloaded milestone")
 			})
 
 			It("should stay in Error state when RetryWindow expired", func() {
@@ -212,8 +209,66 @@ var _ = Describe("BFB Error State Retry Logic", func() {
 				Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBError),
 					"should remain in Error phase after RetryWindow expires")
 
-				errorCond := conditions.Get(bfb, provisioningv1.BFBCondError)
-				Expect(errorCond.Status).To(Equal(metav1.ConditionTrue))
+				downloadedCond := conditions.Get(bfb, provisioningv1.BFBCondDownloaded)
+				Expect(downloadedCond.Status).To(Equal(metav1.ConditionFalse))
+				Expect(downloadedCond.Reason).To(Equal(string(conditions.ReasonFailure)),
+					"the controller gave up, so the recoverable Error is promoted to Failure")
+				Expect(downloadedCond.Message).To(ContainSubstring("network error"),
+					"the original error stays visible")
+			})
+
+			It("should keep the recoverable Error while waiting for the next retry", func() {
+				bfb.Status.Phase = provisioningv1.BFBError
+				setConditionWithTime(bfb,
+					conditions.ReasonError, "network error", time.Now().Add(-5*time.Minute))
+
+				st := &bfbErrorState{bfb: bfb}
+				Expect(st.Handle(ctx, nil)).To(Succeed())
+
+				Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBError))
+				downloadedCond := conditions.Get(bfb, provisioningv1.BFBCondDownloaded)
+				Expect(downloadedCond.Reason).To(Equal(string(conditions.ReasonError)),
+					"still inside RetryWindow, the milestone stays recoverable")
+			})
+
+			It("should re-assert a lost failure on a seeded milestone and retry later", func() {
+				bfb.Status.Phase = provisioningv1.BFBError
+				// The conditions patch that recorded the failure was lost: the milestone is still seeded.
+				conditions.AddUnknown(bfb, provisioningv1.BFBCondDownloaded, conditions.ReasonPending, "")
+
+				st := &bfbErrorState{bfb: bfb}
+				Expect(st.Handle(ctx, nil)).To(Succeed())
+
+				Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBError),
+					"the retry waits for RetryInterval, counted from now")
+				downloadedCond := conditions.Get(bfb, provisioningv1.BFBCondDownloaded)
+				Expect(downloadedCond.Status).To(Equal(metav1.ConditionFalse))
+				Expect(downloadedCond.Reason).To(Equal(string(conditions.ReasonError)),
+					"the failure is re-asserted as recoverable so the retry logic can act")
+			})
+
+			It("should retry when the last failure was lost and the milestone still says Retrying", func() {
+				bfb.Status.Phase = provisioningv1.BFBError
+				setConditionWithTime(bfb,
+					conditions.ReasonRetrying, "attempt failed", time.Now().Add(-15*time.Minute))
+
+				st := &bfbErrorState{bfb: bfb}
+				Expect(st.Handle(ctx, nil)).To(Succeed())
+
+				Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBDownloading),
+					"RetryInterval has passed since the first failure, so the download is retried")
+			})
+
+			It("should retry when the phase patch of an earlier retry was lost", func() {
+				bfb.Status.Phase = provisioningv1.BFBError
+				// The retry wrote Pending on the milestone, but the patch that moved the phase was lost.
+				setConditionWithTime(bfb,
+					conditions.ReasonPending, "Retrying download after transient error", time.Now().Add(-15*time.Minute))
+
+				st := &bfbErrorState{bfb: bfb}
+				Expect(st.Handle(ctx, nil)).To(Succeed())
+
+				Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBDownloading))
 			})
 		})
 
@@ -230,6 +285,10 @@ var _ = Describe("BFB Error State Retry Logic", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBDeleting),
 					"should transition to Deleting when deletion requested")
+				downloadedCond := conditions.Get(bfb, provisioningv1.BFBCondDownloaded)
+				Expect(downloadedCond.Status).To(Equal(metav1.ConditionFalse))
+				Expect(downloadedCond.Reason).To(Equal(string(conditions.ReasonAwaitingDeletion)),
+					"the milestone carries AwaitingDeletion so the Ready summary does too")
 			})
 		})
 	})
@@ -327,10 +386,9 @@ var _ = Describe("BFB Error State - Full Lifecycle Scenarios", func() {
 			Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBError),
 				"should remain in Error state after RetryWindow expires")
 
-			// Error condition should be permanently set
-			errorCond := conditions.Get(bfb, provisioningv1.BFBCondError)
-			Expect(errorCond.Status).To(Equal(metav1.ConditionTrue),
-				"Error condition should be permanently True")
+			downloadedCond := conditions.Get(bfb, provisioningv1.BFBCondDownloaded)
+			Expect(downloadedCond.Reason).To(Equal(string(conditions.ReasonFailure)),
+				"the expired retry window is reported as a terminal Failure")
 		})
 	})
 

@@ -28,6 +28,7 @@ import (
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/tools/record"
@@ -40,6 +41,10 @@ import (
 const (
 	// controller name that will be used when reporting events
 	BFBControllerName = "bfb"
+
+	// legacyErrorCondition is the condition type earlier releases set while a BFB was in the
+	// Error phase. The failure is reported on the Downloaded condition instead.
+	legacyErrorCondition = "Error"
 )
 
 // BFBReconciler reconciles a BFB object
@@ -71,14 +76,20 @@ func (r *BFBReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl
 	patcher := patch.NewSerialPatcher(bfb, r.Client)
 	defer func() {
 		logger.Info("Patching")
+		// Ready is derived from the seeded conditions on every exit path. Deleted is
+		// abnormal-true and stays out of the summary.
+		conditions.SetSummary(bfb, conditions.ExcludeFromSummary(provisioningv1.BFBCondDeleted))
 		if err := patcher.Patch(ctx, bfb,
 			patch.WithFieldOwner(BFBControllerName),
 			patch.WithStatusObservedGeneration{},
-			patch.WithOwnedConditions{Conditions: conditions.TypesAsStrings(provisioningv1.BFBConditions)},
+			patch.WithOwnedConditions{Conditions: conditions.TypesAsStrings(provisioningv1.BFBOwnedConditions)},
 		); err != nil {
 			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
 	}()
+	conditions.EnsureConditions(bfb, provisioningv1.BFBConditions)
+	// Drop the entry an upgrade leaves behind, so it cannot read True beside a True Ready.
+	meta.RemoveStatusCondition(&bfb.Status.Conditions, legacyErrorCondition)
 
 	// Add finalizer if not set and BFB is not currently deleting.
 	if !controllerutil.ContainsFinalizer(bfb, provisioningv1.BFBFinalizer) && bfb.DeletionTimestamp.IsZero() {

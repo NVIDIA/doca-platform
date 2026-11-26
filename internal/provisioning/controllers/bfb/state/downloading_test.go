@@ -261,6 +261,26 @@ var _ = Describe("BFB Downloading State Error Handling", func() {
 				Expect(downloadedCond).NotTo(BeNil())
 				Expect(downloadedCond.Status).To(Equal(metav1.ConditionTrue))
 			})
+
+			It("re-asserts the Initialized milestone implied by this phase", func() {
+				cleanupDownloadTasks(bfb)
+				// A conditions patch lost to a conflict leaves the milestone re-seeded as Unknown.
+				conditions.AddUnknown(bfb, provisioningv1.BFBCondInitialized, conditions.ReasonPending, "")
+				st := &bfbDownloadingState{
+					bfb:      bfb,
+					recorder: recorder,
+					checkBFB: func(fileName string) (bool, error) {
+						return true, nil
+					},
+					versionBFB: func(filename string) (*provisioningv1.BFBVersions, error) {
+						return &provisioningv1.BFBVersions{}, nil
+					},
+				}
+
+				Expect(st.Handle(ctx, nil)).To(Succeed())
+
+				Expect(conditions.IsTrue(bfb, provisioningv1.BFBCondInitialized)).To(BeTrue())
+			})
 		})
 	})
 

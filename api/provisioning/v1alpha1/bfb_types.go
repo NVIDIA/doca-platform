@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"slices"
+
 	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -53,27 +55,39 @@ const (
 )
 
 const (
-	// BFBCondInitialized indicates the BFB has been initialized
-	BFBCondInitialized conditions.ConditionType = "Initialized"
-	// BFBCondDownloaded indicates the BFB has been downloaded
-	BFBCondDownloaded conditions.ConditionType = "Downloaded"
-	// BFBCondReady indicates the BFB is ready for use
+	// BFBCondReady is the summary condition (family Ready): the overall
+	// status of the BFB, computed from BFBConditions on every reconcile and
+	// never set by hand. Possible reasons: Success, Pending, Retrying,
+	// Failure, AwaitingDeletion.
 	BFBCondReady conditions.ConditionType = conditions.TypeReady
-	// BFBCondError indicates the BFB is in error state
-	BFBCondError conditions.ConditionType = "Error"
-	// BFBCondDeleted indicates the BFB has been deleted
+	// BFBCondInitialized (family step complete): True once status.fileName
+	// is set and the download can start. Re-asserted by the later phases.
+	// Possible reasons: Success, Pending, AwaitingDeletion.
+	BFBCondInitialized conditions.ConditionType = "Initialized"
+	// BFBCondDownloaded (family step complete): True once the BFB file is in
+	// the local cache and its versions are recorded. Possible reasons:
+	// Success, Pending, Retrying, Error, Failure, AwaitingDeletion.
+	BFBCondDownloaded conditions.ConditionType = "Downloaded"
+	// BFBCondDeleted is abnormal-true: True once the cached file is removed
+	// and the finalizer can go. Set on demand, not seeded, and kept out of
+	// the Ready summary.
 	BFBCondDeleted conditions.ConditionType = "Deleted"
 )
 
 var (
-	// BFBConditions are conditions that can be set on a BFB object.
+	// BFBConditions are seeded on every BFB and summarized into Ready.
 	BFBConditions = []conditions.ConditionType{
+		BFBCondReady,
 		BFBCondInitialized,
 		BFBCondDownloaded,
-		BFBCondReady,
-		BFBCondError,
-		BFBCondDeleted,
 	}
+
+	// BFBOwnedConditions are all conditions the BFB controller is
+	// authoritative for. Deleted is owned but not seeded: it is
+	// abnormal-true and appears only during deletion.
+	BFBOwnedConditions = append(slices.Clone(BFBConditions),
+		BFBCondDeleted,
+	)
 )
 
 // BFBSpec defines the content of the BFB

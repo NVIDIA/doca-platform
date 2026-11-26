@@ -22,6 +22,7 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	butil "github.com/nvidia/doca-platform/internal/provisioning/controllers/bfb/util"
 	cutil "github.com/nvidia/doca-platform/internal/provisioning/controllers/util"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -106,5 +107,57 @@ var _ = Describe("BFB Deleting State", func() {
 		deleted := meta.FindStatusCondition(bfb.Status.Conditions, string(provisioningv1.BFBCondDeleted))
 		Expect(deleted).NotTo(BeNil())
 		Expect(deleted.Status).To(Equal(metav1.ConditionTrue))
+	})
+
+	It("re-asserts AwaitingDeletion on the Downloaded milestone while the deletion is blocked", func() {
+		scheme := runtime.NewScheme()
+		Expect(provisioningv1.AddToScheme(scheme)).To(Succeed())
+
+		now := metav1.Now()
+		bfb := &provisioningv1.BFB{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              "test-bfb-blocked",
+				Namespace:         "default",
+				UID:               types.UID("uid-delete-blocked"),
+				DeletionTimestamp: &now,
+				Finalizers:        []string{provisioningv1.BFBFinalizer},
+			},
+			Status: provisioningv1.BFBStatus{
+				Phase:    provisioningv1.BFBDeleting,
+				FileName: "test.bfb",
+			},
+		}
+		// A conditions patch lost on the way into Deleting leaves the milestone True.
+		conditions.AddTrue(bfb, provisioningv1.BFBCondDownloaded)
+		dpuSet := &provisioningv1.DPUSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "referencing-dpuset",
+				Namespace: "default",
+			},
+			Spec: provisioningv1.DPUSetSpec{
+				DPUTemplate: provisioningv1.DPUTemplate{
+					Spec: provisioningv1.DPUTemplateSpec{
+						BFB: &provisioningv1.BFBReference{
+							Name: bfb.Name,
+						},
+					},
+				},
+			},
+		}
+		cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dpuSet).Build()
+
+		st := &bfbDeletingState{
+			bfb:      bfb,
+			recorder: record.NewFakeRecorder(1),
+		}
+		Expect(st.Handle(context.Background(), cl)).To(HaveOccurred())
+
+		Expect(bfb.Finalizers).To(ContainElement(provisioningv1.BFBFinalizer),
+			"the deletion is still blocked by the DPUSet")
+		downloaded := meta.FindStatusCondition(bfb.Status.Conditions, string(provisioningv1.BFBCondDownloaded))
+		Expect(downloaded).NotTo(BeNil())
+		Expect(downloaded.Status).To(Equal(metav1.ConditionFalse))
+		Expect(downloaded.Reason).To(Equal(string(conditions.ReasonAwaitingDeletion)),
+			"so the Ready summary reports AwaitingDeletion instead of staying True")
 	})
 })

@@ -773,6 +773,12 @@ func ProvisionBFB(ctx context.Context, input ProvisionDPUClustersInput) {
 			Namespace: input.bfb.Namespace,
 		}, bfb)).To(Succeed())
 		g.Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBReady))
+		// Upgrade install phases run against a prior-release operator, and v25.10 reports BFB
+		// readiness by phase only, so the condition is checked for the current release.
+		if !isUpgradeInstallPhase() {
+			g.Expect(conditions.IsTrue(bfb, provisioningv1.BFBCondReady)).To(BeTrue(),
+				"BFB Ready condition should be True for the current generation")
+		}
 	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 
 	// The NodePort-based reachability probe assumes the current-release

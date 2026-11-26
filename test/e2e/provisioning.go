@@ -24,6 +24,7 @@ import (
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	"github.com/nvidia/doca-platform/pkg/conditions"
 	testutils "github.com/nvidia/doca-platform/test/utils"
 	"github.com/nvidia/doca-platform/test/utils/dpuagent"
 
@@ -305,6 +306,8 @@ func CreateProvisioningDPUCluster(ctx context.Context, input *systemTestInput) {
 			"BFB %s Phase: %s", bfb.Name, bfb.Status.Phase)
 		g.Expect(bfb.Status.Phase).To(Equal(provisioningv1.BFBReady),
 			"BFB should reach Ready phase")
+		g.Expect(conditions.IsTrue(bfb, provisioningv1.BFBCondReady)).To(BeTrue(),
+			"BFB Ready condition should be True for the current generation")
 	}).WithTimeout(10 * time.Minute).WithPolling(time.Second).Should(Succeed())
 }
 
