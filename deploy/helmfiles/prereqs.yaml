@@ -2,12 +2,6 @@ environments:
   default:
     values:
       - envs/defaults.yaml
-  # Environment for shared file system configuration.
-  # Used by local-path-provisioner to configure shared storage instead of local node storage.
-  shared-fs:
-    values:
-      - envs/defaults.yaml
-      - envs/shared-fs.yaml
 ---
 repositories:
   - name: argoproj
