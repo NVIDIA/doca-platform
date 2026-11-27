@@ -60,7 +60,7 @@ OPTIONS:
     --wait BOOL                         Whether to wait for resources to be ready (default: true)
     -v, --version VERSION               Chart version to pull from repository
     -n, --name NAME                     Chart name for extraction (default: dpf-operator)
-    --environment NAME                  Defines the environment for the deployment (e.g., shared-fs)
+    --environment NAME                  Defines the helmfile environment for the deployment (default: default)
     --selector SELECTOR                 Selector for filtering resources (e.g., "app=grafana" or "app!=prometheus")
     --state-values-set KEY=VALUE        Set a helmfile state value (e.g. kata.enabled=true)
     --helmfile-bin PATH                 Path to helmfile binary (default: helmfile)
