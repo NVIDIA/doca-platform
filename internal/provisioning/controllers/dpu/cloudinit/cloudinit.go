@@ -114,7 +114,7 @@ type Params struct {
 	// SpiffeTokenExchangeEndpoint enables optional exchange before writing the token.
 	SpiffeTokenExchangeEndpoint string
 	// CATrustBundle holds one or more concatenated PEM certificates for the DPF CA. When set, it is
-	// written to the DPU OS trust store via cloud-init and installed with update-ca-certificates so
+	// written to the DPU OS trust store via cloud-init and refreshed with the OS-specific trust
 	// the DPU OS (apt over HTTPS, etc.) validates the bfb-registry server certificate.
 	CATrustBundle string
 	// CATrustBundleConfigMapName is the ConfigMap CATrustBundle was read from. The dpu-agent keeps

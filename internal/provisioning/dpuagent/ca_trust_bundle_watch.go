@@ -19,14 +19,12 @@ package dpuagent
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
-	"github.com/nvidia/doca-platform/internal/provisioning/utils/bash"
+	"github.com/nvidia/doca-platform/internal/provisioning/utils/truststore"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,10 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const (
-	defaultCATrustBundlePollInterval = 30 * time.Second
-	dpuAgentCABundlePath             = "/usr/local/share/ca-certificates/dpf-ca.crt"
-)
+const defaultCATrustBundlePollInterval = 30 * time.Second
 
 func (d *DPUAgent) startCATrustBundleWatcher(ctx context.Context) {
 	go func() {
@@ -133,16 +128,8 @@ func (d *DPUAgent) currentTrustBundleHash(ctx context.Context) string {
 }
 
 func applyTrustBundleToDPU(bundlePEM string) error {
-	if err := os.MkdirAll(filepath.Dir(dpuAgentCABundlePath), 0755); err != nil {
-		return fmt.Errorf("create trust bundle directory: %w", err)
-	}
-	if err := os.WriteFile(dpuAgentCABundlePath, []byte(bundlePEM), 0644); err != nil {
-		return fmt.Errorf("write trust bundle file %s: %w", dpuAgentCABundlePath, err)
-	}
-	klog.Infof("CA trust bundle watcher: wrote trust bundle file %s", dpuAgentCABundlePath)
-	stdout, stderr, err := bash.Run("update-ca-certificates")
-	if err != nil {
-		return fmt.Errorf("run update-ca-certificates: %w, stdout: %s, stderr: %s", err, stdout.String(), stderr.String())
+	if err := truststore.Apply(bundlePEM); err != nil {
+		return err
 	}
 	return nil
 }
